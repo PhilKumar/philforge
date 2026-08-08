@@ -1583,11 +1583,27 @@ function showPage(id, btn, options = {}) {
   }
   const scalpWasActive = !!document.getElementById('scalp-page')?.classList.contains('active-page');
   if (scalpWasActive && id !== 'scalp-page') _persistScalpFormState();
-  document.querySelectorAll('.page-section').forEach(p => p.classList.remove('active-page'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById(id).classList.add('active-page');
+  document.querySelectorAll('.page-section').forEach(p => {
+    p.classList.remove('active-page');
+    p.setAttribute('aria-hidden', 'true');
+  });
+  document.querySelectorAll('.nav-tab').forEach(b => {
+    b.classList.remove('active');
+    b.removeAttribute('aria-current');
+  });
+  const activePage = document.getElementById(id);
+  activePage.classList.add('active-page');
+  activePage.removeAttribute('aria-hidden');
   const activeBtn = btn || document.getElementById(NAV_BUTTON_MAP[id] || '');
-  if (activeBtn) activeBtn.classList.add('active');
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    activeBtn.setAttribute('aria-current', 'page');
+  }
+  const mainContent = document.getElementById('main-content');
+  if (mainContent) {
+    const pageLabel = activeBtn?.querySelector('.tab-label')?.textContent?.trim() || 'PhilForge';
+    mainContent.setAttribute('aria-label', pageLabel + ' workspace');
+  }
   closeCascadeMenu();
   // Stop live monitor polling when leaving the live page
   if (id !== 'live-page') stopLiveMonitor();
@@ -2249,6 +2265,7 @@ let _fibBoundaryPollTimer = null;
 // Every running ladder, keyed by symbol -- the chart and the monitor buttons
 // each need THEIR campaign, not "the" campaign.
 let _lastFibBoundaryStatus = {};
+let _fibBoundaryLiveAvailable = false;
 
 // Everything options lives on one page now; each tab owns its own engine.
 // The old Signal Ladder replay tab was retired 2026-07-30, and the Test Bench
@@ -2260,11 +2277,19 @@ const _INSIGHTS_TABS = ['heatmap', 'study'];
 
 function showInsightsTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-insights-tab') || 'heatmap';
-  document.querySelectorAll('#insights-page .oc-tab').forEach(b =>
-    b.classList.toggle('is-active', b.getAttribute('data-insights-tab') === tab));
+  document.querySelectorAll('#insights-page .oc-tab').forEach(b => {
+    const selected = b.getAttribute('data-insights-tab') === tab;
+    b.classList.toggle('is-active', selected);
+    b.setAttribute('aria-selected', String(selected));
+    b.tabIndex = selected ? 0 : -1;
+  });
   _INSIGHTS_TABS.forEach(name => {
     const panel = document.getElementById(`insights-${name}`);
-    if (panel) panel.style.display = name === tab ? '' : 'none';
+    if (panel) {
+      const selected = name === tab;
+      panel.style.display = selected ? '' : 'none';
+      panel.setAttribute('aria-hidden', String(!selected));
+    }
   });
   _insightsStartTab(tab);
 }
@@ -2291,10 +2316,19 @@ function initInsightsPage() {
 
 function showOptionsCascadeTab(event, el) {
   const tab = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'fib';
-  document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => b.classList.toggle('is-active', b.getAttribute('data-oc-tab') === tab));
+  document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => {
+    const selected = b.getAttribute('data-oc-tab') === tab;
+    b.classList.toggle('is-active', selected);
+    b.setAttribute('aria-selected', String(selected));
+    b.tabIndex = selected ? 0 : -1;
+  });
   _OC_TABS.forEach(name => {
     const panel = document.getElementById(`oc-tab-${name}`);
-    if (panel) panel.style.display = name === tab ? '' : 'none';
+    if (panel) {
+      const selected = name === tab;
+      panel.style.display = selected ? '' : 'none';
+      panel.setAttribute('aria-hidden', String(!selected));
+    }
   });
   if (tab === 'candle') refreshCandleEntryStatus();
   else if (tab === 'bench') initTestBenchPage();
@@ -2658,13 +2692,13 @@ function _syncFibLevelsHint() {
     note.style.display = terms ? '' : 'none';
   }
 
-  // Live is built but not armed, and the form has to say so before it is
-  // picked -- discovering it at the first touch is not a discovery anyone wants.
+  // Do not advertise a real-money path while the server's fill/reconciliation
+  // safety gate is closed.
   const mode = document.getElementById('fibx-mode')?.value || 'paper';
   const modeNote = document.getElementById('fibx-mode-note');
   if (modeNote) {
     modeNote.textContent = mode === 'live'
-      ? 'Starts UNARMED — decides, refuses to send. Arm on the running campaign.'
+      ? 'Unavailable — broker fill verification and restart reconciliation are still pending.'
       : 'Records fills, sends nothing. Same rules as live.';
     modeNote.style.color = mode === 'live' ? 'var(--warn)' : 'var(--muted)';
   }
@@ -2814,15 +2848,14 @@ function _syncFibModeHint() {
 async function initOptionsCascadePage() {
   ['fibx-symbol', 'fibx-mode'].forEach(id => {
     const sel = document.getElementById(id);
-    if (sel && !sel._fibHintBound) { sel.addEventListener('change', _syncFibLevelsHint); sel._fibHintBound = true; }
+    if (sel && !sel._fibHintBound) {
+      sel.addEventListener('change', () => {
+        _syncFibLevelsHint();
+        _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {}));
+      });
+      sel._fibHintBound = true;
+    }
   });
-  // Only the SELECTED instrument can block Start now, so switching instrument
-  // has to re-answer "is this one free?" without waiting for the next poll.
-  const symbolSel = document.getElementById('fibx-symbol');
-  if (symbolSel && !symbolSel._fibClashBound) {
-    symbolSel.addEventListener('change', () => _renderFibBoundaryRunningTable(Object.values(_lastFibBoundaryStatus || {})));
-    symbolSel._fibClashBound = true;
-  }
   const tsSel = document.getElementById('fibx-mother-timestamp');
   if (tsSel && !tsSel._fibModeBound) { tsSel.addEventListener('change', _syncFibModeHint); tsSel.addEventListener('input', _syncFibModeHint); tsSel._fibModeBound = true; }
   _syncFibLevelsHint();
@@ -2847,7 +2880,7 @@ function _fibSetFormStatus(message, tone = 'muted') {
 }
 
 function _fibxLevelTone(status) {
-  return ({ PENDING: 'var(--muted)', FILLED: '#6ee7b7', UNFUNDED: '#fbbf24' }[status] || 'var(--muted)');
+  return ({ PENDING: 'var(--muted)', FILLED: '#6ee7b7', UNFUNDED: '#fbbf24', EXPIRING: '#fbbf24' }[status] || 'var(--muted)');
 }
 
 // ── One panel per ladder ──────────────────────────────────────────────
@@ -2896,6 +2929,7 @@ function _fibxPanelRoots(symbols) {
 }
 
 function _renderFibBoundaryStatus(payload) {
+  _fibBoundaryLiveAvailable = payload?.live_available === true;
   const campaigns = Array.isArray(payload?.campaigns)
     ? payload.campaigns
     : (payload?.campaign ? [payload.campaign] : []);
@@ -2918,7 +2952,8 @@ function _renderFibBoundaryStatus(payload) {
     const armed = live.filter(row => row.armed);
     const suffix = running.length > 1 ? ` · ${running.length} ladders` : '';
     let label = 'LIVE LOCKED', detail = 'Paper validation required', state = '';
-    if (armed.length) { label = 'LIVE ARMED'; detail = `Real orders reach Dhan${suffix}`; state = 'is-replay'; }
+    if (live.length && !_fibBoundaryLiveAvailable) { label = 'LIVE SAFETY LOCKED'; detail = `Automatic orders and exits disabled; reconcile in Dhan${suffix}`; state = 'is-replay'; }
+    else if (armed.length) { label = 'LIVE ARMED'; detail = `Real orders reach Dhan${suffix}`; state = 'is-replay'; }
     else if (live.length) { label = 'LIVE · NOT ARMED'; detail = `Decisions run; orders are refused${suffix}`; state = 'is-replay'; }
     else if (running.length) { label = 'PAPER LIVE'; detail = `Quote-backed paper monitor active${suffix}`; state = 'is-paper-live'; }
     else if (campaigns.length) { label = 'PAPER STOPPED'; detail = 'No live order is ever sent'; state = 'is-paused'; }
@@ -2935,11 +2970,16 @@ function _renderFibBoundaryRunningTable(campaigns) {
   const blocked = document.getElementById('fibx-blocked');
   const startBtn = document.getElementById('fibx-start');
   const picked = document.getElementById('fibx-symbol')?.value || 'NIFTY';
+  const selectedMode = document.getElementById('fibx-mode')?.value || 'paper';
   const running = campaigns.filter(row => row.running);
   const clash = running.some(row => String(row.symbol) === String(picked));
   if (startBtn) {
-    startBtn.disabled = false;
-    startBtn.textContent = clash ? `▶ Kill the ${picked} ladder first` : '▶ Start fib-boundary paper';
+    startBtn.disabled = clash || (selectedMode === 'live' && !_fibBoundaryLiveAvailable);
+    startBtn.textContent = clash
+      ? `▶ Kill the ${picked} ladder first`
+      : selectedMode === 'live'
+        ? (_fibBoundaryLiveAvailable ? '▶ Start LIVE monitor · unarmed' : '🔒 Live safety verification pending')
+        : '▶ Start fib-boundary paper';
   }
   if (!blocked) return;
   blocked.innerHTML = running.length
@@ -3021,10 +3061,11 @@ function _renderFibBoundaryCampaign(root, campaign) {
   }
   const tf = String(campaign.timeframe || '1m').toUpperCase();
   const mode = String(campaign.mode || 'paper').toUpperCase();
+  const isLiveCampaign = !!campaign.is_live || mode === 'LIVE';
   // Every panel names its own instrument, because four of them look alike.
   if (title) title.textContent = `${symbol} ${side} monitor`;
   const roundsTitle = px('rounds-title');
-  if (roundsTitle) roundsTitle.textContent = `${symbol} closed paper round · net P&L`;
+  if (roundsTitle) roundsTitle.textContent = `${symbol} closed ${mode.toLowerCase()} round · net P&L`;
   const eventsTitle = px('events-title');
   if (eventsTitle) eventsTitle.textContent = `${symbol} campaign events`;
   if (eventsTf) eventsTf.textContent = `${tf} MOTHER · 1M ENTRIES`;
@@ -3052,9 +3093,12 @@ function _renderFibBoundaryCampaign(root, campaign) {
   }
   if (empty) empty.style.display = 'none';
   if (active) active.style.display = '';
-  if (killBtn) killBtn.style.display = isRunning ? '' : 'none';
+  if (killBtn) {
+    killBtn.style.display = isRunning ? '' : 'none';
+    killBtn.textContent = isLiveCampaign && !_fibBoundaryLiveAvailable ? '⚠ Manage in Dhan' : '■ Kill';
+  }
   // Arming is per instrument: this button opens THIS ladder and no other.
-  if (armBtn) armBtn.style.display = (isRunning && campaign.is_live && !campaign.armed) ? '' : 'none';
+  if (armBtn) armBtn.style.display = (isRunning && isLiveCampaign && !campaign.armed && _fibBoundaryLiveAvailable) ? '' : 'none';
 
   const anchorEl = fx('anchor');
   if (anchorEl) {
@@ -3091,7 +3135,9 @@ function _renderFibBoundaryCampaign(root, campaign) {
     boundEl.innerHTML = levels.length ? levels.map(level => {
       const stateColor = _fibxLevelTone(level.status);
       const toneClass = _cascadeOptionsToneClass(stateColor);
-      const note = level.status === 'UNFUNDED' ? 'cap spent' : (level.filled_at ? _cascadeOptionsTimestamp(level.filled_at) : '');
+      const note = level.status === 'UNFUNDED' ? 'cap spent'
+        : level.status === 'EXPIRING' ? 'contract too near expiry'
+        : (level.filled_at ? _cascadeOptionsTimestamp(level.filled_at) : '');
       return `<div class="fibx-boundary ${toneClass}" style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;">`
         + `<div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>${escapeHtml(String(level.key))}</strong><span class="fibx-boundary-state" style="color:${stateColor};">${escapeHtml(level.status)}</span></div>`
         + `<div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(level.index_price))}</div>`
@@ -3120,7 +3166,8 @@ function _renderFibBoundaryRounds(pair, campaign) {
   if (count) count.textContent = `${closed ? 1 : 0} round${closed ? '' : 's'}`;
   if (!body) return;
   if (!closed) {
-    body.innerHTML = '<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
+    const mode = campaign && (campaign.is_live || String(campaign.mode || '').toLowerCase() === 'live') ? 'live' : 'paper';
+    body.innerHTML = `<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted);">No completed ${mode} round</td></tr>`;
     return;
   }
   const pnl = Number(campaign.net_pnl || 0);
@@ -3173,16 +3220,22 @@ async function startFibBoundaryPaper() {
   if (!payload.mother_timestamp) { _fibSetFormStatus('Choose a completed mother timestamp.', 'error'); return; }
   if (!Number.isFinite(payload.capital_cap_inr) || payload.capital_cap_inr <= 0) { _fibSetFormStatus('Enter a valid ₹ ladder cap.', 'error'); return; }
   const button = el('fibx-start');
-  if (button) { button.disabled = true; button.textContent = 'Finding the swing and starting the paper monitor…'; }
+  if (button) {
+    button.disabled = true;
+    button.textContent = payload.mode === 'live'
+      ? 'Finding the swing and starting an UNARMED live monitor…'
+      : 'Finding the swing and starting the paper monitor…';
+  }
   _fibSetFormStatus(`Reading ${payload.symbol} ${payload.timeframe}…`, 'busy');
   try {
     const response = await fetch('/api/fib-boundary/paper/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, `Ladder did not start (${response.status})`));
     const anchored = data.campaign?.anchor;
+    const modeLabel = payload.mode === 'live' ? 'LIVE monitor started UNARMED' : 'paper monitor started';
     _fibSetFormStatus(anchored
-      ? `${payload.symbol} started · swing ${anchored.low}–${anchored.high} (${anchored.span} pts)`
-      : `${payload.symbol} started · waiting for the swing to freeze`, 'success');
+      ? `${payload.symbol} ${modeLabel} · swing ${anchored.low}–${anchored.high} (${anchored.span} pts)`
+      : `${payload.symbol} ${modeLabel} · waiting for the swing to freeze`, 'success');
     // No optimistic single-campaign paint here: rendering one campaign would
     // tear down every OTHER ladder's panel. The refresh below repaints the board.
   } catch (error) {
@@ -3201,13 +3254,29 @@ function _fibxSymbolFor(el) {
 async function killFibBoundaryPaper(_event, button) {
   const symbol = _fibxSymbolFor(button);
   if (!symbol) { _fibSetFormStatus('No ladder to kill.', 'error'); return; }
+  const campaign = _lastFibBoundaryStatus?.[symbol] || {};
+  const isLive = !!campaign.is_live || String(campaign.mode || '').toLowerCase() === 'live';
+  if (isLive && !_fibBoundaryLiveAvailable) {
+    _fibSetFormStatus(
+      `${symbol} live automation is safety-locked. PhilForge changed nothing — manage any real position in Dhan, then reconcile before stopping the campaign.`,
+      'error',
+    );
+    return;
+  }
   // Name the instrument. With four monitors on screen, "this campaign" is not
   // enough to know which basket is about to be closed.
-  const confirmed = await customConfirm(`Kill the <strong>${escapeHtml(symbol)}</strong> <strong>paper-only</strong> fib-boundary campaign and close any open paper basket at the current quote? No Dhan order is sent. Other ladders keep running.`, { title: `Kill ${symbol} fib-boundary`, icon: ICO.warn(28), okText: 'Kill & close', danger: true });
+  const message = isLive
+    ? `Exit every recorded <strong>${escapeHtml(symbol)} LIVE</strong> option leg on Dhan, then kill this ladder? `
+      + 'This sends real SELL orders. Other ladders keep running. You will be asked for your password and authenticator code.'
+    : `Kill the <strong>${escapeHtml(symbol)}</strong> <strong>paper-only</strong> fib-boundary campaign and close its paper basket at the current quote? No Dhan order is sent. Other ladders keep running.`;
+  const confirmed = await customConfirm(message, { title: `${isLive ? 'Exit & kill LIVE' : 'Kill'} ${symbol} fib-boundary`, icon: ICO.warn(28), okText: isLive ? 'Exit real legs & kill' : 'Kill & close', danger: true });
   if (!confirmed) return;
   if (button) { button.disabled = true; button.textContent = 'Closing…'; }
   try {
-    const response = await fetch(`/api/fib-boundary/paper/kill?symbol=${encodeURIComponent(symbol)}`, { method: 'POST', credentials: 'same-origin' });
+    const endpoint = isLive
+      ? `/api/fib-boundary/live/${encodeURIComponent(symbol)}/kill`
+      : `/api/fib-boundary/paper/kill?symbol=${encodeURIComponent(symbol)}`;
+    const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'killed') throw new Error(_apiErrorMessage(data, `Kill failed (${response.status})`));
     _fibSetFormStatus(`${symbol} fib-boundary campaign killed.`, 'success');
@@ -3351,7 +3420,7 @@ async function armFibBoundaryLive(_event, button) {
   );
   if (!ok) return;
   try {
-    const response = await fetch(`/api/fib-boundary/paper/arm?symbol=${encodeURIComponent(symbol)}`, { method: 'POST', credentials: 'same-origin' });
+    const response = await fetch(`/api/fib-boundary/live/${encodeURIComponent(symbol)}/arm`, { method: 'POST', credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(_apiErrorMessage(data, `Could not arm (${response.status})`));
     _fibSetFormStatus(`${symbol} LIVE ARMED — its orders from here on reach the exchange.`, 'success');
@@ -3670,6 +3739,22 @@ function restoreExecutionSettings(source) {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[role="tablist"]').forEach(tablist => {
+    tablist.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      const tabs = Array.from(tablist.querySelectorAll('[role="tab"]')).filter(tab => !tab.disabled);
+      const current = tabs.indexOf(document.activeElement);
+      if (current < 0 || !tabs.length) return;
+      event.preventDefault();
+      let next = current;
+      if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = tabs.length - 1;
+      else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % tabs.length;
+      else next = (current - 1 + tabs.length) % tabs.length;
+      tabs[next].focus();
+      tabs[next].click();
+    });
+  });
   try {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   } catch(e) { console.warn('scroll restoration setup failed:', e); }
@@ -4037,7 +4122,7 @@ function _buildRunsTable(runs, opts = {}) {
   const thStyle = 'padding:10px;cursor:pointer;user-select:none;white-space:nowrap;';
   let html = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
     <thead><tr style="border-bottom: 2px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; font-weight: 600;">
-      ${showCheck ? '<th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllRuns(this)"></th>' : ''}
+      ${showCheck ? '<th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" aria-label="Select all runs" onchange="toggleAllRuns(this)"></th>' : ''}
       <th style="${thStyle}" onclick="_toggleRunsSort('mode')">Mode ${_sortArrow('mode')}</th>
       <th style="${thStyle}" onclick="_toggleRunsSort('run_name')">Run Name ${_sortArrow('run_name')}</th>
       <th style="${thStyle}" onclick="_toggleRunsSort('instrument')">Instrument ${_sortArrow('instrument')}</th>
@@ -4056,7 +4141,7 @@ function _buildRunsTable(runs, opts = {}) {
     const safeRunTitle = escapeAttr(r.run_name || 'Unnamed');
     const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>';
     html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.03)'" onmouseout="this.style.background='transparent'">
-      ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
+      ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" aria-label="Select run ' + escapeAttr(r.run_name || r.id) + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
       <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
       <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="viewRun(${r.id})" title="${safeRunTitle}">${escapeHtml(_truncName(r.run_name, 18))}</td>
       <td style="padding: 10px;">${instName}</td>
@@ -4622,7 +4707,7 @@ function _renderDashboardTransactions(transactions = null) {
       : '<span style="font-size:11px;color:var(--muted);">Active</span>';
     return `
       <tr>
-        <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" onchange="toggleDashboardTransactionCheck(this)"${chk}></td>
+        <td style="text-align:center;"><input type="checkbox" class="tbl-chk dashboard-txn-chk" data-key="${escapeAttr(txn.rowKey)}" aria-label="Select ${escapeAttr(txn.symbol || 'transaction')}" onchange="toggleDashboardTransactionCheck(this)"${chk}></td>
         <td>
           <div class="dash-txn-symbol-row">
             <div style="font-weight:600;color:var(--text);">${escapeHtml(txn.symbol || '—')}</div>
@@ -4743,7 +4828,7 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
 
     let tableHtml = `<table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
       <thead><tr style="border-bottom: 1px solid var(--border); color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: 0.3px; font-weight: 600;">
-        <th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpRuns(this)"></th>
+        <th style="padding: 10px; width: 36px;"><input type="checkbox" class="tbl-chk" aria-label="Select all open scalp trades" onchange="toggleAllScalpRuns(this)"></th>
         <th style="padding: 10px;">ID</th><th style="padding: 10px;">Mode</th><th style="padding: 10px;">Run Name</th><th style="padding: 10px;">Instrument</th><th style="padding: 10px;">Period</th>
         <th style="padding: 10px;">Trades</th><th style="padding: 10px;">P&L</th><th style="padding: 10px;">Entry Time</th><th style="padding: 10px;">Exit Time</th><th style="padding: 10px; width: 200px; min-width: 200px; text-align: center;">Actions</th>
       </tr></thead><tbody>`;
@@ -4756,7 +4841,7 @@ async function _renderScalpRuns(container, emptyEl, pagEl) {
       const runName = name + (entryDate ? ' ' + entryDate : '');
       const chk = _selectedScalpRunIds.has(t.trade_id) ? ' checked' : '';
       tableHtml += `<tr style="border-bottom: 1px solid var(--border);">
-        <td style="padding: 10px;"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" onchange="toggleScalpRunCheck(this)"${chk}></td>
+        <td style="padding: 10px;"><input type="checkbox" class="tbl-chk scalp-run-chk" data-id="${t.trade_id}" aria-label="Select scalp trade ${escapeAttr(t.trade_id)}" onchange="toggleScalpRunCheck(this)"${chk}></td>
         <td style="padding: 10px; color: var(--muted);">S${t.trade_id}</td>
         <td style="padding: 10px;">${_getModeBadge('scalp')}</td>
         <td style="padding: 10px; font-weight: 600; color: var(--accent);">${escapeHtml(runName)}</td>
@@ -8462,7 +8547,7 @@ function _renderScalpHistoryPage() {
       const lotsStr = lots > 1 ? `${lots} <span style="font-size:9px;color:var(--muted);">(${qty})</span>` : `${lots}`;
       const chk = _selectedScalpHistIds.has(t.trade_id) ? ' checked' : '';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
-        <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" onchange="toggleScalpHistCheck(this)"${chk}></td>
+        <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" aria-label="Select scalp history trade ${escapeAttr(t.trade_id)}" onchange="toggleScalpHistCheck(this)"${chk}></td>
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;white-space:nowrap;">${(() => { const ts = t.entry_time; if (!ts) return '—'; const d = new Date(ts); if (isNaN(d)) return '—'; const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0'), yyyy = d.getFullYear(); return dd+'-'+mm+'-'+yyyy; })()}</td>
         <td style="padding:7px 10px;font-size:12px;">${escapeHtml(t.underlying||'')} ${escapeHtml(t.strike||'')}${escapeHtml(t.option_type||'')}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${escapeHtml(t.transaction_type||'')}</span></td>
@@ -9850,7 +9935,7 @@ let myIndicators = [];
 function renderIndicatorFields() {
   const name = document.getElementById('new-indicator-name').value;
   const c = document.getElementById('dynamic-indicator-fields');
-  const tf = `<select id="ind-tf" style="width:100px"><option value="1">1 Min</option><option value="3">3 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="30">30 Min</option><option value="60">1 Hour</option></select>`;
+  const tf = `<select id="ind-tf" aria-label="Indicator timeframe" style="width:100px"><option value="1">1 Min</option><option value="3">3 Min</option><option value="5" selected>5 Min</option><option value="15">15 Min</option><option value="30">30 Min</option><option value="60">1 Hour</option></select>`;
   if (name === 'EMA' || name === 'SMA') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
   else if (name === 'Supertrend') c.innerHTML = `<input type="number" id="ind-period" value="10" style="width:80px"><input type="number" id="ind-multiplier" value="3" step="0.1" style="width:80px">` + tf;
   else if (name === 'RSI') c.innerHTML = `<input type="number" id="ind-period" value="14" style="width:80px" title="Period">` + tf;
@@ -10877,9 +10962,9 @@ async function runBacktest() {
     } else if(data.status === 'no_trades') {
       emptyDiv.innerHTML = '<h2 style="color:var(--warn);">No trades generated</h2>';
     } else {
-      emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Failed: ' + (data.message||'Error') + '</h2>';
+      emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Failed: ' + escapeHtml(data.message || 'Error') + '</h2>';
     }
-  } catch(err) { clearInterval(cdI); emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Error: '+err.message+'</h2>'; }
+  } catch(err) { clearInterval(cdI); emptyDiv.innerHTML = '<h2 style="color:var(--danger);">Error: ' + escapeHtml(err.message || 'Unknown error') + '</h2>'; }
 }
 
 function fmt(n) { return '\u20B9' + Math.round(n).toLocaleString('en-IN'); }
@@ -14363,6 +14448,9 @@ fetchRuns = async function() {
   let _chLoaded = false;
   let _cjCurrentDate = '';   // YYYY-MM-DD of selected day
   let _cjSaveTimer = null;
+  let _cjLoadController = null;
+  let _cjLoadGeneration = 0;
+  const _cjSaveChains = new Map();
   let _cjCurrentDayMeta = null;  // {year, monthFolder, dayFolder}
   let _cjPanelMode = 'journal';
   let _cjPlanTimer = null;
@@ -14403,6 +14491,8 @@ fetchRuns = async function() {
     _chDateLabel = '';
     _cjCurrentDate = '';
     _cjCurrentDayMeta = null;
+    _cjLoadGeneration += 1;
+    if (_cjLoadController) _cjLoadController.abort();
     document.querySelectorAll('.chday-btn.active').forEach((btn) => btn.classList.remove('active'));
     document.querySelectorAll('.cj-entry-item.active').forEach((el) => el.classList.remove('active'));
     const dateLabel = document.getElementById('cj-date-label');
@@ -15141,7 +15231,7 @@ fetchRuns = async function() {
     const wrap = document.getElementById('cj-plan-table-wrap');
     if (!wrap) return;
     const field = (id, value, opts = {}) =>
-      `<input type="number" step="${opts.step || '100'}" min="0" id="${id}" class="cj-plan-input" inputmode="numeric" value="${escapeAttr(String(Math.round(Number(value || 0))))}" oninput="window._cjPlannerFieldChanged(this,false)" onchange="window._cjPlannerFieldChanged(this,true)" onblur="window._cjPlannerFieldChanged(this,true)">`;
+      `<input type="number" step="${opts.step || '100'}" min="0" id="${id}" class="cj-plan-input" inputmode="numeric" aria-label="${escapeAttr(opts.label || id)}" value="${escapeAttr(String(Math.round(Number(value || 0))))}" oninput="window._cjPlannerFieldChanged(this,false)" onchange="window._cjPlannerFieldChanged(this,true)" onblur="window._cjPlannerFieldChanged(this,true)">`;
     const label = (text, subhint = '') =>
       `<div><div class="cj-plan-label">${escapeHtml(text)}</div>${subhint ? `<div class="cj-plan-subhint">${escapeHtml(subhint)}</div>` : ''}</div>`;
     const rowValue = (id, value, variant = '') =>
@@ -15160,19 +15250,19 @@ fetchRuns = async function() {
           <div class="cj-plan-form">
             <div class="cj-plan-row">
               ${label('MONTHLY EXPENSE', 'Your monthly burn rate')}
-              ${field('cj-plan-monthly-expense', calc.monthly_expense, { step: '100' })}
+              ${field('cj-plan-monthly-expense', calc.monthly_expense, { step: '100', label: 'Monthly expense' })}
             </div>
             <div class="cj-plan-row">
               ${label('CURRENT ASSETS', 'Cash + investments already built')}
-              ${field('cj-plan-assets-value', calc.assets_value, { step: '100' })}
+              ${field('cj-plan-assets-value', calc.assets_value, { step: '100', label: 'Current assets' })}
             </div>
             <div class="cj-plan-row">
               ${label('YEARS TO 1 YEAR RESERVE', 'Target timeline for emergency reserve')}
-              ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0 })}
+              ${field('cj-plan-years-reserve', calc.years_to_reserve, { step: '1', decimals: 0, label: 'Years to one year reserve' })}
             </div>
             <div class="cj-plan-row">
               ${label('YEARS TO FFV', 'Target timeline for long-term freedom')}
-              ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0 })}
+              ${field('cj-plan-years-ffv', calc.years_to_ffv, { step: '1', decimals: 0, label: 'Years to financial freedom value' })}
             </div>
           </div>
         </section>
@@ -15181,11 +15271,11 @@ fetchRuns = async function() {
           <div class="cj-plan-form">
             <div class="cj-plan-row">
               ${label('MONTHLY INCOME', 'Stable take-home or recurring income')}
-              ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100' })}
+              ${field('cj-plan-monthly-income', calc.monthly_income, { step: '100', label: 'Monthly income' })}
             </div>
             <div class="cj-plan-row">
               ${label('INCREASE PHV', `Extra hourly value target (₹/hour) over ${_CJ_PLAN_WORK_HOURS_PER_MONTH} work hours/month`)}
-              ${field('cj-plan-phv-increase', calc.phv_increase, { step: '10' })}
+              ${field('cj-plan-phv-increase', calc.phv_increase, { step: '10', label: 'Increase personal hourly value' })}
             </div>
             <div class="cj-plan-row">
               ${label('P D V', `${_CJ_PLAN_WORK_DAYS_PER_MONTH} working days/month`)}
@@ -15353,10 +15443,25 @@ fetchRuns = async function() {
     const journalTab = document.getElementById('cj-tab-journal');
     const planTab = document.getElementById('cj-tab-plan');
     const shell = document.getElementById('charts-shell');
-    if (journal) journal.classList.toggle('active', _cjPanelMode === 'journal');
-    if (plan) plan.classList.toggle('active', _cjPanelMode === 'plan');
-    if (journalTab) journalTab.classList.toggle('active', _cjPanelMode === 'journal');
-    if (planTab) planTab.classList.toggle('active', _cjPanelMode === 'plan');
+    const journalSelected = _cjPanelMode === 'journal';
+    if (journal) {
+      journal.classList.toggle('active', journalSelected);
+      journal.setAttribute('aria-hidden', String(!journalSelected));
+    }
+    if (plan) {
+      plan.classList.toggle('active', !journalSelected);
+      plan.setAttribute('aria-hidden', String(journalSelected));
+    }
+    if (journalTab) {
+      journalTab.classList.toggle('active', journalSelected);
+      journalTab.setAttribute('aria-selected', String(journalSelected));
+      journalTab.tabIndex = journalSelected ? 0 : -1;
+    }
+    if (planTab) {
+      planTab.classList.toggle('active', !journalSelected);
+      planTab.setAttribute('aria-selected', String(!journalSelected));
+      planTab.tabIndex = journalSelected ? -1 : 0;
+    }
     if (shell) shell.classList.toggle('planner-mode', _cjPanelMode === 'plan');
     if (_cjPanelMode === 'plan' && !_cjPlanner) _cjLoadPlanner();
   };
@@ -15378,7 +15483,9 @@ fetchRuns = async function() {
   function _cjScheduleSave() {
     if (!_cjCurrentDate) return;
     clearTimeout(_cjSaveTimer);
-    _cjSaveTimer = setTimeout(() => _cjSaveJournal(_cjCurrentDate), 800);
+    const dateStr = _cjCurrentDate;
+    const snapshot = _cjGetFormData();
+    _cjSaveTimer = setTimeout(() => _cjSaveJournal(dateStr, snapshot), 800);
   }
 
   function _cjGetFormData() {
@@ -15429,39 +15536,70 @@ fetchRuns = async function() {
   }
 
   async function _cjLoadJournal(dateStr) {
+    const generation = ++_cjLoadGeneration;
+    if (_cjLoadController) _cjLoadController.abort();
+    const controller = new AbortController();
+    _cjLoadController = controller;
     _cjClearForm();
     const lsKey = 'cj_journal_' + dateStr;
     try {
       const cached = localStorage.getItem(lsKey);
-      if (cached) _cjSetFormData(JSON.parse(cached));
+      if (cached && _cjCurrentDate === dateStr) _cjSetFormData(JSON.parse(cached));
     } catch(e) {}
     try {
-      const r = await fetch('/api/journal/' + dateStr, { credentials: 'same-origin' });
+      const r = await fetch('/api/journal/' + encodeURIComponent(dateStr), {
+        credentials: 'same-origin',
+        signal: controller.signal,
+      });
+      if (!r.ok) throw new Error('Journal load failed (' + r.status + ')');
       const d = await r.json();
+      if (generation !== _cjLoadGeneration || _cjCurrentDate !== dateStr) return;
       if (d.data) {
         _cjSetFormData(d.data);
         try { localStorage.setItem(lsKey, JSON.stringify(d.data)); } catch(e) {}
       }
     } catch(e) {
-      console.warn('[Journal] Backend load failed, using localStorage:', e);
+      if (e.name !== 'AbortError') console.warn('[Journal] Backend load failed, using localStorage:', e);
+    } finally {
+      if (_cjLoadController === controller) _cjLoadController = null;
     }
   }
 
-  async function _cjSaveJournal(dateStr) {
-    const data = _cjGetFormData();
+  async function _cjSaveJournal(dateStr, dataOverride = null) {
+    const data = dataOverride || _cjGetFormData();
     try { localStorage.setItem('cj_journal_' + dateStr, JSON.stringify(data)); } catch(e) {}
-    try {
-      await fetch('/api/journal/' + dateStr, {
+    const previous = _cjSaveChains.get(dateStr) || Promise.resolve();
+    const task = previous.catch(() => {}).then(async () => {
+      const r = await fetch('/api/journal/' + encodeURIComponent(dateStr), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify(data),
       });
+      if (!r.ok) {
+        let detail = 'Journal save failed (' + r.status + ')';
+        try {
+          const payload = await r.json();
+          detail = payload.detail || payload.error?.detail || detail;
+        } catch(e) {}
+        throw new Error(detail);
+      }
+      return true;
+    });
+    _cjSaveChains.set(dateStr, task);
+    try {
+      await task;
       const dot = document.getElementById('cj-save-dot');
-      dot.classList.add('show');
-      setTimeout(() => dot.classList.remove('show'), 1500);
+      if (dot) {
+        dot.classList.add('show');
+        setTimeout(() => dot.classList.remove('show'), 1500);
+      }
+      return true;
     } catch(e) {
       console.warn('[Journal] Backend save failed:', e);
+      return false;
+    } finally {
+      if (_cjSaveChains.get(dateStr) === task) _cjSaveChains.delete(dateStr);
     }
   }
 
@@ -15477,10 +15615,12 @@ fetchRuns = async function() {
     const btn = document.getElementById('cj-submit-btn');
     btn.innerHTML = ICO.hour(14) + ' Saving...';
     btn.disabled = true;
-    await _cjSaveJournal(_cjCurrentDate);
-    btn.innerHTML = ICO.check(14) + ' Saved!';
+    const dateStr = _cjCurrentDate;
+    const saved = await _cjSaveJournal(dateStr, _cjGetFormData());
+    btn.innerHTML = saved ? ICO.check(14) + ' Saved!' : '⚠ Save failed';
+    if (!saved) showToast('Journal remains in this browser, but the server save failed.', 'error');
     setTimeout(() => { btn.innerHTML = ICO.save(14) + ' Save Journal'; btn.disabled = false; }, 1500);
-    _cjLoadEntries();
+    if (saved) _cjLoadEntries();
   };
 
   // ══════════════════════════════════════════════════════════
@@ -15586,18 +15726,20 @@ fetchRuns = async function() {
         const mo = months[key];
         const isOpen = key === selectedMonthKey ? ' open' : '';
         h += '<div>';
-        h += '<button class="cj-month-toggle' + isOpen + '" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'open\')"><span class="arrow">▶</span>' + mo.label + '<span class="cnt">' + mo.entries.length + '</span></button>';
+        h += '<button class="cj-month-toggle' + isOpen + '" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'open\')"><span class="arrow">▶</span>' + escapeHtml(mo.label) + '<span class="cnt">' + mo.entries.length + '</span></button>';
         h += '<div class="cj-month-children' + isOpen + '">';
         mo.entries.forEach(e => {
-          const day = e.date.split('-')[2];
-          const active = e.date === _cjCurrentDate ? ' active' : '';
-          const gradeEl = e.grade ? '<span class="cj-entry-grade g-' + e.grade + '">' + e.grade + '</span>' : '';
-          const esc = e.date.replace(/'/g, "\\'");
-          h += '<div class="cj-entry-item' + active + '" data-date="' + e.date + '" onclick="window._cjSelectEntry(\'' + esc + '\')">';
-          h += '<span class="cj-entry-date">' + day + '</span>';
-          h += '<span class="cj-entry-asset">' + (e.asset || e.strategy || '—') + '</span>';
+          const entryDate = String(e.date || '');
+          const day = entryDate.split('-')[2] || '—';
+          const active = entryDate === _cjCurrentDate ? ' active' : '';
+          const grade = ['A', 'B', 'C', 'D'].includes(e.grade) ? e.grade : '';
+          const gradeEl = grade ? '<span class="cj-entry-grade g-' + grade + '">' + grade + '</span>' : '';
+          const safeDateJs = escapeJsAttr(entryDate);
+          h += '<div class="cj-entry-item' + active + '" data-date="' + escapeAttr(entryDate) + '" onclick="window._cjSelectEntry(\'' + safeDateJs + '\')">';
+          h += '<span class="cj-entry-date">' + escapeHtml(day) + '</span>';
+          h += '<span class="cj-entry-asset">' + escapeHtml(e.asset || e.strategy || '—') + '</span>';
           h += gradeEl;
-          h += '<button class="cj-entry-del" title="Delete entry" onclick="event.stopPropagation();window._cjDeleteEntry(\'' + esc + '\')">✕</button>';
+          h += '<button class="cj-entry-del" title="Delete entry" onclick="event.stopPropagation();window._cjDeleteEntry(\'' + safeDateJs + '\')">✕</button>';
           h += '</div>';
         });
         h += '</div></div>';

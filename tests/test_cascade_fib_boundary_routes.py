@@ -60,12 +60,12 @@ class _StubAdapter:
         return {"last_price": 24_500}
 
 
-def _live_ladder(symbol: str, broker, *, armed: bool = True):
+def _live_ladder(symbol: str, broker, *, armed: bool = True, live: bool = True):
     """A LIVE ladder that has already bought a rung, for save/restore and for
     proving one instrument's actions leave the others alone."""
     from datetime import date as _date
 
-    from engine.fib_touch_ladder import FibTouchConfig, FibTouchLadder, LiveExecutor
+    from engine.fib_touch_ladder import FibTouchConfig, FibTouchLadder, LiveExecutor, PaperExecutor
 
     base = datetime(2026, 8, 6, 9, 15)
     rows = [
@@ -95,10 +95,11 @@ def _live_ladder(symbol: str, broker, *, armed: bool = True):
         ),
         premium_lookup=lambda *a: 200.0,
         expiry_source=lambda on: [_date(2026, 8, 11)],
-        executor=LiveExecutor(broker, symbol, armed=armed),
+        executor=LiveExecutor(broker, symbol, armed=armed) if live else PaperExecutor(),
     )
-    for candle in candles:
-        engine.on_candle(candle)
+    with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+        for candle in candles:
+            engine.on_candle(candle)
     return engine
 
 
@@ -128,6 +129,7 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         result = await app_module.fib_boundary_paper_status(_DummyRequest())
         self.assertEqual(result["status"], "not_started")
         self.assertEqual(result["mode"], "paper")
+        self.assertFalse(result["live_available"])
         # A LIST now, always present, so the console renders zero panels rather
         # than special-casing "no campaign".
         self.assertEqual(result["campaigns"], [])
@@ -138,6 +140,15 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
             await app_module.fib_boundary_paper_start(payload, _DummyRequest())
         self.assertEqual(raised.exception.status_code, 400)
         self.assertIn("side must be CE or PE", str(raised.exception.detail))
+
+    async def test_start_fails_closed_when_live_order_reconciliation_is_unavailable(self):
+        payload = app_module.FibTouchStartPayload(
+            mother_timestamp=_today_1m_mother().isoformat(), side="CE", mode="live"
+        )
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_paper_start(payload, _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertIn("partial-fill handling", str(raised.exception.detail))
 
     async def test_start_rejects_an_unknown_symbol(self):
         payload = app_module.FibTouchStartPayload(mother_timestamp=_today_1m_mother().isoformat(), symbol="RELIANCE")
@@ -411,7 +422,7 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         broker = _Broker()
         app_module._fib_boundary_engines[11] = {
             symbol: app_module._CascadeRuntime(
-                engine := _live_ladder(symbol, broker),
+                engine := _live_ladder(symbol, broker, live=False),
                 _StubAdapter(),
                 broker,
                 engine.history[-1].timestamp,
@@ -421,6 +432,8 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         }
         status = await app_module.fib_boundary_paper_status(_DummyRequest())
         self.assertEqual([row["symbol"] for row in status["campaigns"]], ["NIFTY", "SENSEX"])
+        self.assertEqual(status["mode"], "paper")
+        self.assertFalse(status["live_available"])
 
         killed = await app_module.fib_boundary_paper_kill(_DummyRequest(), symbol="SENSEX")
         self.assertEqual(killed["campaign"]["symbol"], "SENSEX")
@@ -442,11 +455,25 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
             )
             for symbol in ("NIFTY", "SENSEX")
         }
-        result = await app_module.fib_boundary_paper_arm(_DummyRequest(), symbol="NIFTY")
+        with patch.object(app_module, "_FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            result = await app_module.fib_boundary_live_arm("NIFTY", _DummyRequest())
         self.assertEqual(result["status"], "armed")
         ladders = app_module._fib_boundary_engines[11]
         self.assertTrue(ladders["NIFTY"].engine.get_status()["armed"])
         self.assertFalse(ladders["SENSEX"].engine.get_status()["armed"], "arming is per instrument")
+
+    async def test_live_arm_is_safety_locked_by_default(self):
+        broker = _Broker()
+        engine = _live_ladder("NIFTY", broker, armed=False)
+        app_module._fib_boundary_engines[11] = {
+            "NIFTY": app_module._CascadeRuntime(
+                engine, _StubAdapter(), broker, engine.history[-1].timestamp, running=True
+            )
+        }
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_live_arm("NIFTY", _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertFalse(engine.get_status()["armed"])
 
     async def test_the_same_instrument_twice_is_still_a_409(self):
         """THE rule the per-symbol keying rests on: a second instrument starts,
@@ -483,11 +510,90 @@ class FibBoundaryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(getattr(raised.exception, "status_code", None), 409)
 
     async def test_kill_and_arm_reject_a_symbol_that_is_not_running(self):
-        for route in (app_module.fib_boundary_paper_kill, app_module.fib_boundary_paper_arm):
+        for route in (app_module.fib_boundary_paper_kill,):
             with self.assertRaises(app_module.HTTPException) as raised:
                 await route(_DummyRequest(), symbol="SENSEX")
             self.assertEqual(raised.exception.status_code, 404)
             self.assertIn("SENSEX", str(raised.exception.detail))
+        for route in (app_module.fib_boundary_live_arm, app_module.fib_boundary_live_kill):
+            with self.assertRaises(app_module.HTTPException) as raised:
+                await route("SENSEX", _DummyRequest())
+            self.assertEqual(raised.exception.status_code, 404)
+            self.assertIn("SENSEX", str(raised.exception.detail))
+
+    async def test_paper_kill_cannot_bypass_the_live_action_gate(self):
+        broker = _Broker()
+        engine = _live_ladder("NIFTY", broker)
+        app_module._fib_boundary_engines[11] = {
+            "NIFTY": app_module._CascadeRuntime(
+                engine, _StubAdapter(), broker, engine.history[-1].timestamp, running=True
+            )
+        }
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_paper_kill(_DummyRequest(), symbol="NIFTY")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertTrue(app_module._fib_boundary_engines[11]["NIFTY"].running)
+
+    async def test_live_kill_sends_real_exits_before_stopping(self):
+        sent = []
+
+        class _TrackingBroker:
+            def place_option_order(self, **order):
+                sent.append((order["underlying"], order["transaction_type"], order["quantity"]))
+                return {"orderId": f"DHAN-{order['transaction_type']}-{len(sent)}"}
+
+        broker = _TrackingBroker()
+        engine = _live_ladder("NIFTY", broker)
+        self.assertEqual([side for _symbol, side, _quantity in sent], ["BUY"])
+        app_module._fib_boundary_engines[11] = {
+            "NIFTY": app_module._CascadeRuntime(
+                engine, _StubAdapter(), broker, engine.history[-1].timestamp, running=True
+            )
+        }
+
+        with patch.object(app_module, "_FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+                result = await app_module.fib_boundary_live_kill("NIFTY", _DummyRequest())
+        self.assertEqual(result["status"], "killed")
+        self.assertEqual(result["mode"], "live")
+        self.assertEqual([side for _symbol, side, _quantity in sent], ["BUY", "SELL"])
+        self.assertFalse(app_module._fib_boundary_engines[11]["NIFTY"].running)
+
+    async def test_live_kill_broker_failure_never_marks_the_ladder_closed(self):
+        class _FailingExitBroker:
+            def place_option_order(self, **order):
+                if order["transaction_type"] == "SELL":
+                    raise RuntimeError("broker exit failed")
+                return {"orderId": "DHAN-BUY-1"}
+
+        broker = _FailingExitBroker()
+        engine = _live_ladder("NIFTY", broker)
+        runtime = app_module._CascadeRuntime(engine, _StubAdapter(), broker, engine.history[-1].timestamp, running=True)
+        app_module._fib_boundary_engines[11] = {"NIFTY": runtime}
+
+        with patch.object(app_module, "_FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+            with patch("engine.fib_touch_ladder.FIB_TOUCH_LIVE_EXECUTION_ENABLED", True):
+                with self.assertRaises(RuntimeError):
+                    await app_module.fib_boundary_live_kill("NIFTY", _DummyRequest())
+        self.assertTrue(runtime.running)
+        self.assertNotEqual(engine.status, "KILLED")
+
+    async def test_live_kill_is_safety_locked_without_changing_runtime_state(self):
+        broker = _Broker()
+        engine = _live_ladder("NIFTY", broker)
+        runtime = app_module._CascadeRuntime(engine, _StubAdapter(), broker, engine.history[-1].timestamp, running=True)
+        app_module._fib_boundary_engines[11] = {"NIFTY": runtime}
+
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_live_kill("NIFTY", _DummyRequest())
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertTrue(runtime.running)
+        self.assertNotEqual(engine.status, "KILLED")
+
+    async def test_legacy_query_string_arm_fails_closed(self):
+        with self.assertRaises(app_module.HTTPException) as raised:
+            await app_module.fib_boundary_legacy_arm(_DummyRequest(), symbol="NIFTY")
+        self.assertEqual(raised.exception.status_code, 410)
 
     async def test_kill_without_campaign_is_404(self):
         with self.assertRaises(app_module.HTTPException) as raised:

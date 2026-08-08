@@ -28,12 +28,12 @@
      tint and font are choosable BEFORE login, not only after. Names come
      from PHILFORGE_APPEARANCE_PRESETS — the single vocabulary — never typed
      here by hand. -->
-<button type="button" class="login-appearance-toggle" id="login-appearance-toggle" aria-label="Appearance" aria-expanded="false">
+<button type="button" class="login-appearance-toggle" id="login-appearance-toggle" aria-label="Appearance" aria-expanded="false" aria-controls="login-appearance-panel">
   <span class="login-appearance-dot"></span>
   <span>Style</span>
 </button>
-<div class="login-appearance-panel" id="login-appearance-panel" hidden>
-  <div class="login-appearance-title">Appearance</div>
+<div class="login-appearance-panel" id="login-appearance-panel" role="region" aria-labelledby="login-appearance-title" hidden>
+  <div class="login-appearance-title" id="login-appearance-title">Appearance</div>
   <div class="login-appearance-label">Theme</div>
   <div class="login-theme-row">
     <button type="button" data-login-theme="dark">Dark</button>
@@ -45,19 +45,21 @@
   <div class="login-font-list" id="login-font-list"></div>
 </div>
 
-<div class="unlock-card" id="unlock-card">
+<main class="unlock-card" id="unlock-card" aria-labelledby="unlock-title">
   <img src="/static/logo.png?v=__ASSET_VERSION__" alt="PhilForge" class="unlock-logo theme-logo dark-variant">
   <img src="/static/logolight.png?v=__ASSET_VERSION__" alt="PhilForge" class="unlock-logo theme-logo light-variant">
-  <div class="unlock-title">PhilForge</div>
+  <h1 class="unlock-title" id="unlock-title">PhilForge</h1>
   <div class="unlock-sub">Sign in to continue</div>
 
   <div class="auth-field">
-    <input type="text" id="username-input" placeholder="Username" autocomplete="username" spellcheck="false" autofocus>
+    <label class="sr-only" for="username-input">Username</label>
+    <input type="text" id="username-input" placeholder="Username" autocomplete="username" spellcheck="false" aria-describedby="unlock-status" autofocus>
   </div>
 
   <div class="auth-field" id="password-field">
     <div class="secret-wrap">
-      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password">
+      <label class="sr-only" for="password-input">Password</label>
+      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" aria-describedby="unlock-status">
       <button type="button" class="password-toggle" id="password-toggle" aria-label="Show password">Show</button>
     </div>
   </div>
@@ -71,7 +73,7 @@
   </div>
 
   <div class="pin-section hidden" id="pin-section">
-    <div class="pin-dots" id="pin-dots">
+    <div class="pin-dots" id="pin-dots" aria-hidden="true">
       <div class="pin-dot" data-i="0"></div>
       <div class="pin-dot" data-i="1"></div>
       <div class="pin-dot" data-i="2"></div>
@@ -80,7 +82,7 @@
       <div class="pin-dot" data-i="5"></div>
     </div>
 
-    <div class="keypad" id="keypad">
+    <div class="keypad" id="keypad" aria-label="PIN keypad">
       <button type="button" class="key" data-val="1">1</button>
       <button type="button" class="key" data-val="2">2</button>
       <button type="button" class="key" data-val="3">3</button>
@@ -90,13 +92,13 @@
       <button type="button" class="key" data-val="7">7</button>
       <button type="button" class="key" data-val="8">8</button>
       <button type="button" class="key" data-val="9">9</button>
-      <button type="button" class="key fn" data-val="clear">&#x2715;</button>
+      <button type="button" class="key fn" data-val="clear" aria-label="Clear PIN">&#x2715;</button>
       <button type="button" class="key" data-val="0">0</button>
-      <button type="button" class="key fn" data-val="back">&#x232b;</button>
+      <button type="button" class="key fn" data-val="back" aria-label="Delete last PIN digit">&#x232b;</button>
     </div>
   </div>
 
-  <div class="unlock-status" id="unlock-status">Enter username &amp; password</div>
+  <div class="unlock-status" id="unlock-status" role="status" aria-live="polite" aria-atomic="true">Enter username &amp; password</div>
 
   <div class="unlock-actions">
     <button type="button" class="unlock-btn" id="unlock-btn">Unlock</button>
@@ -114,7 +116,7 @@
   </div>
 
   <div class="unlock-footer">Password + authenticator when enabled &middot; Auto-locks after 24h</div>
-</div>
+</main>
 
 <script src="/static/philforge-login.js?v=__ASSET_VERSION__"></script>
 </body>

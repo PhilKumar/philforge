@@ -76,7 +76,7 @@ async function login(page: Page, campaigns: () => unknown[]) {
     if (path === '/api/health' || path.startsWith('/api/auth/')) { await route.continue(); return; }
     if (path === '/api/fib-boundary/paper/status') {
       const rows = campaigns();
-      await route.fulfill({ json: { status: rows.length ? 'ok' : 'not_started', mode: 'paper', campaigns: rows } });
+      await route.fulfill({ json: { status: rows.length ? 'ok' : 'not_started', mode: 'paper', live_available: false, campaigns: rows } });
       return;
     }
     if (path === '/api/fib-boundary/symbols') { await route.continue(); return; }
@@ -155,26 +155,21 @@ test.describe('Fib Boundary · one ladder per instrument', () => {
     await expect(page.locator('#fibx-lower > [data-fx-symbol]')).toHaveCount(1);
   });
 
-  test('arming one live ladder arms only that one', async ({ page }) => {
-    const armed = new Set<string>();
-    let asked = '';
-    await login(page, () => ['NIFTY', 'SENSEX'].map(s => campaign(s, { mode: 'live', is_live: true, armed: armed.has(s) })));
-    await page.route('**/api/fib-boundary/paper/arm*', async route => {
-      asked = new URL(route.request().url()).searchParams.get('symbol') || '';
-      armed.add(asked);
-      await route.fulfill({ json: { status: 'armed', campaign: campaign(asked, { mode: 'live', is_live: true, armed: true }) } });
-    });
+  test('a safety-locked live ladder cannot be armed from the UI', async ({ page }) => {
+    await login(page, () => ['NIFTY', 'SENSEX'].map(s => campaign(s, { mode: 'live', is_live: true, armed: false })));
     await openFibTab(page);
 
-    // Both offer to arm while neither is armed.
-    await expect(page.locator('#fibx-monitors [data-fx="arm"]:visible')).toHaveCount(2);
-    await page.locator('[data-fx-symbol="NIFTY"] [data-fx="arm"]').first().click();
-    await page.locator('#confirm-ok-btn').first().click();
+    await expect(page.locator('#fibx-monitors [data-fx="arm"]:visible')).toHaveCount(0);
+    await expect(page.locator('#options-cascade-live-gate')).toContainText('LIVE SAFETY LOCKED');
+  });
 
-    await expect.poll(() => asked).toBe('NIFTY');
-    // SENSEX is still unarmed, so its button is the only one left offering.
-    await expect(page.locator('#fibx-monitors [data-fx="arm"]:visible')).toHaveCount(1);
-    await expect(page.locator('[data-fx-symbol="SENSEX"] [data-fx="arm"]')).toBeVisible();
+  test('a safety-locked live ladder directs exits to Dhan without changing PhilForge state', async ({ page }) => {
+    await login(page, () => ['NIFTY', 'SENSEX'].map(s => campaign(s, { mode: 'live', is_live: true, armed: false })));
+    await openFibTab(page);
+
+    await page.locator('[data-fx-symbol="SENSEX"] [data-fx="kill"]').first().click();
+    await expect(page.locator('#fibx-form-status')).toContainText('manage any real position in Dhan');
+    await expect(page.locator('#fibx-monitors > [data-fx-symbol]')).toHaveCount(2);
   });
 
   test('a running ladder blocks Start only on its own instrument', async ({ page }) => {

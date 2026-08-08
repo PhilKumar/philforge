@@ -25,6 +25,18 @@
     pointer-events: none; z-index: -1;
   }
 
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .unlock-card {
     background: linear-gradient(160deg, rgba(25,35,50,0.95), rgba(18,25,38,0.9), rgba(15,22,35,0.92));
     border: 1px solid rgba(255,255,255,0.08);
@@ -132,6 +144,7 @@
     letter-spacing: 0.3px;
     cursor: pointer;
     min-width: 50px;
+    min-height: 44px;
     padding: 6px 8px;
     border-radius: 10px;
     text-align: center;
@@ -163,12 +176,14 @@
     font-weight: 600;
     cursor: pointer;
     letter-spacing: 0.3px;
-    padding: 0;
+    min-height: 44px;
+    padding: 8px 12px;
   }
   .mode-switch-btn:hover { text-decoration: underline; }
   [data-theme="light"] .mode-switch-btn { color: #047857; }
 
   .auth-field.hidden,
+  .mode-switch-btn.hidden,
   .pin-section.hidden {
     display: none;
   }
@@ -493,9 +508,7 @@
     .unlock-referral {
       max-width: 100%;
     }
-    .password-toggle {
-      min-height: 36px;
-    }
+    .password-toggle { min-height: 44px; }
     .keypad {
       max-width: 100%;
       gap: 8px;
@@ -558,7 +571,7 @@
   top: 18px;
   right: 18px;
   z-index: 5;
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--border, rgba(148,178,211,0.18));
@@ -612,11 +625,12 @@
   cursor: pointer;
   font-weight: 700;
   font-size: 12px;
+  min-height: 44px;
 }
 .login-font-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.login-appearance-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.login-appearance-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .login-appearance-grid .swatch {
-  width: 32px; height: 32px; border-radius: 10px; cursor: pointer;
+  width: 44px; height: 44px; border-radius: 10px; cursor: pointer;
   border: 1px solid rgba(255,255,255,0.16);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 6px 14px rgba(0,0,0,0.3);
   padding: 0;
@@ -643,4 +657,18 @@
 @media (max-width: 520px) {
   .login-appearance-toggle { top: 12px; right: 12px; }
   .login-appearance-panel { top: 58px; right: 12px; width: calc(100vw - 24px); }
+}
+
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 3px solid var(--accent, #00c896);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

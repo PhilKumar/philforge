@@ -293,6 +293,20 @@ class ScalpEngine:
         """Place a broker order (or simulate in paper mode) and register the scalp trade.
         If entry_limit_price and entry_limit_max are set, the trade goes into 'pending' state
         and waits for the premium to enter [limit_price, limit_max] before placing the order."""
+        underlying = str(underlying or "").strip().upper()
+        option_type = str(option_type or "").strip().upper()
+        transaction_type = str(transaction_type or "").strip().upper()
+        mode = str(mode or "").strip().lower()
+        if option_type not in {"CE", "PE"}:
+            return {"status": "error", "message": "option_type must be CE or PE"}
+        if transaction_type not in {"BUY", "SELL"}:
+            return {"status": "error", "message": "transaction_type must be BUY or SELL"}
+        if mode not in {"paper", "live"}:
+            return {"status": "error", "message": "mode must be paper or live"}
+        if int(lots or 0) <= 0 or int(lot_size or 0) <= 0:
+            return {"status": "error", "message": "lots and lot_size must be positive"}
+        if bool(entry_limit_price) != bool(entry_limit_max):
+            return {"status": "error", "message": "Stop-limit entry requires both premium boundaries"}
         quantity = lots * lot_size
         product_type = _normalize_scalp_product_type(product_type)
         if mode == "live" and (target_premium <= 0 or sl_premium <= 0):
@@ -371,6 +385,11 @@ class ScalpEngine:
                     pass
                 if _attempt < 2:
                     await asyncio.sleep(0.3)  # brief pause between retries
+            if entry_premium <= 0:
+                return {
+                    "status": "error",
+                    "message": "Paper entry was not created because no positive option premium was available.",
+                }
         else:
             # Place broker-native Super Order so TP and SL live inside Dhan.
             try:

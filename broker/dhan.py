@@ -1080,7 +1080,7 @@ class DhanClient:
         try:
             self._token_update_cb(token)
         except Exception as exc:
-            _dhan_log.warning(f"[DHAN] Failed to persist refreshed token for {self.client_id}: {exc}")
+            _dhan_log.warning("[DHAN] Failed to persist refreshed user token: %s", exc)
 
     def refresh_access_token(self, *, force: bool = False) -> str | None:
         """Refresh the broker access token and return the new token on success."""
@@ -1105,17 +1105,17 @@ class DhanClient:
             else:
                 return None
         except Exception as exc:
-            _dhan_log.error(f"[DHAN] Token refresh error for {self.client_id}: {exc}")
+            _dhan_log.error("[DHAN] User token refresh error: %s", exc)
             return None
 
         if result and result.get("success") and result.get("accessToken"):
             new_token = str(result["accessToken"]).strip()
             self._persist_refreshed_token(new_token)
-            _dhan_log.info(f"[DHAN] Refreshed fixed token for client {self.client_id}")
+            _dhan_log.info("[DHAN] Refreshed fixed user token")
             return new_token
 
         error = (result or {}).get("error", "unknown token refresh error")
-        _dhan_log.warning(f"[DHAN] Token refresh failed for {self.client_id}: {error}")
+        _dhan_log.warning("[DHAN] User token refresh failed: %s", error)
         return None
 
     def _cache_key(self, scope: str) -> str:
@@ -1431,7 +1431,14 @@ class DhanClient:
             payload["boProfitValue"] = round_to_tick(float(bo_profit_value))
         if bo_stop_loss_value:
             payload["boStopLossValue"] = round_to_tick(float(bo_stop_loss_value))
-        print(f"[DHAN] Order payload: {payload}")
+        _dhan_log.info(
+            "[DHAN] Submitting order side=%s exchange=%s type=%s product=%s slicing=%s",
+            transaction_type,
+            exchange_segment,
+            order_type,
+            product_type,
+            bool(slice_order),
+        )
 
         if not _circuit_breaker.call_allowed():
             raise Exception(
@@ -1507,7 +1514,14 @@ class DhanClient:
             payload["triggerPrice1"] = round_to_tick(float(trigger_price1)) if trigger_price1 else 0.0
             payload["quantity1"] = int(quantity1 or quantity)
 
-        print(f"[DHAN] Forever order payload: {payload}")
+        _dhan_log.info(
+            "[DHAN] Submitting forever order side=%s exchange=%s type=%s product=%s flag=%s",
+            transaction_type,
+            exchange_segment,
+            order_type,
+            product_type,
+            payload["orderFlag"],
+        )
         resp = _request_with_retry(
             "POST",
             f"{self.base_url}/v2/forever/orders",
@@ -1549,11 +1563,7 @@ class DhanClient:
                 f"expiry {expiry}. Scrip master may not be loaded or contract doesn't exist."
             )
 
-        print(
-            f"[DHAN] Option order: {transaction_type} {underlying} "
-            f"{strike_price}{option_type} exp={expiry} qty={quantity} "
-            f"type={order_type} product={product_type} secId={security_id}"
-        )
+        _dhan_log.info("[DHAN] Resolved option contract for order submission")
 
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
 
@@ -1598,10 +1608,7 @@ class DhanClient:
         if order_type == "SL-M":
             price = 0
 
-        print(
-            f"[DHAN] SL Order: {transaction_type} {underlying} {strike_price}{option_type} "
-            f"trigger=₹{trigger_price} price=₹{price} type={order_type}"
-        )
+        _dhan_log.info("[DHAN] Resolved option contract for stop-loss submission")
 
         return self.place_order(
             security_id=security_id,
@@ -1653,7 +1660,13 @@ class DhanClient:
             "stopLossPrice": round_to_tick(float(stop_loss_price)),
             "trailingJump": round_to_tick(float(trailing_jump)) if trailing_jump else 0.0,
         }
-        print(f"[DHAN] Super Order payload: {payload}")
+        _dhan_log.info(
+            "[DHAN] Submitting super order side=%s exchange=%s type=%s product=%s",
+            transaction_type,
+            exchange_seg,
+            order_type,
+            product_type,
+        )
 
         resp = _request_with_retry(
             "POST",
@@ -1901,28 +1914,28 @@ class DhanClient:
                 if self.refresh_access_token():
                     resp = _http_session.get(url, headers=self.headers, timeout=15)
 
-            print(f"[DHAN] get_trade_history {from_date} to {to_date} page={page} status: {resp.status_code}")
+            _dhan_log.info("[DHAN] Trade-history request page=%s status=%s", page, resp.status_code)
 
             if resp.status_code == 429:
-                print(f"[DHAN] Rate limited on page {page}")
+                _dhan_log.warning("[DHAN] Trade-history rate limited on page %s", page)
                 return self.RATE_LIMITED
 
             if resp.status_code != 200:
-                print(f"[DHAN] Trade history error: {resp.text[:200]}")
+                _dhan_log.warning("[DHAN] Trade-history request failed status=%s", resp.status_code)
                 return []
 
             data = resp.json()
             # Detect rate-limit error returned as 200 with error JSON
             if isinstance(data, dict) and data.get("errorCode") == "DH-904":
-                print(f"[DHAN] Rate limited (DH-904) on page {page}")
+                _dhan_log.warning("[DHAN] Trade-history DH-904 rate limit on page %s", page)
                 return self.RATE_LIMITED
 
             trades = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
-            print(f"[DHAN] ✅ Retrieved {len(trades)} historical trades")
+            _dhan_log.info("[DHAN] Retrieved %s historical trades", len(trades))
             return trades
 
         except Exception as e:
-            print(f"[DHAN] Trade history error: {e}")
+            _dhan_log.warning("[DHAN] Trade-history request error: %s", e)
             return []
 
     def cancel_order(self, order_id: str) -> dict:
@@ -1982,13 +1995,13 @@ class DhanClient:
                 refresh_token_func=self.refresh_access_token,
             )
 
-            print(f"[DHAN] get_funds status: {resp.status_code}")
+            _dhan_log.info("[DHAN] Funds request status=%s", resp.status_code)
 
             if resp.status_code != 200:
                 raise Exception(f"API returned {resp.status_code}: {resp.text[:200]}")
 
             data = resp.json()
-            print(f"[DHAN] get_funds response keys: {list(data.keys())}")
+            _dhan_log.info("[DHAN] Funds response received")
 
             # Dhan API returns different formats - handle both
             if "data" in data:
@@ -1996,7 +2009,7 @@ class DhanClient:
             elif "availabelBalance" in data or "sodLimit" in data:
                 return data
             else:
-                print(f"[DHAN] Unexpected response format: {data}")
+                _dhan_log.warning("[DHAN] Unexpected funds response shape")
                 return data
 
         except requests.exceptions.Timeout:
@@ -2340,7 +2353,13 @@ class DhanClient:
             "triggerPrice": round_to_tick(float(trigger_price)) if trigger_price else 0.0,
             "correlationId": (tag or "")[:25],
         }
-        print(f"[DHAN] Async order payload: {payload}")
+        _dhan_log.info(
+            "[DHAN] Submitting async order side=%s exchange=%s type=%s product=%s",
+            transaction_type,
+            exchange_segment,
+            order_type,
+            product_type,
+        )
         if not _circuit_breaker.call_allowed():
             raise Exception("Dhan API circuit breaker OPEN")
         try:

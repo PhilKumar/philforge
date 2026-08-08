@@ -74,7 +74,7 @@
      restoring it is one <button data-pf-action="emergencyStop"> away. -->
 
 <!-- ═══ HEADER: Top Bar ═══ -->
-<div class="header-shell">
+<header class="header-shell">
   <a class="header-brand-panel" href="#dashboard-page" data-pf-nav-page="dashboard-page" data-pf-nav-tab="nav-dashboard" title="Go to Dashboard" aria-label="Go to Dashboard">
     <div class="header-brand-mark">
       <span class="header-brand-logo" aria-hidden="true"></span>
@@ -128,7 +128,7 @@
               <span class="topbar-user-name" id="topbar-username">Account</span>
               <span class="topbar-user-role" id="topbar-user-role">USER</span>
             </button>
-            <button class="topbar-icon-btn" id="admin-btn" data-pf-action="openAdminModal" title="Admin Console" style="display:none;"></button>
+          <button class="topbar-icon-btn" id="admin-btn" data-pf-action="openAdminModal" title="Admin Console" aria-label="Admin Console" style="display:none;"></button>
           </div>
           <button class="topbar-icon-btn topbar-install-btn" id="install-app-btn" data-install-app hidden title="Install App" aria-label="Install App">
             <span class="ico" aria-hidden="true"></span>
@@ -137,8 +137,8 @@
           <button class="topbar-icon-btn topbar-appearance-btn" id="appearance-btn" data-pf-action="openAppearanceModal" title="Appearance" aria-label="Appearance">
             <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="M6.7 6.7l10.6 10.6"></path></svg></span>
           </button>
-          <button class="topbar-icon-btn" id="theme-toggle" data-pf-action="toggleTheme" title="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></span></button>
-          <button class="topbar-icon-btn" id="logout-btn" data-pf-action="logoutUser" title="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
+          <button class="topbar-icon-btn" id="theme-toggle" data-pf-action="toggleTheme" title="Toggle Theme" aria-label="Toggle Theme"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></span></button>
+          <button class="topbar-icon-btn" id="logout-btn" data-pf-action="logoutUser" title="Logout" aria-label="Logout"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span></button>
         </div>
       </div>
     </div>
@@ -156,7 +156,7 @@
     </div>
 
     <!-- ═══ NAVIGATION TABS ═══ -->
-    <div class="nav-bar">
+    <nav class="nav-bar" aria-label="Primary navigation">
     <div class="nav-tabs">
     <button id="nav-dashboard" class="nav-tab active" data-pf-nav-page="dashboard-page">
       <span class="tab-icon" style="color: #14b8a6;" id="ico-dashboard"></span>
@@ -199,11 +199,12 @@
       <span class="tab-label">Results</span>
     </button>
       </div>
-    </div>
+    </nav>
   </div>
-</div>
+</header>
 
 <!-- ═══ DASHBOARD ═══ -->
+<main id="main-content" tabindex="-1" aria-label="Dashboard workspace">
 <div id="dashboard-page" class="page-section active-page">
 
 
@@ -521,7 +522,7 @@
       <table class="dash-table">
         <thead>
           <tr>
-            <th style="width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" id="transactions-check-all" onchange="toggleAllDashboardTransactions(this)"></th>
+            <th style="width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" id="transactions-check-all" aria-label="Select all recent transactions" onchange="toggleAllDashboardTransactions(this)"></th>
             <th style="min-width: 200px; cursor: pointer;" onclick="_toggleDashboardTxnSort('symbol')">Instrument <span id="dash-txn-sort-symbol"></span></th>
             <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('entryTime')">Entry Time <span id="dash-txn-sort-entryTime"></span></th>
             <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('exitTime')">Exit Time <span id="dash-txn-sort-exitTime"></span></th>
@@ -564,11 +565,11 @@
       <div class="card card-compact">
         <h3 style="margin-bottom: 10px; font-size: 14px;">Settings</h3>
         <div class="input-group">
-          <label>Run Name</label>
+          <label for="run-name-input">Run Name</label>
           <input type="text" id="run-name-input">
         </div>
         <div class="input-group">
-          <label>Folder</label>
+          <label for="folder-select">Folder</label>
           <select id="folder-select" onchange="onFolderChange()">
             <option value="Scalping">Scalping</option>
             <option value="Intraday" selected>Intraday</option>
@@ -578,17 +579,17 @@
             <option value="Hedging">Hedging</option>
             <option value="__custom__">+ Custom...</option>
           </select>
-          <input type="text" id="folder-custom" placeholder="Custom folder..." style="display: none; margin-top: 4px;">
+          <input type="text" id="folder-custom" aria-label="Custom folder name" placeholder="Custom folder..." style="display: none; margin-top: 4px;">
         </div>
         <div class="input-group">
-          <label>Segment</label>
+          <label for="segment-select">Segment</label>
           <select id="segment-select" onchange="onSegmentChange()">
             <option value="indices" selected>Indices</option>
             <option value="stocks">Stocks</option>
           </select>
         </div>
         <div class="input-group">
-          <label>Instrument</label>
+          <label for="instrument-select">Instrument</label>
           <select id="instrument-select" onchange="applyExecutionProfile(false)">
             <option value="" disabled selected>Select...</option>
             <option value="26000">NIFTY 50</option>
@@ -599,8 +600,8 @@
           </select>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; align-items: end;">
-          <div><label>From</label><input type="date" id="bt-from-date" value="2024-01-01"></div>
-          <div><label>To</label><input type="date" id="bt-to-date" value="2026-02-26"></div>
+          <div><label for="bt-from-date">From</label><input type="date" id="bt-from-date" value="2024-01-01"></div>
+          <div><label for="bt-to-date">To</label><input type="date" id="bt-to-date" value="2026-02-26"></div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; align-items: end;">
           <div>
@@ -621,15 +622,15 @@
           </div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; align-items: end;">
-          <div><label>Open</label><input type="time" id="entry-time-start" value="09:15"></div>
-          <div><label>Close</label><input type="time" id="sq-time" value="15:25"></div>
+          <div><label for="entry-time-start">Open</label><input type="time" id="entry-time-start" value="09:15"></div>
+          <div><label for="sq-time">Close</label><input type="time" id="sq-time" value="15:25"></div>
         </div>
         <div style="margin-bottom: 8px;">
-          <label>Max Trades Per Day</label>
+          <label for="max-trades-per-day">Max Trades Per Day</label>
           <input type="number" id="max-trades-per-day" value="1" min="1" max="20" step="1" title="Maximum number of trades allowed per day">
         </div>
         <div style="margin-bottom: 8px;">
-          <label>Max Daily Loss (₹)</label>
+          <label for="max-daily-loss">Max Daily Loss (₹)</label>
           <input type="number" id="max-daily-loss" value="0" min="0" step="500" placeholder="0 = unlimited" title="Stop trading if daily realized loss exceeds this amount (0 = no limit)">
         </div>
       </div>
@@ -649,7 +650,7 @@
         <h3 style="margin-bottom: 10px; font-size: 15px;">Indicators</h3>
         <div id="active-indicators-list" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; min-height: 24px;"></div>
         <div class="flex-row">
-          <select id="new-indicator-name" onchange="renderIndicatorFields()" style="width: 170px;">
+          <select id="new-indicator-name" aria-label="Indicator to add" onchange="renderIndicatorFields()" style="width: 170px;">
             <option value="Current_Candle" selected>Current Candle</option>
             <option value="Previous_Day">Previous Day Candle</option>
             <option value="ORB">ORB (Opening Range)</option>
@@ -723,7 +724,7 @@
               <div id="execution-profile-hint" style="font-size: 11px; color: var(--muted); margin-top: 2px;">Auto profile calibrates spread, slippage, and capital guardrails by instrument.</div>
             </div>
             <div style="min-width: 190px;">
-              <label style="font-size:11px;color:var(--muted);">Execution Profile</label>
+              <label for="execution-profile" style="font-size:11px;color:var(--muted);">Execution Profile</label>
               <select id="execution-profile" onchange="applyExecutionProfile(true)">
                 <option value="auto" selected>Auto (Recommended)</option>
                 <option value="custom">Custom</option>
@@ -954,11 +955,11 @@
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
       <h3 style="margin: 0; font-size: 16px;">Compare Backtests</h3>
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-        <select id="compare-run-a" style="width: 180px; font-size: 12px; padding: 6px 8px;">
+        <select id="compare-run-a" aria-label="First backtest run to compare" style="width: 180px; font-size: 12px; padding: 6px 8px;">
           <option value="">Select Run A</option>
         </select>
         <span style="color: var(--muted); font-weight: 600;">vs</span>
-        <select id="compare-run-b" style="width: 180px; font-size: 12px; padding: 6px 8px;">
+        <select id="compare-run-b" aria-label="Second backtest run to compare" style="width: 180px; font-size: 12px; padding: 6px 8px;">
           <option value="">Select Run B</option>
         </select>
         <button class="btn" onclick="compareBacktests()" style="font-size: 11px; padding: 6px 14px;">Compare</button>
@@ -1487,15 +1488,15 @@
         <div id="terminal-cascade-selected" class="terminal-cascade-selected">No scrip picked yet — choose one from the scanner above.</div>
         <div class="terminal-cascade-form-grid">
           <div class="terminal-cascade-field">
-            <label>Mother candle <span id="terminal-cascade-mother-readable" class="terminal-cascade-field-hint">--</span></label>
+            <label for="terminal-cascade-mother-timestamp">Mother candle <span id="terminal-cascade-mother-readable" class="terminal-cascade-field-hint">--</span></label>
             <input id="terminal-cascade-mother-timestamp" data-pf-calendar-no-future="1" type="datetime-local" step="300">
           </div>
           <div class="terminal-cascade-field">
-            <label>Capital INR</label>
+            <label for="terminal-cascade-capital">Capital INR</label>
             <input id="terminal-cascade-capital" type="number" min="1000" step="1000" value="100000">
           </div>
           <div class="terminal-cascade-field">
-            <label>Timeframe</label>
+            <label for="terminal-cascade-timeframe">Timeframe</label>
             <select id="terminal-cascade-timeframe" onchange="terminalCascadeTimeframeChanged()">
               <option value="5m" selected>5m</option>
               <option value="15m">15m</option>
@@ -1505,7 +1506,7 @@
           </div>
           <input id="terminal-cascade-target-pct" type="hidden" value="25">
           <div class="terminal-cascade-field">
-            <label>Product</label>
+            <label for="terminal-cascade-product">Product</label>
             <!-- CNC only: MTF interest and pledge costs are not in the cost
                  model, so an MTF campaign would report a profit it did not
                  make. The live executor refuses it for the same reason. -->
@@ -1843,16 +1844,16 @@
   </div>
 
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
-  <div class="oc-tabs" role="tablist">
-    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Swing-anchored 1m touch ladder · L2→L16, one lot each</span></button>
-    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
-    <button id="oc-tabbtn-space" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="space" title="Your mother candle, auto trendlines and fibs — the measured design, paper"><span class="oc-tab-name">◈ Fib Space</span><span class="oc-tab-sub">Your mother · auto trendlines + fibs · buys where two fibs converge</span></button>
-    <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ Recovery</span><span class="oc-tab-sub">Two reds breaking lower · SL on the entry candle · recovers the ledger</span></button>
-    <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother · history only, nothing trades</span></button>
+  <div class="oc-tabs" role="tablist" aria-label="Options Cascade strategies">
+    <button id="oc-tabbtn-fib" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-fib" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Manual mother, deep fib levels — paper + backtest"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Swing-anchored 1m touch ladder · L2→L16, one lot each</span></button>
+    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder, 1m to 1H — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">Two red candles, buy the recovery · climbs 1m → 1H, 1/2/3/4 lots</span></button>
+    <button id="oc-tabbtn-space" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-space" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="space" title="Your mother candle, auto trendlines and fibs — the measured design, paper"><span class="oc-tab-name">◈ Fib Space</span><span class="oc-tab-sub">Your mother · auto trendlines + fibs · buys where two fibs converge</span></button>
+    <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ Recovery</span><span class="oc-tab-sub">Two reds breaking lower · SL on the entry candle · recovers the ledger</span></button>
+    <button id="oc-tabbtn-bench" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-bench" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="bench" title="Replay one mother candle from history"><span class="oc-tab-name">⎇ Test Bench</span><span class="oc-tab-sub">Replay one past mother · history only, nothing trades</span></button>
   </div>
 
   <!-- ── TAB · Fib-boundary ── -->
-  <div id="oc-tab-fib" class="oc-tab-panel">
+  <div id="oc-tab-fib" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-fib">
     <div class="cascade-options-workspace oc-fib-workspace">
       <div class="card cascade-options-setup-card oc-fib-setup-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
@@ -1862,14 +1863,14 @@
         <div id="fibx-info" class="pf-info-pop" style="margin-bottom:14px;">The mother candle names <strong>where to look</strong> — it is no longer the fib anchor itself. The ladder is measured off the <strong>swing</strong> around it: the leg extreme behind the mother, and the extreme in front frozen by the <strong>first involvement</strong> (2 consecutive candles the other way). The <strong>mother chart</strong> sets how wide the swing is. Entries are always <strong>1-minute touches</strong> on L2·L3·L4·L6·L8·L12·L16, <strong>one lot each</strong>, until the ladder cap is spent. The whole basket sells at one target, <strong>0.25 of the way back</strong> toward the anchor, and the campaign then ends. No stop loss — only the target or expiry closes it.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
-            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
+            <label for="fibx-side" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Side</label>
             <select id="fibx-side" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
               <option value="CE" selected>Buy CE</option>
               <option value="PE">Buy PE</option>
             </select>
           </div>
           <div>
-            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Instrument</label>
+            <label for="fibx-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Instrument</label>
             <select id="fibx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
               <option value="NIFTY" selected>NIFTY · 65/lot</option>
               <option value="BANKNIFTY">BANKNIFTY · 30/lot</option>
@@ -1891,21 +1892,21 @@
             </div>
           </div>
           <div>
-            <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
-            <select id="fibx-mode" title="Paper records fills and sends nothing. Live runs the identical decision path against Dhan — and is built but NOT armed, so it refuses to send." style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
+            <label for="fibx-mode" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
+            <select id="fibx-mode" title="Paper records fills and sends nothing. Live remains unavailable until broker fills and restart reconciliation are verified." style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
               <option value="paper" selected>▣ Paper</option>
-              <option value="live">◉ Live (not armed)</option>
+              <option value="live" disabled>◉ Live · safety verification pending</option>
             </select>
           </div>
         </div>
         <div id="fibx-mode-note" style="min-height:15px;padding-top:7px;font:10px/1.45 'JetBrains Mono',monospace;color:var(--muted);"></div>
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
+        <label for="fibx-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin:10px 0 4px;">Mother timestamp · IST</label>
         <!-- step=60: this tab's timeframe list offers 1m, and a 5-minute step
              made a 1m mother impossible to type. -->
         <input id="fibx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="fibx-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
-          <div><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
+          <div><label for="fibx-capital-cap" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">₹ ladder cap</label><input id="fibx-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:8px 10px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;"></div>
+          <div><label for="fibx-itm" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">ITM steps</label><select id="fibx-itm" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;"><option value="2" selected>ATM − 2 (ITM)</option><option value="1">ATM − 1</option><option value="0">ATM</option></select></div>
         </div>
         <div class="pf-cascade-campaign-actions fibx-form-actions"><button id="fibx-start" class="btn cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button><button id="fibx-backtest-btn" class="btn cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest · real P&amp;L</button></div>
         <div id="fibx-mode-hint" style="min-height:16px;padding-top:8px;font:10.5px 'JetBrains Mono',monospace;color:#38bdf8;"></div>
@@ -1940,12 +1941,12 @@
     <div id="fibx-lower"></div>
 
     <template id="fibx-monitor-tpl">
-      <details class="cascade-options-window fibx-monitor-window" open>
-        <summary class="cascade-options-window-head">
+      <div class="cascade-options-window fibx-monitor-window">
+        <div class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 data-fx="title" style="margin:0;font-size:15px;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
           <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
           <div class="cascade-options-strip-actions"><button data-fx="chart" class="cascade-options-control" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart">↗ Full chart</button><button data-fx="arm" class="cascade-options-control is-danger" type="button" data-pf-action="armFibBoundaryLive" style="display:none;" title="Let this LIVE ladder actually send orders. Costs a password and an authenticator code.">⚡ Arm live</button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button></div>
-        </summary>
+        </div>
         <div class="cascade-options-window-body">
           <div data-fx="summary" class="cascade-options-summary"></div>
           <div data-fx="empty" class="cascade-options-empty">Start a campaign to see the swing it anchored on, every level it priced, each buy with its own strike and premium, and how much of the ladder cap is spent.</div>
@@ -1959,7 +1960,7 @@
             <div data-fx="gaps" style="margin-top:12px;"></div>
           </div>
         </div>
-      </details>
+      </div>
     </template>
 
     <template id="fibx-lower-tpl">
@@ -1981,7 +1982,7 @@
   </div>
 
   <!-- ── TAB · Candle-entry ── -->
-  <div id="oc-tab-candle" class="oc-tab-panel" style="display:none;">
+  <div id="oc-tab-candle" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-candle" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(96,165,250,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#93c5fd;">SEPARATE PAPER STRATEGY · TWO-RED LADDER · 1m → 1H</div><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Candle Entry Strategy <button type="button" class="pf-info-btn" data-pf-info="candle-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><div id="candle-info" class="pf-info-pop" style="max-width:720px;">Pick a starting chart and a completed mother candle from the last 15 calendar days. Two red closes arm a buy-stop on the FIRST red's close; each fill marks the low and climbs to the next chart — 1, 2, 3 then 4 lots, the whole basket leaving together on the first target. Today's mother runs a quote-backed paper campaign; an earlier date replays the index geometry only, without inventing fixed-strike premium or P&amp;L.</div></div><span id="candle-entry-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span></div>
       <div style="display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin-top:13px;"><div style="min-width:190px;"><label for="candle-entry-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Starting chart</label><select id="candle-entry-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div><div style="min-width:245px;flex:1;"><label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother timestamp · IST</label><input id="candle-entry-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="YYYY-MM-DDTHH:MM · IST" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div><button id="candle-entry-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="candle-entry-kill" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
@@ -2003,7 +2004,7 @@
   </div>
 
   <!-- ── TAB · Fib space (auto geometry) ── -->
-  <div id="oc-tab-space" class="oc-tab-panel" style="display:none;">
+  <div id="oc-tab-space" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-space" aria-hidden="true" style="display:none;">
     <div class="cascade-options-workspace">
       <div class="card cascade-options-setup-card" style="padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
@@ -2011,7 +2012,7 @@
           <span id="fsx-terms-hint" style="font:10px 'JetBrains Mono',monospace;color:#38bdf8;">15m geometry · 5m entries</span>
         </div>
         <div id="fsx-info" class="pf-info-pop" style="margin-bottom:14px;"><strong>You give the mother, it runs the trade.</strong> It draws the trendlines and fibs from your mother on 15m, buys where two fibs' levels converge, ladders 1/2/3 lots on the two-red recovery and banks each round at the 0.25 retrace — entries timed on 5m. <strong>Paper only</strong>: no real order is ever sent.</div>
-        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
+        <label for="fsx-symbol" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Underlying</label>
         <select id="fsx-symbol" style="width:100%;padding:8px 10px;font-family:'JetBrains Mono',monospace;">
           <option value="banknifty" selected>BankNifty — locked config, +₹6.72L / 73% over 22 months</option>
           <option value="nifty">NIFTY — 3-day cooldown, +₹1.95L / 70%</option>
@@ -2025,6 +2026,7 @@
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;">Give it a mother candle</div>
             <span id="fsx-scan-badge" style="font:9.5px 'JetBrains Mono',monospace;color:var(--muted);"></span>
           </div>
+          <label class="sr-only" for="fsx-mother-timestamp">Mother candle timestamp</label>
           <input id="fsx-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" data-pf-calendar-minutes="0,15,30,45" type="datetime-local" step="900" style="width:100%;padding:10px 12px;font:13px 'JetBrains Mono',monospace;box-sizing:border-box;">
           <div style="margin-top:8px;font:10.5px 'JetBrains Mono',monospace;color:var(--muted);line-height:1.5;">A completed <strong style="color:var(--text);">15m</strong> candle open — 09:15, 09:30, 09:45… Its high and low come from Dhan; nothing is typed by hand. Add as many mothers as you like, each runs as its own campaign.</div>
           <div class="pf-cascade-campaign-actions"><button id="fsx-add-mother" class="btn cascade-options-primary-btn" type="button" data-pf-action="addFibSpaceMother">＋ Run this mother</button></div>
@@ -2077,7 +2079,7 @@
     </div>
   </div>
 
-  <div id="oc-tab-recovery" class="oc-tab-panel" style="display:none;">
+  <div id="oc-tab-recovery" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-recovery" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
@@ -2110,6 +2112,7 @@
       <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
         <div style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:var(--muted);">GIVE IT A MOTHER CANDLE</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;">
+          <label class="sr-only" for="recovery-mother">Recovery mother candle timestamp</label>
           <input id="recovery-mother" class="pf-input" type="datetime-local" step="60" style="flex:1;min-width:220px;">
           <button id="recovery-add-mother" class="btn" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
         </div>
@@ -2128,7 +2131,7 @@
       <div id="recovery-campaigns" style="margin-top:14px;"></div>
     </div>
   </div>
-  <div id="oc-tab-bench" class="oc-tab-panel" style="display:none;">
+  <div id="oc-tab-bench" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-bench" aria-hidden="true" style="display:none;">
   <div class="tb-controls card">
     <div class="tb-field">
       <label for="tb-instrument">Instrument</label>
@@ -2163,16 +2166,16 @@
 
   <div id="tb-status" class="tb-status" role="status"></div>
 
-  <details id="tb-saved" class="cascade-options-window" open>
-    <summary class="cascade-options-window-head">
+  <section id="tb-saved" class="cascade-options-window">
+    <div class="cascade-options-window-head">
       <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Saved runs</h3><span id="tb-saved-count" class="cascade-options-state">0</span></div><div class="cascade-options-contract">Every mother you have replayed — newest first</div></div>
       <div class="cascade-options-strip-actions"><input id="tb-search" type="search" placeholder="Search a date, e.g. 2026-07-15" aria-label="Search saved runs" style="min-width:230px;padding:7px 10px;font:11px 'JetBrains Mono',monospace;"></div>
-    </summary>
+    </div>
     <div class="cascade-options-window-body">
       <div class="tb-table-scroll"><table class="tb-table" id="tb-saved-table"></table></div>
       <div id="tb-pager" class="tb-pager"></div>
     </div>
-  </details>
+  </section>
 
   <div id="tb-results" class="tb-results" hidden>
     <details id="tb-result-strip" class="cascade-options-window" open>
@@ -2206,14 +2209,14 @@
 <!-- ═══ SCALP PAGE ═══ -->
 <div id="insights-page" class="page-section">
 
-  <div class="oc-tabs" role="tablist">
-    <button id="insights-tabbtn-heatmap" class="oc-tab is-active" type="button" role="tab" data-pf-action="showInsightsTab" data-insights-tab="heatmap" title="What moved today, and by how much"><span class="oc-tab-name">▦ Heatmap</span><span class="oc-tab-sub">Gainers, losers and the profit/loss grid · live prices</span></button>
-    <button id="insights-tabbtn-study" class="oc-tab" type="button" role="tab" data-pf-action="showInsightsTab" data-insights-tab="study" title="Reading and reference, between trades"><span class="oc-tab-name">◫ Study Lounge</span><span class="oc-tab-sub">Reset, replay one idea, come back sharper</span></button>
+  <div class="oc-tabs" role="tablist" aria-label="Insights views">
+    <button id="insights-tabbtn-heatmap" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="insights-heatmap" tabindex="0" data-pf-action="showInsightsTab" data-insights-tab="heatmap" title="What moved today, and by how much"><span class="oc-tab-name">▦ Heatmap</span><span class="oc-tab-sub">Gainers, losers and the profit/loss grid · live prices</span></button>
+    <button id="insights-tabbtn-study" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="insights-study" tabindex="-1" data-pf-action="showInsightsTab" data-insights-tab="study" title="Reading and reference, between trades"><span class="oc-tab-name">◫ Study Lounge</span><span class="oc-tab-sub">Reset, replay one idea, come back sharper</span></button>
   </div>
 
   <!-- ── TAB · Heatmap ── (markup lifted from market_movers.html; its CSS is
        scoped into static/insights-panels.css by tools/scope_insights_css.py) -->
-  <div id="insights-heatmap" class="oc-tab-panel">
+  <div id="insights-heatmap" class="oc-tab-panel" role="tabpanel" aria-labelledby="insights-tabbtn-heatmap">
     <div class="insights-strip">
       <span id="market-status" class="cascade-options-state">Loading…</span>
       <span id="market-source" class="insights-strip-note">—</span>
@@ -2227,7 +2230,7 @@
               <h1>Market Movers</h1>
             </div>
             <div class="sync-meta">
-              <span class="meta-pill" id="market-source">Waiting for feed</span>
+              <span class="meta-pill" id="market-source-detail">Waiting for feed</span>
               <span class="meta-pill" id="market-age">Auto-refresh active</span>
             </div>
           </div>
@@ -2351,7 +2354,7 @@
   </div>
 
   <!-- ── TAB · Study Lounge ── -->
-  <div id="insights-study" class="oc-tab-panel" style="display:none;">
+  <div id="insights-study" class="oc-tab-panel" role="tabpanel" aria-labelledby="insights-tabbtn-study" aria-hidden="true" style="display:none;">
     <div class="insights-strip">
       <span id="library-status" class="cascade-options-state">Loading…</span>
       <label class="insights-strip-note" for="category-filter-select">Category</label>
@@ -2546,7 +2549,7 @@
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
         <!-- Row 1: UNDERLYING | EXPIRY -->
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
+          <label for="scalp-underlying" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
           <select id="scalp-underlying" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
             <option value="NIFTY">NIFTY</option>
             <option value="BANKNIFTY">BANKNIFTY</option>
@@ -2555,7 +2558,7 @@
           </select>
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
+          <label for="scalp-expiry" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
           <select id="scalp-expiry" style="font-size: 13px; padding: 8px 10px;"></select>
         </div>
         <!-- Row 2: LIVE PREMIUM | MARGIN REQUIRED -->
@@ -2583,7 +2586,7 @@
           </div>
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
+          <label for="scalp-strike" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
           <div style="display: flex; gap: 6px; align-items: center;">
             <button onclick="stepScalpStrike(-1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">−</button>
             <input type="number" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;" onchange="fetchScalpLTPThrottled()">
@@ -2592,14 +2595,14 @@
         </div>
         <!-- Row 4: PRODUCT | LOTS -->
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Product</label>
+          <label for="scalp-product-type" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Product</label>
           <select id="scalp-product-type" style="font-size: 13px; padding: 8px 10px;">
             <option value="INTRADAY">Intraday</option>
             <option value="MARGIN">Normal - Till Expiry</option>
           </select>
         </div>
         <div>
-          <label style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span class="label-suffix">(×<span id="scalp-lot-size-label">65</span>)</span></label>
+          <label for="scalp-lots" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Lots <span class="label-suffix">(×<span id="scalp-lot-size-label">65</span>)</span></label>
           <input type="number" id="scalp-lots" value="4" min="1" style="font-size: 13px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace;" onchange="updateScalpMargin()" oninput="updateScalpMargin()">
           <input type="hidden" id="scalp-lot-size" value="65">
         </div>
@@ -2610,19 +2613,19 @@
         <div style="font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">Exit Rules (optional — leave 0 to skip)</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
           <div>
-            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL ₹ (max loss)</label>
+            <label for="scalp-sl-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL ₹ (max loss)</label>
             <input type="number" id="scalp-sl-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
           <div>
-            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target ₹ (total P&L)</label>
+            <label for="scalp-target-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target ₹ (total P&L)</label>
             <input type="number" id="scalp-target-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
           <div>
-            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL Premium ₹</label>
+            <label for="scalp-sl-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL Premium ₹</label>
             <input type="number" id="scalp-sl-prem" value="100" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
           <div>
-            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target Premium ₹</label>
+            <label for="scalp-target-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target Premium ₹</label>
             <input type="number" id="scalp-target-prem" value="300" min="0" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
         </div>
@@ -2633,11 +2636,11 @@
         <div style="font-size: 10px; font-weight: 700; color: rgba(139,143,255,0.9); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">⏳ Stop-Limit Entry (optional — leave 0 for market order)</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
           <div>
-            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Trigger Price ₹</label>
+            <label for="scalp-limit-price" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Trigger Price ₹</label>
             <input type="number" id="scalp-limit-price" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
           <div>
-            <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Max Price ₹</label>
+            <label for="scalp-limit-max" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Max Price ₹</label>
             <input type="number" id="scalp-limit-max" value="0" step="0.5" min="0" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
           </div>
         </div>
@@ -2677,7 +2680,7 @@
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
         <thead>
           <tr style="border-bottom: 1px solid var(--border-hi); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;">
-            <th style="padding: 8px 6px; width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" onchange="toggleAllScalpHist(this)"></th>
+            <th style="padding: 8px 6px; width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" aria-label="Select all scalp history trades" onchange="toggleAllScalpHist(this)"></th>
             <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('date')" id="scalp-th-date">Date</th>
             <th style="padding: 8px 10px; text-align: left; cursor:pointer;" onclick="_sortScalpHistory('symbol')" id="scalp-th-symbol">Symbol</th>
             <th style="padding: 8px 6px; text-align: center; cursor:pointer;" onclick="_sortScalpHistory('dir')" id="scalp-th-dir">Dir</th>
@@ -2741,11 +2744,11 @@
           </div>
           <span class="cj-journal-save-dot" id="cj-save-dot" title="Saved"></span>
         </div>
-        <div class="cj-panel-tabs">
-          <button type="button" id="cj-tab-journal" class="cj-panel-tab active" onclick="window._cjShowPanel('journal')">Journal</button>
-          <button type="button" id="cj-tab-plan" class="cj-panel-tab" onclick="window._cjShowPanel('plan')">Financial Plan</button>
+        <div class="cj-panel-tabs" role="tablist" aria-label="Journal views">
+          <button type="button" id="cj-tab-journal" class="cj-panel-tab active" role="tab" aria-selected="true" aria-controls="cj-journal-view" tabindex="0" onclick="window._cjShowPanel('journal')">Journal</button>
+          <button type="button" id="cj-tab-plan" class="cj-panel-tab" role="tab" aria-selected="false" aria-controls="cj-plan-view" tabindex="-1" onclick="window._cjShowPanel('plan')">Financial Plan</button>
         </div>
-        <div id="cj-journal-view" class="cj-panel-view active">
+        <div id="cj-journal-view" class="cj-panel-view active" role="tabpanel" aria-labelledby="cj-tab-journal">
           <!-- Journal entries list -->
           <div id="cj-entries-list" class="cj-entries-list"></div>
           <form id="cj-form" autocomplete="off" class="cj-form">
@@ -2792,7 +2795,7 @@
             <button type="button" id="cj-submit-btn" class="cj-submit-btn" onclick="window._cjManualSave()"><span id="cj-save-ico"></span> Save Journal</button>
           </form>
         </div>
-        <div id="cj-plan-view" class="cj-panel-view">
+        <div id="cj-plan-view" class="cj-panel-view" role="tabpanel" aria-labelledby="cj-tab-plan" aria-hidden="true">
           <div class="cj-plan-wrap">
             <div class="cj-plan-toolbar">
               <div>
@@ -2826,6 +2829,7 @@
     <div class="ch-lb-caption"><div class="lb-name" id="ch-lb-name"></div><div class="lb-count" id="ch-lb-count"></div><div class="lb-hint">Use mouse wheel or +/- to zoom. Drag the image when zoomed.</div></div>
   </div>
 </div>
+</main>
 
 <!-- ═══ APPEARANCE MODAL ═══ -->
 <div class="modal-overlay" id="appearance-modal" data-pf-dismiss-action="closeAppearanceModal">

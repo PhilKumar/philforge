@@ -7,6 +7,7 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
@@ -171,6 +172,111 @@ async function login(page: Page) {
   // Wait for the authenticated shell (nav bar rendered by strategy.html)
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
 }
+
+async function seriousAccessibilityViolations(page: Page, include?: string) {
+  let builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
+  if (include) builder = builder.include(include);
+  const results = await builder.analyze();
+  return results.violations
+    .filter((violation) => ['serious', 'critical'].includes(violation.impact || ''))
+    .map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      targets: violation.nodes.map((node) => node.target),
+    }));
+}
+
+test('Login is semantic, keyboard-visible, and has no serious WCAG A/AA violations', async ({ page }) => {
+  await installOfflineE2E(page);
+  await page.goto('/app');
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'PhilForge' })).toBeVisible();
+  await expect(page.getByLabel('Username')).toBeVisible();
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  const smallControls = await page.locator('button:visible, a:visible, input:visible').evaluateAll((controls) =>
+    controls
+      .map((control) => {
+        const rect = control.getBoundingClientRect();
+        return { id: control.id, width: rect.width, height: rect.height };
+      })
+      .filter((control) => control.width < 44 || control.height < 44)
+  );
+  expect(smallControls).toEqual([]);
+  expect(await seriousAccessibilityViolations(page)).toEqual([]);
+});
+
+test('Authenticated primary surfaces have landmarks and no serious automated WCAG violations', async ({ page }) => {
+  await login(page);
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
+  await expect(page.getByRole('main')).toBeVisible();
+
+  const surfaces = [
+    ['#nav-dashboard', '#dashboard-page'],
+    ['#nav-portfolio', '#portfolio-page'],
+    ['#nav-insights', '#insights-page'],
+    ['#nav-live', '#live-page'],
+    ['#nav-terminal', '#stock-terminal-page'],
+    ['#nav-scalp', '#scalp-page'],
+    ['#nav-cascade', '#options-cascade-page'],
+    ['#nav-builder', '#builder-page'],
+    ['#nav-charts', '#charts-page'],
+    ['#nav-results', '#results-page'],
+  ];
+  for (const [control, pageSection] of surfaces) {
+    await page.click(control);
+    await expect(page.locator(control)).toHaveAttribute('aria-current', 'page');
+    expect(await seriousAccessibilityViolations(page, pageSection), pageSection).toEqual([]);
+  }
+});
+
+test('Insights, Cascade, and Journal subpanels have no serious automated WCAG violations', async ({ page }) => {
+  await login(page);
+
+  await page.click('#nav-insights');
+  for (const [control, panel] of [
+    ['#insights-tabbtn-heatmap', '#insights-heatmap'],
+    ['#insights-tabbtn-study', '#insights-study'],
+  ]) {
+    await page.click(control);
+    await expect(page.locator(control)).toHaveAttribute('aria-selected', 'true');
+    expect(await seriousAccessibilityViolations(page, panel), panel).toEqual([]);
+  }
+  await page.locator('#insights-tabbtn-study').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#insights-tabbtn-heatmap')).toHaveAttribute('aria-selected', 'true');
+
+  await page.click('#nav-cascade');
+  for (const [control, panel] of [
+    ['#oc-tabbtn-fib', '#oc-tab-fib'],
+    ['#oc-tabbtn-candle', '#oc-tab-candle'],
+    ['#oc-tabbtn-space', '#oc-tab-space'],
+    ['#oc-tabbtn-recovery', '#oc-tab-recovery'],
+    ['#oc-tabbtn-bench', '#oc-tab-bench'],
+  ]) {
+    await page.click(control);
+    await expect(page.locator(control)).toHaveAttribute('aria-selected', 'true');
+    expect(await seriousAccessibilityViolations(page, panel), panel).toEqual([]);
+  }
+  await page.locator('#oc-tabbtn-bench').focus();
+  await page.keyboard.press('Home');
+  await expect(page.locator('#oc-tabbtn-fib')).toHaveAttribute('aria-selected', 'true');
+
+  await page.click('#nav-charts');
+  for (const [control, panel] of [
+    ['#cj-tab-journal', '#cj-journal-view'],
+    ['#cj-tab-plan', '#cj-plan-view'],
+  ]) {
+    await page.click(control);
+    await expect(page.locator(control)).toHaveAttribute('aria-selected', 'true');
+    expect(await seriousAccessibilityViolations(page, panel), panel).toEqual([]);
+  }
+  await page.locator('#cj-tab-plan').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#cj-tab-journal')).toHaveAttribute('aria-selected', 'true');
+});
 
 // ── Health check ─────────────────────────────────────────────
 test('Health endpoint returns OK', async ({ request }) => {
@@ -601,15 +707,12 @@ test('Fib Boundary tab renders the swing-ladder controls', async ({ page }) => {
   await expect(page.locator('#fibx-timeframe .fibx-tf[data-tf="15m"]')).toHaveClass(/is-active/);
   await page.click('#fibx-timeframe .fibx-tf[data-tf="1m"]');
 
-  // Paper is what you get by default, and live says it is not armed BEFORE
-  // it is picked -- finding that out at the first touch helps nobody.
+  // Paper is what you get by default. Live stays visibly safety-locked until
+  // broker fill, exit, and restart reconciliation have acceptance coverage.
   await expect(page.locator('#fibx-mode')).toHaveValue('paper');
   await expect(page.locator('#fibx-mode-note')).toContainText('sends nothing');
-  await page.selectOption('#fibx-mode', 'live');
-  await expect(page.locator('#fibx-mode-note')).toContainText('UNARMED');
-  // The arming step is named, not left hanging.
-  await expect(page.locator('#fibx-mode-note')).toContainText('Arm on the running campaign');
-  await page.selectOption('#fibx-mode', 'paper');
+  await expect(page.locator('#fibx-mode option[value="live"]')).toBeDisabled();
+  await expect(page.locator('#fibx-mode')).toHaveAttribute('title', /Live remains unavailable/);
 
   // A symbol whose weeklies NSE withdrew must say so, or the user believes
   // they are getting a weekly contract that does not exist.
@@ -703,9 +806,9 @@ test('Fib Boundary chart paints the swing, every level and each buy', async ({ p
   // The monitor renders the running ladder before the chart is even opened.
   await expect(page.locator('#fibx-monitors [data-fx="badge"]')).toHaveText('OPEN');
   await expect(page.locator('#fibx-monitors [data-fx="fills"] tr')).toHaveCount(2);
-  // Start is never silently dead: with a ladder running it names the one to
-  // kill, which is what "BANKNIFTY is not working" actually was.
-  await expect(page.locator('#fibx-start')).toBeEnabled();
+  // Start is fail-closed for the selected instrument while its ladder runs,
+  // and the button names exactly what must happen first.
+  await expect(page.locator('#fibx-start')).toBeDisabled();
   await expect(page.locator('#fibx-start')).toContainText('Kill the NIFTY ladder first');
   // Which ladder is blocking is a TABLE, not a sentence that read as a riddle.
   await expect(page.locator('#fibx-blocked table')).toBeVisible();

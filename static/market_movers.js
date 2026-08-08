@@ -398,6 +398,8 @@ function renderSnapshot(payload) {
   const industryMoves = computeIndustryMoves(items);
 
   document.getElementById('market-source').textContent = sourceLabel(payload);
+  const sourceDetail = document.getElementById('market-source-detail');
+  if (sourceDetail) sourceDetail.textContent = sourceLabel(payload);
   document.getElementById('market-status').textContent = marketStatusLabel(payload);
   document.getElementById('market-as-of').textContent = formatAsOf(payload.as_of);
   document.getElementById('page-message').textContent = payload.message || 'Nifty 50 live breadth is synced to a standalone feed.';
@@ -439,6 +441,8 @@ async function loadMarketMovers() {
   } catch (error) {
     document.getElementById('market-status').textContent = 'Feed unavailable';
     document.getElementById('market-source').textContent = 'Feed unavailable';
+    const sourceDetail = document.getElementById('market-source-detail');
+    if (sourceDetail) sourceDetail.textContent = 'Feed unavailable';
     document.getElementById('page-message').textContent = latestPayload
       ? 'Unable to refresh right now. Showing the latest available snapshot.'
       : 'Unable to fetch market movers right now.';
@@ -460,6 +464,8 @@ function startMarketMovers() {
     renderSnapshot(cached);
     document.getElementById('market-status').textContent = 'Refreshing snapshot...';
     document.getElementById('market-source').textContent = 'Cached snapshot';
+    const sourceDetail = document.getElementById('market-source-detail');
+    if (sourceDetail) sourceDetail.textContent = 'Cached snapshot';
   } else {
     renderLoadingSkeleton();
   }

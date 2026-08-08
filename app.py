@@ -75,6 +75,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import auth as _auth_mod
 import config
@@ -111,6 +112,7 @@ from engine.fib_space_cascade import SpaceCascadeConfig
 from engine.fib_space_host import DEFAULT_POLL_SECONDS as FIB_SPACE_POLL_SECONDS
 from engine.fib_space_host import LIVE_SYMBOLS as FIB_SPACE_SYMBOLS
 from engine.fib_space_host import FibSpacePaperHost
+from engine.fib_touch_ladder import FIB_TOUCH_LIVE_EXECUTION_ENABLED as _FIB_TOUCH_LIVE_EXECUTION_ENABLED
 from engine.fib_touch_ladder import GEOMETRY_TIMEFRAMES as _FIB_TOUCH_GEOMETRY_TF
 from engine.fib_touch_ladder import (
     HALVING_LEVELS,
@@ -140,7 +142,11 @@ from engine.timeframes import (
     describe_timeframe,
     resolve_strategy_timeframe,
 )
+from image_uploads import ImageValidationError, sanitize_image
+from journal_validation import JournalValidationError, clean_journal_payload, validate_journal_date
 from market_movers import get_nifty50_market_movers_snapshot
+from request_security import request_client_ip as _request_client_ip
+from request_security import request_rate_subject as _request_rate_subject
 from study_content import get_study_library, sanitize_study_asset
 
 try:
@@ -215,6 +221,18 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Request-ID", "X-PhilForge-Action-Token"],
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=[
+        "philforge.in",
+        "www.philforge.in",
+        "philforge.test",
+        "e2e.local",
+        "127.0.0.1",
+        "localhost",
+        "testserver",
+    ],
 )
 
 from error_handlers import register_error_handlers
@@ -3405,7 +3423,7 @@ def check_rate_limit(endpoint: str, client_ip: str = "global", max_calls: int = 
             pipe = r.pipeline()
             pipe.zremrangebyscore(key, 0, now_ms - window_sec * 1000)
             pipe.zcard(key)
-            pipe.zadd(key, {str(now_ms): now_ms})
+            pipe.zadd(key, {f"{now_ms}:{secrets.token_hex(8)}": now_ms})
             pipe.expire(key, window_sec + 1)
             _, count, *_ = pipe.execute()
             if count >= max_calls:
@@ -3472,43 +3490,43 @@ class LiveStartRequest(BaseModel):
 
 
 class OrderRequest(BaseModel):
-    security_id: str
-    exchange_segment: str = "NSE_EQ"
-    transaction_type: str
+    security_id: str = Field(min_length=1, max_length=64)
+    exchange_segment: str = Field(default="NSE_EQ", min_length=1, max_length=32)
+    transaction_type: str = Field(min_length=3, max_length=4)
     quantity: int = Field(ge=1, le=100_000)
-    order_type: str = "MARKET"
-    product_type: str = "INTRADAY"
+    order_type: str = Field(default="MARKET", min_length=2, max_length=32)
+    product_type: str = Field(default="INTRADAY", min_length=2, max_length=32)
     price: float = Field(default=0, ge=0)
     trigger_price: float = Field(default=0, ge=0)
-    validity: str = "DAY"
+    validity: str = Field(default="DAY", min_length=3, max_length=3)
     disclosed_quantity: int = Field(default=0, ge=0)
     after_market_order: bool = False
-    amo_time: str = ""
+    amo_time: str = Field(default="", max_length=16)
     bo_profit_value: float = Field(default=0, ge=0)
     bo_stop_loss_value: float = Field(default=0, ge=0)
     slice_order: bool = False
 
 
 class StockTerminalOrderRequest(BaseModel):
-    symbol: str
-    transaction_type: str
+    symbol: str = Field(min_length=1, max_length=32)
+    transaction_type: str = Field(min_length=3, max_length=4)
     quantity: int = Field(ge=1, le=100_000)
-    order_type: str = "MARKET"
-    product_type: str = "INTRADAY"
+    order_type: str = Field(default="MARKET", min_length=2, max_length=32)
+    product_type: str = Field(default="INTRADAY", min_length=2, max_length=32)
     price: float = Field(default=0, ge=0)
     trigger_price: float = Field(default=0, ge=0)
-    validity: str = "DAY"
+    validity: str = Field(default="DAY", min_length=3, max_length=3)
     disclosed_quantity: int = Field(default=0, ge=0)
     after_market_order: bool = False
-    amo_time: str = ""
+    amo_time: str = Field(default="", max_length=16)
     bo_profit_value: float = Field(default=0, ge=0)
     bo_stop_loss_value: float = Field(default=0, ge=0)
     slice_order: bool = False
 
 
 class StockTerminalGttRequest(BaseModel):
-    symbol: str
-    transaction_type: str
+    symbol: str = Field(min_length=1, max_length=32)
+    transaction_type: str = Field(min_length=3, max_length=4)
     quantity: int = Field(ge=1, le=100_000)
     order_flag: str = "SINGLE"
     order_type: str = "LIMIT"
@@ -3520,6 +3538,43 @@ class StockTerminalGttRequest(BaseModel):
     trigger_price1: float = Field(default=0, ge=0)
     quantity1: int = Field(default=0, ge=0)
     disclosed_quantity: int = Field(default=0, ge=0)
+
+
+_ORDER_EXCHANGES = {"NSE_EQ", "NSE_FNO", "NSE_CURRENCY", "BSE_EQ", "BSE_FNO", "BSE_CURRENCY", "MCX_COMM"}
+_ORDER_PRODUCTS = {"CNC", "INTRADAY", "MARGIN", "MTF", "CO", "BO"}
+_ORDER_TYPES = {"MARKET", "LIMIT", "STOP_LOSS", "STOP_LOSS_MARKET"}
+_ORDER_VALIDITIES = {"DAY", "IOC"}
+_AMO_TIMES = {"", "PRE_OPEN", "OPEN", "OPEN_30", "OPEN_60"}
+
+
+def _validated_order_values(req: OrderRequest) -> dict[str, str]:
+    values = {
+        "transaction_type": str(req.transaction_type or "").upper(),
+        "exchange_segment": str(req.exchange_segment or "").upper(),
+        "order_type": str(req.order_type or "").upper(),
+        "product_type": str(req.product_type or "").upper(),
+        "validity": str(req.validity or "").upper(),
+        "amo_time": str(req.amo_time or "").upper(),
+    }
+    if values["transaction_type"] not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=400, detail="transaction_type must be BUY or SELL")
+    if values["exchange_segment"] not in _ORDER_EXCHANGES:
+        raise HTTPException(status_code=400, detail="Unsupported exchange_segment")
+    if values["order_type"] not in _ORDER_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported order_type")
+    if values["product_type"] not in _ORDER_PRODUCTS:
+        raise HTTPException(status_code=400, detail="Unsupported product_type")
+    if values["validity"] not in _ORDER_VALIDITIES:
+        raise HTTPException(status_code=400, detail="validity must be DAY or IOC")
+    if req.disclosed_quantity > req.quantity:
+        raise HTTPException(status_code=400, detail="disclosed_quantity cannot exceed quantity")
+    if values["order_type"] in {"LIMIT", "STOP_LOSS"} and req.price <= 0:
+        raise HTTPException(status_code=400, detail=f"{values['order_type']} requires price")
+    if values["order_type"] in {"STOP_LOSS", "STOP_LOSS_MARKET"} and req.trigger_price <= 0:
+        raise HTTPException(status_code=400, detail=f"{values['order_type']} requires trigger_price")
+    if req.after_market_order and values["amo_time"] not in _AMO_TIMES:
+        raise HTTPException(status_code=400, detail="Unsupported AMO time")
+    return values
 
 
 class StrategyPayload(BaseModel):
@@ -3891,24 +3946,34 @@ def _parse_month_folder(name: str):
 
 def _parse_day_folder(name: str, *, year_hint: int | None = None, month_hint: int | None = None):
     """Parse day folder → (sort_key, display_label) or fallback to name itself."""
+
+    def _valid_date_parts(year_value: int, month_value: int, day_value: int) -> bool:
+        try:
+            date(year_value, month_value, day_value)
+            return True
+        except (TypeError, ValueError):
+            return False
+
     # DD_MM_YYYY or DD-MM-YYYY (all numeric)
     m = _re.match(r"^(\d{1,2})[\s_-](\d{1,2})[\s_-](\d{4})$", name)
     if m:
         dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        return f"{yyyy:04d}-{mm:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[mm]}"
+        if _valid_date_parts(yyyy, mm, dd):
+            return f"{yyyy:04d}-{mm:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[mm]}"
     # DD-Mon-YYYY (e.g. 01-Feb-2026)
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)[\s_-](\d{4})$", name)
     if m:
         dd = int(m.group(1))
         num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
-        if num:
-            return f"{int(m.group(3)):04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
+        yyyy = int(m.group(3))
+        if num and _valid_date_parts(yyyy, num, dd):
+            return f"{yyyy:04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
     # DD-Mon (no year, e.g. 13-Feb)
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)$", name)
     if m:
         dd = int(m.group(1))
         num = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3])
-        if num:
+        if num and _valid_date_parts(int(year_hint) if year_hint else 2000, num, dd):
             yyyy = int(year_hint) if year_hint else 9999
             return f"{yyyy:04d}-{num:02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[num]}"
     # Mon-DD-DD or Mon-DD-DD-DD (ranges like Feb-12-15, Feb-4-5-6)
@@ -3916,12 +3981,12 @@ def _parse_day_folder(name: str, *, year_hint: int | None = None, month_hint: in
     if m:
         num = _MONTH_MAP.get(m.group(1).upper()) or _MONTH_MAP.get(m.group(1).upper()[:3])
         dd = int(m.group(2))
-        if num:
+        if num and _valid_date_parts(int(year_hint) if year_hint else 2000, num, dd):
             yyyy = int(year_hint) if year_hint else 9999
             return f"{yyyy:04d}-{num:02d}-{dd:02d}", name
     # DD only — infer month/year from the enclosing folder when possible
     m = _re.match(r"^(\d{1,2})$", name)
-    if m and year_hint and month_hint:
+    if m and year_hint and month_hint and _valid_date_parts(int(year_hint), int(month_hint), int(m.group(1))):
         dd = int(m.group(1))
         return f"{int(year_hint):04d}-{int(month_hint):02d}-{dd:02d}", f"{dd:02d} {_cal.month_abbr[int(month_hint)]}"
     # Fallback — sort after all dated entries
@@ -3934,35 +3999,48 @@ def _canonicalize_chart_day_folder_name(year: str, month_folder: str, day_name: 
         return ""
     parsed_month = _parse_month_folder(str(month_folder or ""))
     if parsed_month is None:
-        return safe_name
-    month_num, month_label = parsed_month
+        return ""
+    month_num, _month_label = parsed_month
+    if not _re.fullmatch(r"\d{4}", str(year or "")):
+        return ""
     year_int = int(year)
+    month_parts = _re.split(r"[_-]", str(month_folder or ""), maxsplit=1)
+    if len(month_parts) != 2 or month_parts[1] != str(year_int):
+        return ""
+
+    def _canonical_date(day_value: int, month_value: int, year_value: int) -> str:
+        try:
+            parsed = date(year_value, month_value, day_value)
+        except ValueError:
+            return ""
+        if parsed.year != year_int or parsed.month != month_num:
+            return ""
+        return f"{parsed.day:02d}-{_cal.month_abbr[parsed.month]}-{parsed.year:04d}"
 
     m = _re.match(r"^(\d{1,2})[\s_-](\d{1,2})[\s_-](\d{4})$", safe_name)
     if m:
         dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        month_abbr = _cal.month_abbr[mm] if 1 <= mm <= 12 else month_label
-        return f"{dd:02d}-{month_abbr}-{yyyy:04d}"
+        return _canonical_date(dd, mm, yyyy)
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)[\s_-](\d{4})$", safe_name)
     if m:
         dd = int(m.group(1))
         mon = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3]) or month_num
-        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{int(m.group(3)):04d}"
+        return _canonical_date(dd, int(mon), int(m.group(3)))
     m = _re.match(r"^(\d{1,2})[\s_-]([A-Za-z]+)$", safe_name)
     if m:
         dd = int(m.group(1))
         mon = _MONTH_MAP.get(m.group(2).upper()) or _MONTH_MAP.get(m.group(2).upper()[:3]) or month_num
-        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{year_int:04d}"
+        return _canonical_date(dd, int(mon), year_int)
     m = _re.match(r"^([A-Za-z]+)[\s_-](\d{1,2})$", safe_name)
     if m:
         mon = _MONTH_MAP.get(m.group(1).upper()) or _MONTH_MAP.get(m.group(1).upper()[:3]) or month_num
         dd = int(m.group(2))
-        return f"{dd:02d}-{_cal.month_abbr[int(mon)]}-{year_int:04d}"
+        return _canonical_date(dd, int(mon), year_int)
     m = _re.match(r"^(\d{1,2})$", safe_name)
     if m:
         dd = int(m.group(1))
-        return f"{dd:02d}-{month_label}-{year_int:04d}"
-    return safe_name
+        return _canonical_date(dd, month_num, year_int)
+    return ""
 
 
 def _resolve_legacy_chart_date(user_id: int, date_str: str) -> str:
@@ -4273,6 +4351,83 @@ _ALLOWED_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
+async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _chart_upload_target(
+    target_year: str | None,
+    target_month: str | None,
+    target_day: str | None,
+) -> tuple[str, str, str, date]:
+    supplied = [target_year is not None, target_month is not None, target_day is not None]
+    if any(supplied) and not all(supplied):
+        raise HTTPException(status_code=400, detail="target_year, target_month, and target_day are required together")
+
+    if not any(supplied):
+        target_date = datetime.now(IST).date()
+        month_abbr = _cal.month_abbr[target_date.month]
+        return (
+            str(target_date.year),
+            f"{month_abbr}-{target_date.year}",
+            f"{target_date.day:02d}-{month_abbr}-{target_date.year}",
+            target_date,
+        )
+
+    year_str = str(target_year or "")
+    month_folder = str(target_month or "")
+    day_folder = str(target_day or "")
+    if not _re.fullmatch(r"\d{4}", year_str):
+        raise HTTPException(status_code=400, detail="Invalid target year")
+    parsed_month = _parse_month_folder(month_folder)
+    if parsed_month is None:
+        raise HTTPException(status_code=400, detail="Invalid target month")
+    month_num, _month_abbr = parsed_month
+    month_parts = _re.split(r"[_-]", month_folder, maxsplit=1)
+    if len(month_parts) != 2 or month_parts[1] != year_str:
+        raise HTTPException(status_code=400, detail="Target month does not match its year")
+    sort_key, _day_label = _parse_day_folder(day_folder, year_hint=int(year_str), month_hint=month_num)
+    try:
+        target_date = date.fromisoformat(sort_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid target day") from exc
+    if target_date.year != int(year_str) or target_date.month != month_num:
+        raise HTTPException(status_code=400, detail="Invalid target day")
+    return year_str, month_folder, day_folder, target_date
+
+
+def _write_unique_chart(data: bytes, day_path: str, date_tag: str, extension: str) -> tuple[str, str]:
+    for counter in range(10_000):
+        suffix = "" if counter == 0 else f"_{counter}"
+        filename = f"Nifty_{date_tag}{suffix}{extension}"
+        file_path = os.path.join(day_path, filename)
+        try:
+            fd = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+        except Exception:
+            try:
+                os.unlink(file_path)
+            except OSError:
+                pass
+            raise
+        return filename, file_path
+    raise HTTPException(status_code=409, detail="Too many chart files exist for this date")
+
+
 @app.post("/api/upload-chart")
 async def upload_chart(
     request: Request,
@@ -4284,34 +4439,23 @@ async def upload_chart(
     """Receive a pasted screenshot, save to Daily Charts/YYYY/Mon-YYYY/DD-Mon-YYYY/."""
     from urllib.parse import quote
 
-    # Validate file type
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Only image files are allowed")
-
-    # Read with size limit
-    data = await file.read()
-    if len(data) > _MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+    data = await _read_upload_limited(file, _MAX_UPLOAD_SIZE)
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        sanitized = await asyncio.to_thread(sanitize_image, data, file.content_type or "")
+    except ImageValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if len(sanitized.data) > _MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="Sanitized image is too large (max 10 MB)")
+    data = sanitized.data
+    ext = sanitized.extension
 
-    # Determine extension from content type
-    ext_map = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
-    ext = ext_map.get(file.content_type, ".png")
-
-    # Use target folder if provided, otherwise default to today's date
-    if target_year and target_month and target_day:
-        year_str = target_year
-        month_folder = target_month
-        day_folder = target_day
-    else:
-        from datetime import timezone as _tz
-
-        now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
-        year_str = str(now_ist.year)
-        month_abbr = _cal.month_abbr[now_ist.month]
-        month_folder = f"{month_abbr}-{year_str}"
-        day_folder = f"{now_ist.day:02d}-{month_abbr}-{year_str}"
+    year_str, month_folder, day_folder, target_date = _chart_upload_target(
+        target_year,
+        target_month,
+        target_day,
+    )
 
     day_path = _safe_charts_subpath(_request_user_id(request), year_str, month_folder, day_folder, create_root=True)
     if day_path is None:
@@ -4319,24 +4463,8 @@ async def upload_chart(
     os.makedirs(day_path, exist_ok=True)
     print(f"[CHARTS] Upload target dir: {day_path}")
 
-    # Generate filename: Nifty_DD-MM-YYYY[_N].ext
-    if target_year and target_month and target_day:
-        from datetime import timezone as _tz
-
-        now_ist = datetime.now(_tz(timedelta(hours=5, minutes=30)))
-    date_tag = now_ist.strftime("%d-%m-%Y")
-    filename = f"Nifty_{date_tag}{ext}"
-    file_path = os.path.join(day_path, filename)
-
-    # Avoid overwrite
-    counter = 1
-    while os.path.exists(file_path):
-        filename = f"Nifty_{date_tag}_{counter}{ext}"
-        file_path = os.path.join(day_path, filename)
-        counter += 1
-
-    with open(file_path, "wb") as f:
-        f.write(data)
+    date_tag = target_date.strftime("%d-%m-%Y")
+    filename, file_path = _write_unique_chart(data, day_path, date_tag, ext)
     # Remove .keep placeholder if present (created by create-folder)
     keep_file = os.path.join(day_path, ".keep")
     if os.path.isfile(keep_file):
@@ -4487,6 +4615,13 @@ async def reorder_chart_folders(request: Request):
 
 
 # ── Daily Journal (localStorage-backed on frontend, JSON file backup) ─
+def _validated_journal_date(date_str: str) -> str:
+    try:
+        return validate_journal_date(date_str)
+    except JournalValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/journal/list")
 async def list_journals(request: Request):
     """Return list of all journal dates that have entries."""
@@ -4509,8 +4644,7 @@ async def list_journals(request: Request):
 @app.get("/api/journal/{date_str}")
 async def get_journal(date_str: str, request: Request):
     """Load journal entry for a date (YYYY-MM-DD)."""
-    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    date_str = _validated_journal_date(date_str)
     user_id = _request_user_id(request)
     normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
     data = await _db_mod.get_journal_entry(user_id, normalized_date)
@@ -4520,14 +4654,14 @@ async def get_journal(date_str: str, request: Request):
 @app.put("/api/journal/{date_str}")
 async def save_journal(date_str: str, request: Request):
     """Save journal entry for a date (YYYY-MM-DD)."""
-    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    date_str = _validated_journal_date(date_str)
     user_id = _request_user_id(request)
     normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
     body = await request.json()
-    # Sanitize: only allow known fields
-    allowed = {"asset", "strategy", "grade", "went_well", "to_improve", "mental_state"}
-    clean = {k: str(v)[:2000] for k, v in body.items() if k in allowed}
+    try:
+        clean = clean_journal_payload(body)
+    except JournalValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     await _db_mod.upsert_journal_entry(user_id, normalized_date, clean)
     return {"status": "ok", "date": normalized_date}
 
@@ -4535,8 +4669,7 @@ async def save_journal(date_str: str, request: Request):
 @app.delete("/api/journal/{date_str}")
 async def delete_journal(date_str: str, request: Request):
     """Delete a journal entry for a date (YYYY-MM-DD)."""
-    if not _re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-        raise HTTPException(status_code=400, detail="Invalid date format")
+    date_str = _validated_journal_date(date_str)
     user_id = _request_user_id(request)
     normalized_date = await _normalize_journal_date_for_user(user_id, date_str)
     deleted = await _db_mod.delete_journal_entry(user_id, normalized_date)
@@ -4635,17 +4768,28 @@ def _login_lockout_message() -> str:
 def _login_key(username: str, client_ip: str) -> str:
     username = (username or "").strip().lower()
     if username:
-        return f"user:{username}"
+        return f"user:{username}:ip:{client_ip or 'unknown'}"
     return f"ip:{client_ip or 'unknown'}"
 
 
-def _check_login_rate(login_key: str):
+def _login_rate_dimensions(username: str, client_ip: str) -> list[tuple[str, int]]:
+    """Limit one account/IP pair and also slow distributed spraying."""
+    username = (username or "").strip().lower()
+    ip = client_ip or "unknown"
+    broad_limit = max(_LOGIN_MAX_ATTEMPTS * 4, 20)
+    dimensions = [(_login_key(username, ip), _LOGIN_MAX_ATTEMPTS), (f"ip:{ip}", broad_limit)]
+    if username:
+        dimensions.append((f"account:{username}", broad_limit))
+    return dimensions
+
+
+def _check_login_rate(login_key: str, max_attempts: int = _LOGIN_MAX_ATTEMPTS):
     r = _get_redis()
     if r is not None:
         try:
             key = f"{_LOGIN_RL_PREFIX}{login_key}"
             count = int(r.get(key) or 0)
-            if count >= _LOGIN_MAX_ATTEMPTS:
+            if count >= max_attempts:
                 raise HTTPException(status_code=429, detail=_login_lockout_message())
             return
         except HTTPException:
@@ -4654,7 +4798,7 @@ def _check_login_rate(login_key: str):
             _logger.warning(f"[Redis] _check_login_rate failed, using in-memory: {e}")
     now = time.time()
     _login_attempts[login_key] = [t for t in _login_attempts[login_key] if now - t < _LOGIN_LOCKOUT_SEC]
-    if len(_login_attempts[login_key]) >= _LOGIN_MAX_ATTEMPTS:
+    if len(_login_attempts[login_key]) >= max_attempts:
         raise HTTPException(status_code=429, detail=_login_lockout_message())
 
 
@@ -4687,12 +4831,13 @@ def _clear_login_attempts(login_key: str):
 # ── Authentication Endpoints ──────────────────────────────────────
 @app.post("/api/auth/login")
 async def auth_login(request: Request):
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     body = await request.json()
     username = body.get("username", "").strip()
     password = body.get("password", body.get("pin", ""))
-    login_key = _login_key(username or config.ADMIN_USERNAME, ip)
-    _check_login_rate(login_key)
+    login_dimensions = _login_rate_dimensions(username or config.ADMIN_USERNAME, ip)
+    for login_key, max_attempts in login_dimensions:
+        _check_login_rate(login_key, max_attempts)
 
     # If no username provided, treat as legacy PIN login → look up configured admin user
     if username:
@@ -4700,14 +4845,16 @@ async def auth_login(request: Request):
     else:
         user = await _get_preferred_admin_user()
     if not user:
-        _record_failed_login(login_key)
+        for login_key, _max_attempts in login_dimensions:
+            _record_failed_login(login_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail="Account is disabled")
 
     if not _auth_mod.verify_password(password, user["password_hash"]):
-        _record_failed_login(login_key)
+        for login_key, _max_attempts in login_dimensions:
+            _record_failed_login(login_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if bool(user.get("mfa_enabled")):
@@ -4721,11 +4868,14 @@ async def auth_login(request: Request):
                 },
             )
         if not await _auth_mod.verify_user_totp(user, totp_code):
-            _record_failed_login(login_key)
+            for login_key, _max_attempts in login_dimensions:
+                _record_failed_login(login_key)
             raise HTTPException(status_code=401, detail="Invalid credentials or authenticator code")
 
     # Success — create DB session
-    _clear_login_attempts(login_key)
+    for login_key, _max_attempts in login_dimensions:
+        if not login_key.startswith("ip:"):
+            _clear_login_attempts(login_key)
     await _db_mod.cleanup_expired_sessions()
     token = await _auth_mod.create_session(user["id"])
     await _db_mod.update_last_login(user["id"])
@@ -4789,7 +4939,7 @@ async def auth_mfa_enroll_start(request: Request):
     if not _auth_mod.encryption_enabled():
         raise HTTPException(status_code=503, detail="Encrypted secret storage is not configured")
     body = await request.json()
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
     _check_login_rate(manage_key)
     password = str(body.get("password", "") or "")
@@ -4819,7 +4969,7 @@ async def auth_mfa_enroll_verify(request: Request):
     """Activate a pending authenticator secret after proving one fresh code."""
     user = await _auth_mod.get_current_user(request)
     body = await request.json()
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
     _check_login_rate(manage_key)
     password = str(body.get("password", "") or "")
@@ -4864,7 +5014,7 @@ async def auth_mfa_disable(request: Request):
     """Disable MFA only after fresh password and current-factor proof."""
     user = await _auth_mod.get_current_user(request)
     body = await request.json()
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     manage_key = _login_key(f"mfa-manage:{user['username']}", ip)
     _check_login_rate(manage_key)
     password = str(body.get("password", "") or "")
@@ -4906,7 +5056,7 @@ async def auth_action_token(request: Request):
     if not bool(user.get("mfa_enabled")):
         raise HTTPException(status_code=428, detail="Set up an authenticator before this protected action")
 
-    ip = request.client.host if request.client else "unknown"
+    ip = _request_client_ip(request)
     step_key = _login_key(f"stepup:{user['username']}", ip)
     _check_login_rate(step_key)
     password = str(body.get("password", "") or "")
@@ -9396,8 +9546,6 @@ def _fib_touch_expiry_source(broker: DhanClient, symbol: str):
     hard-coded rhythm would have kept selecting contracts that stopped existing.
     """
 
-    from broker.dhan import ScripMaster
-
     def source(on: date) -> list[date]:
         rows = ScripMaster.get_expiries(symbol) or []
         return [date.fromisoformat(str(value)[:10]) for value in rows]
@@ -9499,6 +9647,7 @@ async def fib_touch_symbols(_request: Request):
     """
     return {
         "levels": list(HALVING_LEVELS),
+        "live_available": _FIB_TOUCH_LIVE_EXECUTION_ENABLED,
         "symbols": [
             {
                 "symbol": terms.symbol,
@@ -9521,12 +9670,19 @@ async def fib_boundary_paper_status(request: Request):
     campaigns = [
         {**runtime.engine.get_status(), "running": runtime.running} for _symbol, runtime in sorted(runtimes.items())
     ]
-    return {"status": "ok" if campaigns else "not_started", "mode": "paper", "campaigns": campaigns}
+    modes = {str(campaign.get("mode") or "paper").lower() for campaign in campaigns}
+    board_mode = modes.pop() if len(modes) == 1 else ("mixed" if modes else "paper")
+    return {
+        "status": "ok" if campaigns else "not_started",
+        "mode": board_mode,
+        "live_available": _FIB_TOUCH_LIVE_EXECUTION_ENABLED,
+        "campaigns": campaigns,
+    }
 
 
 @app.post("/api/fib-boundary/paper/start")
 async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Request):
-    """Start a swing-anchored touch ladder. Never calls Dhan order APIs.
+    """Start a swing-anchored paper ladder; fail closed for unavailable live mode.
 
     The mother candle only names where to look; the ladder's anchors are the
     first involvement on each side of it, found by the engine.  Everything from
@@ -9547,6 +9703,14 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     mode = str(payload.mode).lower()
     if mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="mode must be paper or live.")
+    if mode == "live" and not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Fib Boundary live execution is temporarily disabled until Dhan fill verification, "
+                "partial-fill handling and restart reconciliation are complete. Use Paper or Backtest."
+            ),
+        )
 
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     now = datetime.now(IST)
@@ -9676,18 +9840,13 @@ async def fib_boundary_paper_start(payload: FibTouchStartPayload, request: Reque
     await _save_fib_boundary_open_state(user_id, force=True)
     return {
         "status": "started",
-        "mode": "paper",
+        "mode": str(getattr(engine.executor, "mode", "paper")),
         "campaign": {**engine.get_status(), "running": runtime.running},
     }
 
 
 def _fib_boundary_runtime(request: Request, symbol: str) -> tuple[str, _CascadeRuntime]:
-    """The one ladder this call means, named by its instrument.
-
-    `symbol` rides the QUERY STRING rather than a body: the arm route's action
-    token is bound to `request.url.path`, which excludes the query, so this
-    keeps one MFA-gated path instead of one per instrument.
-    """
+    """Resolve the one ladder named by a route or query-string instrument."""
     try:
         terms = symbol_terms(symbol)
     except FibTouchError as exc:
@@ -9698,8 +9857,8 @@ def _fib_boundary_runtime(request: Request, symbol: str) -> tuple[str, _CascadeR
     return terms.symbol, runtime
 
 
-@app.post("/api/fib-boundary/paper/arm")
-async def fib_boundary_paper_arm(request: Request, symbol: str = "NIFTY"):
+@app.post("/api/fib-boundary/live/{symbol}/arm")
+async def fib_boundary_live_arm(symbol: str, request: Request):
     """Arm a LIVE ladder so its next decision reaches the exchange.
 
     This is the deliberate step the executor refuses without. It is a separate
@@ -9720,6 +9879,11 @@ async def fib_boundary_paper_arm(request: Request, symbol: str = "NIFTY"):
             status_code=400,
             detail="This ladder is running in paper. Kill it and start one in live mode before arming.",
         )
+    if not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Fib Boundary live arming is disabled until its broker order lifecycle is verified.",
+        )
     if getattr(executor, "armed", False):
         return {"status": "already_armed", "campaign": runtime.engine.get_status()}
     executor.armed = True
@@ -9735,10 +9899,15 @@ async def fib_boundary_paper_arm(request: Request, symbol: str = "NIFTY"):
     return {"status": "armed", "campaign": {**runtime.engine.get_status(), "running": runtime.running}}
 
 
-@app.post("/api/fib-boundary/paper/kill")
-async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
-    """Kill ONE ladder. The others keep running and keep their baskets."""
-    symbol, runtime = _fib_boundary_runtime(request, symbol)
+@app.post("/api/fib-boundary/paper/arm")
+async def fib_boundary_legacy_arm(_request: Request, symbol: str = "NIFTY"):
+    """Fail closed for cached clients that pre-date symbol-bound live routes."""
+    del symbol
+    raise HTTPException(status_code=410, detail="Reload PhilForge and use the symbol-bound live arm control.")
+
+
+async def _kill_fib_boundary_runtime(user_id: int, symbol: str, runtime: _CascadeRuntime) -> dict:
+    """Price and close one ladder only after its executor confirms the exit."""
     now = datetime.now(IST)
     try:
         quote = await asyncio.to_thread(runtime.adapter.get_ticker, symbol)
@@ -9747,13 +9916,43 @@ async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
         price = float(runtime.engine.history[-1].close) if runtime.engine.history else 0.0
     if not runtime.engine.kill_and_close(IndexCandle(now, price, price, price, price)):
         raise HTTPException(
-            status_code=409, detail="Current option quote unavailable; open paper basket remains monitored."
+            status_code=409, detail="Current option quote or broker exit unavailable; the basket remains monitored."
         )
     runtime.running = False
     if runtime.task and not runtime.task.done():
         runtime.task.cancel()
-    await _save_fib_boundary_open_state(_request_user_id(request), force=True)
-    return {"status": "killed", "mode": "paper", "campaign": {**runtime.engine.get_status(), "running": False}}
+    await _save_fib_boundary_open_state(user_id, force=True)
+    mode = str(getattr(runtime.engine.executor, "mode", "paper"))
+    return {"status": "killed", "mode": mode, "campaign": {**runtime.engine.get_status(), "running": False}}
+
+
+@app.post("/api/fib-boundary/paper/kill")
+async def fib_boundary_paper_kill(request: Request, symbol: str = "NIFTY"):
+    """Kill one paper ladder; live exits use the MFA-gated live route."""
+    symbol, runtime = _fib_boundary_runtime(request, symbol)
+    if bool(getattr(runtime.engine.executor, "is_live", False)):
+        raise HTTPException(
+            status_code=409,
+            detail="This is a live ladder. Reload PhilForge and use its MFA-gated live Kill & close control.",
+        )
+    return await _kill_fib_boundary_runtime(_request_user_id(request), symbol, runtime)
+
+
+@app.post("/api/fib-boundary/live/{symbol}/kill")
+async def fib_boundary_live_kill(symbol: str, request: Request):
+    """Exit one live ladder through its broker executor, then stop it."""
+    symbol, runtime = _fib_boundary_runtime(request, symbol)
+    if not bool(getattr(runtime.engine.executor, "is_live", False)):
+        raise HTTPException(status_code=400, detail="This ladder is paper-only; use its paper Kill control.")
+    if not _FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Automatic Fib Boundary live exit is disabled because multi-leg fills are not yet reconciled. "
+                "No PhilForge state was changed; manage any real position in Dhan and reconcile before stopping."
+            ),
+        )
+    return await _kill_fib_boundary_runtime(_request_user_id(request), symbol, runtime)
 
 
 @app.get("/api/fib-boundary/paper/chart")
@@ -11742,15 +11941,15 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
             return {"status": "error", "message": str(tf_err)}
         candle_interval = str(tf_spec.fetch)
 
-        print(f"\n{'=' * 60}")
-        print(f"[BACKTEST] Run: {payload.run_name}")
-        print(f"[BACKTEST] Instrument: {payload.instrument}, Segment: {payload.segment}")
-        print(f"[BACKTEST] Timeframe: {describe_timeframe(tf_spec)}")
-        print(f"[BACKTEST] Indicators: {normalized_indicators}")
-        print(f"[BACKTEST] Entry conditions: {entry_conditions}")
-        print(f"[BACKTEST] Exit conditions: {exit_conditions}")
-        print(f"[BACKTEST] Legs: {payload.legs}")
-        print(f"{'=' * 60}")
+        _logger.info(
+            "[BACKTEST] Validated request timeframe=%s indicator_count=%s entry_condition_count=%s "
+            "exit_condition_count=%s leg_count=%s",
+            describe_timeframe(tf_spec),
+            len(normalized_indicators),
+            len(entry_conditions),
+            len(exit_conditions),
+            len(payload.legs or []),
+        )
 
         # 1. Fetch data with segment-aware routing + fallback
         print(f"[BACKTEST] Fetching data from {from_date} to {to_date}...")
@@ -12279,21 +12478,13 @@ async def export_live_trades_csv(request: Request, run_id: str = ""):
 @app.post("/api/paper/start")
 async def paper_start(payload: StrategyPayload, request: Request):
     """Start paper trading with real live market data"""
-    _crash_log = os.path.join(_HERE, "crash.log")
-    with open(_crash_log, "a") as _f:
-        _f.write(f"\n[PAPER] paper_start ENTERED at {datetime.now()}\n")
-        _f.write(f"[PAPER] payload.instrument={payload.instrument}, run_name={payload.run_name}\n")
     try:
         return await _paper_start_impl(payload, _request_user_id(request))
-    except Exception as e:
-        import traceback
-
-        tb = traceback.format_exc()
-        msg = f"[PAPER] paper_start crashed: {e}\n{tb}"
-        print(msg, flush=True)
-        _logger.error("[PAPER] paper_start crashed: %s\n%s", e, tb)
-        with open(_crash_log, "a") as _f:
-            _f.write(f"\n{'=' * 60}\n{msg}\n")
+    except Exception:
+        _logger.exception(
+            "[PAPER] Start failed request_id=%s",
+            getattr(request.state, "request_id", "-"),
+        )
         raise
 
 
@@ -12673,7 +12864,7 @@ async def _save_single_trade_to_history(
             print(f"[{mode.upper()}] Identical single-trade history already exists — skipping duplicate save")
             return
         saved = await _db_mod.create_run_record(user_id, run_entry)
-        print(f"[{mode.upper()}] Saved trade to history as Run #{saved['id']}: {instrument} {side} P&L=₹{pnl}")
+        _logger.info("[%s] Saved one trade to run history record_id=%s", mode.upper(), saved["id"])
     except Exception as e:
         print(f"[{mode.upper()}] Failed to save trade to history: {e}")
 
@@ -12756,7 +12947,7 @@ async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None 
             return
 
         saved = await _db_mod.create_run_record(user_id, paper_run)
-        print(f"[PAPER] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
+        _logger.info("[PAPER] Saved completed run record_id=%s trade_count=%s", saved["id"], len(closed))
     except Exception as e:
         print(f"[PAPER] Failed to save run to history: {e}")
 
@@ -12802,7 +12993,7 @@ async def _save_scalp_run_to_history(eng, explicit_user_id: int | None = None) -
         }
 
         saved = await _db_mod.create_run_record(user_id, scalp_run)
-        print(f"[SCALP] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
+        _logger.info("[SCALP] Saved completed run record_id=%s trade_count=%s", saved["id"], len(closed))
     except Exception as e:
         print(f"[SCALP] Failed to save run to history: {e}")
 
@@ -12885,7 +13076,7 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
             return
 
         saved = await _db_mod.create_run_record(user_id, live_run)
-        print(f"[LIVE] Saved run #{saved['id']} to history: {len(closed)} trades, P&L=₹{total_pnl}")
+        _logger.info("[LIVE] Saved completed run record_id=%s trade_count=%s", saved["id"], len(closed))
     except Exception as e:
         print(f"[LIVE] Failed to save run to history: {e}")
 
@@ -13092,7 +13283,8 @@ def _ws_serialize(payload: dict) -> bytes:
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     origin = _normalize_origin_value(ws.headers.get("origin", ""))
-    if origin and origin not in _allowed_request_origins(ws):
+    websocket_origins = {_normalize_origin_value(value) for value in _CORS_ALLOWED_ORIGINS}
+    if origin and origin not in websocket_origins:
         await ws.close(code=4003, reason="Forbidden origin")
         return
     # Authenticate WebSocket via session cookie (DB-backed)
@@ -13102,11 +13294,16 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4001, reason="Unauthorized")
         return
     user_id = int(session["user_id"])
+    user = await _db_mod.get_user_by_id(user_id)
+    if not user or not user.get("is_active"):
+        await ws.close(code=4001, reason="Account disabled or not found")
+        return
     await ws.accept()
     _user_ws_clients(user_id).append(ws)
 
     scalp_evt = _get_scalp_ws_event()
     engine_tick = 0  # counter: send full engine status every 20 cycles (~5s)
+    authorization_tick = 0
 
     try:
         while True:
@@ -13133,6 +13330,14 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Engine status — every ~5s (20 × 250ms) to avoid waste
             engine_tick += 1
+            authorization_tick += 1
+            if authorization_tick >= 240:
+                authorization_tick = 0
+                current_session = await _validate_session_async(token)
+                current_user = await _db_mod.get_user_by_id(user_id) if current_session else None
+                if not current_user or not current_user.get("is_active"):
+                    await ws.close(code=4001, reason="Session expired or account disabled")
+                    break
             if engine_tick >= 20:
                 engine_tick = 0
                 paper_sts = {
@@ -13151,6 +13356,8 @@ async def websocket_endpoint(ws: WebSocket):
 
             await ws.send_bytes(_ws_serialize(payload))
     except (WebSocketDisconnect, Exception):
+        pass
+    finally:
         if ws in _user_ws_clients(user_id):
             _user_ws_clients(user_id).remove(ws)
 
@@ -13158,25 +13365,25 @@ async def websocket_endpoint(ws: WebSocket):
 # ── Orders / Positions / Funds ────────────────────────────────────
 @app.post("/api/orders/place")
 async def place_order(req: OrderRequest, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("place_order", ip, max_calls=3, window_sec=5)  # Max 3 orders per 5s per IP
+    check_rate_limit("place_order", _request_rate_subject(request), max_calls=3, window_sec=5)
+    values = _validated_order_values(req)
     user, broker_client, source = await _request_broker_context(request)
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
         return broker_client.place_order(
             security_id=req.security_id,
-            exchange_segment=req.exchange_segment,
-            transaction_type=req.transaction_type,
+            exchange_segment=values["exchange_segment"],
+            transaction_type=values["transaction_type"],
             quantity=req.quantity,
-            order_type=req.order_type,
-            product_type=req.product_type,
+            order_type=values["order_type"],
+            product_type=values["product_type"],
             price=req.price,
             trigger_price=req.trigger_price,
-            validity=req.validity,
+            validity=values["validity"],
             disclosed_quantity=req.disclosed_quantity,
             after_market_order=req.after_market_order,
-            amo_time=req.amo_time,
+            amo_time=values["amo_time"],
             bo_profit_value=req.bo_profit_value,
             bo_stop_loss_value=req.bo_stop_loss_value,
             slice_order=req.slice_order,
@@ -13311,8 +13518,7 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
 
 @app.post("/api/terminal/cascade/start")
 async def terminal_cascade_start(payload: TerminalCascadePaperStartPayload, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("terminal_cascade_start", ip, max_calls=3, window_sec=5)
+    check_rate_limit("terminal_cascade_start", _request_rate_subject(request), max_calls=3, window_sec=5)
     mother_timestamp = _parse_cascade_mother_timestamp(payload.mother_timestamp)
     _interval, minutes, normalised_tf = _terminal_cascade_timeframe_parts(payload.timeframe)
     now = datetime.now(IST)
@@ -13771,8 +13977,7 @@ async def terminal_quote(symbol: str, request: Request):
 
 @app.post("/api/terminal/order")
 async def terminal_place_order(req: StockTerminalOrderRequest, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("terminal_place_order", ip, max_calls=3, window_sec=5)
+    check_rate_limit("terminal_place_order", _request_rate_subject(request), max_calls=3, window_sec=5)
     stock = _resolve_terminal_stock(req.symbol)
     if not stock["security_id"]:
         raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
@@ -13789,6 +13994,11 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
         raise HTTPException(status_code=400, detail="Unsupported Dhan product_type")
     if validity not in {"DAY", "IOC"}:
         raise HTTPException(status_code=400, detail="validity must be DAY or IOC")
+    if req.disclosed_quantity > req.quantity:
+        raise HTTPException(status_code=400, detail="disclosed_quantity cannot exceed quantity")
+    amo_time = str(req.amo_time or "").upper()
+    if req.after_market_order and amo_time not in _AMO_TIMES:
+        raise HTTPException(status_code=400, detail="Unsupported AMO time")
     if order_type in {"LIMIT", "STOP_LOSS"} and req.price <= 0:
         raise HTTPException(status_code=400, detail=f"{order_type} requires price")
     if order_type in {"STOP_LOSS", "STOP_LOSS_MARKET"} and req.trigger_price <= 0:
@@ -13810,7 +14020,7 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
             validity=validity,
             disclosed_quantity=req.disclosed_quantity,
             after_market_order=req.after_market_order,
-            amo_time=req.amo_time,
+            amo_time=amo_time,
             bo_profit_value=req.bo_profit_value,
             bo_stop_loss_value=req.bo_stop_loss_value,
             slice_order=req.slice_order,
@@ -13828,8 +14038,7 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
 
 @app.post("/api/terminal/gtt")
 async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
-    ip = request.client.host if request.client else "unknown"
-    check_rate_limit("terminal_place_gtt", ip, max_calls=3, window_sec=5)
+    check_rate_limit("terminal_place_gtt", _request_rate_subject(request), max_calls=3, window_sec=5)
     stock = _resolve_terminal_stock(req.symbol)
     if not stock["security_id"]:
         raise HTTPException(status_code=400, detail=f"No Dhan security ID found for {stock['symbol']}")
@@ -13855,6 +14064,10 @@ async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
         raise HTTPException(status_code=400, detail="GTT LIMIT requires price")
     if order_flag == "OCO" and (req.trigger_price1 <= 0 or req.price1 <= 0):
         raise HTTPException(status_code=400, detail="OCO requires target price and target trigger")
+    if req.disclosed_quantity > req.quantity:
+        raise HTTPException(status_code=400, detail="disclosed_quantity cannot exceed quantity")
+    if req.quantity1 > req.quantity:
+        raise HTTPException(status_code=400, detail="quantity1 cannot exceed quantity")
 
     user, broker_client, source = await _request_broker_context(request)
     if not broker_client:
@@ -14363,28 +14576,60 @@ async def stop_scalp_engine(request: Request):
 
 
 class ScalpEntryReq(BaseModel):
-    underlying: str
-    strike: int
-    option_type: str
-    expiry: str
-    product_type: str = "INTRADAY"
-    transaction_type: str = "BUY"
-    lots: int = 1
-    lot_size: int = 75
-    target_premium: float = 0.0
-    sl_premium: float = 0.0
-    target_pct: float = 0.0
-    sl_pct: float = 0.0
-    target_rupees: float = 0.0
-    sl_rupees: float = 0.0
-    sqoff_time: str = ""
-    mode: str = "live"
-    entry_limit_price: float = 0.0
-    entry_limit_max: float = 0.0
+    underlying: str = Field(min_length=1, max_length=20)
+    strike: int = Field(gt=0, le=1_000_000)
+    option_type: str = Field(min_length=2, max_length=2)
+    expiry: str = Field(min_length=10, max_length=10)
+    product_type: str = Field(default="INTRADAY", min_length=2, max_length=16)
+    transaction_type: str = Field(default="BUY", min_length=3, max_length=4)
+    lots: int = Field(default=1, ge=1, le=500)
+    lot_size: int = Field(default=75, ge=1, le=10_000)
+    target_premium: float = Field(default=0.0, ge=0, le=1_000_000)
+    sl_premium: float = Field(default=0.0, ge=0, le=1_000_000)
+    target_pct: float = Field(default=0.0, ge=0, le=1_000)
+    sl_pct: float = Field(default=0.0, ge=0, le=1_000)
+    target_rupees: float = Field(default=0.0, ge=0, le=1_000_000_000)
+    sl_rupees: float = Field(default=0.0, ge=0, le=1_000_000_000)
+    sqoff_time: str = Field(default="", max_length=8)
+    mode: str = Field(default="live", min_length=4, max_length=5)
+    entry_limit_price: float = Field(default=0.0, ge=0, le=1_000_000)
+    entry_limit_max: float = Field(default=0.0, ge=0, le=1_000_000)
 
 
 _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
 _last_scalp_entry_ts: Dict[int, float] = {}
+
+_SCALP_UNDERLYINGS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"}
+
+
+def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
+    req.underlying = str(req.underlying or "").strip().upper()
+    req.option_type = str(req.option_type or "").strip().upper()
+    req.transaction_type = str(req.transaction_type or "").strip().upper()
+    req.product_type = str(req.product_type or "").strip().upper()
+    req.mode = str(req.mode or "").strip().lower()
+    if req.underlying not in _SCALP_UNDERLYINGS:
+        raise HTTPException(status_code=400, detail="Unsupported scalp underlying")
+    if req.option_type not in {"CE", "PE"}:
+        raise HTTPException(status_code=400, detail="option_type must be CE or PE")
+    if req.transaction_type not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=400, detail="transaction_type must be BUY or SELL")
+    if req.product_type in {"NORMAL", "NRML"}:
+        req.product_type = "MARGIN"
+    if req.product_type not in {"INTRADAY", "MARGIN"}:
+        raise HTTPException(status_code=400, detail="Scalp product must be INTRADAY or MARGIN")
+    if req.mode not in {"paper", "live"}:
+        raise HTTPException(status_code=400, detail="Scalp mode must be paper or live")
+    try:
+        expiry_date = date.fromisoformat(req.expiry)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="expiry must be a real YYYY-MM-DD date") from exc
+    if expiry_date < datetime.now(IST).date():
+        raise HTTPException(status_code=400, detail="expiry cannot be in the past")
+    if bool(req.entry_limit_price) != bool(req.entry_limit_max):
+        raise HTTPException(status_code=400, detail="Stop-limit entry requires both minimum and maximum premiums")
+    if req.mode == "live" and (req.target_premium <= 0 or req.sl_premium <= 0):
+        raise HTTPException(status_code=400, detail="Live scalp requires both Target Premium and SL Premium")
 
 
 def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
@@ -14393,6 +14638,7 @@ def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
 
 @app.post("/api/scalp/entry")
 async def scalp_entry(req: ScalpEntryReq, request: Request):
+    _validate_scalp_entry_request(req)
     user_id = _request_user_id(request)
     lock = _get_scalp_entry_lock(user_id)
     async with lock:
@@ -14409,11 +14655,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                 return {"status": "error", "message": _broker_not_configured_message(user, source)}
         eng = _get_scalp_engine(user_id, broker_client=broker_client)
         try:
-            product_type = str(req.product_type or "INTRADAY").strip().upper()
-            if product_type in {"NORMAL", "NRML"}:
-                product_type = "MARGIN"
-            if product_type not in {"INTRADAY", "MARGIN"}:
-                return {"status": "error", "message": "Scalp product must be INTRADAY or MARGIN"}
+            product_type = req.product_type
             result = await eng.enter_trade(
                 underlying=req.underlying,
                 strike=req.strike,
@@ -14506,13 +14748,13 @@ async def scalp_kill_all(request: Request):
 
 
 class ScalpTargetsReq(BaseModel):
-    target_premium: Optional[float] = None
-    sl_premium: Optional[float] = None
-    target_rupees: Optional[float] = None
-    sl_rupees: Optional[float] = None
-    sqoff_time: Optional[str] = None
-    entry_limit_price: Optional[float] = None
-    entry_limit_max: Optional[float] = None
+    target_premium: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    sl_premium: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    target_rupees: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
+    sl_rupees: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
+    sqoff_time: Optional[str] = Field(default=None, max_length=8)
+    entry_limit_price: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+    entry_limit_max: Optional[float] = Field(default=None, ge=0, le=1_000_000)
 
 
 @app.put("/api/scalp/trades/{trade_id}/targets")

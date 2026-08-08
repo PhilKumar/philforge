@@ -12,8 +12,6 @@ Call AFTER app = FastAPI(...) and BEFORE any route definitions.
 from __future__ import annotations
 
 import logging
-import os
-import traceback
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -86,8 +84,6 @@ _FRIENDLY: dict[int, tuple[str, str]] = {
 _DEFAULT_TITLE = "Unexpected Error"
 _DEFAULT_MESSAGE = "An unexpected error occurred. Please refresh and try again."
 
-_DEBUG = os.getenv("DEBUG", "false").lower() == "true"
-
 
 def _build_response(
     status_code: int,
@@ -106,7 +102,6 @@ def _build_response(
             "title":   <str>,   # short label, safe to show as toast header
             "message": <str>,   # human sentence, safe to show in UI
             "detail":  <str>,   # present only for 4xx — the specific reason
-            "debug":   <str>,   # present only when DEBUG=true
           }
         }
     """
@@ -125,10 +120,6 @@ def _build_response(
         if safe_detail and safe_detail.lower() not in ("none", "null", ""):
             error["detail"] = safe_detail
 
-    # Debug mode: include full traceback on 5xx
-    if _DEBUG and exc and status_code >= 500:
-        error["debug"] = traceback.format_exc()
-
     return {"success": False, "error": error}
 
 
@@ -138,23 +129,23 @@ def _build_response(
 async def _http_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """Catches all FastAPI / Starlette HTTPException raises."""
     if exc.status_code >= 500:
-        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        msg = f"[HTTP-{exc.status_code}] {request.method} {request.url.path}: {exc.detail}\n{tb}"
-        print(msg, flush=True)
-        try:
-            _crash_log = os.path.join(os.path.dirname(__file__), "crash.log")
-            with open(_crash_log, "a") as _f:
-                _f.write(f"\n{'=' * 60}\n{msg}\n")
-        except Exception:
-            pass
-    _log.warning(
-        "[%s] HTTP %d on %s %s — %s",
-        getattr(request.state, "request_id", "-"),
-        exc.status_code,
-        request.method,
-        request.url.path,
-        exc.detail,
-    )
+        _log.error(
+            "[%s] HTTP %d on %s %s",
+            getattr(request.state, "request_id", "-"),
+            exc.status_code,
+            request.method,
+            request.url.path,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+    else:
+        _log.warning(
+            "[%s] HTTP %d on %s %s — %s",
+            getattr(request.state, "request_id", "-"),
+            exc.status_code,
+            request.method,
+            request.url.path,
+            exc.detail,
+        )
     return JSONResponse(
         status_code=exc.status_code,
         content=_build_response(exc.status_code, detail=str(exc.detail or "")),
@@ -213,20 +204,6 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
 
 async def _generic_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catches any unhandled exception — last resort, never exposes internals."""
-    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    # Belt-and-suspenders: print + file write (can't be silenced)
-    msg = f"[ERROR] Unhandled {request.method} {request.url.path}: {exc}\n{tb}"
-    print(msg, flush=True)
-    import sys
-
-    sys.stderr.write(msg + "\n")
-    sys.stderr.flush()
-    try:
-        _crash_log = os.path.join(os.path.dirname(__file__), "crash.log")
-        with open(_crash_log, "a") as _f:
-            _f.write(f"\n{'=' * 60}\n{msg}\n")
-    except Exception:
-        pass
     _log.error(
         "[%s] Unhandled exception on %s %s",
         getattr(request.state, "request_id", "-"),
@@ -265,4 +242,4 @@ def register_error_handlers(app: FastAPI) -> None:
     except Exception:  # pragma: no cover - engine absent in a trimmed install
         _log.warning("CascadeError handler not registered — engine import failed")
     app.add_exception_handler(Exception, _generic_handler)
-    _log.info("Error handlers registered (DEBUG=%s)", _DEBUG)
+    _log.info("Error handlers registered")

@@ -233,8 +233,41 @@ class MfaActionAuthorizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(auth.classify_sensitive_action("POST", "/api/emergency-stop"))
         self.assertEqual(auth.classify_sensitive_action("POST", "/api/live/stop"), "live_trading")
         self.assertEqual(auth.classify_sensitive_action("POST", "/api/live/exit-position"), "live_trading")
+        self.assertEqual(auth.classify_sensitive_action("POST", "/api/fib-boundary/live/NIFTY/arm"), "live_trading")
+        self.assertEqual(auth.classify_sensitive_action("POST", "/api/fib-boundary/live/NIFTY/kill"), "live_trading")
+        self.assertIsNone(auth.classify_sensitive_action("POST", "/api/fib-boundary/paper/arm"))
+        self.assertIsNone(auth.classify_sensitive_action("POST", "/api/fib-boundary/paper/kill"))
         self.assertEqual(auth.classify_sensitive_action("POST", "/api/scalp/kill-all"), "live_scalp")
         self.assertEqual(auth.classify_sensitive_action("POST", "/api/scalp/entry"), "live_scalp")
+
+    async def test_fib_live_token_is_bound_to_the_instrument_path(self):
+        timestamp = 1_700_000_000.0
+        secret = await self._enroll(timestamp)
+        with self._totp_clock(timestamp + 30):
+            authorized = await self.client.post(
+                "/api/auth/action-token",
+                json={
+                    "password": "Correct-Horse-42!",
+                    "totp": pyotp.TOTP(secret).at(timestamp + 30),
+                    "action_class": "live_trading",
+                    "target_method": "POST",
+                    "target_path": "/api/fib-boundary/live/NIFTY/arm",
+                },
+            )
+        self.assertEqual(authorized.status_code, 200, authorized.text)
+        action_token = authorized.json()["action_token"]
+
+        wrong_symbol = await self.client.post(
+            "/api/fib-boundary/live/BANKNIFTY/arm",
+            headers={"X-PhilForge-Action-Token": action_token},
+        )
+        self.assertEqual(wrong_symbol.status_code, 403)
+
+        exact_symbol = await self.client.post(
+            "/api/fib-boundary/live/NIFTY/arm",
+            headers={"X-PhilForge-Action-Token": action_token},
+        )
+        self.assertEqual(exact_symbol.status_code, 404)
 
     async def test_action_token_cannot_be_minted_for_unprotected_or_mismatched_target(self):
         timestamp = 1_700_000_000.0

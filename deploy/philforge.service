@@ -7,7 +7,8 @@
 # ═══════════════════════════════════════════════════════════════
 [Unit]
 Description=PhilForge FastAPI Backend (port %i)
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 User=ec2-user
@@ -20,6 +21,29 @@ Environment="PHILFORGE_INSTANCE_PORT=%i"
 ExecStart=/home/ec2-user/philforge/venv/bin/uvicorn app:app --host 127.0.0.1 --port %i --workers 1
 Restart=on-failure
 RestartSec=5
+UMask=0077
+
+# First-stage service sandbox. The application still needs write access to its
+# deploy tree and migrated state root for SQLite, per-user files, recovery, and caches.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/ec2-user/philforge /home/ec2-user/.local/share/philforge
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
 WantedBy=multi-user.target

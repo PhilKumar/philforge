@@ -201,9 +201,11 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("POST", re.compile(r"^/api/terminal/order$"), "broker_order"),
     ("POST", re.compile(r"^/api/terminal/gtt$"), "broker_order"),
     ("DELETE", re.compile(r"^/api/terminal/forever/[^/]+$"), "broker_order"),
-    # Arming the fib-touch ladder is what lets it place REAL F&O orders, so
-    # it is gated exactly like starting live trading is.
-    ("POST", re.compile(r"^/api/fib-boundary/paper/arm$"), "live_trading"),
+    # The instrument is part of the signed one-time target. A token minted to
+    # arm or kill NIFTY cannot be replayed against BANKNIFTY by changing only a
+    # query string.
+    ("POST", re.compile(r"^/api/fib-boundary/live/[^/]+/arm$"), "live_trading"),
+    ("POST", re.compile(r"^/api/fib-boundary/live/[^/]+/kill$"), "live_trading"),
     ("POST", re.compile(r"^/api/scalp/entry$"), "live_scalp"),
     ("POST", re.compile(r"^/api/scalp/stop$"), "live_scalp"),
     ("POST", re.compile(r"^/api/scalp/exit/[^/]+$"), "live_scalp"),

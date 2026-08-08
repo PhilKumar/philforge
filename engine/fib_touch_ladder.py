@@ -88,6 +88,12 @@ INVOLVEMENT_CANDLES = 2
 DEEP_TARGET_FROM_LEVEL = 4
 DEEP_TARGET_FRACTION = 0.5
 
+# When the mother breaks before the ladder has bought anything, the setup has
+# not failed -- it has MOVED. Watch this many 1-minute bars from the break and
+# take the best of them as the new mother, rather than grabbing the first bar
+# that happened to poke through.
+REBASE_WATCH_BARS = 5
+
 # Statuses no further candle can change.
 _TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "KILLED", "MOTHER_BROKEN"})
 
@@ -420,6 +426,13 @@ class ExecutionRefused(RuntimeError):
     """An order was decided but the executor would not send it."""
 
 
+# This strategy's live adapter does not yet reconcile Dhan acknowledgements,
+# partial fills and ambiguous submissions into its persisted rung state.  Keep
+# every real order path closed until that lifecycle is implemented and tested;
+# an `armed` flag alone is not an execution-safety boundary.
+FIB_TOUCH_LIVE_EXECUTION_ENABLED = False
+
+
 class PaperExecutor:
     """Records the fill and sends nothing anywhere."""
 
@@ -452,7 +465,15 @@ class LiveExecutor:
         self.symbol = symbol
         self.armed = bool(armed)
 
+    def _availability_guard(self) -> None:
+        if not FIB_TOUCH_LIVE_EXECUTION_ENABLED:
+            raise ExecutionRefused(
+                "Fib Boundary live execution is temporarily disabled until broker fills, partial fills "
+                "and restart reconciliation are verified. Use Paper or Backtest."
+            )
+
     def _guard(self) -> None:
+        self._availability_guard()
         if not self.armed:
             raise ExecutionRefused(
                 "Live execution is built but not armed. Watch a paper ladder run first, "
@@ -462,28 +483,37 @@ class LiveExecutor:
     def buy(self, *, when, strike, expiry, option_type, quantity, lots, premium) -> dict:
         self._guard()
         order = self.broker.place_option_order(
-            self.symbol,
-            float(strike),
-            expiry.isoformat(),
-            str(option_type),
-            side="BUY",
+            underlying=self.symbol,
+            strike_price=float(strike),
+            option_type=str(option_type),
+            expiry=expiry.isoformat(),
+            transaction_type="BUY",
             quantity=int(quantity),
+            tag="PF_FIB_BOUNDARY_BUY",
         )
-        return {"order_id": getattr(order, "order_id", None) or str(order), "mode": "live"}
+        order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
+        return {"order_id": order_id or str(order), "mode": "live"}
 
     def sell_all(self, *, when, legs) -> dict:
-        self._guard()
+        # Exits do not require the entry `armed` flag, but the execution-
+        # availability gate covers them for now. A multi-strike basket cannot
+        # be marked closed from order acknowledgements alone: one leg may fill
+        # while another rejects. The caller keeps the runtime open and surfaces
+        # EXIT_REFUSED instead of inventing a flat broker position.
+        self._availability_guard()
         ids = []
         for leg in legs:
             order = self.broker.place_option_order(
-                self.symbol,
-                float(leg["strike"]),
-                str(leg["expiry"]),
-                str(leg["option_type"]),
-                side="SELL",
+                underlying=self.symbol,
+                strike_price=float(leg["strike"]),
+                option_type=str(leg["option_type"]),
+                expiry=str(leg["expiry"]),
+                transaction_type="SELL",
                 quantity=int(leg["quantity"]),
+                tag="PF_FIB_BOUNDARY_EXIT",
             )
-            ids.append(getattr(order, "order_id", None) or str(order))
+            order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
+            ids.append(order_id or str(order))
         return {"order_id": ",".join(str(i) for i in ids), "mode": "live"}
 
 
@@ -517,6 +547,16 @@ class FibTouchConfig:
     target_fraction: float = 0.25
     itm_steps: int = 2
     min_dte: int = 4
+    # Deep ladders normally ask for half the way back instead of a quarter.
+    # Turning this off keeps the quarter at every depth -- worth measuring,
+    # because raising the bar when the ladder is deepest is counter-intuitive.
+    deep_target: bool = True
+    # TRAILING EXIT. With this on, reaching the target no longer sells: it ARMS
+    # a trail, and the position rides the move until price gives back
+    # `trail_span_multiple` fibs' worth from the best it saw. Phil, 2026-08-07:
+    # "make a trailing SL to catch the higher move as far as it goes."
+    trailing_stop: bool = False
+    trail_span_multiple: float = 1.0
     lookback_bars: int = 240
     involvement_candles: int = INVOLVEMENT_CANDLES
 
@@ -537,6 +577,8 @@ class FibTouchConfig:
             raise FibTouchError("target_fraction must be between 0 and 1")
         if self.itm_steps < 0:
             raise FibTouchError("itm_steps cannot be negative")
+        if self.trail_span_multiple <= 0:
+            raise FibTouchError("trail_span_multiple must be positive")
         if self.min_dte < 0:
             raise FibTouchError("min_dte cannot be negative")
         if str(self.timeframe).lower() not in GEOMETRY_TIMEFRAMES:
@@ -672,6 +714,10 @@ class FibTouchLadder:
         # high that pays and the low that buys are unordered inside one bar, so
         # settling on the entry bar would be reading the future half the time.
         self._last_fill_timestamp: Optional[datetime] = None
+        # Bars gathered since an unfilled mother broke, waiting to pick the
+        # best replacement. Empty whenever no rebase is in flight.
+        self._rebase_watch: list[Bar] = []
+        self._rebased = False
         self.exit_timestamp: Optional[datetime] = None
         self.exit_reason: Optional[str] = None
         self.exit_index: Optional[float] = None
@@ -679,6 +725,22 @@ class FibTouchLadder:
         self.costs_total: Optional[float] = None
         self.net_pnl: Optional[float] = None
         self._exit_premiums: list[Optional[float]] = []
+        # Legs already settled at their OWN expiry, with the price each got. A
+        # basket holds several expiries -- every rung re-resolves its contract,
+        # and a rebased campaign can span days -- so the near ones settle while
+        # the rest keep running.
+        self._settled: list[tuple[TouchFill, float]] = []
+        # ONE expiry per campaign, fixed by the first buy. Before this, every
+        # rung re-resolved its own expiry, so a ladder that ran past its own
+        # contract kept laddering into the NEXT one: the 24-Dec-2025 campaign
+        # bought five legs on the 30-Dec expiry, watched them die, then opened
+        # an L12 on the 6-Jan expiry -- Rs 57,885 gone, the worst loss in
+        # thirteen months. A ladder is a position in one contract series.
+        self.expiry_locked: Optional[date] = None
+        # Trailing exit state: armed once the target is reached, then the best
+        # price seen since. Both reset with the campaign, never across one.
+        self._trail_armed = False
+        self._trail_best: Optional[float] = None
 
     # ── derived views ─────────────────────────────────────────────
 
@@ -721,7 +783,7 @@ class FibTouchLadder:
         quarter; once it has bought at L4 or deeper it has paid for a much
         bigger move and should ask for half of one.
         """
-        if any(fill.level >= DEEP_TARGET_FROM_LEVEL for fill in self.fills):
+        if self.config.deep_target and any(fill.level >= DEEP_TARGET_FROM_LEVEL for fill in self.fills):
             return DEEP_TARGET_FRACTION
         return self.config.target_fraction
 
@@ -780,13 +842,19 @@ class FibTouchLadder:
     def _resolve_contract(self, when: datetime, spot: float) -> tuple[float, date]:
         """Strike and expiry for a buy happening now, at this index level.
 
-        Re-resolved per rung on purpose: as the index walks down, ATM-2 walks
-        with it, so a deeper CE buy takes a lower strike.  The basket therefore
-        holds several strikes, which is what Phil asked for when he checked
-        whether the strike updates on each buy.
+        The STRIKE is re-resolved per rung on purpose: as the index walks down,
+        ATM-2 walks with it, so a deeper CE buy takes a lower strike.  The basket
+        therefore holds several strikes, which is what Phil asked for when he
+        checked whether the strike updates on each buy.
+
+        The EXPIRY is not. It is chosen once, by the first buy, and every later
+        rung joins that same contract series -- see `expiry_locked`.
         """
-        expiries = list(self.expiry_source(when.date()))
-        expiry = select_expiry(expiries, when.date(), min_dte=self.config.min_dte)
+        if self.expiry_locked is not None:
+            expiry = self.expiry_locked
+        else:
+            expiries = list(self.expiry_source(when.date()))
+            expiry = select_expiry(expiries, when.date(), min_dte=self.config.min_dte)
         atm = atm_strike(spot, self.config.strike_step)
         offset = self.config.itm_steps * self.config.strike_step
         strike = atm - offset if self.side == "CE" else atm + offset
@@ -801,6 +869,23 @@ class FibTouchLadder:
                 # Levels are ordered shallow-first, so the first untouched one
                 # ends the walk: nothing deeper can have been reached.
                 break
+            # The ladder never buys into its own contract's last days. Once the
+            # locked expiry is inside `min_dte` the remaining rungs are closed
+            # off: the legs already held run on to the target or to expiry, but
+            # a fresh L12 bought two days out is a lottery ticket, not a rung.
+            if self.expiry_locked is not None:
+                left = (self.expiry_locked - bar.timestamp.date()).days
+                if left < self.config.min_dte:
+                    for remaining in self.rungs:
+                        if remaining.status == "PENDING":
+                            remaining.status = "EXPIRING"
+                    self._log(
+                        bar.timestamp,
+                        "ladder_closed_near_expiry",
+                        expiry=self.expiry_locked.isoformat(),
+                        days_left=left,
+                    )
+                    return
             # Fill AT the level, not at the close -- a touch is a limit order
             # resting on the line, and the line is the price it gets.
             fill_index = rung.index_price
@@ -871,6 +956,8 @@ class FibTouchLadder:
                 order_id=str(receipt.get("order_id") or ""),
             )
             self.fills.append(fill)
+            # The first buy fixes the campaign's contract series for good.
+            self.expiry_locked = expiry
             self._last_fill_timestamp = bar.timestamp
             rung.status = "FILLED"
             rung.filled_at = bar.timestamp
@@ -903,9 +990,28 @@ class FibTouchLadder:
         edge = self.mother_high if self.side == "CE" else self.mother_low
         if edge is None:
             return False
+
+        # A rebase already under way keeps collecting until it has seen enough.
+        if self._rebase_watch:
+            self._rebase_watch.append(bar)
+            if len(self._rebase_watch) >= REBASE_WATCH_BARS:
+                self._rebase(self._rebase_watch)
+            return False
+
         broken = float(bar.close) > edge if self.side == "CE" else float(bar.close) < edge
         if not broken:
             return False
+
+        if not self.fills and not self._settled:
+            # NOTHING IS BOUGHT, so nothing has failed -- the setup has moved.
+            # Phil, 2026-08-07: "before if it breaks, then mother is changed."
+            # Ending here threw away 20 of 24 campaigns before they could trade.
+            # The first bar through is not necessarily the best mother, so five
+            # minutes are watched and the best of them wins.
+            self._rebase_watch = [bar]
+            self._log(bar.timestamp, "mother_break_rebasing", close=round(float(bar.close), 2), edge=round(edge, 2))
+            return False
+
         if self.fills:
             prices: list[Optional[float]] = []
             for fill in self.fills:
@@ -950,6 +1056,45 @@ class FibTouchLadder:
         self._log(bar.timestamp, "mother_broken", close=round(float(bar.close), 2), edge=round(edge, 2))
         return True
 
+    def _rebase(self, watched: list[Bar]) -> None:
+        """Move the mother to the best of the watched bars and start over.
+
+        Best means the extreme in the working direction: the highest high for a
+        CE, the lowest low for a PE. Everything measured from the old mother --
+        the swing, the levels, the rung states -- is discarded, because it was
+        geometry for a setup that no longer exists.
+
+        The new mother is a ONE-MINUTE candle, so the swing is measured on the
+        1m stream from here on. The chosen mother chart describes where the
+        FIRST mother came from; once the market has moved past it, the ladder
+        re-anchors at the resolution it actually watches.
+        """
+        best = (
+            max(watched, key=lambda row: float(row.high))
+            if self.side == "CE"
+            else min(watched, key=lambda row: float(row.low))
+        )
+        object.__setattr__(self.config, "mother_timestamp", best.timestamp)
+        self.mother_high, self.mother_low = float(best.high), float(best.low)
+        self.anchor = None
+        self.rungs = []
+        self._rebase_watch = []
+        # A rebase only ever runs before the first buy, so no contract is
+        # committed yet and the next ladder picks its own expiry afresh.
+        self.expiry_locked = None
+        # The old mother's geometry stream is meaningless now; the new mother
+        # lives on the 1m series, so the swing is searched there.
+        self.geometry_history = list(watched)
+        self._rebased = True
+        self.status = "WAITING_FOR_SWING"
+        self._log(
+            best.timestamp,
+            "mother_rebased",
+            high=round(float(best.high), 2),
+            low=round(float(best.low), 2),
+            watched=len(watched),
+        )
+
     def _try_exit(self, bar: Bar) -> bool:
         """Close the whole basket when the index reaches the target."""
         if not self.fills:
@@ -959,9 +1104,35 @@ class FibTouchLadder:
         target = self.target_index
         if target is None:
             return False
+
         # The target is a resting sell limit, so a wick through it is a fill.
-        hit = float(bar.high) >= target if self.side == "CE" else float(bar.low) <= target
-        if not hit:
+        reached = float(bar.high) >= target if self.side == "CE" else float(bar.low) <= target
+
+        if self.config.trailing_stop:
+            # Reaching the target ARMS the trail rather than selling. From then
+            # on the position rides the move and only leaves when price gives
+            # back a fib's worth from the best it has seen.
+            if not self._trail_armed:
+                if not reached:
+                    return False
+                self._trail_armed = True
+                self._trail_best = float(bar.high) if self.side == "CE" else float(bar.low)
+                self._log(bar.timestamp, "trail_armed", target=round(target, 2), best=round(self._trail_best, 2))
+                return False
+            assert self._trail_best is not None
+            self._trail_best = (
+                max(self._trail_best, float(bar.high)) if self.side == "CE" else min(self._trail_best, float(bar.low))
+            )
+            span = self.anchor.span if self.anchor else 0.0
+            give_back = span * self.config.trail_span_multiple
+            stop = self._trail_best - give_back if self.side == "CE" else self._trail_best + give_back
+            # A CLOSE through the stop, not a wick: the same standard the mother
+            # break uses, so one poke does not end a move that is still running.
+            stopped = float(bar.close) <= stop if self.side == "CE" else float(bar.close) >= stop
+            if not stopped:
+                return False
+            target = stop
+        elif not reached:
             return False
         prices: list[Optional[float]] = []
         for fill in self.fills:
@@ -1005,25 +1176,30 @@ class FibTouchLadder:
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
         self.exit_index = target
-        self.exit_reason = "target"
+        self.exit_reason = "trail_stop" if self.config.trailing_stop else "target"
         self.status = "CLOSED"
         self._settle(prices)
-        self._log(bar.timestamp, "target", target=round(target, 2), net=self.net_pnl)
+        self._log(
+            bar.timestamp,
+            "trail_stop" if self.config.trailing_stop else "target",
+            price=round(target, 2),
+            best=round(self._trail_best, 2) if self._trail_best is not None else None,
+            net=self.net_pnl,
+        )
         return True
 
     def _settle(self, exit_prices: Sequence[Optional[float]]) -> None:
-        if not self.fills or any(price is None for price in exit_prices):
+        """Book the open legs at ``exit_prices``, plus anything already settled."""
+        if any(price is None for price in exit_prices):
             return
-        self.gross_pnl = round(
-            sum(
-                (float(exit_price) - fill.premium) * fill.quantity for exit_price, fill in zip(exit_prices, self.fills)
-            ),
-            2,
-        )
-        self.costs_total = round(self._costs(exit_prices), 2)
+        pairs = list(zip(self.fills, [float(p) for p in exit_prices])) + self._settled
+        if not pairs:
+            return
+        self.gross_pnl = round(sum((price - fill.premium) * fill.quantity for fill, price in pairs), 2)
+        self.costs_total = round(self._costs_for(pairs), 2)
         self.net_pnl = round(self.gross_pnl - self.costs_total, 2)
 
-    def _costs(self, exit_prices: Sequence[Optional[float]]) -> float:
+    def _costs_for(self, pairs: Sequence[tuple[TouchFill, float]]) -> float:
         """Statutory round costs, charged per contract the basket holds."""
         from cascade_costs import (
             OptionCostFill,
@@ -1031,7 +1207,7 @@ class FibTouchLadder:
         )
 
         grouped: dict[tuple[float, date], list[tuple[TouchFill, float]]] = {}
-        for fill, exit_price in zip(self.fills, exit_prices):
+        for fill, exit_price in pairs:
             grouped.setdefault((fill.strike, fill.expiry), []).append((fill, float(exit_price)))
         total = 0.0
         for rows in grouped.values():
@@ -1047,35 +1223,61 @@ class FibTouchLadder:
         return total
 
     def _try_expiry_exit(self, bar: Bar) -> bool:
-        """Settle at intrinsic on the expiry the basket's nearest leg carries.
+        """Settle each leg on ITS OWN expiry, not the whole basket on the first.
 
-        With no stop loss, expiry is the only thing besides the target that can
-        end this campaign -- so it has to be exact, not approximate.
+        Every rung re-resolves its contract, so a ladder routinely holds two or
+        three expiries at once -- and a rebased campaign can run for days, which
+        widens the spread. Settling all of them the moment the NEAREST one
+        expires wrote off the later legs' entire remaining life at intrinsic.
+        On 25 Jun that turned a basket into -Rs 67,209: three legs genuinely
+        expired worthless and two more, with a week left to run, were zeroed
+        alongside them.
+
+        With no stop loss, expiry is still the only thing besides the target and
+        a broken mother that can end this campaign -- it just ends leg by leg.
         """
         if not self.fills:
             return False
         from datetime import time as dt_time
 
-        expiry = min(fill.expiry for fill in self.fills)
-        if bar.timestamp.date() < expiry:
+        def _expired(fill: TouchFill) -> bool:
+            if bar.timestamp.date() > fill.expiry:
+                return True
+            return bar.timestamp.date() == fill.expiry and bar.timestamp.time() >= dt_time(15, 15)
+
+        due = [fill for fill in self.fills if _expired(fill)]
+        if not due:
             return False
-        if bar.timestamp.date() == expiry and bar.timestamp.time() < dt_time(15, 15):
+
+        def _intrinsic(fill: TouchFill) -> float:
+            # An option at expiry is worth intrinsic, which the index settles
+            # exactly -- no premium history is needed for the loss to be real.
+            if self.side == "CE":
+                return max(float(bar.close) - fill.strike, 0.0)
+            return max(fill.strike - float(bar.close), 0.0)
+
+        for fill in due:
+            self._settled.append((fill, _intrinsic(fill)))
+            self.rungs_expired = getattr(self, "rungs_expired", 0) + 1
+        self.fills = [fill for fill in self.fills if fill not in due]
+        self._log(
+            bar.timestamp,
+            "legs_expired",
+            legs=len(due),
+            expiry=min(f.expiry for f in due).isoformat(),
+            still_open=len(self.fills),
+        )
+        if self.fills:
+            # The rest are still live; the campaign carries on.
             return False
-        prices = [
-            (
-                max(float(bar.close) - fill.strike, 0.0)
-                if self.side == "CE"
-                else max(fill.strike - float(bar.close), 0.0)
-            )
-            for fill in self.fills
-        ]
-        self._exit_premiums = list(prices)
+
+        self._exit_premiums = [price for _fill, price in self._settled]
         self.exit_timestamp = bar.timestamp
         self.exit_index = float(bar.close)
         self.exit_reason = "expiry_square_off"
         self.status = "EXPIRED"
-        self._settle(prices)
-        self._log(bar.timestamp, "expiry_exit", expiry=expiry.isoformat(), net=self.net_pnl)
+        self._settle([])
+        self._log(bar.timestamp, "expiry_exit", net=self.net_pnl)
         return True
 
     # ── entry point ───────────────────────────────────────────────
@@ -1119,8 +1321,9 @@ class FibTouchLadder:
             return
         self.history.append(bar)
         # A 1m mother needs no separate stream -- the entry bars ARE the
-        # geometry bars, so feed them through as well.
-        if self.config.timeframe == self.config.entry_timeframe:
+        # geometry bars, so feed them through as well. A rebased campaign is in
+        # the same position: its new mother came off the 1m series.
+        if self.config.timeframe == self.config.entry_timeframe or self._rebased:
             self.on_geometry_candle(bar)
         if self.anchor is None:
             return
@@ -1166,6 +1369,25 @@ class FibTouchLadder:
             if price is None:
                 return False
             prices.append(price)
+        try:
+            self.executor.sell_all(
+                when=bar.timestamp,
+                legs=[
+                    {
+                        "strike": fill.strike,
+                        "expiry": fill.expiry.isoformat(),
+                        "option_type": fill.option_type,
+                        "quantity": fill.quantity,
+                    }
+                    for fill in self.fills
+                ],
+            )
+        except ExecutionRefused as exc:
+            # Never report KILLED when the execution boundary refused the exit.
+            self.data_gaps.append(f"manual kill exit not sent: {exc}")
+            self._log(bar.timestamp, "exit_refused", detail=str(exc))
+            self.status = "EXIT_REFUSED"
+            return False
         self._exit_premiums = prices
         self.exit_timestamp = bar.timestamp
         self.exit_index = float(bar.close)
@@ -1256,6 +1478,8 @@ class FibTouchLadder:
                 }
                 for fill in self.fills
             ],
+            "settled": [{**fill.as_dict(), "settled_at": price} for fill, price in self._settled],
+            "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "last_fill_timestamp": (self._last_fill_timestamp.isoformat() if self._last_fill_timestamp else None),
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,
             "exit_reason": self.exit_reason,
@@ -1344,6 +1568,33 @@ class FibTouchLadder:
             )
             for row in raw.get("fills") or []
         ]
+        engine._settled = [
+            (
+                TouchFill(
+                    buy_number=int(row["buy_number"]),
+                    level=int(row["level"]),
+                    timestamp=datetime.fromisoformat(row["timestamp"]),
+                    index_price=float(row["index_price"]),
+                    premium=float(row["premium"]),
+                    lots=int(row["lots"]),
+                    quantity=int(row["quantity"]),
+                    strike=float(row["strike"]),
+                    expiry=date.fromisoformat(row["expiry"]),
+                    option_type=str(row["option_type"]),
+                    order_id=str(row.get("order_id") or ""),
+                ),
+                float(row["settled_at"]),
+            )
+            for row in raw.get("settled") or []
+        ]
+        locked = raw.get("expiry_locked")
+        # A ladder written before the expiry lock existed still has one contract
+        # series in its fills; take it from there rather than leaving it free to
+        # roll into the next expiry on the first tick after a restart.
+        if locked:
+            engine.expiry_locked = date.fromisoformat(locked)
+        elif engine.fills:
+            engine.expiry_locked = min(fill.expiry for fill in engine.fills)
         stamp = raw.get("last_fill_timestamp")
         engine._last_fill_timestamp = datetime.fromisoformat(stamp) if stamp else None
         engine.mother_high = raw.get("mother_high")
@@ -1394,10 +1645,16 @@ class FibTouchLadder:
             ),
             "levels": [rung.as_dict() for rung in self.rungs],
             "fills": [fill.as_dict() for fill in self.fills],
+            # Legs already settled at their own expiry. They leave `fills` when
+            # they settle, and without this the panel and the chart would show a
+            # campaign that quietly forgot three of its five buys.
+            "settled_fills": [{**fill.as_dict(), "settled_at": round(price, 2)} for fill, price in self._settled],
             "lot_size": self.config.lot_size,
             "strike_step": self.config.strike_step,
             "itm_steps": self.config.itm_steps,
             "min_dte": self.config.min_dte,
+            # The one contract series this ladder trades, fixed by the first buy.
+            "expiry_locked": self.expiry_locked.isoformat() if self.expiry_locked else None,
             "capital_cap_inr": self.config.capital_cap_inr,
             "deployed_inr": self.deployed_inr,
             "remaining_inr": self.remaining_inr,
@@ -1409,6 +1666,9 @@ class FibTouchLadder:
             "average_premium": (round(self.average_premium, 2) if self.average_premium is not None else None),
             "target_index": round(self.target_index, 2) if self.target_index is not None else None,
             "target_fraction": self.target_fraction,
+            "trailing_stop": self.config.trailing_stop,
+            "trail_armed": self._trail_armed,
+            "trail_best": round(self._trail_best, 2) if self._trail_best is not None else None,
             "mother_high": self.mother_high,
             "mother_low": self.mother_low,
             "exit_timestamp": self.exit_timestamp.isoformat() if self.exit_timestamp else None,

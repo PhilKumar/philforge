@@ -300,6 +300,12 @@ setMode(PASSWORD_MODE, false);
     toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
     sync();
   });
+  panel.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    panel.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.focus();
+  });
   panel.addEventListener('click', (event) => {
     const tintBtn = event.target.closest('[data-login-tint]');
     const fontBtn = event.target.closest('[data-login-font]');

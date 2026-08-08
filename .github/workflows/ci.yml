@@ -41,6 +41,11 @@ jobs:
       - name: Python dependency vulnerability scan
         run: pip-audit
 
+      - name: JavaScript dependency vulnerability scan
+        run: |
+          npm ci --prefix e2e-tests
+          npm audit --prefix e2e-tests --audit-level=high
+
       - name: Ruff lint
         run: ruff check .
 
@@ -106,5 +111,15 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_broker_check.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_order_submission_safety.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_mfa_action_authorization.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_fib_touch_ladder.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_cascade_fib_boundary_routes.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_hybrid_premium_lookup.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_fib_backtest_route_e2e.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_image_uploads.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_journal_validation.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_request_security.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_logging_safety.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_chart_integrity.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_journal_client_integrity.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_order_input_validation.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_deploy_hardening.py'
