@@ -405,9 +405,21 @@ def _init_db_sync():
         # carried forward, because there is no telling which of the ledger's
         # movements happened after he read it off the bank.
         ("stated_on", "TEXT NOT NULL DEFAULT ''"),
+        # An instalment that is charged to a credit card never leaves the
+        # bank on its own. It arrives inside the card's bill, and the bill
+        # is already a ledger row, so a schedule that also spends it counts
+        # the same money twice.
+        ("on_a_card", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if column not in existing_loan_columns:
             conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} {decl}")  # nosec B608
+            if column == "on_a_card":
+                # The importer names these off the statement that carries
+                # them — "Instaloan on card ••4838" — so the ones already in
+                # the table can say for themselves what the column is for.
+                # Once only, on the migration that creates it; the loan card
+                # has a button, and his answer there outlives this.
+                conn.execute("UPDATE sanctuary_loans SET on_a_card = 1 WHERE lower(name) LIKE '%on card%'")
 
     # A statement prints a running balance beside every row and the reader
     # was throwing it away, so the one figure that says how much money is

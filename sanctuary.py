@@ -2158,7 +2158,11 @@ async def ledger_search(q: str = "", user: dict = Depends(_unlocked_user)):
     if len(query) < 2:
         raise HTTPException(status_code=400, detail="Give the search two characters or more")
     rows = await sanctuary_db.search_ledger(int(user["id"]), query)
-    return {"rows": rows, "capped": len(rows) >= 400}
+    # The rows are capped so the table stays openable; the tally is not, so
+    # "how much on Zepto, ever" is answered by all of them and not by the
+    # newest four hundred that happened to fit.
+    tally = await sanctuary_db.search_ledger_tally(int(user["id"]), query)
+    return {"rows": rows, "capped": len(rows) >= 400, **tally}
 
 
 @router.delete("/api/sanctuary/finance/entry/{row_id}")
@@ -2899,6 +2903,8 @@ def _clean_loan_fields(payload: dict) -> dict:
         fields["start_date"] = start_date
     if "active" in payload:
         fields["active"] = 1 if payload.get("active") else 0
+    if "on_a_card" in payload:
+        fields["on_a_card"] = 1 if payload.get("on_a_card") else 0
     return fields
 
 
@@ -4014,9 +4020,15 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     for row in outgo:
         if str(row.get("ref_id") or "").startswith("stmt:"):
             stmt_days.setdefault(round(row["amount"], 2), []).append(row["entry_date"])
+    # An instalment charged to a credit card never leaves the bank on its
+    # own, so the test above can never find it: it arrives inside the card's
+    # bill, and the bill is already a row here. Two Instaloans on card ··4838
+    # were being spent twice over that way — once by CRED settling the card,
+    # once by the schedule that had already been settled with it.
+    on_a_card = {int(loan["id"]) for loan in all_loans if loan.get("on_a_card")}
     for emi in emis:
         due = date.fromisoformat(emi["due_date"])
-        emi["in_ledger"] = any(
+        emi["in_ledger"] = int(emi.get("loan_id") or 0) in on_a_card or any(
             abs((date.fromisoformat(d) - due).days) <= 5 for d in stmt_days.get(round(emi["amount"], 2), [])
         )
         # An instalment that has not come due is not money spent. A future

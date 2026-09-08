@@ -3438,3 +3438,261 @@ class PrincipalOwedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ARuleReadsANameNotAFragmentTests(unittest.TestCase):
+    """Two letters taught once, then reading every name that contains them.
+
+    "dd" was taught off a single school row and thereafter found itself in
+    the middle of Moinuddin, a mutton shop, which the page filed under the
+    boys' school fees.
+    """
+
+    def matched(self, note, rule):
+        import sanctuary_statements
+
+        return sanctuary_statements.rule_matches(note, rule)
+
+    def test_two_letters_inside_a_name_take_nothing(self):
+        self.assertFalse(self.matched("UPI/Moinuddin/Q370010648@ybl/mutton/YES BANK L/661", "dd"))
+
+    def test_two_letters_still_work_where_the_word_begins_with_them(self):
+        self.assertTrue(self.matched("BIL/DD charges/12345", "dd"))
+
+    def test_a_three_letter_name_written_into_a_longer_one_still_counts(self):
+        """The reason the floor is two and not four: this is a real Jio bill."""
+        self.assertTrue(self.matched("UPI/443444334822/Paid via CRED/reliancejioinfo/HDFC BANK LTD", "jio"))
+
+    def test_a_merchant_run_together_with_its_app_still_counts(self):
+        self.assertTrue(self.matched("UPI/307806551614/paid via CRED P/gedditzepto.bdp/ICICI Bank", "zepto"))
+
+    def test_the_hexadecimal_trace_is_still_never_read(self):
+        self.assertFalse(self.matched("UPI/x/YCDDC4D55C94D9241BA8571B646B7B184CA/", "dd"))
+
+
+class WhatOneSearchComesToTests(unittest.TestCase):
+    """ "How much have I spent on Zepto" is a sum, not a row count.
+
+    The all-years search listed entries and stopped at four hundred of
+    them, so the one question he was asking it had no answer on the page.
+    """
+
+    def setUp(self):
+        self._db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(self._db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def rows(self):
+        return [
+            {
+                "entry_date": "2025-02-01",
+                "category": "Eating out",
+                "amount": 300.0,
+                "note": "UPI/zepto/a",
+                "source": "statement",
+                "ref_id": "z1",
+            },
+            {
+                "entry_date": "2025-06-02",
+                "category": "Groceries",
+                "amount": 200.0,
+                "note": "UPI/gedditzepto/b",
+                "source": "statement",
+                "ref_id": "z2",
+            },
+            {
+                "entry_date": "2026-01-03",
+                "category": "Eating out",
+                "amount": 500.0,
+                "note": "UPI/zepto/c",
+                "source": "statement",
+                "ref_id": "z3",
+            },
+            {
+                "entry_date": "2026-01-04",
+                "category": "Refund",
+                "amount": 120.0,
+                "note": "UPI/zepto refund",
+                "source": "statement-in",
+                "ref_id": "z4",
+            },
+            {
+                "entry_date": "2026-01-05",
+                "category": "Fuel",
+                "amount": 900.0,
+                "note": "UPI/petrol",
+                "source": "statement",
+                "ref_id": "z5",
+            },
+        ]
+
+    def tally(self, term="zepto"):
+        async def run():
+            await self.sanctuary_db.add_ledger_many(1, self.rows())
+            return await self.sanctuary_db.search_ledger_tally(1, term)
+
+        return asyncio.run(run())
+
+    def test_it_adds_up_what_went_out_and_leaves_the_unrelated_row_alone(self):
+        t = self.tally()
+        self.assertEqual(t["spent"], 1000.0)
+        self.assertEqual(t["count"], 4)
+
+    def test_money_that_came_back_is_counted_apart_never_netted_off(self):
+        self.assertEqual(self.tally()["received"], 120.0)
+
+    def test_it_says_across_what_span(self):
+        t = self.tally()
+        self.assertEqual((t["first"], t["last"]), ("2025-02-01", "2026-01-04"))
+
+    def test_the_years_break_the_total_down_and_add_back_up_to_it(self):
+        t = self.tally()
+        self.assertEqual({y["year"]: y["spent"] for y in t["by_year"]}, {"2025": 500.0, "2026": 500.0})
+        self.assertEqual(round(sum(y["spent"] for y in t["by_year"]), 2), t["spent"])
+
+    def test_a_term_nothing_answers_is_zero_not_an_error(self):
+        t = self.tally("nowhere")
+        self.assertEqual((t["count"], t["spent"]), (0, 0.0))
+
+
+class AnInstalmentBilledToACardIsNotSpentTwiceTests(unittest.TestCase):
+    """His two Instaloans are charged to card ··4838.
+
+    The money leaves the bank once, when CRED settles that card — a row the
+    ledger already holds. The schedule was spending it a second time,
+    because the debit it looks for never appears on its own.
+    """
+
+    def setUp(self):
+        self._db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(self._db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.sanctuary_db = sanctuary_db
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def month(self, on_a_card):
+        import sanctuary
+
+        async def run():
+            loan_id = await self.sanctuary_db.create_loan(1, {"name": "Instaloan on card 4838", "emi_amount": 4702})
+            # Dated in the past: a month never counts an instalment that
+            # has not come due, so a future date would read zero either way
+            # and prove nothing about the card.
+            await self.sanctuary_db.replace_schedule(1, loan_id, [{"due_date": "2020-09-13", "amount": 4702}])
+            if on_a_card:
+                await self.sanctuary_db.update_loan(1, loan_id, {"on_a_card": 1})
+            return await sanctuary.finance_month(month="2020-09", user={"id": 1})
+
+        return asyncio.run(run())
+
+    def test_a_card_billed_instalment_is_not_counted_as_its_own_spending(self):
+        f = self.month(on_a_card=True)
+        self.assertEqual(f["totals"]["emis"], 0)
+        self.assertTrue(all(e["in_ledger"] for e in f["emis"]))
+
+    def test_the_same_instalment_off_a_card_still_counts(self):
+        f = self.month(on_a_card=False)
+        self.assertEqual(f["totals"]["emis"], 4702.0)
+
+    def test_the_migration_marks_the_loans_the_importer_named_for_a_card(self):
+        """A column added to a table that already holds them must not need
+        him to go and tick two boxes it could read off their own names."""
+
+        async def run():
+            return await self.sanctuary_db.list_loans(1)
+
+        asyncio.run(self.sanctuary_db.create_loan(1, {"name": "Instaloan on card 4838"}))
+        loans = asyncio.run(run())
+        self.assertTrue(any("on card" in loan["name"].lower() for loan in loans))
+
+
+class TheRoomKeepsTheHoursTests(unittest.TestCase):
+    """Night from six in the evening, day from six in the morning.
+
+    A hand-made choice holds, but only until the light itself turns — a
+    page pinned to dark at nine in the morning is last night's decision,
+    not this morning's.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_the_boundaries_are_six_and_eighteen(self):
+        self.assertIn("const NIGHT_FROM = 18, DAY_FROM = 6", self.page)
+
+    def test_a_saved_choice_is_stamped_with_the_hour_it_was_made(self):
+        self.assertIn("JSON.stringify({t: t, at: Date.now()})", self.page)
+
+    def test_the_choice_is_only_honoured_within_the_stretch_it_was_made_in(self):
+        self.assertIn("saved.at >= thisStretchBegan()", self.page)
+
+    def test_a_page_left_open_turns_on_its_own(self):
+        self.assertIn("}, 60000);", self.page)
+
+    def test_loading_paints_without_stamping_a_choice(self):
+        """applyTheme on load would record a hand-made choice every time the
+        page opened, and the clock would never get another turn."""
+        self.assertIn("paintTheme(document.documentElement.dataset.theme)", self.page)
+        self.assertNotIn("applyTheme(document.documentElement.dataset.theme);", self.page)
+
+
+class WhereIStandSaysThreeThingsTests(unittest.TestCase):
+    """Thirteen rows of arithmetic is the working-out, not the picture."""
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_the_three_figures_are_owed_have_and_the_gap(self):
+        for label in (">Owed <", ">You have <", ">The gap<"):
+            self.assertIn(label, self.page)
+
+    def test_what_he_has_is_one_figure_with_its_parts_beneath_it(self):
+        self.assertIn("st.in_bank + st.held + st.fund_epf", self.page)
+        self.assertIn('class="sf-parts"', self.page)
+
+    def test_the_rows_that_were_not_part_of_the_sum_became_a_footnote(self):
+        self.assertIn('class="sf-aside"', self.page)
+        for gone in ("Owed, less what you own", "Owed, less the fund as well", "In the provident fund$"):
+            self.assertNotIn(gone, self.page)
+        # The pension keeps its own row on the FUND's card; what it lost is
+        # a second row in this panel, where it was never part of the sum.
+        self.assertIn("of pension held with the fund, not spendable", self.page)
+
+    def test_the_overdraft_is_still_said_and_still_not_counted(self):
+        self.assertIn("of overdraft you could draw, not counted", self.page)

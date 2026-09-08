@@ -272,6 +272,11 @@ def payee_key(note: str) -> str:
     return text.lower()[:40]
 
 
+# Two letters are never a name, and no merchant he pays is written in
+# fewer than three. Raising this to four or five is what breaks "jio".
+_A_NAME_IS_THIS_LONG = 3
+
+
 def _found_in_writing(text: str, at: int, length: int) -> bool:
     """Whether a match landed in the narration's words, not in its machine.
 
@@ -283,11 +288,26 @@ def _found_in_writing(text: str, at: int, length: int) -> bool:
     never held, because the rule was still there and still reading the
     trace.
 
-    A payee's name is written straight through — "apollopharmacy" — and a
-    rule must still find the chemist inside it. So the test is not where a
-    word begins but what kind of thing the match landed in: anywhere in a
+    A payee's name is written straight through — "apollopharmacy",
+    "gedditzepto", "venubiriyani" — and a rule must still find the chemist,
+    the grocer and the biriyani shop inside those. So the test is not where
+    a word begins but what kind of thing the match landed in: anywhere in a
     run of plain letters, but in a run that mixes letters with digits only
     where that run begins. Nothing in a trace begins where the rule does.
+
+    That let the letters through and the machine writing out, but it did
+    not stop a FRAGMENT: "dd" is two letters, and it lives inside Moinuddin
+    as happily as inside a trace, so the mutton shop was filed as the boys'
+    school fees.
+
+    Nothing longer is ruled on here, and the temptation to is worth naming.
+    Requiring a match to line up with one end of the word would also catch
+    "ips" inside Phillipshiny and "oil" inside indianoilone — but it throws
+    out "jio" inside reliancejioinfo, which is a real Jio bill, and a Jio
+    bill wrongly filed as a card payment is the exact complaint this page
+    has already had once. Two letters can be ruled out with no such cost.
+    Three cannot, so a fragment that long is dealt with by retiring the
+    rule, not by narrowing the reading for every other rule with it.
     """
     start, end = at, at + length
     while start > 0 and text[start - 1].isalnum():
@@ -296,6 +316,8 @@ def _found_in_writing(text: str, at: int, length: int) -> bool:
         end += 1
     if start == at:
         return True  # it begins the run: always fair
+    if length < _A_NAME_IS_THIS_LONG:
+        return False
     return not any(ch.isdigit() for ch in text[start:end])
 
 

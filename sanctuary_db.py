@@ -488,6 +488,56 @@ async def search_ledger(user_id: int, query: str, limit: int = 400) -> list[dict
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def search_ledger_tally(user_id: int, query: str) -> dict:
+    """What the search comes to, over EVERY matching row.
+
+    The rows themselves stop at four hundred so the table stays openable,
+    and a total taken from those would be a total of the newest four
+    hundred — which is not what "how much have I spent on Zepto" asks. The
+    arithmetic is done in the database, across the lot.
+    """
+    needle = f"%{query.strip()}%"
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        where = "WHERE user_id = ? AND (note LIKE ? OR category LIKE ?)"
+        args = (int(user_id), needle, needle)
+        cursor = await db.execute(
+            f"""SELECT COUNT(*) AS n, MIN(entry_date) AS first, MAX(entry_date) AS last,
+                       SUM(CASE WHEN source = 'statement-in' THEN 0 ELSE amount END) AS out,
+                       SUM(CASE WHEN source = 'statement-in' THEN amount ELSE 0 END) AS inn
+                FROM sanctuary_ledger {where}""",  # nosec B608
+            args,
+        )
+        totals = dict(await cursor.fetchone())
+        cursor = await db.execute(
+            f"""SELECT substr(entry_date, 1, 4) AS year, COUNT(*) AS n,
+                       SUM(CASE WHEN source = 'statement-in' THEN 0 ELSE amount END) AS out
+                FROM sanctuary_ledger {where} GROUP BY year ORDER BY year DESC""",  # nosec B608
+            args,
+        )
+        years = [dict(row) for row in await cursor.fetchall()]
+        cursor = await db.execute(
+            f"""SELECT category, COUNT(*) AS n,
+                       SUM(CASE WHEN source = 'statement-in' THEN 0 ELSE amount END) AS out
+                FROM sanctuary_ledger {where} GROUP BY category ORDER BY out DESC LIMIT 8""",  # nosec B608
+            args,
+        )
+        cats = [dict(row) for row in await cursor.fetchall()]
+    return {
+        "count": int(totals["n"] or 0),
+        "spent": round(float(totals["out"] or 0), 2),
+        "received": round(float(totals["inn"] or 0), 2),
+        "first": str(totals["first"] or ""),
+        "last": str(totals["last"] or ""),
+        "by_year": [{"year": y["year"], "count": y["n"], "spent": round(float(y["out"] or 0), 2)} for y in years],
+        "by_category": [
+            {"name": c["category"], "count": c["n"], "spent": round(float(c["out"] or 0), 2)}
+            for c in cats
+            if float(c["out"] or 0) > 0
+        ],
+    }
+
+
 async def set_ledger_category(user_id: int, row_id: int, category: str) -> bool:
     async with aiosqlite.connect(config.DB_PATH) as db:
         cursor = await db.execute(
@@ -760,6 +810,7 @@ async def update_loan(user_id: int, loan_id: int, fields: dict) -> bool:
         "details",
         "drawn_amount",
         "stated_on",
+        "on_a_card",
         "active",
     }
     sets, params = [], []

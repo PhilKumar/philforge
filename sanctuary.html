@@ -943,6 +943,30 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
   .stmt-head #stmt-resort{margin-left:0}
 }
 .ledger-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 4px}
+/* The answer to a search, said as money before it is said as rows. The
+   headline is the total; the years and the categories beneath it are how
+   that total was arrived at, small enough to skim and never to shout. */
+.led-tally{margin:8px 0 2px;padding:10px 12px;border-radius:12px;
+  background:var(--pane-tint);border:1px solid var(--line)}
+.led-tally .lt-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px}
+.led-tally .lt-sum{font-size:1.28rem;font-weight:700;color:var(--danger)}
+.led-tally .lt-term{color:var(--ink);font-weight:600}
+.led-tally .lt-when{color:var(--muted);font-size:.82rem}
+.led-tally .lt-split{display:flex;flex-wrap:wrap;gap:6px 8px;margin-top:8px}
+.led-tally .lt-chip{font-size:.78rem;color:var(--soft);white-space:nowrap;
+  border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.led-tally .lt-chip b{color:var(--ink);font-weight:600}
+.led-tally .lt-chip i,.sf-parts .lt-chip i{font-style:normal;color:var(--muted)}
+/* The breakdown of "you have", sitting under it rather than beside it as
+   three more rows of its own. */
+.sf-parts{display:flex;flex-wrap:wrap;gap:6px 8px;padding:2px 0 10px}
+.sf-parts .lt-chip{font-size:.78rem;color:var(--soft);white-space:nowrap;
+  border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.sf-parts .lt-chip b{color:var(--ink);font-weight:600}
+/* Everything true but not part of the sum. */
+.sf-aside{margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:.79rem;line-height:1.5}
+
 /* One row for as long as one row is possible: the fields shrink together
    rather than each demanding its own line the moment the window narrows. */
 .ledger-toolbar #led-search{flex:2 1 120px;min-width:0}
@@ -1699,6 +1723,9 @@ html[data-theme="dark"]{color-scheme:dark}
         </select>
         <button class="btn ghost" id="led-csv" title="Download what the filters show">⬇ CSV</button>
       </div>
+      <!-- What the search comes to. Counting the entries was never the
+           question — "how much have I spent on Zepto" is. -->
+      <div id="led-tally" class="led-tally" hidden></div>
       <!-- Ten rows' worth of height whether this page holds ten or five, so
            the panel stops jumping every time he turns to an older page. -->
       <div class="ledger-frame"><table id="ledger-table"></table></div>
@@ -2273,13 +2300,40 @@ addEventListener("resize", markCovered, {passive: true});
 markCovered();
 
 /* ═══════════ theme ═══════════ */
-function applyTheme(t){ document.documentElement.dataset.theme = t; localStorage.setItem("sanctuary_theme", t); sceneVideoSync();
-  $("theme-ico").innerHTML = t === "dark"
+/* The sanctuary keeps the hours of the day: night from 6pm, day from 6am.
+   A choice he makes by hand holds — but only until the light itself turns,
+   because a page pinned to dark at nine in the morning is not a choice he
+   made, it is one he made last night and could not take back. So the
+   toggle is remembered WITH THE HOUR he pressed it, and the clock takes
+   over again at the next boundary. */
+const NIGHT_FROM = 18, DAY_FROM = 6;
+function themeByTheClock(now){ const h = (now || new Date()).getHours();
+  return (h >= NIGHT_FROM || h < DAY_FROM) ? "dark" : "light"; }
+/* The moment the current stretch of light or dark began. A choice made
+   before it belongs to a stretch that has since ended. */
+function thisStretchBegan(now){ const d = new Date(now || Date.now()); const h = d.getHours();
+  d.setMinutes(0, 0, 0);
+  if (h >= NIGHT_FROM) d.setHours(NIGHT_FROM);
+  else if (h < DAY_FROM) { d.setDate(d.getDate() - 1); d.setHours(NIGHT_FROM); }
+  else d.setHours(DAY_FROM);
+  return d.getTime(); }
+function themeNow(){
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("sanctuary_theme") || "null"); } catch (err) { saved = null; }
+  if (saved && saved.t && saved.at >= thisStretchBegan()) return saved.t;
+  return themeByTheClock();
+}
+function paintTheme(t){ document.documentElement.dataset.theme = t;
+  const ico = $("theme-ico"); if (!ico) return;
+  ico.innerHTML = t === "dark"
     ? '<path d="M20 13.5A8 8 0 0 1 10.5 4 8 8 0 1 0 20 13.5Z" stroke="var(--gold)" stroke-width="1.7" fill="none" stroke-linecap="round"/>'
     : '<circle cx="12" cy="12" r="4.4"/><path d="M12 2.5V5M12 19v2.5M4.3 4.3L6 6M18 18l1.7 1.7M2.5 12H5M19 12h2.5M4.3 19.7L6 18M18 6l1.7-1.7"/>'; }
-(function(){ const saved = localStorage.getItem("sanctuary_theme");
-  const t = saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  document.documentElement.dataset.theme = t; })();
+function applyTheme(t){ localStorage.setItem("sanctuary_theme", JSON.stringify({t: t, at: Date.now()}));
+  paintTheme(t); sceneVideoSync(); }
+/* Held open past six, the room should turn without being asked. */
+setInterval(() => { const want = themeNow();
+  if (want !== document.documentElement.dataset.theme) { paintTheme(want); sceneVideoSync(); } }, 60000);
+(function(){ document.documentElement.dataset.theme = themeNow(); })();
 /* A refresh must open the sanctuary, not resume it. The browser restores
    the last scroll offset by default, which dropped him halfway down the
    page at the composer with the whole scene above and behind him — the
@@ -3406,12 +3460,37 @@ $("led-search").oninput = () => { S.led.q = $("led-search").value; S.led.page = 
   if ($("led-alltime").checked) { ledgerAllTime(); } else renderLedgerTable(); };
 $("led-alltime").onchange = () => {
   if ($("led-alltime").checked) ledgerAllTime();
-  else { S.ledgerAll = null; refreshFinance(); }
+  else { S.ledgerAll = null; $("led-tally").hidden = true; refreshFinance(); }
 };
+/* Everything one search found, said as money. He asked it of Zepto, but
+   it is the same question for a chemist, a school or a person: how much,
+   over how long, and in which years did it go. */
+function renderTally(term, r){
+  const box = $("led-tally");
+  if (!r.count) { box.hidden = true; return; }
+  const when = r.first && r.last
+    ? (r.first.slice(0, 4) === r.last.slice(0, 4) ? "in " + r.first.slice(0, 4)
+       : niceDate(r.first) + " → " + niceDate(r.last))
+    : "";
+  const years = (r.by_year || []).filter((y) => y.spent > 0)
+    .map((y) => `<span class="lt-chip">${y.year} <b>${inr(y.spent)}</b></span>`).join("");
+  const cats = (r.by_category || []).slice(0, 5)
+    .map((c) => `<span class="lt-chip">${esc(c.name)} <b>${inr(c.spent)}</b></span>`).join("");
+  box.innerHTML = `<div class="lt-head">
+      <span class="lt-sum">${inr(r.spent)}</span>
+      <span>on <span class="lt-term">${esc(term)}</span> · ${r.count} ${r.count === 1 ? "entry" : "entries"}</span>
+      ${when ? `<span class="lt-when">${when}</span>` : ""}
+      ${r.received ? `<span class="lt-when">${inr(r.received)} came back</span>` : ""}
+    </div>
+    ${years ? `<div class="lt-split">${years}</div>` : ""}
+    ${cats ? `<div class="lt-split">${cats}</div>` : ""}`;
+  box.hidden = false;
+}
 let _alltimeTimer = null;
 async function ledgerAllTime(){
   const q = $("led-search").value.trim();
-  if (q.length < 2) { $("ledger-sub").textContent = "Type at least two characters, then every year answers."; return; }
+  if (q.length < 2) { $("led-tally").hidden = true;
+    $("ledger-sub").textContent = "Type at least two characters, then every year answers."; return; }
   clearTimeout(_alltimeTimer);
   _alltimeTimer = setTimeout(async () => {
     try {
@@ -3422,11 +3501,10 @@ async function ledgerAllTime(){
       S.led.page = 1;
       S.ledgerAll = {capped: r.capped};
       renderLedgerTable();
-      const span = S.ledgerRows.length
-        ? ` · ${S.ledgerRows[S.ledgerRows.length - 1].entry_date.slice(0, 4)} → ${S.ledgerRows[0].entry_date.slice(0, 4)}`
+      renderTally(q, r);
+      $("ledger-sub").textContent = r.capped
+        ? "Showing the newest 400 entries — the totals above count every one."
         : "";
-      $("ledger-sub").textContent = S.ledgerRows.length + " entries across the years" + span
-        + (r.capped ? " — showing the newest 400, narrow the words for older ones" : "");
     } catch (e) { toast(e.message || "Search failed"); }
   }, 350);
 }
@@ -3524,23 +3602,34 @@ async function loadStanding(){
     const years = st.months_to_clear != null
       ? (st.months_to_clear >= 12 ? (st.months_to_clear / 12).toFixed(1) + " years" : st.months_to_clear + " months")
       : null;
+    /* Thirteen rows of arithmetic is not a picture of where he stands, it
+       is the working-out. Three figures answer the question — what is
+       owed, what he has against it, and the gap between them — and what he
+       has is broken down beneath itself rather than on four more rows of
+       its own. Everything that must be said but is not part of that sum
+       (the overdraft he could draw, the pension he cannot touch, the fund
+       money already spent into the bank) goes to a footnote. */
+    const have = Math.round((st.in_bank + st.held + st.fund_epf) * 100) / 100;
+    const gap = st.net_with_fund;
+    const asides = [];
+    if (st.od_headroom) asides.push(`${inr(st.od_headroom)} of overdraft you could draw, not counted`);
+    if (st.fund_pension) asides.push(`${inr(st.fund_pension)} of pension held with the fund, not spendable`);
+    if (st.fund_claim) asides.push(`${inr(st.fund_claim)} claimed from the fund, not yet paid`);
+    if (st.fund_paid_out) asides.push(`${inr(st.fund_paid_out)} of the fund already paid out to you — it is in the bank above`);
+    const parts = [
+      st.in_bank ? {n: "in the bank", v: st.in_bank, s: ""} : null,
+      st.held ? {n: "invested", v: st.held, s: st.held_as_on ? "as on " + niceDate(st.held_as_on) : ""} : null,
+      st.fund_epf ? {n: "provident fund", v: st.fund_epf, s: st.fund_as_of ? "as on " + niceDate(st.fund_as_of) : ""} : null,
+    ].filter(Boolean);
     $("standing-figures").innerHTML = `
-      <div class="sf"><span>Debts still open</span><b class="num">${st.debt_count}${st.unknown_count ? ` <small style="color:var(--muted)">+${st.unknown_count} without a schedule</small>` : ""}</b></div>
-      <div class="sf"><span>To clear them all</span><b class="num" style="color:var(--danger)">${inr(st.total_debt)}</b></div>
-      <div class="sf"><span>They take, monthly</span><b class="num">${inr(st.monthly_emi)}</b></div>
-      ${st.in_bank ? `<div class="sf"><span>In the bank <small style="color:var(--muted)">your own money</small></span><b class="num" style="color:var(--moss)">${inr(st.in_bank)}</b></div>` : ""}
-      ${st.od_headroom ? `<div class="sf"><span>Overdraft you could draw <small style="color:var(--muted)">not counted below</small></span><b class="num" style="color:var(--muted)">${inr(st.od_headroom)}</b></div>` : ""}
-      ${st.held ? `<div class="sf"><span>What you own${st.held_as_on ? ` <small style="color:var(--muted)">as on ${esc(st.held_as_on)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.held)}${st.held_gain ? ` <small style="color:var(--moss)">${st.held_gain > 0 ? "+" : ""}${inr(st.held_gain)}</small>` : ""}</b></div>
-      <div class="sf"><span>Owed, less what you own</span><b class="num" style="color:${st.net >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net))}${st.net < 0 ? " to go" : " ahead"}</b></div>` : ""}
-      ${st.fund_epf ? `<div class="sf"><span>In the provident fund${st.fund_as_of ? ` <small style="color:var(--muted)">as on ${niceDate(st.fund_as_of)}</small>` : ""}</span><b class="num" style="color:var(--moss)">${inr(st.fund_epf)}</b></div>
-      ${st.fund_pension ? `<div class="sf"><span>Pension held with it <small style="color:var(--muted)">not spendable</small></span><b class="num">${inr(st.fund_pension)}</b></div>` : ""}
-      <div class="sf"><span>Owed, less the fund as well</span><b class="num" style="color:${st.net_with_fund >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(st.net_with_fund))}${st.net_with_fund < 0 ? " to go" : " ahead"}</b></div>` : ""}
-      ${st.fund_claim ? `<div class="sf"><span>Claimed from it, not yet paid</span><b class="num">${inr(st.fund_claim)}</b></div>` : ""}
-      ${st.fund_paid_out ? `<div class="sf"><span>Already paid out to you <small style="color:var(--muted)">since that statement, now in the bank</small></span><b class="num" style="color:var(--muted)">${inr(st.fund_paid_out)}</b></div>` : ""}
-      <div class="sf"><span>A month usually leaves you</span><b class="num" style="color:${(st.surplus_median ?? 0) > 0 ? "var(--moss)" : "var(--danger)"}">${st.surplus_median != null ? inr(st.surplus_median) : "—"}</b></div>
-      ${years ? `<div class="sf"><span>Surplus needed to clear all debt</span><b class="num">${years} of it</b></div>` : ""}` +
-      st.debts.sort((a, b) => b.remaining - a.remaining).slice(0, 5).map((d) => `
-      <div class="sf"><span style="padding-left:10px">· ${esc(d.name)}</span><b class="num" style="font-size:.9rem">${inr(d.remaining)}</b></div>`).join("");
+      <div class="sf"><span>Owed <small style="color:var(--muted)">${st.debt_count} debt${st.debt_count === 1 ? "" : "s"}, ${inr(st.monthly_emi)} a month${st.unknown_count ? ` · +${st.unknown_count} without a schedule` : ""}</small></span><b class="num" style="color:var(--danger)">${inr(st.total_debt)}</b></div>
+      <div class="sf"><span>You have <small style="color:var(--muted)">${parts.map((p) => p.n).join(" · ")}</small></span><b class="num" style="color:var(--moss)">${inr(have)}</b></div>
+      ${parts.length > 1 ? `<div class="sf-parts">${parts.map((p) => `<span class="lt-chip">${p.n} <b>${inr(p.v)}</b>${p.s ? ` <i>${esc(p.s)}</i>` : ""}</span>`).join("")}</div>` : ""}
+      <div class="sf"><span>The gap</span><b class="num" style="color:${gap >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(gap))}${gap < 0 ? " to go" : " ahead"}</b></div>
+      <div class="sf"><span>A month usually leaves you${years ? ` <small style="color:var(--muted)">${years} of it would clear the lot</small>` : ""}</span><b class="num" style="color:${(st.surplus_median ?? 0) > 0 ? "var(--moss)" : "var(--danger)"}">${st.surplus_median != null ? inr(st.surplus_median) : "—"}</b></div>`
+      + st.debts.sort((a, b) => b.remaining - a.remaining).slice(0, 5).map((d) => `
+      <div class="sf"><span style="padding-left:10px">· ${esc(d.name)}</span><b class="num" style="font-size:.9rem">${inr(d.remaining)}</b></div>`).join("")
+      + (asides.length ? `<div class="sf-aside">${asides.map((a) => esc(a)).join(" · ")}</div>` : "");
     renderStandingChart(st.flows);
     let verdict;
     if (st.surplus_median == null) verdict = "A few more months of statements and the picture speaks.";
@@ -3721,6 +3810,9 @@ function loanCard(l){
           : `<button class="btn small" data-lup="${l.id}">Upload schedule</button>
         ${l.schedule_count ? `<button class="btn subtle small" data-lview="${l.id}">Schedule</button>` : `<button class="btn subtle small" data-lgen="${l.id}">Build one</button>`}`}
         <button class="btn subtle small" data-ledit="${l.id}">Edit</button>
+        ${revolving(l) ? "" : `<button class="btn subtle small" data-lcard="${l.id}" data-lcard-now="${l.on_a_card ? 1 : 0}"
+          title="${l.on_a_card ? "Its instalments arrive inside a card bill, so they are not counted again here"
+            : "Turn on if this loan's instalments are charged to a credit card"}">${l.on_a_card ? "💳 On a card" : "Not on a card"}</button>`}
         ${l.active ? `<button class="btn subtle small" data-lclose="${l.id}" title="Repaid in full — keep the card, quiet it down">Mark closed</button>`
           : `<button class="btn subtle small" data-lreopen="${l.id}">Reopen</button>`}
         <button class="btn subtle small loan-remove" data-ldel="${l.id}" title="Remove this loan">✕</button>
@@ -5162,6 +5254,17 @@ document.addEventListener("click", async (e) => {
   toast(close ? "Closed, and kept. Its history stays in the ledger." : "Open again.");
   loadLoans(); refreshFinance();
 });
+/* An instalment charged to a credit card arrives inside the card's bill,
+   and the bill is already a row in the ledger. Saying so here stops the
+   schedule spending the same money a second time. */
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-lcard]");
+  if (!btn) return;
+  const now = btn.dataset.lcardNow === "1";
+  await api("/api/sanctuary/loans/" + btn.dataset.lcard, {method: "PUT", body: {on_a_card: now ? 0 : 1}});
+  toast(now ? "Counted on its own again." : "Its instalments come inside the card bill — counted once, there.");
+  loadLoans(); refreshFinance();
+});
 $("recur-add").onclick = () => {
   if (!S.recurringDraft) S.recurringDraft = [];
   S.recurringDraft.push({name: "", amount: 0, day: 1, category: "Other", active: true});
@@ -5407,7 +5510,9 @@ document.addEventListener("click", (e) => {
 });
 
 /* ═══════════ boot ═══════════ */
-applyTheme(document.documentElement.dataset.theme);
+/* Paint, never stamp: applyTheme here would record a hand-made choice at
+   every load and the clock would never get another turn. */
+paintTheme(document.documentElement.dataset.theme); sceneVideoSync();
 scatterLeaves();
 /* This page is one file, and a tab left open keeps running the copy it
    was born with. A fix could land at seven and still be missing at eight,
