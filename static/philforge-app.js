@@ -21663,7 +21663,10 @@ async function cepeExit(event, el) {
 
 function openCePeTearsheet(event) {
   if (event && typeof event.preventDefault === 'function') event.preventDefault();
-  window.open('/assets/tearsheet?doc=cepe#curve-cepe', '_blank', 'noopener');
+  // The five-year options sheet IS this desk's tearsheet — these two books
+  // are what it measures. A doc=cepe key would 404, and an unregistered key
+  // falls back to the options sheet SILENTLY, which is worse than a 404.
+  window.open('/assets/tearsheet?doc=options#cycle', '_blank', 'noopener');
 }
 
 window.refreshCePeStatus = refreshCePeStatus;
