@@ -1,0 +1,68 @@
+#!/usr/bin/bash
+set -Eeuo pipefail
+
+readonly PATH="/usr/local/bin:/usr/bin:/bin"
+export PATH
+
+umask 077
+
+readonly RCLONE="/usr/local/bin/rclone"
+readonly RCLONE_CONFIG="/home/ec2-user/.config/rclone/rclone.conf"
+readonly BACKUP_DIR="/home/ec2-user/.local/share/philforge/backups"
+readonly REMOTE="philforge-backups:"
+readonly REMOTE_RETENTION="14d"
+
+[[ -x "$RCLONE" ]] || { echo "rclone is not installed" >&2; exit 1; }
+[[ -r "$RCLONE_CONFIG" ]] || { echo "rclone configuration is not readable" >&2; exit 1; }
+
+archive="$(readlink -f "$BACKUP_DIR/latest.tar.gz")"
+case "$archive" in
+  "$BACKUP_DIR"/philforge-backup-*.tar.gz) ;;
+  *) echo "latest backup resolves outside the expected backup directory" >&2; exit 1 ;;
+esac
+
+checksum="${archive}.sha256"
+[[ -f "$archive" ]] || { echo "backup archive is missing" >&2; exit 1; }
+[[ -f "$checksum" ]] || { echo "backup checksum is missing" >&2; exit 1; }
+
+archive_name="$(basename "$archive")"
+checksum_name="$(basename "$checksum")"
+expected_sha="$(awk 'NF { print $1; exit }' "$checksum")"
+actual_sha="$(sha256sum "$archive" | awk '{ print $1 }')"
+[[ "$expected_sha" =~ ^[[:xdigit:]]{64}$ ]] || { echo "backup checksum is malformed" >&2; exit 1; }
+[[ "$actual_sha" == "$expected_sha" ]] || { echo "local backup checksum mismatch" >&2; exit 1; }
+
+common_flags=(
+  --config "$RCLONE_CONFIG"
+  --immutable
+  --transfers 1
+  --checkers 2
+  --retries 5
+  --low-level-retries 10
+  --contimeout 30s
+  --timeout 5m
+  --stats 30s
+  --stats-one-line
+  --log-systemd
+)
+
+"$RCLONE" copyto "$archive" "${REMOTE}${archive_name}" "${common_flags[@]}"
+"$RCLONE" copyto "$checksum" "${REMOTE}${checksum_name}" "${common_flags[@]}"
+
+remote_sha="$("$RCLONE" cat "${REMOTE}${archive_name}" --config "$RCLONE_CONFIG" --retries 5 --low-level-retries 10 --contimeout 30s --timeout 5m | sha256sum | awk '{ print $1 }')"
+[[ "$remote_sha" == "$expected_sha" ]] || { echo "remote backup checksum mismatch" >&2; exit 1; }
+
+"$RCLONE" delete "$REMOTE" \
+  --config "$RCLONE_CONFIG" \
+  --min-age "$REMOTE_RETENTION" \
+  --include 'philforge-backup-*.tar.gz' \
+  --include 'philforge-backup-*.tar.gz.sha256' \
+  --drive-use-trash=false \
+  --retries 5 \
+  --low-level-retries 10 \
+  --contimeout 30s \
+  --timeout 5m \
+  --log-systemd
+
+printf 'PhilForge Google Drive backup verified: archive=%s sha256=%s retention=%s\n' \
+  "$archive_name" "$expected_sha" "$REMOTE_RETENTION"
