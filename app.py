@@ -18492,6 +18492,95 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
+@app.get("/api/live/runs")
+async def live_runs(request: Request):
+    """Every strategy-builder run this user has, in one slim summary.
+
+    `/api/live/status` answers for ONE engine -- the first one running -- which
+    is fine for a page showing a single run and useless for a desk showing the
+    CE and PE books side by side. This returns both, and deliberately leaves out
+    the two fields that make a status heavy: the event log and the full closed
+    trade list. A console polls this every few seconds; the detail already has
+    its own endpoints (`/api/live/status`, `/api/live/trade-chart`), and
+    cascade/status shipping 3.75MB every three seconds is a mistake this repo
+    has already made once.
+    """
+    user_id = _request_user_id(request)
+    bucket = _registry_bucket(live_engines, user_id)
+    runs = []
+    for run_id, engine in bucket.items():
+        try:
+            strategy = engine.strategy or {}
+            legs = strategy.get("legs") or []
+            leg = legs[0] if legs else {}
+            open_legs = [p for p in engine.positions if p.get("status") != "closed"]
+            closed = list(engine.closed_trades or [])
+            runs.append(
+                {
+                    "run_id": run_id,
+                    "name": strategy.get("run_name") or run_id,
+                    "running": bool(engine.running),
+                    "mode": engine.mode,
+                    "side": str(leg.get("option_type") or "").upper(),
+                    "lots": leg.get("lots"),
+                    "expiry_day_lots": leg.get("expiry_day_lots") or 0,
+                    "sl_pct": leg.get("sl_pct"),
+                    "strike_rule": f"{leg.get('strike_type', '')} {leg.get('strike_value', '')}".strip(),
+                    "in_trade": bool(engine.in_trade),
+                    "trades_today": int(engine.trades_today or 0),
+                    "daily_pnl": round(float(engine.daily_pnl or 0), 2),
+                    "closed_count": len(closed),
+                    "booked_pnl": round(sum(float(t.get("pnl", 0) or 0) for t in closed), 2),
+                    "open_legs": [
+                        {
+                            "leg": p.get("leg_num"),
+                            "symbol": p.get("trading_symbol") or p.get("display_symbol"),
+                            "strike": p.get("strike"),
+                            "option_type": p.get("option_type"),
+                            "quantity": p.get("quantity"),
+                            "entry_premium": p.get("entry_premium"),
+                            "current_premium": p.get("current_premium"),
+                            "unrealized_pnl": round(float(p.get("unrealized_pnl", 0) or 0), 2),
+                            "sl_order_id": p.get("sl_order_id"),
+                            "entry_time": str(p.get("entry_time") or ""),
+                        }
+                        for p in open_legs
+                    ],
+                    # The last few closed trades, enough for a table without
+                    # shipping the whole book on every poll.
+                    "recent": [
+                        {
+                            "id": t.get("id"),
+                            "symbol": t.get("trading_symbol") or t.get("display_symbol"),
+                            "entry_time": str(t.get("entry_time") or ""),
+                            "exit_time": str(t.get("exit_time") or ""),
+                            "entry_premium": t.get("entry_premium"),
+                            "exit_premium": t.get("exit_premium"),
+                            "quantity": t.get("quantity"),
+                            "exit_reason": t.get("exit_reason"),
+                            "pnl": t.get("pnl"),
+                            "why": LiveEngine._conditions_that_fired(t.get("exit_why")),
+                        }
+                        for t in closed[-25:]
+                    ],
+                    "manual_intervention_required": bool(engine.manual_intervention_required),
+                    "unprotected_legs": len(engine._unprotected_legs()),
+                    "last_event": (engine.event_log[-1]["message"] if engine.event_log else ""),
+                    "current_spot": engine.current_spot,
+                }
+            )
+        except Exception as exc:  # one broken engine must not blank the desk
+            runs.append({"run_id": run_id, "name": run_id, "error": str(exc), "running": False})
+    runs.sort(key=lambda r: (r.get("side") != "CE", r.get("name", "")))
+    return {
+        "status": "ok",
+        "runs": runs,
+        "count": len(runs),
+        "booked_total": round(sum(float(r.get("booked_pnl", 0) or 0) for r in runs), 2),
+        "day_total": round(sum(float(r.get("daily_pnl", 0) or 0) for r in runs), 2),
+    }
+
+
 @app.get("/api/live/entry-chart")
 async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = "5m"):
     """The chart of the contract this run actually entered — scalp's standard.

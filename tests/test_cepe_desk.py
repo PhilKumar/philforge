@@ -1,0 +1,127 @@
+"""The CE + PE desk: two live books on one tab.
+
+Phil, 2026-09-08: "I need these CE and PE as a page like others ... just give
+the basic controls like exit chart etc etc" — and, asked whether it should be
+one tab or two, "Yes that is better" to a single tab holding both books.
+
+They are not cascade strategies. Both run on engine/live.py as strategy-builder
+deployments, so this tab is a VIEW over runs that already exist and every action
+goes to the live routes the single-run page already uses. The one new endpoint
+is /api/live/runs, because /api/live/status answers for the FIRST running engine
+and a two-book desk needs both.
+
+The traps this file pins are the ones this repo has paid for before: a button
+whose action is missing from PF_DELEGATED_ACTIONS renders and does nothing at
+all, a duplicate element id fails silently, and a status payload that ships its
+event log on every poll is how cascade/status came to send 3.75MB every three
+seconds.
+"""
+
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HTML = open(os.path.join(ROOT, "strategy.html"), encoding="utf-8").read()
+APP_JS = open(os.path.join(ROOT, "static", "philforge-app.js"), encoding="utf-8").read()
+CSS = open(os.path.join(ROOT, "static", "philforge-app.css"), encoding="utf-8").read()
+APP_PY = open(os.path.join(ROOT, "app.py"), encoding="utf-8").read()
+
+IDS = (
+    "oc-tab-cepe",
+    "oc-tabbtn-cepe",
+    "oc-cepe-badge",
+    "oc-cepe-recipe",
+    "oc-cepe-tiles",
+    "oc-cepe-books",
+    "oc-cepe-closed-rows",
+    "oc-cepe-closed-count",
+    "oc-cepe-info",
+    "oc-cepe-monitor-updated",
+)
+
+
+class TheTabExistsAndIsWired(unittest.TestCase):
+    def test_every_id_is_present_exactly_once(self):
+        for element_id in IDS:
+            self.assertEqual(HTML.count(f'id="{element_id}"'), 1, f"{element_id} is missing or duplicated")
+
+    def test_the_tab_is_registered_so_the_panel_can_be_shown(self):
+        self.assertIn("'cepe'", APP_JS.split("const _OC_TABS")[1].split("]")[0])
+        self.assertIn("else if (tab === 'cepe') refreshCePeStatus();", APP_JS)
+
+    def test_the_button_points_at_the_panel(self):
+        self.assertIn('data-oc-tab="cepe"', HTML)
+        self.assertIn('aria-controls="oc-tab-cepe"', HTML)
+
+    def test_every_action_is_delegated_and_defined(self):
+        """A data-pf-action missing from the allowlist is a button that does nothing."""
+        allow = APP_JS[APP_JS.index("const PF_DELEGATED_ACTIONS") :]
+        allow = allow[: allow.index("]")]
+        for action in ("cepeStop", "cepeStart", "cepeExit", "openCePeTearsheet"):
+            with self.subTest(action=action):
+                self.assertIn(f"'{action}'", allow, f"{action} is not delegated")
+                self.assertIn(f"window.{action} = {action};", APP_JS, f"{action} is not on window")
+
+    def test_the_books_have_a_layout(self):
+        self.assertIn(".oc-cepe-books", CSS)
+        self.assertIn("grid-template-columns", CSS.split(".oc-cepe-books")[1][:300])
+
+
+class TheDeskShowsBothBooks(unittest.TestCase):
+    def test_the_endpoint_answers_for_every_run_not_the_first(self):
+        self.assertIn('@app.get("/api/live/runs")', APP_PY)
+        body = APP_PY.split('@app.get("/api/live/runs")')[1].split("@app.get")[0]
+        self.assertIn("for run_id, engine in bucket.items()", body)
+
+    def test_the_poll_payload_leaves_out_the_heavy_fields(self):
+        """A console polls this every few seconds."""
+        body = APP_PY.split('@app.get("/api/live/runs")')[1].split("@app.get")[0]
+        self.assertNotIn('"event_log": engine.event_log', body)
+        self.assertIn("closed[-25:]", body, "the whole closed book must not ship on every poll")
+
+    def test_one_broken_engine_cannot_blank_the_desk(self):
+        body = APP_PY.split('@app.get("/api/live/runs")')[1].split("@app.get")[0]
+        self.assertIn("except Exception as exc", body)
+
+    def test_the_exit_button_speaks_the_route_s_own_language(self):
+        """/api/live/exit-position takes position_index, not leg_num."""
+        body = APP_JS.split("async function cepeExit(")[1].split("\n}")[0]
+        self.assertIn("position_index", body)
+        self.assertNotIn("leg_num", body)
+        self.assertIn("confirm(", body, "selling at market must be confirmed")
+
+    def test_the_chart_button_calls_the_journal_the_way_the_live_page_does(self):
+        body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
+        self.assertIn("openLiveTradeJournal(", body)
+
+    def test_the_desk_says_when_a_leg_has_no_broker_stop(self):
+        body = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        self.assertIn("unprotected", body)
+
+    def test_the_expiry_day_size_is_shown_where_it_is_set(self):
+        body = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        self.assertIn("expiry_day_lots", body)
+
+    def test_polling_stops_when_the_tab_is_hidden(self):
+        body = APP_JS.split("async function refreshCePeStatus()")[1].split("\n}")[0]
+        self.assertIn("style.display !== 'none'", body)
+
+
+class TheDocumentationIsHonest(unittest.TestCase):
+    def test_the_info_panel_carries_both_languages(self):
+        doc = HTML.split('id="oc-cepe-info"')[1].split("</div>\n        </div>")[0]
+        self.assertIn('data-pf-lang="en"', doc)
+        self.assertIn('data-pf-lang="ta"', doc)
+
+    def test_it_states_the_risk_and_not_only_the_return(self):
+        doc = HTML.split('id="oc-cepe-info"')[1][:14000]
+        self.assertIn("pf-info-warn", doc)
+        for fact in ("540 days", "10 trades", "49%"):
+            self.assertIn(fact, doc, f"the warning omits {fact}")
+
+
+if __name__ == "__main__":
+    unittest.main()

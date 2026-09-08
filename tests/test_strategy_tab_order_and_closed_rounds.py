@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "strategy.html").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
 
-ORDER = ["gapcarry", "fib", "recovery", "candle", "supertrend"]
+ORDER = ["gapcarry", "fib", "recovery", "candle", "supertrend", "cepe"]
 
 
 class TabOrderTests(unittest.TestCase):

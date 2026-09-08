@@ -9506,3 +9506,20 @@ body :is(
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* ── CE + PE: two books on one desk ──────────────────────────────
+   Both are the same object, so they get the same card, the same edges
+   and the same inner rhythm; they sit side by side on a wide screen and
+   stack on a narrow one. One column at 900px rather than 700px, because
+   each card carries a seven-column holdings table that must not be the
+   thing that makes the page scroll sideways. */
+.oc-cepe-books{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));
+  gap:12px;
+  margin-top:14px;
+}
+.oc-cepe-book{ display:flex; flex-direction:column; }
+.oc-cepe-book .ocp-table-wrap{ margin-top:auto; }
+.oc-cepe-book .ocp-rule-chip{ margin-left:6px; }
+@media (max-width:900px){ .oc-cepe-books{ grid-template-columns:1fr; } }

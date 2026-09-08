@@ -2455,6 +2455,7 @@
     <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ High Entry</span><span class="oc-tab-sub">Two reds · stop on the entry candle</span></button>
     <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder from the box high — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">The 278-bar high · bottom quarter</span></button>
     <button id="oc-tabbtn-supertrend" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-supertrend" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="supertrend" title="Hourly supertrend, one ATM call on next week's expiry, rolled and trailed — paper"><span class="oc-tab-name">◈ Supertrend</span><span class="oc-tab-sub">1H &times;1.5 &middot; roll 6 &middot; trail 100/80</span></button>
+    <button id="oc-tabbtn-cepe" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-cepe" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="cepe" title="The two strategy-builder books that trade live: a call book on the 17-EMA and RSI, a put book under the CPR — one trade a day each"><span class="oc-tab-name">◆ CE + PE</span><span class="oc-tab-sub">Two books &middot; one trade a day</span></button>
   </div>
 
 
@@ -3774,6 +3775,92 @@
           </div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body"><div id="oc-high-chart" class="pf-cascade-chart pf-standard-cascade-chart"><div class="pf-cascade-chart-empty">Closed candles on the chart you pick, with the mother, each armed buy-stop, every fill and its exit drawn on top.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="oc-tab-cepe" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-cepe" aria-hidden="true" style="display:none;">
+    <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+            <h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">CE + PE <button type="button" class="pf-info-btn" data-pf-info="oc-cepe-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3>
+            <span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#38bdf8;">TWO BOOKS &middot; ONE TRADE A DAY EACH &middot; AUTO</span>
+          </div>
+          <div id="oc-cepe-info" class="pf-info-pop pf-info-doc">
+            <div class="pf-doc-langs" role="tablist" aria-label="Language">
+              <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
+              <button type="button" class="pf-doc-lang-btn" data-pf-doc-lang="ta" role="tab" aria-selected="false">தமிழ்</button>
+            </div>
+            <div class="pf-doc-lang is-active" data-pf-lang="en">
+              <p class="pf-info-lede">Two option-buying books that trade the same index in opposite directions, one trade each per day, from the strategy builder's own rules. <strong>They are not a hedge.</strong> They are kept together because their good years are different ones: the call book earned its money in 2025, the put book in 2026, and run as a pair the desk was green in five of the last six years where each alone was green in four.</p>
+              <section>
+                <h5>1 &middot; The call book</h5>
+                <p>Enters when the 5-minute close is <strong>above its 17-EMA</strong> with <strong>RSI over 60</strong>, above <strong>yesterday's high</strong>, on a day whose CPR is not wide, before 10:00 or after 13:00. It buys a call near &#8377;250 of premium and exits when a 3-minute close falls back under its <strong>Supertrend</strong>. Stop 15% of the premium. After a day that makes over &#8377;20,000 it stands down for two sessions.</p>
+              </section>
+              <section>
+                <h5>2 &middot; The put book</h5>
+                <p>Enters when the 5-minute close is <strong>below its 20-EMA</strong> and <strong>below the CPR's bottom</strong>, on a narrow-CPR day, before 11:00, on Monday, Tuesday, Thursday or Friday. It buys a put near &#8377;250 of premium and exits when the close crosses any of the CPR supports or the top of the central pivot. Stop 20% of the premium.</p>
+              </section>
+              <section>
+                <h5>3 &middot; Where the money actually is</h5>
+                <p>Measured over 2021-01 &rarr; 2026-08 on recorded premiums: the call book <strong>+&#8377;2,18,838</strong> over 376 trades, the put book <strong>+&#8377;1,38,174</strong> over 578. Both are fat-tailed to a degree that governs every other decision: <strong>ten trades carry 86% of the call book</strong>, and ten carry <em>more than all</em> of the put book &mdash; strip them and it loses &#8377;87,000. That is why there is no profit target, no trailing stop and no spread here. Each of those was measured and each destroyed the book by cutting exactly those ten trades: a 30% target turns the put book into a <strong>loss</strong> while <em>raising</em> its win rate.</p>
+              </section>
+              <section>
+                <h5>4 &middot; Expiry day is the put book</h5>
+                <p>NIFTY's weekly expiry was Thursday until August 2025 and has been <strong>Tuesday</strong> since. Split by that boundary, the put book's money is on the expiry session in both eras &mdash; Tuesday was <strong>&minus;&#8377;79,519</strong> when it was an ordinary day and <strong>+&#8377;97,343</strong> once it became expiry. Sizing up there is the one change that improves the money and every risk measure at once: three lots on expiry and one otherwise returns <strong>&#8377;2,11,125</strong> against &#8377;1,38,174, with a smaller drawdown, a shorter worst losing run, and less size on ordinary days. The call book is <em>not</em> an expiry strategy &mdash; letting it trade the expiry session costs &#8377;62,639.</p>
+              </section>
+              <section>
+                <h5>5 &middot; What this desk does not do</h5>
+                <p>No profit target, no trailing stop, no second trade in a day, no spread, no next-week expiry, no mirroring one book's signals onto the other side. Every one of those was replayed over the full archive and every one lost money. Exit rules were searched exhaustively &mdash; all 127 combinations &mdash; and the best-on-history choice <strong>lost &#8377;50,210</strong> against changing nothing, so the exits stay as they are.</p>
+              </section>
+              <p class="pf-info-warn"><strong>Read the numbers as a floor and the risk as real.</strong> Prices come from an archive whose strike band drops some of the winners; priced from a second archive over the overlap the put book is <strong>20.6% higher</strong>, so these figures understate rather than flatter. Against that: the worst losing streak is <strong>10 trades</strong>, <strong>42%</strong> of individual months finish negative, and the longest stretch below a previous high is <strong>540 days</strong>. Being down after three trades carries no information &mdash; 49% of all three-trade runs in this archive finish negative.</p>
+            </div>
+            <div class="pf-doc-lang" data-pf-lang="ta">
+              <p class="pf-info-lede">ஒரே index-ஐ எதிர் திசைகளில் வாங்கும் இரண்டு புத்தகங்கள். ஒவ்வொன்றும் நாளொன்றுக்கு ஒரு trade. <strong>இது hedge அல்ல.</strong> இரண்டும் சேர்ந்து வைக்கப்படுவதற்குக் காரணம், அவற்றின் நல்ல ஆண்டுகள் வெவ்வேறு: CE புத்தகம் 2025-இல், PE புத்தகம் 2026-இல். தனித்தனியாக ஆறில் நான்கு ஆண்டுகள் பச்சை; சேர்ந்தால் <strong>ஆறில் ஐந்து</strong>.</p>
+              <section>
+                <h5>1 &middot; CE புத்தகம்</h5>
+                <p>5-நிமிட close அதன் <strong>17-EMA-க்கு மேலே</strong>, <strong>RSI 60-க்கு மேல்</strong>, <strong>நேற்றைய உச்சத்திற்கு மேல்</strong>, CPR அகலமாக இல்லாத நாளில், 10:00-க்கு முன் அல்லது 13:00-க்குப் பின். &#8377;250 premium அருகே ஒரு call வாங்கும். 3-நிமிட close <strong>Supertrend</strong>-க்குக் கீழே விழும்போது வெளியேறும். Stop: premium-இல் 15%.</p>
+              </section>
+              <section>
+                <h5>2 &middot; PE புத்தகம்</h5>
+                <p>5-நிமிட close அதன் <strong>20-EMA-க்கு கீழே</strong> மற்றும் <strong>CPR-இன் அடிப்பகுதிக்குக் கீழே</strong>, குறுகிய CPR நாளில், 11:00-க்கு முன், திங்கள்/செவ்வாய்/வியாழன்/வெள்ளி. &#8377;250 premium அருகே ஒரு put. CPR support-களில் ஒன்றை close கடக்கும்போது வெளியேறும். Stop: 20%.</p>
+              </section>
+              <section>
+                <h5>3 &middot; பணம் எங்கே இருக்கிறது</h5>
+                <p>2021-01 &rarr; 2026-08: CE <strong>+&#8377;2,18,838</strong> (376 trades), PE <strong>+&#8377;1,38,174</strong> (578). இரண்டிலும் <strong>பத்து trades</strong> மட்டுமே பெரும்பகுதி &mdash; CE-இல் 86%, PE-இல் மொத்தத்தையும் விட அதிகம். அதனால்தான் இங்கே target இல்லை, trailing stop இல்லை, spread இல்லை. 30% target PE புத்தகத்தை <strong>நஷ்டமாக</strong> மாற்றுகிறது &mdash; வெற்றி விகிதம் <em>உயர்ந்தாலும்</em>.</p>
+              </section>
+              <section>
+                <h5>4 &middot; Expiry நாள்தான் PE புத்தகம்</h5>
+                <p>NIFTY weekly expiry ஆகஸ்ட் 2025 வரை வியாழன், அதன் பிறகு <strong>செவ்வாய்</strong>. செவ்வாய் சாதாரண நாளாக இருந்தபோது <strong>&minus;&#8377;79,519</strong>; expiry ஆனபின் <strong>+&#8377;97,343</strong>. Expiry-இல் 3 lot, மற்ற நாட்களில் 1 lot &rarr; <strong>&#8377;2,11,125</strong> (&#8377;1,38,174-க்கு பதிலாக), drawdown குறைவு. CE இதற்கு பொருந்தாது.</p>
+              </section>
+              <p class="pf-info-warn"><strong>எண்களை குறைந்தபட்சமாகவும், ஆபத்தை உண்மையாகவும் படியுங்கள்.</strong> தொடர்ச்சியான நஷ்டம் <strong>10 trades</strong> வரை; மாதங்களில் <strong>42%</strong> நஷ்டம்; முந்தைய உச்சத்திற்குக் கீழே <strong>540 நாட்கள்</strong> வரை. மூன்று trades-இல் நஷ்டம் என்பது எதையும் சொல்லாது &mdash; இந்த archive-இல் <strong>49%</strong> மூன்று-trade தொடர்கள் நஷ்டத்தில் முடிகின்றன.</p>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+          <a class="ocp-confirmed-link" href="/assets/tearsheet?doc=cepe#curve-cepe" data-pf-action="openCePeTearsheet">Confirmed backtest &middot; P&amp;L &rarr;</a>
+          <span id="oc-cepe-badge" style="font:800 10px 'JetBrains Mono',monospace;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:5px 9px;">IDLE</span>
+        </div>
+      </div>
+      <div id="oc-cepe-recipe" class="ocp-recipe" aria-live="polite"></div>
+
+      <div class="ocp-monitor" style="margin-top:14px;">
+        <div class="ocp-monitor-head">
+          <div><div class="ocp-monitor-kicker" id="oc-cepe-monitor-kicker">Both books</div><h4>Today</h4></div>
+          <span id="oc-cepe-monitor-updated" class="ocp-monitor-updated">not started</span>
+        </div>
+        <div id="oc-cepe-tiles" class="ocp-tiles"></div>
+      </div>
+
+      <div id="oc-cepe-books" class="oc-cepe-books"></div>
+
+      <div class="ocp-monitor" style="margin-top:16px;">
+        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All time</div><h4>Closed trades</h4></div><span id="oc-cepe-closed-count" class="ocp-monitor-updated">0</span></div>
+        <div class="ocp-table-wrap"><table class="ocp-table">
+          <thead><tr><th>Book</th><th>Entry</th><th>Exit</th><th>Contract</th><th>Qty</th><th>In &#8377;</th><th>Out &#8377;</th><th>Why it closed</th><th>Net</th><th>Chart</th></tr></thead>
+          <tbody id="oc-cepe-closed-rows"><tr><td colspan="10" class="ocp-empty">No closed trade yet.</td></tr></tbody>
+        </table></div>
       </div>
     </div>
   </div>
