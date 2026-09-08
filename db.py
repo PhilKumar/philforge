@@ -1689,7 +1689,19 @@ async def get_paper_campaign(user_id: int, campaign_id: int) -> dict | None:
         await db.close()
 
 
-async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50) -> list[dict]:
+async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50, *, only_traded: bool = True) -> list[dict]:
+    """Archived campaigns for one strategy, newest first.
+
+    A CAMPAIGN THAT NEVER BOUGHT IS NOT A RESULT. Fib Boundary archives every
+    mother it accepts, including the ones that break before a single fill, so
+    the ledger filled up with `mother_broken_no_buys` rows carrying Rs 0.00 in
+    every money column -- eight of them in one morning, burying the seven
+    campaigns that actually traded and spending the row limit on nothing
+    (Phil, 2026-09-08: "I do not want all the no buys data").
+
+    They stay in the table; they are simply not a line in the money ledger.
+    Pass `only_traded=False` to see them.
+    """
     db = await get_db()
     try:
         db.row_factory = aiosqlite.Row
@@ -1711,9 +1723,10 @@ async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50) -> 
                            THEN json_extract(payload, '$.chart') END AS chart_params
                FROM paper_campaigns
                WHERE user_id = ? AND strategy = ?
+                 AND (? = 0 OR buys > 0)
                ORDER BY COALESCE(closed_at, created_at) DESC, id DESC
                LIMIT ?""",
-            (int(user_id), str(strategy), max(1, min(int(limit), 200))),
+            (int(user_id), str(strategy), 1 if only_traded else 0, max(1, min(int(limit), 200))),
         ) as cursor:
             return [dict(r) for r in await cursor.fetchall()]
     finally:
