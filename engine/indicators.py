@@ -237,11 +237,45 @@ def _is_intraday(df: pd.DataFrame) -> bool:
     return (df.index[1] - df.index[0]).total_seconds() < 86400
 
 
+# NSE cash and index hours. A daily bar built for a pivot calculation is the
+# SESSION's bar and nothing else.
+_SESSION_FIRST_MINUTE = "09:15"
+_SESSION_LAST_MINUTE = "15:29"
+
+
+def _session_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """Intraday rows inside NSE hours, for aggregating a true daily bar.
+
+    Dhan's history sometimes carries bars stamped outside the session, and one
+    of them is enough to corrupt every pivot for the following day: the levels
+    are built from the previous day's high, low and close, so a stray 15:45 bar
+    printing above the session high moves S1, S3 and TC by the whole excess.
+
+    Measured on the archive, a single stray bar 25 points above the high shifts
+    S1, S3 and TC by 16.67 points each. And because a stray bar may be in one
+    broker response and gone from the next, the levels then MOVE during the
+    session -- so a rule reading "close crosses above S3" can fire because the
+    LINE moved rather than the price (Phil, 2026-09-08). The live PE book exits
+    on exactly those crossings.
+
+    Session-filtering here makes the levels a property of yesterday's session
+    alone. Frames that are already clean -- every backtest archive is -- are
+    unchanged by it.
+    """
+    try:
+        inside = df.between_time(_SESSION_FIRST_MINUTE, _SESSION_LAST_MINUTE)
+    except (TypeError, ValueError):
+        return df  # not a time index; nothing to filter
+    # Never hand back an empty frame: an instrument that genuinely trades other
+    # hours should keep its own bars rather than lose its pivots altogether.
+    return inside if not inside.empty else df
+
+
 def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wide_pct: float = 0.5) -> pd.DataFrame:
     """Bug 2 fixed: handles both intraday and daily DataFrames."""
     intraday = _is_intraday(df)
     daily = (
-        df.resample("D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+        _session_bars(df).resample("D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
         if intraday
         else df.copy()
     )
