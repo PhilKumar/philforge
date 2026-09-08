@@ -2932,6 +2932,25 @@ class LiveEngine:
             self._save_state()
 
     # ── Exit ──────────────────────────────────────────────────
+    @staticmethod
+    def _conditions_that_fired(why) -> list[str]:
+        """The conditions that were TRUE, written the way the builder shows them.
+
+        A group is OR'd, so more than one can be true and any one of them is a
+        complete answer; an AND group only reads correctly with all of them.
+        Both cases are served by listing every true condition with the two
+        numbers it compared.
+        """
+        out = []
+        for cond in (why or {}).get("conditions") or []:
+            if not isinstance(cond, dict) or not cond.get("result"):
+                continue
+            text = str(cond.get("condition") or "").strip()
+            left, right = cond.get("left_value"), cond.get("right_value")
+            if text:
+                out.append(f"{text} ({left} vs {right})" if left is not None else text)
+        return out
+
     async def _record_closed_trade(self, pos: dict, reason: str, exit_premium: float, quantity: int):
         quantity = max(0, int(quantity or 0))
         if quantity <= 0:
@@ -2945,13 +2964,18 @@ class LiveEngine:
             latest = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
         except Exception:
             latest = None
-        closed_trade["exit_why"] = decision_why(
-            latest,
-            self.exit_conditions if str(reason) in ("EXIT_SIGNAL", "TOUCH_EXIT") else [],
-            None,
-            self._prev_row,
-            reason,
-        )
+        decided = pos.pop("_exit_why", None)
+        closed_trade.pop("_exit_why", None)
+        if isinstance(decided, dict) and str(decided.get("reason") or "") == str(reason):
+            closed_trade["exit_why"] = decided
+        else:
+            closed_trade["exit_why"] = decision_why(
+                latest,
+                self.exit_conditions if str(reason) in ("EXIT_SIGNAL", "TOUCH_EXIT") else [],
+                None,
+                self._prev_row,
+                reason,
+            )
         closed_trade["quantity"] = quantity
         closed_trade["lots"] = quantity / pos["lot_size"] if pos.get("lot_size") else pos.get("lots", 0)
         closed_trade["exit_premium"] = exit_premium
@@ -2985,6 +3009,11 @@ class LiveEngine:
             f"🔚 Leg {pos['leg_num']} closed ({reason}): "
             f"Entry ₹{pos['entry_premium']:.2f} → Exit ₹{exit_premium:.2f} | Qty {quantity} | P&L: ₹{pnl:,.2f}",
         )
+        # AND WHICH RULE DID IT. "EXIT_SIGNAL" names the family, not the rule;
+        # with seven OR'd conditions on a strategy that is no answer at all.
+        fired = self._conditions_that_fired(closed_trade.get("exit_why"))
+        if fired:
+            self.log_event("exit", f"   ↳ {reason} fired on: " + "; ".join(fired))
         return closed_trade
 
     async def _handle_partial_exit_fill(self, pos: dict, reason: str, verification: dict):
@@ -3373,6 +3402,7 @@ class LiveEngine:
                 for _k, _v in self._signal_candle.items():
                     _touch_row[_k] = _v
             if eval_condition_group(_touch_row, self.exit_conditions, self._prev_row):
+                pos["_exit_why"] = decision_why(_touch_row, self.exit_conditions, None, self._prev_row, "TOUCH_EXIT")
                 return "TOUCH_EXIT"
 
         # Signal exit — inject Signal Candle values into evaluation row
@@ -3386,6 +3416,17 @@ class LiveEngine:
             # case worth seeing, and returning first would swallow it.
             self._log_cross_skips("exit")
             if signal_exit:
+                # WHY, TAKEN HERE AND NOT LATER. The record used to be rebuilt
+                # in _record_closed_trade from `candle_buffer.iloc[-1]` and
+                # whatever `_prev_row` had become by then -- a different pair of
+                # bars, and without the Signal Candle values injected below. On
+                # 2026-09-08 that produced the worst possible answer: a live
+                # trade exited on EXIT_SIGNAL whose stored reasons showed all
+                # SEVEN conditions false, so neither the log nor the journal
+                # could say what had fired (Phil: "why the exit signal triggers
+                # and on what condition.. in the logs I am not able to get
+                # that"). The row that decided is the only row that can answer.
+                pos["_exit_why"] = decision_why(_exit_row, self.exit_conditions, None, self._prev_row, "EXIT_SIGNAL")
                 return "EXIT_SIGNAL"
 
         if self._is_intraday_product():

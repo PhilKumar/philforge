@@ -225,20 +225,43 @@ log "Active port state updated → $STANDBY_PORT"
 # The standby started while the old port was active, so it deliberately left
 # all engines passive. Restore only after the old worker has stopped; this
 # removes the duplicate-order window during blue/green cutover.
+# The restore fetches the scrip master, warms candle buffers and starts every
+# engine, so 30s was never a realistic budget: on 2026-09-08 the call timed out
+# at 30s while the restore itself finished 7 seconds later, and the deploy
+# reported an engine failure that had not happened. Retrying is safe -- restore
+# skips any run_id already running -- so ask twice, generously, before
+# believing it.
 log "Activating engine restore on port $STANDBY_PORT..."
-if ! curl -sf --max-time 30 -X POST "http://127.0.0.1:${STANDBY_PORT}/api/restore-engines" >/dev/null; then
-    die "Old worker stopped, but the new worker could not restore engines. Check broker positions before manual recovery."
-fi
+RESTORE_OK=0
+for attempt in 1 2; do
+    if curl -sf --max-time 120 -X POST "http://127.0.0.1:${STANDBY_PORT}/api/restore-engines" >/dev/null; then
+        RESTORE_OK=1
+        break
+    fi
+    log "Engine restore did not answer on attempt ${attempt}; waiting before re-checking..."
+    sleep 5
+done
 
-# ── 8. Move public traffic only after engine ownership is live ──
+# ── 8. Move public traffic to the worker that is actually there ──
+# THE OLD WORKER IS ALREADY STOPPED by this point, so the cutover has passed
+# the point of no return: the standby is the only live process on the box.
+# Dying here without moving nginx is what took philforge.in down on 2026-09-08
+# -- traffic left pointing at a port with nothing behind it, 502 for every
+# request, while the new worker sat healthy on 8001 running all five engines.
+# Whatever happened to the restore, the traffic goes where the process is; a
+# failure is then reported loudly, over a site that is up.
 log "Switching nginx to port $STANDBY_PORT..."
 echo "upstream ${APP}_backend { server 127.0.0.1:${STANDBY_PORT}; }" \
     | sudo tee "$UPSTREAM_CONF" >/dev/null
 if ! sudo nginx -t 2>/dev/null; then
-    die "New worker owns engines, but Nginx rejected the upstream. Keep traffic stopped and repair Nginx before continuing."
+    die "New worker is live on port ${STANDBY_PORT}, but Nginx rejected the upstream. Repair Nginx: the site is DOWN until the upstream points there."
 fi
 sudo nginx -s reload
 log "Nginx reloaded. New traffic → port $STANDBY_PORT"
+
+if [[ "$RESTORE_OK" != "1" ]]; then
+    die "Engines could not be confirmed on port ${STANDBY_PORT}. Traffic HAS been moved there (it is the only worker), so the site is up -- but check the broker positions and the engine panel before trusting the run."
+fi
 
 # ── 9. Point systemd's boot-start at the port that is now live ──
 # Neither templated unit was enabled, so the reboot on 2026-08-10 brought the
