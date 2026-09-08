@@ -6638,7 +6638,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   text-align: left;
 }
 #options-cascade-page .oc-tab .oc-tab-name { font: 800 12px var(--font-mono); letter-spacing: .3px; }
-#options-cascade-page .oc-tab .oc-tab-sub { font: 500 10px var(--font-mono); letter-spacing: .2px; color: var(--muted); text-transform: none; white-space: normal; line-height: 1.4; }
+#options-cascade-page .oc-tab .oc-tab-sub { font: 500 10px var(--font-mono); letter-spacing: .2px; color: var(--muted); text-transform: none; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 #options-cascade-page .oc-tab.is-active .oc-tab-sub { color: inherit; opacity: .85; }
 #options-cascade-page .oc-tab.is-active {
   border-color: rgba(56,189,248,.70);
@@ -6650,6 +6650,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
      was squashing the subtitle into the title on a phone. */
   #options-cascade-page .oc-tab { width: 100%; min-height: 0; padding: 10px 14px; }
   #options-cascade-page .oc-tab .oc-tab-sub { line-height: 1.5; }
+  /* stacked on a narrow screen there is room for the whole descriptor */
+  #options-cascade-page .oc-tab .oc-tab-sub { white-space: normal; }
 }
 #options-cascade-page .oc-fib-workspace {
   grid-template-columns: minmax(330px, .72fr) minmax(500px, 1.28fr);

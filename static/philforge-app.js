@@ -4935,7 +4935,7 @@ window.loadSupertrendChart = loadSupertrendChart;
 window.hideSupertrendChart = hideSupertrendChart;
 window.refreshSupertrendStatus = refreshSupertrendStatus;
 
-const _OC_TABS = ['gapcarry', 'fib', 'recovery', 'candle', 'supertrend', 'cepe'];
+const _OC_TABS = ['cepe', 'gapcarry', 'fib', 'recovery', 'candle', 'supertrend'];
 
 const _INSIGHTS_TABS = ['heatmap', 'study'];
 
@@ -4983,8 +4983,8 @@ function initInsightsPage() {
 }
 
 function showOptionsCascadeTab(event, el) {
-  const requested = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'gapcarry';
-  const tab = _OC_TABS.includes(requested) ? requested : 'gapcarry';
+  const requested = (el || event?.currentTarget)?.getAttribute('data-oc-tab') || 'cepe';
+  const tab = _OC_TABS.includes(requested) ? requested : 'cepe';
   _setLocalState(PF_VIEW_STATE.optionsCascadeTab, tab);
   document.querySelectorAll('#options-cascade-page .oc-tab').forEach(b => {
     const selected = b.getAttribute('data-oc-tab') === tab;
@@ -5244,7 +5244,7 @@ function _syncFibModeHint() {
 }
 
 async function initOptionsCascadePage() {
-  const rememberedTab = _storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'gapcarry');
+  const rememberedTab = _storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'cepe');
   showOptionsCascadeTab(null, {
     getAttribute: (name) => (name === 'data-oc-tab' ? rememberedTab : null),
   });

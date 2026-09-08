@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "strategy.html").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
 
-ORDER = ["gapcarry", "fib", "recovery", "candle", "supertrend", "cepe"]
+ORDER = ["cepe", "gapcarry", "fib", "recovery", "candle", "supertrend"]
 
 
 class TabOrderTests(unittest.TestCase):
@@ -40,19 +40,38 @@ class TabOrderTests(unittest.TestCase):
         expected = ", ".join(f"'{name}'" for name in ORDER)
         self.assertIn(f"const _OC_TABS = [{expected}];", APP_JS)
 
-    def test_gap_carry_is_the_one_tab_selected_on_arrival(self):
+    def test_the_first_tab_is_the_one_selected_on_arrival(self):
+        """CE + PE leads the row from 2026-09-09 -- it is the desk trading real
+        money. Whichever tab is first must also be the one showing, or the page
+        opens with a highlighted tab and a different panel under it."""
         active = re.findall(r'<button id="oc-tabbtn-([a-z]+)" class="oc-tab is-active"', HTML)
-        self.assertEqual(active, ["gapcarry"])
+        self.assertEqual(active, [ORDER[0]])
         selected = re.findall(r'<button id="oc-tabbtn-([a-z]+)"[^>]*aria-selected="true"', HTML)
-        self.assertEqual(selected, ["gapcarry"])
+        self.assertEqual(selected, [ORDER[0]])
+        visible = [
+            m.group(1)
+            for m in re.finditer(r'<div id="oc-tab-([a-z]+)" class="oc-tab-panel"([^>]*)>', HTML)
+            if "display:none" not in m.group(2)
+        ]
+        self.assertEqual(visible, [ORDER[0]], "exactly one panel may be open, and it is the first tab's")
 
-    def test_the_gap_carry_panel_is_the_one_visible_before_js_runs(self):
+    def test_every_descriptor_fits_one_line_so_a_tile_is_two_rows(self):
+        """Phil, 2026-09-09: "I need only 2 rows on the tiles... no third row."
+        The name is row one and the descriptor is row two; anything long enough
+        to wrap grows a third and the six tiles stop agreeing with each other."""
+        subs = re.findall(r'<span class="oc-tab-sub">(.*?)</span>', HTML, re.S)
+        self.assertEqual(len(subs), len(ORDER))
+        for sub in subs:
+            plain = re.sub(r"&[a-z0-9]+;", "x", sub).strip()
+            self.assertLessEqual(len(plain), 28, f"{sub!r} is long enough to wrap to a third row")
+
+    def test_only_the_first_panel_is_visible_before_js_runs(self):
         """A panel left visible in the markup flashes the wrong tab on load."""
         for name in ORDER:
             m = re.search(rf'<div id="oc-tab-{name}" class="oc-tab-panel"[^>]*>', HTML)
             self.assertIsNotNone(m, name)
             hidden = "display:none" in m.group(0)
-            self.assertEqual(hidden, name != "gapcarry", f"{name} visibility is wrong")
+            self.assertEqual(hidden, name != ORDER[0], f"{name} visibility is wrong")
 
 
 class HeroCopyTests(unittest.TestCase):

@@ -2447,15 +2447,15 @@
 
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist" aria-label="Options Cascade strategies">
-    <button id="oc-tabbtn-gapcarry" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-gapcarry" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="gapcarry" title="15:10 close against its EMA20 and RSI, held one night; cut at 09:15 if it opens down, else sold at 09:20 — paper"><span class="oc-tab-name">◑ Gap Carry</span><span class="oc-tab-sub">15:10 in · cut 09:15 · out 09:20</span></button>
-    <button id="oc-tabbtn-fib" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-fib" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — Lone (every level), or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · every fib level</span></button>
+    <button id="oc-tabbtn-cepe" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-cepe" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="cepe" title="The two strategy-builder books that trade live: a call book on the 17-EMA and RSI, a put book under the CPR — one trade a day each"><span class="oc-tab-name">◆ CE + PE</span><span class="oc-tab-sub">CE and PE &middot; live</span></button>
+    <button id="oc-tabbtn-gapcarry" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-gapcarry" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="gapcarry" title="15:10 close against its EMA20 and RSI, held one night; cut at 09:15 if it opens down, else sold at 09:20 — paper"><span class="oc-tab-name">◑ Gap Carry</span><span class="oc-tab-sub">In 15:10 · out 09:20</span></button>
+    <button id="oc-tabbtn-fib" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-fib" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — Lone (every level), or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · every level</span></button>
 <!-- Fib Space was folded into Fib Boundary on 2026-08-15 and its tab removed on
      2026-08-16: same geometry, same levels, and "Where two meet" is what this
      tab used to be. Two tabs for one strategy is how they drift apart. -->
-    <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ High Entry</span><span class="oc-tab-sub">Two reds · stop on the entry candle</span></button>
-    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder from the box high — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">The 278-bar high · bottom quarter</span></button>
-    <button id="oc-tabbtn-supertrend" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-supertrend" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="supertrend" title="Hourly supertrend, one ATM call on next week's expiry, rolled and trailed — paper"><span class="oc-tab-name">◈ Supertrend</span><span class="oc-tab-sub">1H &times;1.5 &middot; roll 6 &middot; trail 100/80</span></button>
-    <button id="oc-tabbtn-cepe" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-cepe" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="cepe" title="The two strategy-builder books that trade live: a call book on the 17-EMA and RSI, a put book under the CPR — one trade a day each"><span class="oc-tab-name">◆ CE + PE</span><span class="oc-tab-sub">Two books &middot; one trade a day</span></button>
+    <button id="oc-tabbtn-recovery" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-recovery" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="recovery" title="Two reds, buy the recovery, stop on the entry candle low — paper"><span class="oc-tab-name">◐ High Entry</span><span class="oc-tab-sub">Two reds · stop on entry</span></button>
+    <button id="oc-tabbtn-candle" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-candle" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="candle" title="Two-red ladder from the box high — paper"><span class="oc-tab-name">◧ Candle Entry</span><span class="oc-tab-sub">278-bar high · bottom &frac14;</span></button>
+    <button id="oc-tabbtn-supertrend" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-supertrend" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="supertrend" title="Hourly supertrend, one ATM call on next week's expiry, rolled and trailed — paper"><span class="oc-tab-name">◈ Supertrend</span><span class="oc-tab-sub">1H &times;1.5 &middot; roll 6 &middot; trail</span></button>
   </div>
 
 
@@ -3337,7 +3337,7 @@
 
 
   <!-- ── TAB · Gap Carry ── -->
-  <div id="oc-tab-gapcarry" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-gapcarry">
+  <div id="oc-tab-gapcarry" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-gapcarry" aria-hidden="true" style="display:none;">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(251,191,36,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><!-- The descriptor sits BESIDE the name, not stacked above it, and the four headers are built the same way (Phil, 2026-08-26: "Put this next to Gap carry and follow the same in other 3 strategies... Need in single row"). --><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">Gap Carry <button type="button" class="pf-info-btn" data-pf-info="oc-gap-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#fbbf24;">EMA20 + RSI &middot; ONE NIGHT &middot; 15:10 IN &middot; CUT 09:15 &middot; OUT 09:20</span></div><div id="oc-gap-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
@@ -3779,7 +3779,7 @@
     </div>
   </div>
 
-  <div id="oc-tab-cepe" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-cepe" aria-hidden="true" style="display:none;">
+  <div id="oc-tab-cepe" class="oc-tab-panel" role="tabpanel" aria-labelledby="oc-tabbtn-cepe">
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(56,189,248,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
