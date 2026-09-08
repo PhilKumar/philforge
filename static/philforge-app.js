@@ -21076,6 +21076,15 @@ function _recoveryTrades(rows) {
     </tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
+// WHEN IS A HIGH ENTRY CAMPAIGN OVER? These three, and nothing else -- the
+// engine's own terminal set (candle_recovery.py: RECOVERED | ABANDONED |
+// ENDED). The closed table used to ask for `status !== 'RUNNING'`, a status
+// this engine has never once produced: every live campaign matched, so a
+// mother still hunting its entry was filed under "Closed paper campaigns" with
+// a running P&L folded into the net (Phil, 2026-09-08).
+const _RECOVERY_TERMINAL = new Set(['RECOVERED', 'ABANDONED', 'ENDED']);
+const _recoveryIsOver = (c) => _RECOVERY_TERMINAL.has(String(c && c.status || '').toUpperCase());
+
 function _recoveryCampaign(c) {
   const statusColour = c.status === 'RECOVERED' ? '#34d399' : (c.status === 'ABANDONED' ? '#f87171' : '#93c5fd');
   const zones = (c.zones || []).map(z =>
@@ -21107,7 +21116,7 @@ function _recoveryCampaign(c) {
       ${unpriced
         ? `ledger <b style="color:#fbbf24;">${unpriced} unpriced</b> &middot; a live run prices only what fills now &mdash; use <b>Backtest</b>`
         : `ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>`}
-      ${need !== null && !unpriced ? ` · open trade must net <b>₹${_recNum(need, 0)}</b> to finish green` : ''}
+      ${need !== null && !unpriced && c.open_trades ? ` · open trade must net <b>₹${_recNum(need, 0)}</b> to finish green` : ''}
       ${c.open_trades ? ` · ${c.open_trades} open` : ''}
       ${zones ? `<div style="margin-top:4px;">${zones}</div>` : ''}
     </div>
@@ -21286,7 +21295,7 @@ function renderRecovery(data) {
     return;
   }
   const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);
-  const closed = campaigns.reduce((a, c) => a + (c.trades || []).filter(t => t.exit_time).length, 0);
+  const finished = campaigns.filter(_recoveryIsOver).length;
   // _ocpTile is the shared tile. Rolling our own reached for
   // .ocp-tile-label / -value, which the stylesheet has never defined
   // -- the same bug that once rendered every Gap Carry tile as bare text.
@@ -21297,7 +21306,7 @@ function renderRecovery(data) {
     // FOUR tiles, not five: the grid lays out four to a row, and a fifth
     // orphaned itself under three empty cells. The closed count already
     // titles its own table.
-    _ocpTile('Campaigns', `${campaigns.length} · ${closed} closed`, 'var(--text)'),
+    _ocpTile('Campaigns', `${campaigns.length} · ${finished} finished`, 'var(--text)'),
     _ocpTile('Open trades', String(openTrades), openTrades ? '#38bdf8' : 'var(--text)'),
     _ocpTile('To recover', need ? `₹${Math.round(need).toLocaleString('en-IN')}` : '—', need ? '#fbbf24' : 'var(--text)'),
     // A book with unpriced exits has no total. Summing the legs that DID price
@@ -21330,14 +21339,20 @@ function renderRecovery(data) {
       return Number.isFinite(at) ? at : 0;
     };
     const ended = campaigns
-      .filter(c => String(c.status || '').toUpperCase() !== 'RUNNING')
+      .filter(_recoveryIsOver)
       .slice()
       .sort((a, b) => _endedAt(b) - _endedAt(a));
     closedWrap.hidden = false;
     const total = ended.reduce((n, c) => n + (Number(c.booked_net) || 0), 0);
+    // A LEG THAT NEVER PRICED IS NOT A FLAT LEG. The tiles above already
+    // refuse to call a book with unpriced exits a total; this table summed the
+    // legs that DID price and printed the result as the net, which is the same
+    // way five stops once read as +Rs 0.
+    const unpricedEnded = ended.reduce((n, c) => n + Number(c.unpriced_legs || 0), 0);
     if (closedCount) {
       closedCount.textContent = ended.length
         ? `· ${ended.length} · net ${_candleEntrySigned(total)}`
+          + (unpricedEnded ? ` · ${unpricedEnded} unpriced` : '')
         : '· none yet';
     }
     closedRows.innerHTML = ended.length ? ended.map(c => {
@@ -21346,15 +21361,24 @@ function renderRecovery(data) {
       const last = trades[trades.length - 1] || {};
       const deployed = trades.reduce((n, t) => n + (Number(t.entry_premium) || 0) * (Number(t.quantity) || 0), 0);
       const net = Number(c.booked_net || 0);
+      // A LADDER TRADES MORE THAN ONE STRIKE. The column shows the last one
+      // it held, which is what settled the campaign; the rest are on the
+      // hover, so this row and the card above it can be reconciled.
       const strike = last.strike || first.strike;
+      const strikes = [...new Set(trades.map(t => t.strike).filter(Boolean))];
       return `<tr>`
         + `<td>${escapeHtml(_recTime(first.entry_time || (c.mother && c.mother.timestamp)))}</td>`
         + `<td>${escapeHtml(_recTime(last.exit_time))}</td>`
-        + `<td>${strike ? escapeHtml(String(strike)) + ' CE' : '—'}</td>`
+        + `<td${strikes.length > 1 ? ` title="${escapeHtml(strikes.join(', '))}"` : ''}>`
+        + `${strike ? escapeHtml(String(strike)) + ` ${escapeHtml(String(c.side || 'CE'))}` : '—'}`
+        + `${strikes.length > 1 ? ` <span class="ocp-muted">+${strikes.length - 1}</span>` : ''}</td>`
         + `<td>${trades.length}</td>`
         + `<td>${deployed ? escapeHtml(_cascadeOptionsMoney(deployed)) : '—'}</td>`
         + `<td class="ocp-muted">${escapeHtml(String(c.end_reason || c.status || '—').replaceAll('_', ' '))}</td>`
-        + `<td style="color:${net >= 0 ? '#6ee7b7' : '#fca5a5'};">${escapeHtml(_recInr(c.booked_net))}</td>`
+        + (Number(c.unpriced_legs || 0)
+            ? `<td style="color:#fbbf24;" title="This campaign has ${Number(c.unpriced_legs)} closed leg(s) the archive could not price — the figure beside it is only the legs that did">`
+              + `${escapeHtml(_recInr(c.booked_net))} · ${Number(c.unpriced_legs)} unpriced</td>`
+            : `<td style="color:${net >= 0 ? '#6ee7b7' : '#fca5a5'};">${escapeHtml(_recInr(c.booked_net))}</td>`)
         + `<td><button type="button" class="cascade-options-control" data-pf-action="loadRecoveryChart"`
         + ` data-rec-campaign="${escapeHtml(String(c.campaign_id))}" title="Draw this campaign">↗ Chart</button></td>`
         + `</tr>`;
