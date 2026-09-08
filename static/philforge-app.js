@@ -2106,6 +2106,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'cepeStop',
   'cepeStart',
   'cepeExit',
+  'setCePeFilter',
   'openCePeTearsheet',
   'openFibAutoChart',
   'loadFibBoundaryChart',
@@ -21478,20 +21479,44 @@ const _cepeMoney = (v) => {
 const _cepeTone = (v) => (Number(v) > 0 ? '#6ee7b7' : (Number(v) < 0 ? 'var(--danger)' : 'var(--muted)'));
 const _cepeTime = (s) => (s ? escapeHtml(String(s).slice(5, 16).replace('T', ' ')) : '—');
 
+// One colour per side, used on the card, the chip and the ledger row, so a
+// glance separates the books without reading a word.
+const _CEPE_SIDE = {
+  CE: { tint: '#38bdf8', wash: 'rgba(56,189,248,.12)', label: 'CE' },
+  PE: { tint: '#f0a13a', wash: 'rgba(240,161,58,.12)', label: 'PE' },
+};
+const _cepeSide = (side) => _CEPE_SIDE[String(side || '').toUpperCase()]
+  || { tint: 'var(--muted)', wash: 'transparent', label: String(side || '—') };
+let _cepeFilter = 'all';
+
+function setCePeFilter(event, el) {
+  _cepeFilter = el?.dataset?.cepeFilter || 'all';
+  document.querySelectorAll('[data-cepe-filter]').forEach(b =>
+    b.classList.toggle('is-active', b.dataset.cepeFilter === _cepeFilter));
+  if (_cepeLast) renderCePe(_cepeLast);
+}
+let _cepeLast = null;
+
 function _cepeRecipe() {
   const host = document.getElementById('oc-cepe-recipe');
   if (!host) return;
-  host.innerHTML = 'Two books, one trade a day each, on NIFTY weeklies. '
-    + '<b>CE</b> buys above the 17-EMA with RSI over 60 and exits under the Supertrend. '
-    + '<b>PE</b> buys under the CPR bottom and exits when the close crosses a support. '
-    + 'No target, no trailing stop — ten trades carry each book, and a target cuts exactly those.';
+  // Three lines, not one clipped sentence: the strip is a fixed-height row and
+  // a single long string simply ran off the end of it.
+  host.innerHTML = `
+    <div class="cepe-recipe-line"><b style="color:${_CEPE_SIDE.CE.tint};">CE</b>
+      buys above the 17-EMA with RSI over 60, and exits under the Supertrend.</div>
+    <div class="cepe-recipe-line"><b style="color:${_CEPE_SIDE.PE.tint};">PE</b>
+      buys under the CPR bottom, and exits when the close crosses a support.</div>
+    <div class="cepe-recipe-line cepe-recipe-note">One trade a day each · no target, no trailing stop —
+      ten trades carry each book, and a target cuts exactly those.</div>`;
 }
 
 function _cepeBookCard(run) {
-  const live = String(run.mode || '').toLowerCase() === 'live';
-  const badge = run.running ? (live ? '● LIVE' : '● PAPER') : 'IDLE';
-  const badgeTone = run.running ? (live ? 'var(--danger)' : '#6ee7b7') : 'var(--muted)';
+  const live = !!run.real_orders;
+  const badge = live ? '● LIVE · REAL ORDERS' : (run.running ? '◎ PAPER' : 'IDLE');
+  const badgeTone = live ? 'var(--danger)' : (run.running ? '#6ee7b7' : 'var(--muted)');
   const side = run.side || '—';
+  const tone = _cepeSide(side);
   const sizing = Number(run.expiry_day_lots) > 0
     ? `${run.lots} lot${run.lots === 1 ? '' : 's'} · <b>${run.expiry_day_lots} on expiry</b>`
     : `${run.lots} lot${run.lots === 1 ? '' : 's'}`;
@@ -21511,13 +21536,12 @@ function _cepeBookCard(run) {
     </tr>`).join('');
 
   return `
-  <div class="card oc-cepe-book" style="padding:15px;">
+  <div class="card oc-cepe-book" style="padding:15px;border-left:3px solid ${tone.tint};">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-      <div style="font:12px 'JetBrains Mono',monospace;">
+      <div style="font:12px 'JetBrains Mono',monospace;display:flex;align-items:center;gap:9px;flex-wrap:wrap;">
+        <span class="cepe-tattoo" style="background:${tone.wash};color:${tone.tint};border-color:${tone.tint};">${escapeHtml(tone.label)}</span>
         <b style="font-size:14px;">${escapeHtml(String(run.name || run.run_id))}</b>
-        <span class="ocp-rule-chip">${escapeHtml(side)}</span>
-        <span class="ocp-rule-chip">${sizing}</span>
-        ${run.sl_pct ? `<span class="ocp-rule-chip">stop ${escapeHtml(String(run.sl_pct))}%</span>` : ''}
+        <span class="ocp-rule-chip">${sizing}${run.sl_pct ? ` · stop ${escapeHtml(String(run.sl_pct))}%` : ''}</span>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span style="font:800 10px 'JetBrains Mono',monospace;color:${badgeTone};border:1px solid var(--border);border-radius:999px;padding:4px 9px;">${badge}</span>
@@ -21529,18 +21553,17 @@ function _cepeBookCard(run) {
     ${run.manual_intervention_required
       ? '<div class="ocp-warn" style="margin-top:8px;color:var(--danger);font:11px \'JetBrains Mono\',monospace;">This book stopped itself and needs the broker reconciled before it trades again.</div>'
       : ''}
-    <div style="margin-top:8px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
-      today <b style="color:${_cepeTone(run.daily_pnl)};">${_cepeMoney(run.daily_pnl)}</b>
-      · booked <b style="color:${_cepeTone(run.booked_pnl)};">${_cepeMoney(run.booked_pnl)}</b>
-      · ${run.trades_today} trade${run.trades_today === 1 ? '' : 's'} today
-      · ${run.closed_count} closed
+    <div class="cepe-figs">
+      <span>today <b style="color:${_cepeTone(run.daily_pnl)};">${_cepeMoney(run.daily_pnl)}</b></span>
+      <span>booked <b style="color:${_cepeTone(run.booked_pnl)};">${_cepeMoney(run.booked_pnl)}</b></span>
+      <span>${run.closed_count} closed</span>
     </div>
     ${legs
       ? `<div class="ocp-table-wrap" style="margin-top:10px;"><table class="ocp-table">
            <thead><tr><th>Holding</th><th>Qty</th><th>In</th><th>Now</th><th>Unrealised</th><th>Stop</th><th></th></tr></thead>
            <tbody>${legs}</tbody></table></div>`
       : '<div style="margin-top:10px;font:11px \'JetBrains Mono\',monospace;color:var(--muted);">No open position.</div>'}
-    ${run.last_event ? `<div style="margin-top:9px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">last · ${escapeHtml(String(run.last_event))}</div>` : ''}
+    ${run.last_event ? `<div class="cepe-last" title="${escapeHtml(String(run.last_event))}">${escapeHtml(String(run.last_event))}</div>` : ''}
   </div>`;
 }
 
@@ -21552,8 +21575,19 @@ function renderCePe(data) {
   if (!books || !tiles) return;
   _cepeRecipe();
 
-  const runs = (data && Array.isArray(data.runs)) ? data.runs : [];
-  const anyRunning = runs.some(r => r.running);
+  _cepeLast = data;
+  const all = (data && Array.isArray(data.runs)) ? data.runs : [];
+  const runs = _cepeFilter === 'all' ? all : all.filter(r => String(r.side || '').toUpperCase() === _cepeFilter);
+  const anyRunning = all.some(r => r.running);
+  // The filter counts what it would show, so an empty side is visibly empty
+  // rather than looking broken.
+  document.querySelectorAll('[data-cepe-filter]').forEach(b => {
+    const key = b.dataset.cepeFilter;
+    const n = key === 'all' ? all.length : all.filter(r => String(r.side || '').toUpperCase() === key).length;
+    const count = b.querySelector('.cepe-filter-n');
+    if (count) count.textContent = String(n);
+    b.classList.toggle('is-active', key === _cepeFilter);
+  });
   if (badge) {
     badge.textContent = anyRunning ? `RUNNING · ${runs.filter(r => r.running).length}/${runs.length}` : 'IDLE';
     badge.style.color = anyRunning ? '#34d399' : 'var(--muted)';
@@ -21562,8 +21596,13 @@ function renderCePe(data) {
 
   if (!runs.length) {
     tiles.innerHTML = '';
-    books.innerHTML = '<div class="card" style="padding:16px;font:11px \'JetBrains Mono\',monospace;color:var(--muted);">'
-      + 'No strategy-builder run is loaded. Deploy the CE and PE strategies from the builder and they appear here.</div>';
+    books.innerHTML = `<div class="card" style="padding:16px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">${
+      all.length
+        ? `No ${_cepeFilter} book is loaded — ${all.length} other book${all.length === 1 ? '' : 's'} ${all.length === 1 ? 'is' : 'are'} running.`
+        : 'No strategy-builder run is loaded. Deploy the CE and PE strategies from the builder and they appear here.'
+    }</div>`;
+    const body0 = document.getElementById('oc-cepe-closed-rows');
+    if (body0) body0.innerHTML = '<tr><td colspan="10" class="ocp-empty">No closed trade on this side.</td></tr>';
     return;
   }
 
@@ -21588,8 +21627,8 @@ function renderCePe(data) {
   if (count) count.textContent = rows.length ? `${rows.length} · net ${_cepeMoney(net)}` : '0';
   if (body) {
     body.innerHTML = rows.length ? rows.map(({ run, t }) => `
-      <tr>
-        <td><span class="ocp-rule-chip">${escapeHtml(String(run.side || run.name))}</span></td>
+      <tr style="box-shadow:inset 3px 0 0 ${_cepeSide(run.side).tint};">
+        <td><span class="cepe-tattoo" style="background:${_cepeSide(run.side).wash};color:${_cepeSide(run.side).tint};border-color:${_cepeSide(run.side).tint};">${escapeHtml(_cepeSide(run.side).label)}</span></td>
         <td>${_cepeTime(t.entry_time)}</td>
         <td>${_cepeTime(t.exit_time)}</td>
         <td>${escapeHtml(String(t.symbol || '—'))}</td>
@@ -21673,4 +21712,5 @@ window.refreshCePeStatus = refreshCePeStatus;
 window.cepeStop = cepeStop;
 window.cepeStart = cepeStart;
 window.cepeExit = cepeExit;
+window.setCePeFilter = setCePeFilter;
 window.openCePeTearsheet = openCePeTearsheet;

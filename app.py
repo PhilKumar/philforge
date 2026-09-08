@@ -18506,9 +18506,13 @@ async def live_runs(request: Request):
     has already made once.
     """
     user_id = _request_user_id(request)
-    bucket = _registry_bucket(live_engines, user_id)
+    # BOTH registries. The strategy builder deploys into `live_engines`, and a
+    # paper deployment of the same strategy lands in `paper_engines`; a desk
+    # that reads only the first shows two books when five are loaded.
+    pairs = [(rid, eng, True) for rid, eng in _registry_bucket(live_engines, user_id).items()]
+    pairs += [(rid, eng, False) for rid, eng in _registry_bucket(paper_engines, user_id).items()]
     runs = []
-    for run_id, engine in bucket.items():
+    for run_id, engine, is_live_registry in pairs:
         try:
             strategy = engine.strategy or {}
             legs = strategy.get("legs") or []
@@ -18520,7 +18524,11 @@ async def live_runs(request: Request):
                     "run_id": run_id,
                     "name": strategy.get("run_name") or run_id,
                     "running": bool(engine.running),
-                    "mode": engine.mode,
+                    "mode": getattr(engine, "mode", ""),
+                    "real_orders": bool(
+                        is_live_registry
+                        and str((getattr(engine, "deploy_config", None) or {}).get("order_type", "")).lower() == "auto"
+                    ),
                     "side": str(leg.get("option_type") or "").upper(),
                     "lots": leg.get("lots"),
                     "expiry_day_lots": leg.get("expiry_day_lots") or 0,

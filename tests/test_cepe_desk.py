@@ -74,7 +74,55 @@ class TheDeskShowsBothBooks(unittest.TestCase):
     def test_the_endpoint_answers_for_every_run_not_the_first(self):
         self.assertIn('@app.get("/api/live/runs")', APP_PY)
         body = APP_PY.split('@app.get("/api/live/runs")')[1].split("@app.get")[0]
-        self.assertIn("for run_id, engine in bucket.items()", body)
+        self.assertIn("for run_id, engine, is_live_registry in pairs", body)
+
+    def test_it_reads_both_registries(self):
+        """A paper deployment of the same strategy lands in paper_engines; a desk
+        that reads only live_engines showed two books when five were loaded."""
+        body = APP_PY.split('@app.get("/api/live/runs")')[1].split("@app.get")[0]
+        self.assertIn("_registry_bucket(live_engines, user_id)", body)
+        self.assertIn("_registry_bucket(paper_engines, user_id)", body)
+
+    def test_real_orders_is_decided_by_the_deploy_config_not_by_mode(self):
+        """engine.mode is the string "auto" on EVERY live engine and never
+        changes. Comparing it to "live" painted a book placing real orders as
+        PAPER, which is the most dangerous label this page can get wrong."""
+        body = APP_PY.split('@app.get("/api/live/runs")')[1].split("@app.get")[0]
+        self.assertIn('"real_orders"', body)
+        self.assertIn("order_type", body)
+        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        self.assertIn("run.real_orders", card)
+        self.assertNotIn("=== 'live'", card, "the badge must not compare mode to 'live'")
+        self.assertIn("REAL ORDERS", card)
+
+
+class TheTwoBooksAreToldApart(unittest.TestCase):
+    def test_each_side_has_its_own_colour(self):
+        self.assertIn("const _CEPE_SIDE", APP_JS)
+        block = APP_JS.split("const _CEPE_SIDE")[1][:300]
+        self.assertIn("CE:", block)
+        self.assertIn("PE:", block)
+
+    def test_the_filter_exists_and_is_delegated(self):
+        for key in ("all", "CE", "PE"):
+            self.assertIn(f'data-cepe-filter="{key}"', HTML)
+        allow = APP_JS[APP_JS.index("const PF_DELEGATED_ACTIONS") :]
+        self.assertIn("'setCePeFilter'", allow[: allow.index("]")])
+        self.assertIn("window.setCePeFilter = setCePeFilter;", APP_JS)
+
+    def test_the_filter_reaches_the_ledger_as_well_as_the_books(self):
+        body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
+        self.assertIn("_cepeFilter", body)
+        self.assertIn("cepe-tattoo", body, "ledger rows must carry the side mark")
+
+    def test_the_tattoo_and_filter_are_styled(self):
+        for cls in (".cepe-tattoo", ".cepe-filter", ".cepe-figs"):
+            self.assertIn(cls, CSS, cls)
+
+    def test_the_recipe_is_not_one_long_clipped_line(self):
+        body = APP_JS.split("function _cepeRecipe()")[1].split("\n}")[0]
+        self.assertIn("cepe-recipe-line", body)
+        self.assertGreaterEqual(body.count("cepe-recipe-line"), 3)
 
     def test_the_poll_payload_leaves_out_the_heavy_fields(self):
         """A console polls this every few seconds."""

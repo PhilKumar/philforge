@@ -9523,3 +9523,38 @@ body :is(
 .oc-cepe-book .ocp-table-wrap{ margin-top:auto; }
 .oc-cepe-book .ocp-rule-chip{ margin-left:6px; }
 @media (max-width:900px){ .oc-cepe-books{ grid-template-columns:1fr; } }
+
+/* ── CE + PE: the side is a colour, and it is the same colour everywhere ──
+   A tattoo on the card, on every ledger row and in the filter, so the two
+   books separate at a glance without reading a name. CE takes the page's
+   own blue; PE takes an amber far enough from it to survive both themes
+   and the red/green the money already uses. */
+.cepe-tattoo{
+  display:inline-block; min-width:26px; text-align:center;
+  font:800 9.5px 'JetBrains Mono',monospace; letter-spacing:.09em;
+  padding:3px 7px; border-radius:3px; border:1px solid currentColor;
+}
+.cepe-filters{ display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; }
+.cepe-filter{
+  font:800 10px 'JetBrains Mono',monospace; letter-spacing:.08em;
+  padding:6px 12px; border-radius:999px; cursor:pointer;
+  background:transparent; color:var(--muted); border:1px solid var(--border);
+}
+.cepe-filter:hover{ color:var(--text); }
+.cepe-filter .cepe-filter-n{ opacity:.6; margin-left:5px; }
+.cepe-filter.is-active{ color:var(--text); border-color:currentColor; background:rgba(148,163,184,.10); }
+.cepe-filter-ce.is-active{ color:#38bdf8; background:rgba(56,189,248,.12); }
+.cepe-filter-pe.is-active{ color:#f0a13a; background:rgba(240,161,58,.12); }
+.cepe-filter:focus-visible{ outline:2px solid var(--brand, #38bdf8); outline-offset:2px; }
+
+/* The card meta, kept to one short row per fact instead of one long sentence. */
+.cepe-figs{
+  display:flex; gap:14px; flex-wrap:wrap; margin-top:9px;
+  font:11px 'JetBrains Mono',monospace; color:var(--muted);
+}
+.cepe-last{
+  margin-top:9px; font:11px 'JetBrains Mono',monospace; color:var(--muted);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.cepe-recipe-line{ display:block; }
+.cepe-recipe-note{ color:var(--muted); }
