@@ -463,10 +463,15 @@ def cpr_timeframe(
 
 
 def yesterday_candle(df: pd.DataFrame) -> pd.DataFrame:
-    """Bug 2 fixed: handles both intraday and daily DataFrames."""
+    """Bug 2 fixed: handles both intraday and daily DataFrames.
+
+    Session-filtered for the same reason `cpr()` is: a bar stamped outside
+    09:15-15:29 would otherwise become part of yesterday's high or low, and the
+    live CE book enters on `current_close is_above Yesterday_High`.
+    """
     intraday = _is_intraday(df)
     daily = (
-        df.resample("D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+        _session_bars(df).resample("D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
         if intraday
         else df.copy()
     )
@@ -572,6 +577,11 @@ _CONDITION_CONTEXT_FIELDS = {
     "Signal_Candle_High",
     "Signal_Candle_Low",
     "Signal_Candle_Close",
+    # The daily trend. Always present, like Yesterday_High -- a rule may ask
+    # for it without declaring an indicator.
+    "Daily_SMA_10",
+    "Daily_SMA_20",
+    "Daily_SMA_50",
 }
 
 _DIRECT_INDICATOR_PATTERNS = (
@@ -847,7 +857,41 @@ def _attach_execution_context(df: pd.DataFrame) -> pd.DataFrame:
     result["Yesterday_High"] = result["yesterday_high"]
     result["Yesterday_Low"] = result["yesterday_low"]
     result["Yesterday_Close"] = result["yesterday_close"]
+    result = _attach_daily_averages(result)
     return result
+
+
+# The daily trend, for rules that want to know what KIND of market this is.
+# Both books are intraday and neither has any idea whether it is trading in a
+# trend or a chop -- 2022 is the one year they both lost, and a filter on the
+# daily average repairs it (Phil, 2026-09-08).
+DAILY_AVERAGE_PERIODS = (10, 20, 50)
+
+
+def _attach_daily_averages(result: pd.DataFrame) -> pd.DataFrame:
+    """`Daily_SMA_10/20/50`: the average of that many COMPLETED daily closes.
+
+    Shifted by one day, so a bar inside today's session reads an average that
+    was finished before today opened -- the same discipline the pivots keep.
+    Without the shift the rule would be reading a number that includes the very
+    candle it is deciding on.
+    """
+    columns = [f"Daily_SMA_{p}" for p in DAILY_AVERAGE_PERIODS]
+    if not _is_intraday(result):
+        closes = result["close"]
+        for period, col in zip(DAILY_AVERAGE_PERIODS, columns):
+            result[col] = closes.rolling(period, min_periods=period).mean().shift(1)
+        return result
+
+    daily_close = _session_bars(result).resample("D").agg({"close": "last"}).dropna()
+    if daily_close.empty:
+        for col in columns:
+            result[col] = np.nan
+        return result
+    frame = pd.DataFrame(index=daily_close.index)
+    for period, col in zip(DAILY_AVERAGE_PERIODS, columns):
+        frame[col] = daily_close["close"].rolling(period, min_periods=period).mean().shift(1)
+    return result.join(frame.reindex(result.index, method="ffill"))
 
 
 def _align_to_execution_index(

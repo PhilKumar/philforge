@@ -2556,6 +2556,15 @@ class LiveEngine:
             opt_type = leg.get("option_type", "CE")
             txn_type = leg.get("transaction_type", "BUY")
             lots = leg.get("lots", 1)
+            # SIZE UP ON EXPIRY DAY. The same rule the backtest applies, decided
+            # the same way: by asking whether the contract being bought expires
+            # today, never by naming a weekday. NIFTY's weekly expiry moved from
+            # Thursday to Tuesday in September 2025, and a weekday rule written
+            # before that would now be sizing up on the wrong session.
+            expiry_day_lots = int(leg.get("expiry_day_lots", 0) or 0)
+            if expiry_day_lots > 0 and str(expiry) == str(session_date_str):
+                lots = expiry_day_lots
+                self.log_event("info", f"Expiry day — leg {i + 1} sized at {lots} lots instead of {leg.get('lots', 1)}")
             quantity = lots * lot_size
 
             scanned_premium = 0.0

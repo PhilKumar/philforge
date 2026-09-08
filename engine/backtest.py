@@ -1296,6 +1296,17 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         if hist_strike is not None and not pd.isna(hist_strike):
                             strike_used = int(round(float(hist_strike)))
                             display_symbol = f"{_instrument_label(instrument)} {strike_used} {leg['option_type']}"
+                # SIZE FOR THE DAY THE EDGE IS ON. Measured on the PE book, the
+                # expiry session carries the whole result and the other four
+                # days are a net drag -- and the expiry WEEKDAY moved from
+                # Thursday to Tuesday in September 2025, so a weekday rule
+                # would have silently pointed at the wrong day. Comparing the
+                # trade's date with its own contract's expiry needs no calendar
+                # and follows any future change on its own.
+                expiry_day_lots = int(leg.get("expiry_day_lots", 0) or 0)
+                if expiry_day_lots > 0 and contract_expiry is not None and contract_expiry == trade_date:
+                    leg_lots = expiry_day_lots
+
                 positions.append(
                     {
                         "entry_group": trade_group_id,
