@@ -245,6 +245,10 @@ class LiveEngine:
         self.manual_intervention_required = False
         self._entry_fill_timeout_sec = 15
         self._exit_fill_timeout_sec = 15
+        # How long an exit will wait for the broker to confirm the stop is
+        # gone before sending the exit anyway. Short on purpose: the cost of
+        # waiting is slippage, the cost of not waiting is an RMS rejection.
+        self._sl_cancel_confirm_sec = 2.0
         self._market_open = time(9, 15)
         self._market_close = time(15, 25)
         self._signal_cutoff: Optional[time] = None
@@ -3044,14 +3048,56 @@ class LiveEngine:
         _pt_map = {"MIS": "INTRADAY", "NRML": "MARGIN"}
         product_type = _pt_map.get(product_type, product_type)
 
-        # Cancel SL and place exit order concurrently
-        async def _cancel_sl():
-            if pos.get("sl_order_id"):
+        # CANCEL THE STOP FIRST, AND WAIT FOR THE BROKER TO SAY IT IS GONE.
+        # These two used to be fired together with asyncio.gather, and on
+        # 2026-09-08 at 10:15:00 the exit lost the race: the stop was still a
+        # live SELL 130 at Dhan when the exit SELL 130 arrived, so RMS priced
+        # the pair as a naked short and refused it --
+        #
+        #   REJECTED RMS: You have insufficient funds. Please add Rs.400396.92
+        #
+        # Two seconds later the identical order needed no margin at all and
+        # filled, because by then the cancel had landed. The account was never
+        # short of money; it was being asked to margin a short it would never
+        # take. Losing that race three times in a row stops the engine with the
+        # position still OPEN, which is the outcome this ordering removes.
+        #
+        # An unconfirmed cancel must never BLOCK the exit -- being flat matters
+        # more than being tidy -- so the confirmation is on a short budget and
+        # the exit goes out regardless when it runs out.
+        _SL_GONE = {"CANCELLED", "TRADED", "REJECTED", "EXPIRED"}
+
+        async def _cancel_sl_and_confirm() -> str:
+            sl_id = pos.get("sl_order_id")
+            if not sl_id:
+                return "NONE"
+            status = ""
+            try:
+                result = await self.dhan.async_cancel_order(sl_id)
+                status = str((result or {}).get("orderStatus") or "").upper()
+            except Exception as e:
+                self.log_event("warning", f"SL cancel failed (may already be triggered): {e}")
+            if status in _SL_GONE:
+                self.log_event("order", f"🚫 SL order cancelled: {sl_id} ({status})")
+                return status
+            # Dhan's DELETE did not say what became of it. Ask, briefly.
+            deadline = _now_ist() + timedelta(seconds=self._sl_cancel_confirm_sec)
+            while _now_ist() < deadline:
+                await asyncio.sleep(0.2)
                 try:
-                    await self.dhan.async_cancel_order(pos["sl_order_id"])
-                    self.log_event("order", f"🚫 SL order cancelled: {pos['sl_order_id']}")
-                except Exception as e:
-                    self.log_event("warning", f"SL cancel failed (may already be triggered): {e}")
+                    info = await asyncio.to_thread(self.dhan.get_order_status, sl_id)
+                    status = str((info or {}).get("orderStatus") or "").upper()
+                except Exception:
+                    status = ""
+                if status in _SL_GONE:
+                    self.log_event("order", f"🚫 SL order cancelled: {sl_id} ({status})")
+                    return status
+            self.log_event(
+                "warning",
+                f"SL cancel for order {sl_id} not confirmed in {self._sl_cancel_confirm_sec}s "
+                f"(last status: {status or 'unknown'}) — exiting anyway",
+            )
+            return "UNCONFIRMED"
 
         async def _place_exit():
             return await self.dhan.async_place_option_order(
@@ -3068,8 +3114,22 @@ class LiveEngine:
 
         try:
             try:
-                # Fire SL cancel + exit order in parallel
-                _, result = await asyncio.gather(_cancel_sl(), _place_exit())
+                # The stop goes first and is confirmed; only then the exit.
+                sl_state = await _cancel_sl_and_confirm()
+                if sl_state == "TRADED":
+                    # The stop had already filled, so the broker may be flat
+                    # and this SELL could open a short instead of closing a
+                    # long. Nothing in this engine reconciles a triggered
+                    # broker stop -- it is a net, not a rule -- so the exit
+                    # still goes out exactly as it did before, and this line
+                    # exists so the situation is visible in the log instead of
+                    # silent. Reconciling the stop's own fill is the next fix.
+                    self.log_event(
+                        "error",
+                        f"CHECK THE BROKER: the stop for Leg {pos['leg_num']} ({pos['trading_symbol']}) had "
+                        f"already TRADED. The exit below may leave a short position — reconcile the fills.",
+                    )
+                result = await _place_exit()
                 order_id = result.get("orderId", "")
                 pos["exit_order_id"] = order_id
                 pos.pop("_exit_retry_after", None)
