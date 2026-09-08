@@ -76,6 +76,34 @@ class TheReconciliationIsThereAndAddsUp(unittest.TestCase):
             self.assertIn(figure, DOC, figure)
 
 
+class TheSectionIsAccessible(unittest.TestCase):
+    """Both of these were live failures on the first push, not hypotheticals."""
+
+    def test_a_scrollable_table_can_be_reached_from_the_keyboard(self):
+        """axe: scrollable-region-focusable, serious. It fires only when the
+        region actually overflows, which is why the older tables in this
+        document never needed it and the wider new one does."""
+        import re
+
+        block = DOC[DOC.index("Reconciliation between this document") - 400 :][:700]
+        wrapper = re.search(r'<div class="tblwrap"[^>]*>', block)
+        self.assertIsNotNone(wrapper)
+        self.assertIn('tabindex="0"', wrapper.group(0))
+        self.assertIn('role="region"', wrapper.group(0))
+
+    def test_no_aria_label_in_the_document_contains_markup(self):
+        """t() emits bilingual MARKUP and belongs in a body, never an attribute;
+        t_attr is the one that may go in an attribute."""
+        import re
+
+        with_markup = [a for a in re.findall(r'aria-label="([^"]*)"', DOC) if "<" in a]
+        self.assertEqual(with_markup, [], "an aria-label carries raw HTML")
+
+    def test_the_builder_uses_the_attribute_safe_translator(self):
+        section = BUILDER[BUILDER.index("A second measurement") :][:4000]
+        self.assertIn('t_attr("aria-label"', section)
+
+
 class TheSharedHelperIsNotPolluted(unittest.TestCase):
     def test_the_section_is_not_written_into_the_shared_builder_helper(self):
         """method_and_limits is used by all five tearsheets."""
