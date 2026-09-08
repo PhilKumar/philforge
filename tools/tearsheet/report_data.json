@@ -15021,5 +15021,71 @@
    -15979,
    1
   ]
- ]
+ ],
+ "reconciliation": {
+  "measured": "2026-09-08",
+  "archive": "Dhan expired-option store, data/dhan_options{,_e2,_m1,_m2}",
+  "window": [
+   "2021-01-01",
+   "2026-08-31"
+  ],
+  "lots": 2,
+  "costed": {
+   "spread_bps": 18,
+   "entry_slippage_bps": 10,
+   "exit_slippage_bps": 14
+  },
+  "replays": 151,
+  "pe_net": 138174,
+  "ce_net": 218838,
+  "combined_net": 357012,
+  "pe_trades": 578,
+  "ce_trades": 376,
+  "bridge": {
+   "pe_dhan_2lot_costed": 138174,
+   "pe_dhan_4lot_costed": 276348,
+   "same_strike_share_pct": 93.2,
+   "dhan_vs_upstox_same_strike": {
+    "dhan": 120849,
+    "upstox": 146754,
+    "uplift_pct": 21.4
+   },
+   "engine_window_costed": 319116,
+   "engine_window_uncosted": 376361,
+   "tearsheet_engine_portion": 388449.91,
+   "residual_pct": 3.1,
+   "engine_window_trades": 215,
+   "tearsheet_engine_trades": 211
+  },
+  "findings": {
+   "ce_top10_share_pct": 86,
+   "pe_top10_net": 225437,
+   "pe_net_without_top10": -87263,
+   "expiry_thu_era": {
+    "tue": -79519,
+    "thu": 76374,
+    "era_net": -11087
+   },
+   "expiry_tue_era": {
+    "tue": 97343,
+    "thu": 4865,
+    "era_net": 149262
+   },
+   "sizing_3on1off": {
+    "net": 211125,
+    "max_dd": -70190,
+    "green_years": 5,
+    "trades": 578
+   },
+   "rejected": {
+    "target_30pct_pe": -4055,
+    "trail_25pct_pe": 23021,
+    "second_trade_pe": -11757,
+    "spread_ce": -14022,
+    "next_week_ce": 139273,
+    "mirror_ce_to_pe": -336879,
+    "exit_walk_forward_vs_unchanged": -50210
+   }
+  }
+ }
 }

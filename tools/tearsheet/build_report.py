@@ -371,6 +371,7 @@ reg = D["regime"]["both"]
 cap = D["capital"]
 peak = cap["peak_day"]
 CH = D["charges"]
+RC = D.get("reconciliation") or {}
 SZ = D["sizing"]
 SL = D["slip"]
 SERIES = json.dumps(D["series"], separators=(",", ":"))
@@ -1508,6 +1509,40 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
       <span style="margin-left:auto">best {D["daily"]["best_month"][0]} {r(D["daily"]["best_month"][1]["net"])}
         &middot; worst {D["daily"]["worst_month"][0]} {r(D["daily"]["worst_month"][1]["net"])}</span>
     </div>
+  </div>
+</section>
+
+
+<section>
+  <div class="shead"><div><h2>{t("A second measurement, and why it is smaller", "இரண்டாவது அளவீடு &mdash; அது ஏன் சிறியது")}</h2>
+    <p>{t("On 8 September 2026 both books were replayed end to end on a different archive, at the size actually being traded, with execution costs charged. It returns a much smaller number than the one above. Every rupee of the difference is named below rather than explained away &mdash; and where the two can be measured the same way, they agree to 3.1%.", "2026 செப்டம்பர் 8 அன்று இரண்டு புத்தகங்களும் வேறு archive-இல், உண்மையில் வர்த்தகம் செய்யப்படும் அளவில், execution செலவுகளுடன் முழுமையாக மீண்டும் இயக்கப்பட்டன. மேலே உள்ளதை விட மிகச் சிறிய எண் வருகிறது. அந்த வித்தியாசத்தின் ஒவ்வொரு ரூபாயும் கீழே பெயரிடப்பட்டுள்ளது &mdash; ஒரே முறையில் அளந்தால் இரண்டும் 3.1% வித்தியாசத்தில் ஒத்துப்போகின்றன.")}</p></div></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th scope="col">{t("Step", "படி")}</th><th scope="col">{t("What changes", "என்ன மாறுகிறது")}</th><th scope="col">{t("Put book", "PUT புத்தகம்")}</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">{t("The replay", "மறு-இயக்கம்")}</th>
+        <td>{t("Dhan archive, 2 lots, spread and slippage charged, 2021-01 to 2026-08", "Dhan archive, 2 lots, spread மற்றும் slippage பிடிக்கப்பட்டது, 2021-01 முதல் 2026-08 வரை")}</td>
+        <td class="pos">{r(RC["bridge"]["pe_dhan_2lot_costed"])}</td></tr>
+      <tr><th scope="row">{t("At this document's size", "இந்த ஆவணத்தின் அளவில்")}</th>
+        <td>{t("2 lots &rarr; 4 lots. Nothing else changes; the result is linear in size.", "2 lots &rarr; 4 lots. வேறு எதுவும் மாறவில்லை; முடிவு அளவுக்கு நேர்விகிதம்.")}</td>
+        <td class="pos">{r(RC["bridge"]["pe_dhan_4lot_costed"])}</td></tr>
+      <tr><th scope="row">{t("At this document's prices", "இந்த ஆவணத்தின் விலைகளில்")}</th>
+        <td>{t("Dhan prices the SAME contract lower. Where both archives overlap, 93% of trades pick an identical strike, and on those Dhan reads", "Dhan அதே ஒப்பந்தத்தை குறைவாக விலை மதிப்பிடுகிறது. இரு archive-களும் ஒன்றுபடும் இடத்தில் 93% வர்த்தகங்கள் ஒரே strike; அவற்றில் Dhan")} {r(RC["bridge"]["dhan_vs_upstox_same_strike"]["dhan"])} {t("against Upstox's", "&mdash; Upstox-இல்")} {r(RC["bridge"]["dhan_vs_upstox_same_strike"]["upstox"])}. {t("Strike substitution is NOT the cause.", "Strike மாற்றம் காரணம் அல்ல.")}</td>
+        <td>+{RC["bridge"]["dhan_vs_upstox_same_strike"]["uplift_pct"]}%</td></tr>
+      <tr><th scope="row">{t("On this document's fill basis", "இந்த ஆவணத்தின் fill அடிப்படையில்")}</th>
+        <td>{t("This document is an as-filled book. The replay charges 18bps of spread and 10/14bps of entry and exit slippage; removing them on the same window gives", "இந்த ஆவணம் as-filled. மறு-இயக்கம் 18bps spread மற்றும் 10/14bps slippage பிடிக்கிறது; அதே காலத்தில் அவற்றை நீக்கினால்")}</td>
+        <td>{r(RC["bridge"]["engine_window_costed"])} &rarr; <strong>{r(RC["bridge"]["engine_window_uncosted"])}</strong></td></tr>
+      <tr class="trow-total"><th scope="row">{t("Against this document's own engine half", "இந்த ஆவணத்தின் engine பகுதிக்கு எதிராக")}</th>
+        <td>{t("Same window, same archive, same four lots, no costs on either side", "அதே காலம், அதே archive, அதே நான்கு lots, இரு பக்கமும் கட்டணம் இல்லை")} &mdash; {RC["bridge"]["engine_window_trades"]} {t("trades against", "வர்த்தகங்கள்; இங்கே")} {RC["bridge"]["tearsheet_engine_trades"]}</td>
+        <td><strong>{r(RC["bridge"]["engine_window_uncosted"])}</strong> {t("vs", "எதிராக")} <strong>{r(RC["bridge"]["tearsheet_engine_portion"])}</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note" style="margin-top:14px">
+    <h2 class="note-h">{t("What separates the two numbers is fully named", "இரண்டு எண்களையும் பிரிப்பது முழுமையாக பெயரிடப்பட்டுள்ளது")}</h2>
+    <p>{t("Four lots rather than two; an archive that prices the same contract 21% higher; an as-filled basis rather than a costed one; and a first three and three-quarter years taken from broker exports rather than from any replay. None of those is a disagreement about whether the rules work &mdash; on the one window where both are measured identically they differ by 3.1%. Read the headline as this book at four lots on real fills, and the replay as the same book at live size with costs charged. The second is the number to expect from a fresh deployment.", "இரண்டுக்கு பதிலாக நான்கு lots; அதே ஒப்பந்தத்தை 21% அதிகமாக விலை மதிப்பிடும் archive; கட்டணம் பிடிக்காத as-filled அடிப்படை; மற்றும் முதல் மூன்றே முக்கால் ஆண்டுகள் broker export-களிலிருந்து &mdash; மறு-இயக்கத்திலிருந்து அல்ல. இவற்றில் எதுவும் விதிகள் வேலை செய்கின்றனவா என்பதில் கருத்து வேறுபாடு அல்ல &mdash; ஒரே முறையில் அளந்த ஒரே காலத்தில் வித்தியாசம் 3.1%. தலைப்பு எண்ணை நான்கு lots, உண்மையான fills என்றும், மறு-இயக்கத்தை லைவ் அளவில் கட்டணங்களுடன் என்றும் படியுங்கள். புதிய deployment-இல் எதிர்பார்க்க வேண்டியது இரண்டாவது எண்.")}</p>
+  </div>
+  <div class="note" style="margin-top:14px">
+    <h2 class="note-h">{t("What the stricter replay found", "கடுமையான மறு-இயக்கம் கண்டறிந்தது")}</h2>
+    <p>{t("Ten trades carry 86% of the call book, and ten carry more than all of the put book &mdash; strip them and it loses", "பத்து வர்த்தகங்கள் CE புத்தகத்தின் 86%; PE புத்தகத்தில் பத்து வர்த்தகங்கள் மொத்தத்தையும் விட அதிகம் &mdash; அவற்றை நீக்கினால் நஷ்டம்")} {r(abs(RC["findings"]["pe_net_without_top10"]))}. {t("So a profit target, a trailing stop, a spread and a half-booking were each measured and each rejected: a 30% target turns the put book into a LOSS while raising its win rate. Weekly expiry moved from Thursday to Tuesday in September 2025, and the put book's money sits on the expiry session in both eras &mdash; Tuesday was", "எனவே target, trailing stop, spread, பாதி booking ஒவ்வொன்றும் அளக்கப்பட்டு நிராகரிக்கப்பட்டன: 30% target PE புத்தகத்தை நஷ்டமாக்குகிறது, வெற்றி விகிதம் உயர்ந்தாலும். Weekly expiry 2025 செப்டம்பரில் வியாழனிலிருந்து செவ்வாய்க்கு மாறியது; இரு காலகட்டங்களிலும் PE-இன் பணம் expiry நாளில் &mdash; செவ்வாய்")} {r(RC["findings"]["expiry_thu_era"]["tue"])} {t("as an ordinary day and", "சாதாரண நாளாக;")} {r(RC["findings"]["expiry_tue_era"]["tue"])} {t("once it became expiry. Three lots on expiry and one otherwise returns", "expiry ஆனபின். Expiry-இல் 3 lots, மற்ற நாட்களில் 1 lot &rarr;")} {r(RC["findings"]["sizing_3on1off"]["net"])} {t("against", "எதிராக")} {r(RC["bridge"]["pe_dhan_2lot_costed"])}{t(", with a smaller worst drawdown and one more green year. All 127 combinations of the exit rules were searched, and choosing the best on history LOST", " &mdash; drawdown குறைவு, ஒரு ஆண்டு கூடுதல் பச்சை. Exit விதிகளின் 127 சேர்க்கைகளும் தேடப்பட்டன; வரலாற்றின் அடிப்படையில் சிறந்ததைத் தேர்ந்தெடுப்பது")} {r(abs(RC["findings"]["rejected"]["exit_walk_forward_vs_unchanged"]))} {t("against changing nothing, so the exits stay exactly as they are.", "நஷ்டம் தந்தது &mdash; எனவே exits அப்படியே இருக்கின்றன.")}</p>
   </div>
 </section>
 
