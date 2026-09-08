@@ -13094,7 +13094,19 @@ function _liveWhyHtml(data) {
   const conds = (side) => {
     const rows = ((why[side] || {}).conditions || []);
     if (!rows.length) return `<div class="live-why-empty">${side === 'entry' ? 'No entry conditions were recorded on this trade (it predates the journal).' : 'No exit conditions decided this exit.'}</div>`;
-    return `<ul class="live-why-conds">${rows.map(c => `<li class="${c.result ? 'is-true' : 'is-false'}"><span class="live-why-tick">${c.result ? '✓' : '✗'}</span><span class="live-why-cond">${escapeHtml(c.condition || '')}</span><span class="live-why-vals">${escapeHtml(_liveWhyValue(c.left_value))} <em>vs</em> ${escapeHtml(_liveWhyValue(c.right_value))}</span></li>`).join('')}</ul>`;
+    // AN EXIT WITH EVERY CONDITION FALSE IS A BROKEN RECORD, NOT A MYSTERY.
+    // Before 2026-09-08 the exit reasons were rebuilt after the decision, from
+    // the wrong pair of bars, so a cross that really did fire replayed as
+    // false and the panel showed a wall of ✗ under a signal exit. Say that,
+    // rather than let the trade look like it closed for no reason.
+    const stale = side === 'exit'
+      && rows.length
+      && !rows.some(c => c.result)
+      && ['EXIT_SIGNAL', 'TOUCH_EXIT'].includes(String((why.exit || {}).reason || ''));
+    const note = stale
+      ? `<div class="live-why-empty">These were re-evaluated after the exit, not at it — which is why none reads true. Trades closed from 8 Sep 2026 onward record the rule that actually fired.</div>`
+      : '';
+    return note + `<ul class="live-why-conds">${rows.map(c => `<li class="${c.result ? 'is-true' : 'is-false'}"><span class="live-why-tick">${c.result ? '✓' : '✗'}</span><span class="live-why-cond">${escapeHtml(c.condition || '')}</span><span class="live-why-vals">${escapeHtml(_liveWhyValue(c.left_value))} <em>vs</em> ${escapeHtml(_liveWhyValue(c.right_value))}</span></li>`).join('')}</ul>`;
   };
   const inds = (side) => {
     const ind = (why[side] || {}).indicators || {};
