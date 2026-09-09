@@ -45,18 +45,32 @@ jobs:
         working-directory: e2e-tests
         run: |
           npm install
-          # `--with-deps` shells out to apt, and Google's Chrome index
-          # intermittently serves a corrupt Packages.gz -- "Hash Sum mismatch".
-          # It failed twice in a row on 09-Sep-2026 and skipped the deploy
-          # without a single test having run, which reads exactly like a red
-          # gate. Dropping the cached lists is the standard cure; one retry
-          # covers the case where the mirror is still catching up.
-          install_browsers() {
-            sudo rm -rf /var/lib/apt/lists/*
-            sudo apt-get update -qq || true
-            npx playwright install --with-deps chromium
+          # `--with-deps` shells out to apt, which consults every repo on the
+          # runner image -- including Google's Chrome repo, preinstalled and
+          # nothing to do with us. On 09-Sep-2026 that repo served a corrupt
+          # Packages.gz for over an hour ("Hash Sum mismatch"), failing the step
+          # before a single test ran and skipping the deploy three times.
+          # Clearing the apt lists and retrying did NOT help; the CDN kept
+          # serving the bad file.
+          #
+          # We never install Chrome from apt. Playwright downloads its own
+          # Chromium from its own CDN, and the apt step only pulls system
+          # libraries from Ubuntu's archive. So the repo is removed before apt
+          # runs: a broken third-party index cannot then take the gate down.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome.sources
+          sudo rm -rf /var/lib/apt/lists/*
+          # And if apt still cannot finish, for this or any other reason, take
+          # the browser alone. CryptoForge already runs this fallback and has
+          # been deploying through the same outage all evening while PhilForge
+          # could not. The runner image carries the OS libraries; the browser
+          # comes from Playwright's own CDN and was never the problem. A
+          # browser that then cannot start still fails the suite, loudly, on
+          # its own merits -- which is the failure we actually want to see.
+          npx playwright install --with-deps chromium || {
+            echo "::warning::apt could not install browser deps; falling back to the browser alone"
+            npx playwright install chromium
           }
-          install_browsers || { echo "::warning::apt index was bad, retrying once"; sleep 15; install_browsers; }
 
       # ── Start PhilForge server ──
       - name: Start PhilForge dev server
