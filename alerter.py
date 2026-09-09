@@ -15,10 +15,13 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 
 import config
+
+IST = ZoneInfo("Asia/Kolkata")
 
 _log = logging.getLogger("alerter")
 
@@ -158,7 +161,11 @@ def alert(title: str, body: str, level: str = "error") -> None:
         return
 
     icon = {"error": "🔴", "warn": "🟡", "info": "🟢"}.get(level, "⚪")
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # IST, ALWAYS. datetime.now() reads the machine's clock, and production runs
+    # on UTC -- so every alert was stamped five and a half hours behind, and one
+    # sent after 18:30 IST also carried the wrong DATE. The alert is read by a
+    # person in India next to a market that runs on IST; nothing else is useful.
+    ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
 
     # HTML for Telegram
     html = f"{icon} <b>[PhilForge] {title}</b>\n<code>{ts}</code>\n\n{body}"
