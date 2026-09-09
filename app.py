@@ -618,10 +618,12 @@ _TRADE_STATUTORY_CHARGE_FIELDS = (
     "stampDuty",
 )
 _TRADE_BROKERAGE_FIELDS = ("brokerageCharges", "brokerage")
+# 6: the timestamps actually reach the stored row -- 5 collected them in the
+# accumulator and then dropped them in the projection that gets serialised.
 # 5: per-symbol fill timestamps (first_buy / last_sell). Bumping this makes
 # the startup backfill re-pull every day from Dhan, so existing rows gain the
 # times they were built without.
-_TRADE_HISTORY_SCHEMA_VERSION = 5
+_TRADE_HISTORY_SCHEMA_VERSION = 6
 _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
 _trade_history_repair_attempts: dict[int, float] = {}
 
@@ -967,6 +969,11 @@ def _summarize_real_trade_history(
                     "total_costs": round(detail["total_costs"], 2),
                     "fill_count": int(detail["fill_count"]),
                     "closed_segments": int(detail["closed_segments"]),
+                    # The accumulator collects these; this projection is what
+                    # actually reaches the database, so omitting them here
+                    # discarded the times just as surely as never reading them.
+                    "first_buy": detail.get("first_buy", ""),
+                    "last_sell": detail.get("last_sell", ""),
                 }
             )
         details.sort(key=lambda item: item["symbol"])

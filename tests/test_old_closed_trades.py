@@ -164,7 +164,10 @@ class TheStampIsCompleteOrHonest(unittest.TestCase):
     def test_existing_rows_are_forced_to_be_rebuilt(self):
         """Rows written before this carry no times; only a schema bump makes
         the startup backfill re-pull them from Dhan."""
-        self.assertIn("_TRADE_HISTORY_SCHEMA_VERSION = 5", APP)
+        # 5 collected the times but dropped them in the projection, so rows
+        # written under it are as timeless as those under 4; 6 forces the
+        # re-pull that actually stores them.
+        self.assertIn("_TRADE_HISTORY_SCHEMA_VERSION = 6", APP)
 
     def test_the_payload_carries_both_stamps(self):
         block = helper_code()
