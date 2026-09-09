@@ -9594,3 +9594,19 @@ body :is(
 }
 .cepe-controls .cepe-filters{ margin-top:0; }
 .cepe-chartbar{ display:flex; gap:6px; flex-wrap:wrap; }
+
+/* ── Two sections: what trades money, and what does not ──
+   Same card, same grid, same rhythm; a heading and a hairline separate them so
+   a glance never confuses a paper book for a live one. */
+.cepe-sections{ display:flex; flex-direction:column; gap:16px; margin-top:14px; }
+.cepe-section-head{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  padding-bottom:6px; margin-bottom:10px; border-bottom:1px solid var(--border);
+}
+.cepe-section-head h5{
+  margin:0; font:800 11px 'JetBrains Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+}
+.cepe-section-live .cepe-section-head h5{ color:var(--danger); }
+.cepe-section-paper .cepe-section-head h5{ color:#6ee7b7; }
+.cepe-section-sub{ font:11px 'JetBrains Mono',monospace; color:var(--muted); }
+.cepe-section-count{ margin-left:auto; font:11px 'JetBrains Mono',monospace; color:var(--muted); }

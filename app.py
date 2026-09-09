@@ -18714,7 +18714,7 @@ async def live_index_chart(request: Request, instrument: str = "26000", timefram
     candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(str(timeframe).lower())
     if candle_type is None:
         raise HTTPException(status_code=400, detail="Charts are 5m, 15m or 1h.")
-    info = _get_instrument_map().get(str(instrument)) or {}
+    info = INSTRUMENT_MAP.get(str(instrument)) or {}
     if not info:
         raise HTTPException(status_code=400, detail=f"Unknown instrument {instrument!r}.")
     today = datetime.now(IST).date()

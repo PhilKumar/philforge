@@ -21500,6 +21500,13 @@ const _CEPE_SIDE = {
 const _cepeSide = (side) => _CEPE_SIDE[String(side || '').toUpperCase()]
   || { tint: 'var(--muted)', wash: 'transparent', label: String(side || '—') };
 let _cepeFilter = 'all';
+// Paper and live are two different questions about the same books, so they are
+// two sections rather than two colours in one list (Phil, 2026-09-09). The
+// pattern of a section is identical; only its contents differ.
+const _CEPE_SECTIONS = [
+  { key: 'live', title: 'Live', sub: 'real orders at the broker', test: (r) => !!r.real_orders },
+  { key: 'paper', title: 'Paper', sub: 'nothing reaches the broker', test: (r) => !r.real_orders },
+];
 
 function setCePeFilter(event, el) {
   _cepeFilter = el?.dataset?.cepeFilter || 'all';
@@ -21618,7 +21625,21 @@ function renderCePe(data) {
     _ocpTile('Unprotected', String(unprotected), unprotected ? 'var(--danger)' : 'var(--text)'),
   ].join('');
 
-  books.innerHTML = runs.map(_cepeBookCard).join('');
+  books.innerHTML = _CEPE_SECTIONS.map(section => {
+    const mine = runs.filter(section.test);
+    if (!mine.length) return '';
+    const net = mine.reduce((n, r) => n + (Number(r.booked_pnl) || 0), 0);
+    return `
+      <section class="cepe-section cepe-section-${section.key}">
+        <div class="cepe-section-head">
+          <h5>${section.title}</h5>
+          <span class="cepe-section-sub">${section.sub}</span>
+          <span class="cepe-section-count">${mine.length} book${mine.length === 1 ? '' : 's'}
+            · <b style="color:${_cepeTone(net)};">${_cepeMoney(net)}</b></span>
+        </div>
+        <div class="oc-cepe-books">${mine.map(_cepeBookCard).join('')}</div>
+      </section>`;
+  }).join('');
 
   // ── one flat ledger under both books, newest first ──
   const rows = [];
