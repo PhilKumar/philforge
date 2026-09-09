@@ -61,7 +61,7 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         """A data-pf-action missing from the allowlist is a button that does nothing."""
         allow = APP_JS[APP_JS.index("const PF_DELEGATED_ACTIONS") :]
         allow = allow[: allow.index("]")]
-        for action in ("cepeStop", "cepeStart", "cepeExit", "openCePeTearsheet"):
+        for action in ("cepeStop", "cepeExit", "setCePeFilter", "openCePeTearsheet"):
             with self.subTest(action=action):
                 self.assertIn(f"'{action}'", allow, f"{action} is not delegated")
                 self.assertIn(f"window.{action} = {action};", APP_JS, f"{action} is not on window")
@@ -83,6 +83,14 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         e2e = open(os.path.join(ROOT, "e2e-tests", "tests", "01-smoke.spec.ts"), encoding="utf-8").read()
         self.assertIn("['#oc-tabbtn-cepe', '#oc-tab-cepe']", e2e)
         self.assertIn("await expect(page.locator('#oc-tabbtn-cepe')).toHaveAttribute('aria-selected', 'true')", e2e)
+
+    def test_there_is_no_start_button_on_this_desk(self):
+        """A Start that only explained itself in a toast was a button that did
+        nothing; deploying a run belongs to the strategy builder."""
+        self.assertNotIn("cepeStart", APP_JS)
+        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        self.assertNotIn("▶ Start", card)
+        self.assertNotIn('data-pf-action="cepeStart"', card)
 
     def test_the_books_have_a_layout(self):
         self.assertIn(".oc-cepe-books", CSS)
@@ -112,7 +120,9 @@ class TheDeskShowsBothBooks(unittest.TestCase):
         card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
         self.assertIn("run.real_orders", card)
         self.assertNotIn("=== 'live'", card, "the badge must not compare mode to 'live'")
-        self.assertIn("REAL ORDERS", card)
+        # The badge reads "LIVE" in the danger colour; the words stay on its hover.
+        self.assertIn("REAL ORDERS", card, "nothing on the card says the orders are real")
+        self.assertIn("badgeTone", card)
 
 
 class TheTwoBooksAreToldApart(unittest.TestCase):
@@ -138,10 +148,13 @@ class TheTwoBooksAreToldApart(unittest.TestCase):
         for cls in (".cepe-tattoo", ".cepe-filter", ".cepe-figs"):
             self.assertIn(cls, CSS, cls)
 
-    def test_the_recipe_is_not_one_long_clipped_line(self):
+    def test_the_recipe_is_one_short_line(self):
+        """It went from one clipped sentence, to three lines, to one short line
+        (Phil, 2026-09-09: "Put all in one row with simple texts")."""
         body = APP_JS.split("function _cepeRecipe()")[1].split("\n}")[0]
-        self.assertIn("cepe-recipe-line", body)
-        self.assertGreaterEqual(body.count("cepe-recipe-line"), 3)
+        self.assertNotIn("cepe-recipe-line", body, "the three-line version is back")
+        for word in ("CE", "PE", "one trade a day"):
+            self.assertIn(word, body, word)
 
     def test_the_poll_payload_leaves_out_the_heavy_fields(self):
         """A console polls this every few seconds."""
@@ -166,7 +179,8 @@ class TheTwoBooksAreToldApart(unittest.TestCase):
 
     def test_the_desk_says_when_a_leg_has_no_broker_stop(self):
         body = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
-        self.assertIn("unprotected", body)
+        self.assertIn("no stop", body)
+        self.assertIn("No broker stop for this leg", body)
 
     def test_the_expiry_day_size_is_shown_where_it_is_set(self):
         body = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]

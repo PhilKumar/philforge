@@ -9560,3 +9560,27 @@ body :is(
 }
 .cepe-recipe-line{ display:block; }
 .cepe-recipe-note{ color:var(--muted); }
+
+/* ── CE + PE: the header and its four numbers share one row ──
+   "Both books / Today" used to own a row of its own above four short tiles,
+   which is a whole row spent on two words (Phil, 2026-09-09). */
+.cepe-monitor-row{
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  padding:12px 16px;
+}
+.cepe-monitor-title{ flex:0 0 auto; }
+.cepe-monitor-title h4{ margin:2px 0 0; }
+.cepe-tiles{ flex:1 1 420px; padding:0; }
+.cepe-monitor-row .ocp-monitor-updated{ flex:0 0 auto; margin-left:auto; }
+
+/* The book card: a head row and a figures row, and nothing else. */
+.cepe-head{ display:flex; align-items:center; gap:8px; flex-wrap:nowrap; }
+.cepe-name{
+  font:700 13px 'JetBrains Mono',monospace;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1 1 auto;
+}
+.cepe-badge{
+  font:800 9.5px 'JetBrains Mono',monospace; letter-spacing:.08em;
+  border:1px solid currentColor; border-radius:999px; padding:3px 8px; white-space:nowrap; flex:0 0 auto;
+}
+.cepe-stop{ font-size:11px; padding:3px 10px; flex:0 0 auto; }

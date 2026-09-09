@@ -18600,7 +18600,7 @@ async def live_runs(request: Request):
     runs = []
     for run_id, engine, is_live_registry in pairs:
         try:
-            strategy = engine.strategy or {}
+            strategy = getattr(engine, "strategy", None) or {}
             legs = strategy.get("legs") or []
             leg = legs[0] if legs else {}
             open_legs = [p for p in engine.positions if p.get("status") != "closed"]
@@ -18657,14 +18657,33 @@ async def live_runs(request: Request):
                         }
                         for t in closed[-25:]
                     ],
-                    "manual_intervention_required": bool(engine.manual_intervention_required),
-                    "unprotected_legs": len(engine._unprotected_legs()),
-                    "last_event": (engine.event_log[-1]["message"] if engine.event_log else ""),
-                    "current_spot": engine.current_spot,
+                    "manual_intervention_required": bool(getattr(engine, "manual_intervention_required", False)),
+                    "unprotected_legs": len(engine._unprotected_legs()) if hasattr(engine, "_unprotected_legs") else 0,
+                    "last_event": (engine.event_log[-1]["message"] if getattr(engine, "event_log", None) else ""),
+                    "current_spot": getattr(engine, "current_spot", 0),
                 }
             )
         except Exception as exc:  # one broken engine must not blank the desk
-            runs.append({"run_id": run_id, "name": run_id, "error": str(exc), "running": False})
+            _logger.warning("[LIVE RUNS] could not read %s: %s", run_id, exc)
+            runs.append(
+                {
+                    "run_id": run_id,
+                    "name": run_id,
+                    "error": str(exc),
+                    "running": bool(getattr(engine, "running", False)),
+                    "real_orders": False,
+                    "side": "",
+                    "lots": None,
+                    "trades_today": 0,
+                    "daily_pnl": None,
+                    "booked_pnl": None,
+                    "closed_count": 0,
+                    "open_legs": [],
+                    "recent": [],
+                    "unprotected_legs": 0,
+                    "last_event": "",
+                }
+            )
     runs.sort(key=lambda r: (r.get("side") != "CE", r.get("name", "")))
     return {
         "status": "ok",
