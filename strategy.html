@@ -770,6 +770,9 @@
           <div><label style="font-size:11px;color:var(--muted);">Fee/Charges %</label><input type="number" id="fee-pct" value="0" min="0" max="5" step="0.01" placeholder="0 = realistic" title="0 = use realistic F&O charges (STT+brokerage+GST), or set custom %"></div>
           <div><label style="font-size:11px;color:var(--muted);">Trailing SL %</label><input type="number" id="trailing-sl-pct" value="0" min="0" max="100" step="0.5" placeholder="0 = off" title="Exit when total strategy P&L drops this % from its peak (0 = disabled)"></div>
           <div><label style="font-size:11px;color:var(--muted);">Initial Capital</label><input type="number" id="initial-capital" value="500000" min="10000" step="50000" title="Starting capital for ROI calculation"></div>
+          <div><label style="font-size:11px;color:var(--muted);">Compound step %</label><input type="number" id="compound-step-pct" value="0" min="0" step="5" title="Add one lot for every this-many per cent of the ladder capital the book has BANKED. 0 turns compounding off."></div>
+          <div><label style="font-size:11px;color:var(--muted);">Ladder capital</label><input type="number" id="compound-base-capital" value="0" min="0" step="25000" title="The capital the compound step is a percentage of. 0 falls back to Initial Capital."></div>
+          <div><label style="font-size:11px;color:var(--muted);">Max lots</label><input type="number" id="compound-max-lots" value="0" min="0" title="Hard ceiling on lots the ladder may reach. 0 means the default of 20."></div>
         </div>
         <div style="margin-top: 10px; padding: 10px; background: rgba(245,158,11,0.05); border: 1px solid rgba(245,158,11,0.18); border-radius: 8px;">
           <div style="display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 10px;">

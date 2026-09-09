@@ -7506,6 +7506,7 @@ function loadTemplate(key) {
       setVal(`leg-${id}-strike-type`, leg.strike_type);
       setVal(`leg-${id}-strike-value`, leg.strike_value);
       setVal(`leg-${id}-lots`, leg.lots);
+        setVal(`leg-${id}-expiry-day-lots`, leg.expiry_day_lots || 0);
       setVal(`leg-${id}-sl-pct`, leg.sl_pct);
       setVal(`leg-${id}-target-pct`, leg.target_pct);
       setVal(`leg-${id}-trail-pct`, leg.trail_pct);
@@ -14449,6 +14450,7 @@ function loadStrategy(id) {
       if (leg.strike_type && leg.strike_type !== 'atm') toggleStrikeFields(id);
       setVal(`leg-${id}-strike-value`, leg.strike_value);
       setVal(`leg-${id}-lots`, leg.lots);
+        setVal(`leg-${id}-expiry-day-lots`, leg.expiry_day_lots || 0);
       setVal(`leg-${id}-sl-pct`, leg.sl_pct || '');
       setVal(`leg-${id}-target-pct`, leg.target_pct || '');
       setVal(`leg-${id}-sl-points`, leg.sl_points || '');
@@ -14467,6 +14469,7 @@ function loadStrategy(id) {
   if (s.fee_pct !== undefined) document.getElementById('fee-pct').value = s.fee_pct;
   if (s.trailing_sl_pct !== undefined) document.getElementById('trailing-sl-pct').value = s.trailing_sl_pct;
   if (s.initial_capital) document.getElementById('initial-capital').value = s.initial_capital;
+  _fillCompoundFields(s);
   restoreExecutionSettings(s);
 
   // Switch to builder page
@@ -15089,6 +15092,7 @@ function addLeg(txn, opt) {
       <div><label>Strike Selection</label><select id="leg-${id}-strike-type" onchange="toggleStrikeFields(${id})"><option value="atm">ATM (At The Money)</option><option value="strike_price">Strike Price</option><option value="spot_price">Spot ± Offset</option><option value="otm">OTM by Offset</option><option value="itm">ITM by Offset</option><option value="premium_near">Premium Near</option><option value="premium_above">Premium Above</option><option value="premium_below">Premium Below</option></select></div>
       <div id="leg-${id}-strike-wrap" style="display:none"><label id="leg-${id}-strike-label">Value</label><input type="number" id="leg-${id}-strike-value" placeholder="Auto" step="50"></div>
       <div><label>Lots</label><input type="number" id="leg-${id}-lots" value="1" min="1"></div>
+      <div><label title="Lots to trade on the contract's own expiry session. 0 keeps the normal size.">Lots on expiry</label><input type="number" id="leg-${id}-expiry-day-lots" value="0" min="0" placeholder="0 = same"></div>
     </div>
     <div class="exit-section">
       <h4>Exit Controls — Leg #${id+1}</h4>
@@ -15139,6 +15143,10 @@ function gatherLegs() {
       expiry: v(`leg-${id}-expiry`), strike_type: v(`leg-${id}-strike-type`),
       strike_value: parseFloat(v(`leg-${id}-strike-value`)) || 0,
       lots: parseInt(v(`leg-${id}-lots`)) || 1,
+      // Sizing keys the builder must not silently drop on deploy: a leg that
+      // loses expiry_day_lots here goes live at the ordinary size and nothing
+      // says so.
+      expiry_day_lots: parseInt(v(`leg-${id}-expiry-day-lots`)) || 0,
       sl_pct: parseFloat(v(`leg-${id}-sl-pct`)) || 0,
       target_pct: parseFloat(v(`leg-${id}-target-pct`)) || 0,
       sl_points: parseFloat(v(`leg-${id}-sl-points`)) || 0,
@@ -15314,6 +15322,7 @@ async function copyEditStrategy(runId) {
         if (leg.strike_type && leg.strike_type !== 'atm') toggleStrikeFields(id);
         setVal(`leg-${id}-strike-value`, leg.strike_value);
         setVal(`leg-${id}-lots`, leg.lots);
+        setVal(`leg-${id}-expiry-day-lots`, leg.expiry_day_lots || 0);
         setVal(`leg-${id}-sl-pct`, leg.sl_pct || '');
         setVal(`leg-${id}-target-pct`, leg.target_pct || '');
         setVal(`leg-${id}-sl-points`, leg.sl_points || '');
@@ -15332,6 +15341,7 @@ async function copyEditStrategy(runId) {
     if (p.fee_pct !== undefined) document.getElementById('fee-pct').value = p.fee_pct;
     if (p.trailing_sl_pct !== undefined) document.getElementById('trailing-sl-pct').value = p.trailing_sl_pct;
     if (p.initial_capital) document.getElementById('initial-capital').value = p.initial_capital;
+    _fillCompoundFields(p);
     restoreExecutionSettings(p);
 
     toast('Strategy loaded for editing!', 'success');
@@ -15339,6 +15349,16 @@ async function copyEditStrategy(runId) {
     console.error('Copy error:', err);
     toast('Error: ' + err.message, 'danger');
   }
+}
+
+// The ladder settings travel with a saved strategy. If these are not restored
+// when it loads, the next deploy sends zeroes and the book quietly goes live
+// at its base size with no compounding at all.
+function _fillCompoundFields(cfg) {
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v ?? 0; };
+  set('compound-step-pct', cfg.compound_step_pct || 0);
+  set('compound-base-capital', cfg.compound_base_capital || 0);
+  set('compound-max-lots', cfg.compound_max_lots || 0);
 }
 
 function buildPayload() {
@@ -15392,6 +15412,9 @@ function buildPayload() {
     capital_buffer_pct: parseFloat(document.getElementById('capital-buffer-pct').value) || 0,
     sell_option_margin_per_lot: parseFloat(document.getElementById('sell-option-margin-per-lot').value) || 0,
     initial_capital: parseFloat(document.getElementById('initial-capital').value) || 500000,
+    compound_step_pct: parseFloat((document.getElementById('compound-step-pct') || {}).value) || 0,
+    compound_base_capital: parseFloat((document.getElementById('compound-base-capital') || {}).value) || 0,
+    compound_max_lots: parseInt((document.getElementById('compound-max-lots') || {}).value) || 0,
   };
 }
 
