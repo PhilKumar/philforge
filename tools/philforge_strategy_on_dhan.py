@@ -26,6 +26,41 @@ STORES = {
 }
 
 
+def _capital_profile(trades: list) -> dict:
+    """Premium outstanding per trade, and the most ever deployed at once.
+
+    A bought option ties up its premium: entry_price * quantity, which is what
+    the engine's own capital check reserves. Trades that overlap in time are
+    summed, because the account has to carry them together.
+    """
+    per_trade = []
+    events = []
+    for t in trades:
+        price = float(t.get("entry_price", 0) or 0)
+        qty = float(t.get("quantity", t.get("qty", 0)) or 0)
+        used = round(price * qty, 2)
+        if used <= 0:
+            continue
+        per_trade.append(used)
+        events.append((str(t.get("entry_time")), used))
+        events.append((str(t.get("exit_time")), -used))
+    if not per_trade:
+        return {}
+    events.sort()
+    running = peak = 0.0
+    for _stamp, delta in events:
+        running += delta
+        peak = max(peak, running)
+    ordered = sorted(per_trade)
+    return {
+        "trades": len(per_trade),
+        "avg_per_trade": round(sum(per_trade) / len(per_trade)),
+        "median_per_trade": round(ordered[len(ordered) // 2]),
+        "max_single_trade": round(max(per_trade)),
+        "peak_deployed": round(peak),
+    }
+
+
 def main() -> None:
     cfg = dict(json.load(open(sys.argv[1])))
     out_path = sys.argv[2]
@@ -63,6 +98,10 @@ def main() -> None:
             f"{str(t.get('entry_time'))[:16]}|{t.get('strike')}|{str(t.get('exit_time'))[:16]}|{round(float(t.get('pnl', 0) or 0), 2)}"
             for t in trades
         ],
+        # What each trade actually tied up. Without this a funding figure has to
+        # be guessed from a nominal premium, and a laddered book's requirement
+        # grows with the book -- the one number a reader most needs is the peak.
+        "capital": _capital_profile(trades),
     }
     json.dump(summary, open(out_path, "w"), indent=1)
     print(f"bars={summary['bars']} trades={summary['trades']} wins={wins} net={summary['net']:,.2f}")

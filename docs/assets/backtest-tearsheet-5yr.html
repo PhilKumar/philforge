@@ -787,6 +787,20 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     </div>
   </div>
   <div class="note" style="margin-top:12px">
+    <h2 class="note-h"><span class="tr"><i lang="en">What it actually ties up</i><i lang="ta">உண்மையில் என்ன தொகை பிடிபடுகிறது</i></span></h2>
+    <table class="tbl">
+      <thead><tr><th><span class="tr"><i lang="en">Book</i><i lang="ta">புத்தகம்</i></span></th><th class="num"><span class="tr"><i lang="en">Typical trade</i><i lang="ta">சராசரி வர்த்தகம்</i></span></th><th class="num"><span class="tr"><i lang="en">Average</i><i lang="ta">சராசரி</i></span></th><th class="num"><span class="tr"><i lang="en">Largest single trade</i><i lang="ta">மிகப்பெரிய ஒற்றை வர்த்தகம்</i></span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="tr"><i lang="en">Put book</i><i lang="ta">PUT</i></span> &mdash; <span class="tr"><i lang="en">as deployed — 2 lots, 3 on expiry, ladder on</i><i lang="ta">இயங்கும் அளவு</i></span></td>
+            <td class="num">₹26,155</td><td class="num">₹29,156</td><td class="num">₹68,588</td></tr>
+        <tr><td><span class="tr"><i lang="en">Call book</i><i lang="ta">CALL</i></span> &mdash; <span class="tr"><i lang="en">as deployed — 2 lots, 3 on expiry, ladder on</i><i lang="ta">இயங்கும் அளவு</i></span></td>
+            <td class="num">₹28,634</td><td class="num">₹91,368</td><td class="num"><strong>₹4,35,825</strong></td></tr>
+      </tbody>
+    </table>
+    <p><span class="tr"><i lang="en">Premium paid is the money at risk, and it is measured here from the engine rather than assumed from a nominal price.</i><i lang="ta">கட்டிய பிரீமியமே ஆபத்தில் உள்ள பணம்; இது நாமமாத்திர விலையிலிருந்து ஊகிக்கப்படாமல், என்ஜினிலிருந்து அளக்கப்பட்டது.</i></span>
+       <span class="tr"><i lang="en">The two books never hold a position at the same moment -- 48 shared days in five years, zero overlap -- so the account carries the larger of the two, not the sum. The peak is not a starting requirement: a laddered book only reaches it after banking its way there, and the engine's own capital check counts banked profit as fundable. Starting at 2 lots the median trade ties up about Rs 28,600.</i><i lang="ta">இரு புத்தகங்களும் ஒரே நேரத்தில் பொசிஷன் வைத்திருப்பதில்லை &mdash; ஐந்து ஆண்டுகளில் 48 பொது நாட்கள், ஒரு முறை கூட மேற்பொருந்தல் இல்லை &mdash; எனவே கணக்கு இரண்டின் கூட்டுத்தொகையை அல்ல, பெரியதை மட்டுமே சுமக்கிறது. உச்சம் தொடக்க தேவை அல்ல: ladder அதை எட்டுவது சம்பாதித்த பிறகே; என்ஜினின் மூலதன சோதனை சேர்த்த லாபத்தையும் நிதியாகக் கணக்கிடுகிறது. 2 lots-இல் தொடங்கும்போது சராசரி வர்த்தகம் சுமார் ரூ 28,600.</i></span></p>
+  </div>
+  <div class="note" style="margin-top:12px">
     <h2 class="note-h"><span class="tr"><i lang="en">What both books share</i><i lang="ta">இரு புத்தகங்களும் பகிர்வது</i></span></h2>
     <p><span class="tr"><i lang="en">Account</i><i lang="ta">கணக்கு</i></span> ₹1,00,000 &middot; <span class="tr"><i lang="en">capital check</i><i lang="ta">மூலதன சோதனை</i></span> on, 5% buffer &middot;
        <span class="tr"><i lang="en">ladder measured against</i><i lang="ta">ladder அளவீடு</i></span> ₹1,00,000 &middot;

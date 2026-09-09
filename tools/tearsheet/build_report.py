@@ -374,6 +374,7 @@ CH = D["charges"]
 RC = D.get("reconciliation") or {}
 CP = D.get("compounding") or {}
 LC = D.get("live_config") or {}
+KP = D.get("capital_profile") or {}
 # One source for the execution numbers, so a paragraph cannot quote 6/8/12
 # while the config card beside it quotes 10/14/18.
 _SLIP = (LC.get("shared") or {}).get("slippage_bps") or {"entry": 0, "exit": 0, "spread": 0}
@@ -1616,6 +1617,20 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
       </dl>
       <div class="cfg-rule"><b>{t("Exit", "வெளியேற்றம்")}</b>close below Supertrend_10_2.7 (3m), the leg stop, or 15:25</div>
     </div>
+  </div>
+  <div class="note" style="margin-top:12px">
+    <h2 class="note-h">{t("What it actually ties up", "உண்மையில் என்ன தொகை பிடிபடுகிறது")}</h2>
+    <table class="tbl">
+      <thead><tr><th>{t("Book", "புத்தகம்")}</th><th class="num">{t("Typical trade", "சராசரி வர்த்தகம்")}</th><th class="num">{t("Average", "சராசரி")}</th><th class="num">{t("Largest single trade", "மிகப்பெரிய ஒற்றை வர்த்தகம்")}</th></tr></thead>
+      <tbody>
+        <tr><td>{t("Put book", "PUT")} &mdash; {t(KP["live"]["label"], "இயங்கும் அளவு")}</td>
+            <td class="num">{r(KP["live"]["pe"]["median"])}</td><td class="num">{r(KP["live"]["pe"]["avg"])}</td><td class="num">{r(KP["live"]["pe"]["worst_single"])}</td></tr>
+        <tr><td>{t("Call book", "CALL")} &mdash; {t(KP["live"]["label"], "இயங்கும் அளவு")}</td>
+            <td class="num">{r(KP["live"]["ce"]["median"])}</td><td class="num">{r(KP["live"]["ce"]["avg"])}</td><td class="num"><strong>{r(KP["live"]["ce"]["worst_single"])}</strong></td></tr>
+      </tbody>
+    </table>
+    <p>{t("Premium paid is the money at risk, and it is measured here from the engine rather than assumed from a nominal price.", "கட்டிய பிரீமியமே ஆபத்தில் உள்ள பணம்; இது நாமமாத்திர விலையிலிருந்து ஊகிக்கப்படாமல், என்ஜினிலிருந்து அளக்கப்பட்டது.")}
+       {t(KP["note"], "இரு புத்தகங்களும் ஒரே நேரத்தில் பொசிஷன் வைத்திருப்பதில்லை &mdash; ஐந்து ஆண்டுகளில் 48 பொது நாட்கள், ஒரு முறை கூட மேற்பொருந்தல் இல்லை &mdash; எனவே கணக்கு இரண்டின் கூட்டுத்தொகையை அல்ல, பெரியதை மட்டுமே சுமக்கிறது. உச்சம் தொடக்க தேவை அல்ல: ladder அதை எட்டுவது சம்பாதித்த பிறகே; என்ஜினின் மூலதன சோதனை சேர்த்த லாபத்தையும் நிதியாகக் கணக்கிடுகிறது. 2 lots-இல் தொடங்கும்போது சராசரி வர்த்தகம் சுமார் ரூ 28,600.")}</p>
   </div>
   <div class="note" style="margin-top:12px">
     <h2 class="note-h">{t("What both books share", "இரு புத்தகங்களும் பகிர்வது")}</h2>

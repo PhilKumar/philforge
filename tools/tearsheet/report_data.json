@@ -15380,5 +15380,40 @@
     "Previous_Candle_10m"
    ]
   }
+ },
+ "capital_profile": {
+  "basis": "measured from the engine: entry premium x quantity on every trade, 5y Dhan, overlapping trades summed",
+  "live": {
+   "label": "as deployed \u2014 2 lots, 3 on expiry, ladder on",
+   "ce": {
+    "avg": 91368,
+    "median": 28634,
+    "worst_single": 435825,
+    "peak": 435825
+   },
+   "pe": {
+    "avg": 29156,
+    "median": 26155,
+    "worst_single": 68588,
+    "peak": 68588
+   }
+  },
+  "documented": {
+   "label": "4 lots, 5 on expiry, ladder on",
+   "ce": {
+    "avg": 138844,
+    "median": 84264,
+    "worst_single": 435825,
+    "peak": 435825
+   },
+   "pe": {
+    "avg": 62809,
+    "median": 58298,
+    "worst_single": 137176,
+    "peak": 137176
+   }
+  },
+  "account_peak_is_max_not_sum": true,
+  "note": "The two books never hold a position at the same moment -- 48 shared days in five years, zero overlap -- so the account carries the larger of the two, not the sum. The peak is not a starting requirement: a laddered book only reaches it after banking its way there, and the engine's own capital check counts banked profit as fundable. Starting at 2 lots the median trade ties up about Rs 28,600."
  }
 }

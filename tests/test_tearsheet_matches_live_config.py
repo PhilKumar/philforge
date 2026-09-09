@@ -102,3 +102,53 @@ class TheBuiltPageCarriesIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheFundingIsMeasuredNotAssumed(unittest.TestCase):
+    """Phil, 2026-09-09: "Is the amount and funds updated?"
+
+    It was not. The capital block described a flat 4-lot book with no expiry
+    sizing and no ladder: average Rs 56,620 a trade, peak Rs 1,62,015. Neither
+    figure describes what is deployed, and a laddered book's requirement grows
+    with the book, so a single "account to fund" number cannot stand alone.
+
+    These come from the engine now -- entry premium times quantity on every
+    trade, overlapping trades summed -- via the runner's capital profile.
+    """
+
+    KP = DATA.get("capital_profile") or {}
+
+    def test_the_profile_exists_and_says_how_it_was_measured(self):
+        self.assertIn("basis", self.KP)
+        self.assertIn("entry premium", self.KP["basis"])
+
+    def test_the_runner_reports_it(self):
+        runner = open(os.path.join(ROOT, "tools", "philforge_strategy_on_dhan.py"), encoding="utf-8").read()
+        self.assertIn("def _capital_profile(", runner)
+        self.assertIn('"capital": _capital_profile(trades)', runner)
+        block = runner.split("def _capital_profile(")[1].split("\ndef ")[0]
+        self.assertIn("peak_deployed", block)
+        self.assertIn("events.sort()", block, "overlapping trades must be summed, not maxed")
+
+    def test_the_call_book_is_the_binding_one(self):
+        """The ladder takes CE far past PE; a reader planning funds needs that."""
+        live = self.KP["live"]
+        self.assertGreater(live["ce"]["worst_single"], live["pe"]["worst_single"])
+
+    def test_the_account_carries_the_larger_book_not_the_sum(self):
+        self.assertTrue(self.KP["account_peak_is_max_not_sum"])
+        self.assertIn("zero overlap", self.KP["note"])
+
+    def test_the_note_separates_the_peak_from_the_starting_need(self):
+        """The peak is reached only after the book has banked its way there."""
+        self.assertIn("not a starting requirement", self.KP["note"])
+
+    def test_the_page_shows_it(self):
+        if not os.path.exists(HTML_PATH):
+            self.skipTest("tearsheet not built here")
+        html = open(HTML_PATH, encoding="utf-8").read()
+        self.assertIn("What it actually ties up", html)
+        for book in ("ce", "pe"):
+            for key in ("median", "avg", "worst_single"):
+                v = self.KP["live"][book][key]
+                self.assertIn(f"{v:,}".replace(",", ""), html.replace(",", ""), f"{book}.{key}")
