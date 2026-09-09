@@ -45,7 +45,18 @@ jobs:
         working-directory: e2e-tests
         run: |
           npm install
-          npx playwright install --with-deps chromium
+          # `--with-deps` shells out to apt, and Google's Chrome index
+          # intermittently serves a corrupt Packages.gz -- "Hash Sum mismatch".
+          # It failed twice in a row on 09-Sep-2026 and skipped the deploy
+          # without a single test having run, which reads exactly like a red
+          # gate. Dropping the cached lists is the standard cure; one retry
+          # covers the case where the mirror is still catching up.
+          install_browsers() {
+            sudo rm -rf /var/lib/apt/lists/*
+            sudo apt-get update -qq || true
+            npx playwright install --with-deps chromium
+          }
+          install_browsers || { echo "::warning::apt index was bad, retrying once"; sleep 15; install_browsers; }
 
       # ── Start PhilForge server ──
       - name: Start PhilForge dev server
