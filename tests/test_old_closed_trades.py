@@ -94,3 +94,47 @@ class TheDeskSaysWhereTheyCameFrom(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OneColumnMeansOneThing(unittest.TestCase):
+    """Phil, 2026-09-09: "does this include the charges? Both closed and the
+    live ones".
+
+    It did not. The engine books pnl = gross - charges on every live exit, but
+    trade_history stores GROSS per leg -- its day-level net_pnl is pnl minus
+    total_costs. Reading the leg's pnl straight put net and gross in the same
+    column and overstated the older half of the ledger.
+    """
+
+    def test_the_account_rows_are_netted(self):
+        block = helper_code()
+        self.assertIn('"pnl": round(gross - costs, 2)', block)
+        self.assertIn('"gross_pnl": gross', block)
+        self.assertIn('"charges": costs', block)
+
+    def test_the_live_rows_send_their_breakdown_too(self):
+        body = APP.split('@app.get("/api/live/runs")')[1].split("@app.get(")[0]
+        self.assertIn('"gross_pnl": t.get("gross_pnl")', body)
+        self.assertIn('"charges": t.get("charges")', body)
+
+    def test_the_engine_pnl_really_is_net(self):
+        """If this ever stops being true, netting the account rows would be
+        wrong in the other direction."""
+        live = open(os.path.join(ROOT, "engine", "live.py"), encoding="utf-8").read()
+        self.assertIn("pnl = round(gross - charges, 2)", live)
+
+    def test_the_column_says_what_it_holds(self):
+        self.assertIn("Net of charges", HTML)
+
+    def test_every_figure_carries_its_deduction(self):
+        self.assertIn("function _cepeNetNote(", JS)
+        note = JS.split("function _cepeNetNote(")[1][:500]
+        self.assertIn("Gross", note)
+        self.assertIn("charges", note)
+
+    def test_a_day_with_no_charges_booked_is_flagged_not_silently_gross(self):
+        block = helper_code()
+        self.assertIn('"costs_known": costs > 0', block)
+        note = JS.split("function _cepeNetNote(")[1][:500]
+        self.assertIn("costs_known === false", note)
+        self.assertIn("cepe-nocost", JS)

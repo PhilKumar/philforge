@@ -21615,6 +21615,18 @@ function _cepeBookCard(run) {
   </div>`;
 }
 
+// Every figure in the Net column is AFTER charges -- the engine books
+// gross - charges on each live exit, and the account rows are netted the same
+// way. The note spells out the deduction so "net" is never something the
+// reader has to take on trust.
+function _cepeNetNote(t) {
+  const g = Number(t.gross_pnl);
+  const c = Number(t.charges);
+  if (!Number.isFinite(g) || !Number.isFinite(c)) return 'Net result.';
+  if (t.costs_known === false) return `Gross ${_cepeMoney(g)}. Charges not booked for this day yet.`;
+  return `Gross ${_cepeMoney(g)} less ${_cepeMoney(c)} charges.`;
+}
+
 function renderCePe(data) {
   const books = document.getElementById('oc-cepe-books');
   const tiles = document.getElementById('oc-cepe-tiles');
@@ -21714,7 +21726,9 @@ function renderCePe(data) {
       t: {
         entry_time: h.date, exit_time: h.date, symbol: h.symbol,
         quantity: h.quantity, entry_premium: h.entry_premium,
-        exit_premium: h.exit_premium, pnl: h.pnl, exit_reason: '', why: [], id: null,
+        exit_premium: h.exit_premium, pnl: h.pnl, gross_pnl: h.gross_pnl,
+        charges: h.charges, costs_known: h.costs_known,
+        exit_reason: '', why: [], id: null,
       },
     }));
   rows.sort((a, b) => String(b.t.exit_time).localeCompare(String(a.t.exit_time)));
@@ -21735,7 +21749,8 @@ function renderCePe(data) {
         <td class="n">${t.exit_premium == null ? '—' : Number(t.exit_premium).toFixed(2)}</td>
         <td class="ocp-muted" title="${escapeHtml((t.why || []).join('; '))}">${escapeHtml(String(t.exit_reason || '—').replaceAll('_', ' '))}${
           (t.why || []).length ? `<div style="font-size:10px;opacity:.75;">${escapeHtml(t.why[0])}</div>` : ''}</td>
-        <td class="n" style="color:${_cepeTone(t.pnl)};">${_cepeMoney(t.pnl)}</td>
+        <td class="n" style="color:${_cepeTone(t.pnl)};" title="${escapeHtml(_cepeNetNote(t))}">${_cepeMoney(t.pnl)}${
+          old && t.costs_known === false ? '<sup class="cepe-nocost" title="The broker had not booked this day\u2019s charges when it was recorded, so nothing is deducted here.">*</sup>' : ''}</td>
         <td>${t.id == null ? '<span class="ocp-muted">—</span>' : `<button type="button" class="cascade-options-control"
               onclick="openLiveTradeJournal('${escapeHtml(String(run.run_id)).replace(/'/g, "\\'")}','${escapeHtml(String(t.id))}')"
               title="Draw this trade on its own frozen chart, with the reasons it opened and closed">↗ Chart</button>`}</td>

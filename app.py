@@ -18610,6 +18610,8 @@ async def _account_option_history(user_id: int, limit: int = 60) -> list[dict]:
                 side = "CE"
             else:
                 continue
+            gross = round(float(leg.get("pnl", 0) or 0), 2)
+            costs = round(float(leg.get("total_costs", 0) or 0), 2)
             rows.append(
                 {
                     "date": str(trade_date),
@@ -18618,8 +18620,14 @@ async def _account_option_history(user_id: int, limit: int = 60) -> list[dict]:
                     "quantity": leg.get("qty"),
                     "entry_premium": leg.get("buy_avg"),
                     "exit_premium": leg.get("sell_avg"),
-                    "pnl": round(float(leg.get("pnl", 0) or 0), 2),
-                    "charges": round(float(leg.get("total_costs", 0) or 0), 2),
+                    # trade_history stores GROSS per leg -- the day's net_pnl is
+                    # pnl minus total_costs. The engine's own rows are already
+                    # net, so these are netted here or the ledger would mix the
+                    # two in one column and overstate the older half.
+                    "gross_pnl": gross,
+                    "charges": costs,
+                    "pnl": round(gross - costs, 2),
+                    "costs_known": costs > 0,
                     "from_account": True,
                 }
             )
@@ -18707,6 +18715,11 @@ async def live_runs(request: Request):
                             "quantity": t.get("quantity"),
                             "exit_reason": t.get("exit_reason"),
                             "pnl": t.get("pnl"),
+                            # pnl is already NET (engine: gross - charges). The
+                            # breakdown travels with it so the desk can show what
+                            # was deducted instead of leaving it implied.
+                            "gross_pnl": t.get("gross_pnl"),
+                            "charges": t.get("charges"),
                             "why": LiveEngine._conditions_that_fired(t.get("exit_why")),
                         }
                         for t in closed[-25:]
