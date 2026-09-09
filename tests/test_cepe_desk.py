@@ -120,24 +120,52 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         self.assertIn("clearInterval", fn)
         self.assertIn("is-open", fn)
 
-    def test_live_and_paper_are_separate_sections(self):
-        """Phil, 2026-09-09: "Put it in 2 sections.. one for paper and one for
-        Live... No changes on the pattern" — same card, same grid, a heading
-        between them, and live decided by real_orders rather than a name."""
-        self.assertIn("const _CEPE_SECTIONS", APP_JS)
-        block = APP_JS.split("const _CEPE_SECTIONS")[1][:400]
+    def test_live_and_paper_are_separate_pages(self):
+        """Phil, 2026-09-09: "I want paper and live separated by 2 pages inside
+        the CE PE strategy.. not on the same" — a switch, not two stacked
+        sections. Which page a book lands on is decided by real_orders, never
+        by its name."""
+        self.assertIn("const _CEPE_PAGES", APP_JS)
+        block = APP_JS.split("const _CEPE_PAGES")[1][:400]
         self.assertIn("'live'", block)
         self.assertIn("'paper'", block)
         self.assertIn("r.real_orders", block)
-        body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
-        self.assertIn("_CEPE_SECTIONS.map", body)
-        self.assertIn("oc-cepe-books", body, "each section still uses the same card grid")
-        for cls in (".cepe-sections", ".cepe-section-head", ".cepe-section-live", ".cepe-section-paper"):
-            self.assertIn(cls, CSS, cls)
+        self.assertNotIn("_CEPE_SECTIONS", APP_JS, "the stacked-section model is gone")
 
-    def test_an_empty_section_is_not_drawn(self):
+    def test_only_one_page_is_shown_at_a_time(self):
+        """The whole point: standing on Live must not render a paper book."""
         body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
-        self.assertIn("if (!mine.length) return ''", body)
+        self.assertIn("const all = everything.filter(page.test)", body)
+        self.assertIn("books.innerHTML = runs.map(_cepeBookCard)", body)
+        for stale in ("cepe-section-head", "cepe-section-live", "cepe-section-paper"):
+            self.assertNotIn(stale, CSS, f"{stale} belonged to the stacked model")
+
+    def test_the_switch_is_a_registered_action(self):
+        """An unregistered action renders and then does nothing when clicked."""
+        self.assertIn("'setCePeMode'", APP_JS)
+        self.assertIn("function setCePeMode(", APP_JS)
+        self.assertIn('data-pf-action="setCePeMode"', HTML)
+        self.assertIn('data-cepe-mode="live"', HTML)
+        self.assertIn('data-cepe-mode="paper"', HTML)
+
+    def test_the_totals_belong_to_the_page_not_the_desk(self):
+        """data.day_total covers every book, so it would show live money on the
+        paper page. The tiles must sum the books actually on screen."""
+        body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
+        self.assertIn("const dayTotal = runs.reduce(", body)
+        self.assertIn("const bookedTotal = runs.reduce(", body)
+        tiles = body.split("tiles.innerHTML = [")[1][:400]
+        self.assertNotIn("data.day_total", tiles)
+        self.assertNotIn("data.booked_total", tiles)
+
+    def test_the_switch_sits_above_the_numbers_it_governs(self):
+        """Reading order: pick the page, then read that page's totals."""
+        self.assertLess(HTML.index('class="cepe-pages"'), HTML.index('id="oc-cepe-tiles"'))
+
+    def test_an_empty_live_page_does_not_strand_a_paper_only_desk(self):
+        body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
+        self.assertIn("if (!_cepeModePinned)", body)
+        self.assertIn("_CEPE_PAGES.find(pg => everything.some(pg.test))", body)
 
     def test_the_books_have_a_layout(self):
         self.assertIn(".oc-cepe-books", CSS)

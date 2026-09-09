@@ -3845,6 +3845,22 @@
       </div>
       <div id="oc-cepe-recipe" class="ocp-recipe" aria-live="polite"></div>
 
+      <div class="cepe-pages" id="oc-cepe-page" role="tablist" aria-label="Paper or live">
+        <button type="button" class="cepe-page is-active" role="tab" aria-selected="true"
+                data-pf-action="setCePeMode" data-cepe-mode="live">
+          <span class="cepe-page-dot"></span>
+          <span class="cepe-page-name">Live</span>
+          <span class="cepe-page-sub">real orders at the broker</span>
+          <span class="cepe-page-n">0</span>
+        </button>
+        <button type="button" class="cepe-page" role="tab" aria-selected="false"
+                data-pf-action="setCePeMode" data-cepe-mode="paper">
+          <span class="cepe-page-dot"></span>
+          <span class="cepe-page-name">Paper</span>
+          <span class="cepe-page-sub">nothing reaches the broker</span>
+          <span class="cepe-page-n">0</span>
+        </button>
+      </div>
       <div class="ocp-monitor cepe-monitor" style="margin-top:14px;">
         <div class="cepe-monitor-row">
           <div class="cepe-monitor-title">
@@ -3868,7 +3884,7 @@
           <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="1h" title="NIFTY on the hourly chart">1h</button>
         </div>
       </div>
-      <div id="oc-cepe-books" class="cepe-sections"></div>
+      <div id="oc-cepe-books" class="oc-cepe-books"></div>
 
       <div class="ocp-monitor" style="margin-top:16px;">
         <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All time</div><h4>Closed trades</h4></div><span id="oc-cepe-closed-count" class="ocp-monitor-updated">0</span></div>

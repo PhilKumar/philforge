@@ -9595,18 +9595,44 @@ body :is(
 .cepe-controls .cepe-filters{ margin-top:0; }
 .cepe-chartbar{ display:flex; gap:6px; flex-wrap:wrap; }
 
-/* ── Two sections: what trades money, and what does not ──
-   Same card, same grid, same rhythm; a heading and a hairline separate them so
-   a glance never confuses a paper book for a live one. */
-.cepe-sections{ display:flex; flex-direction:column; gap:16px; margin-top:14px; }
-.cepe-section-head{
-  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
-  padding-bottom:6px; margin-bottom:10px; border-bottom:1px solid var(--border);
+/* ── Two pages: what trades money, and what does not ──
+   You stand on one page or the other, never both. The switch is deliberately
+   large and coloured: red means every number under it is real money. */
+.cepe-pages{
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px;
 }
-.cepe-section-head h5{
-  margin:0; font:800 11px 'JetBrains Mono',monospace; letter-spacing:.14em; text-transform:uppercase;
+.cepe-page{
+  display:grid; grid-template-columns:auto 1fr auto; align-items:center;
+  gap:6px 9px; padding:11px 13px; text-align:left; cursor:pointer;
+  background:var(--panel); color:var(--muted);
+  border:1px solid var(--border); border-radius:9px;
+  transition:border-color .15s ease, background .15s ease, color .15s ease;
 }
-.cepe-section-live .cepe-section-head h5{ color:var(--danger); }
-.cepe-section-paper .cepe-section-head h5{ color:#6ee7b7; }
-.cepe-section-sub{ font:11px 'JetBrains Mono',monospace; color:var(--muted); }
-.cepe-section-count{ margin-left:auto; font:11px 'JetBrains Mono',monospace; color:var(--muted); }
+.cepe-page:hover{ border-color:var(--text-dim, var(--muted)); }
+.cepe-page:focus-visible{ outline:2px solid var(--accent, #38bdf8); outline-offset:2px; }
+.cepe-page-dot{
+  width:8px; height:8px; border-radius:50%; background:currentColor; opacity:.35;
+}
+.cepe-page-name{
+  font:800 12px 'JetBrains Mono',monospace; letter-spacing:.12em; text-transform:uppercase;
+}
+.cepe-page-sub{
+  grid-column:2; font:10px 'JetBrains Mono',monospace; color:var(--muted); opacity:.8;
+}
+.cepe-page-n{
+  grid-column:3; grid-row:1 / span 2; align-self:center; justify-self:end;
+  font:800 15px 'JetBrains Mono',monospace; color:inherit;
+}
+.cepe-page-name{ grid-column:2; }
+.cepe-page-dot{ grid-column:1; grid-row:1 / span 2; }
+/* The active page owns its colour; the idle one stays quiet. */
+.cepe-page.is-active .cepe-page-dot{ opacity:1; }
+.cepe-page[data-cepe-mode="live"].is-active{
+  color:var(--danger); border-color:var(--danger); background:rgba(248,113,113,.08);
+}
+.cepe-page[data-cepe-mode="paper"].is-active{
+  color:#6ee7b7; border-color:#6ee7b7; background:rgba(110,231,183,.08);
+}
+@media (max-width:640px){
+  .cepe-pages{ grid-template-columns:1fr; }
+}

@@ -2107,6 +2107,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'cepeExit',
   'openCePeIndexChart',
   'setCePeFilter',
+  'setCePeMode',
   'openCePeTearsheet',
   'openFibAutoChart',
   'loadFibBoundaryChart',
@@ -21500,13 +21501,26 @@ const _CEPE_SIDE = {
 const _cepeSide = (side) => _CEPE_SIDE[String(side || '').toUpperCase()]
   || { tint: 'var(--muted)', wash: 'transparent', label: String(side || '—') };
 let _cepeFilter = 'all';
-// Paper and live are two different questions about the same books, so they are
-// two sections rather than two colours in one list (Phil, 2026-09-09). The
-// pattern of a section is identical; only its contents differ.
-const _CEPE_SECTIONS = [
+// Paper and live are two different desks that happen to run the same rules, so
+// they are two PAGES: you are on one or the other, never both at once (Phil,
+// 2026-09-09). Everything below the switch — tiles, books, closed trades —
+// belongs to the page you are standing on. Which page a book lands on is
+// decided by real_orders, the same field the LIVE badge reads, so a paper book
+// can never appear on the live page.
+const _CEPE_PAGES = [
   { key: 'live', title: 'Live', sub: 'real orders at the broker', test: (r) => !!r.real_orders },
   { key: 'paper', title: 'Paper', sub: 'nothing reaches the broker', test: (r) => !r.real_orders },
 ];
+let _cepeMode = 'live';
+let _cepeModePinned = false;   // true once Phil picks a page himself
+
+function setCePeMode(event, el) {
+  const next = el?.dataset?.cepeMode;
+  if (!next) return;
+  _cepeMode = next;
+  _cepeModePinned = true;
+  if (_cepeLast) renderCePe(_cepeLast);
+}
 
 function setCePeFilter(event, el) {
   _cepeFilter = el?.dataset?.cepeFilter || 'all';
@@ -21586,7 +21600,35 @@ function renderCePe(data) {
   _cepeRecipe();
 
   _cepeLast = data;
-  const all = (data && Array.isArray(data.runs)) ? data.runs : [];
+  const everything = (data && Array.isArray(data.runs)) ? data.runs : [];
+
+  // Land on the page that actually has books the first time, so a desk running
+  // only paper does not open on an empty Live page.
+  if (!_cepeModePinned) {
+    const firstWithBooks = _CEPE_PAGES.find(pg => everything.some(pg.test));
+    if (firstWithBooks) _cepeMode = firstWithBooks.key;
+  }
+  const page = _CEPE_PAGES.find(pg => pg.key === _cepeMode) || _CEPE_PAGES[0];
+
+  // The page switch carries its own count, so an empty page is visibly empty
+  // rather than looking broken.
+  document.querySelectorAll('button[data-cepe-mode]').forEach(b => {
+    const pg = _CEPE_PAGES.find(x => x.key === b.dataset.cepeMode);
+    const n = pg ? everything.filter(pg.test).length : 0;
+    const count = b.querySelector('.cepe-page-n');
+    if (count) count.textContent = String(n);
+    const on = b.dataset.cepeMode === _cepeMode;
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const host = document.getElementById('oc-cepe-page');
+  if (host) host.dataset.cepeActive = _cepeMode;
+  const kicker = document.getElementById('oc-cepe-monitor-kicker');
+  if (kicker) kicker.textContent = `${page.title} books`;
+
+  // From here down, "all" means every book ON THIS PAGE. Nothing from the other
+  // page reaches the tiles, the books or the ledger.
+  const all = everything.filter(page.test);
   const runs = _cepeFilter === 'all' ? all : all.filter(r => String(r.side || '').toUpperCase() === _cepeFilter);
   const anyRunning = all.some(r => r.running);
   // The filter counts what it would show, so an empty side is visibly empty
@@ -21608,8 +21650,10 @@ function renderCePe(data) {
     tiles.innerHTML = '';
     books.innerHTML = `<div class="card" style="padding:16px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">${
       all.length
-        ? `No ${_cepeFilter} book is loaded — ${all.length} other book${all.length === 1 ? '' : 's'} ${all.length === 1 ? 'is' : 'are'} running.`
-        : 'No strategy-builder run is loaded. Deploy the CE and PE strategies from the builder and they appear here.'
+        ? `No ${_cepeFilter} book on the ${page.title} page — ${all.length} other book${all.length === 1 ? '' : 's'} ${all.length === 1 ? 'is' : 'are'} running here.`
+        : `No ${page.title.toLowerCase()} book is loaded. ${page.key === 'live'
+            ? 'A book appears here once it is deployed with real orders.'
+            : 'Deploy the CE and PE strategies from the builder and they appear here.'}`
     }</div>`;
     const body0 = document.getElementById('oc-cepe-closed-rows');
     if (body0) body0.innerHTML = '<tr><td colspan="10" class="ocp-empty">No closed trade on this side.</td></tr>';
@@ -21618,28 +21662,18 @@ function renderCePe(data) {
 
   const open = runs.reduce((n, r) => n + (r.open_legs || []).length, 0);
   const unprotected = runs.reduce((n, r) => n + Number(r.unprotected_legs || 0), 0);
+  // Totals are summed from the books on this page. data.day_total covers the
+  // whole desk, so it would show live money on the paper page.
+  const dayTotal = runs.reduce((n, r) => n + (Number(r.daily_pnl) || 0), 0);
+  const bookedTotal = runs.reduce((n, r) => n + (Number(r.booked_pnl) || 0), 0);
   tiles.innerHTML = [
-    _ocpTile('Today', _cepeMoney(data.day_total), _cepeTone(data.day_total)),
-    _ocpTile('Booked', _cepeMoney(data.booked_total), _cepeTone(data.booked_total)),
+    _ocpTile('Today', _cepeMoney(dayTotal), _cepeTone(dayTotal)),
+    _ocpTile('Booked', _cepeMoney(bookedTotal), _cepeTone(bookedTotal)),
     _ocpTile('Open legs', String(open), open ? '#38bdf8' : 'var(--text)'),
     _ocpTile('Unprotected', String(unprotected), unprotected ? 'var(--danger)' : 'var(--text)'),
   ].join('');
 
-  books.innerHTML = _CEPE_SECTIONS.map(section => {
-    const mine = runs.filter(section.test);
-    if (!mine.length) return '';
-    const net = mine.reduce((n, r) => n + (Number(r.booked_pnl) || 0), 0);
-    return `
-      <section class="cepe-section cepe-section-${section.key}">
-        <div class="cepe-section-head">
-          <h5>${section.title}</h5>
-          <span class="cepe-section-sub">${section.sub}</span>
-          <span class="cepe-section-count">${mine.length} book${mine.length === 1 ? '' : 's'}
-            · <b style="color:${_cepeTone(net)};">${_cepeMoney(net)}</b></span>
-        </div>
-        <div class="oc-cepe-books">${mine.map(_cepeBookCard).join('')}</div>
-      </section>`;
-  }).join('');
+  books.innerHTML = runs.map(_cepeBookCard).join('');
 
   // ── one flat ledger under both books, newest first ──
   const rows = [];
@@ -21732,4 +21766,5 @@ window.cepeStop = cepeStop;
 window.cepeExit = cepeExit;
 window.openCePeIndexChart = openCePeIndexChart;
 window.setCePeFilter = setCePeFilter;
+window.setCePeMode = setCePeMode;
 window.openCePeTearsheet = openCePeTearsheet;
