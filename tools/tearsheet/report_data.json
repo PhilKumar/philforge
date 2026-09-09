@@ -15087,5 +15087,123 @@
     "exit_walk_forward_vs_unchanged": -50210
    }
   }
+ },
+ "compounding": {
+  "basis": "engine-computed, 5y Dhan archive 2021-01-01 to 2026-08-31, account Rs 1,00,000, ladder capital Rs 1,00,000, cap 20 lots",
+  "why_engine": "An earlier estimate divided a finished book's P&L by its lot count to get a per-lot series. That is only valid if fees scale with lots; brokerage is a flat Rs 80 per order, so a 578-trade PE book divided that way implied lot counts of 1.01, 1.03 and 2.97 instead of 1 and 3. Every figure here is produced by the engine sizing and charging each trade.",
+  "ce": {
+   "flat": {
+    "label": "2 lots, flat",
+    "final": 318842,
+    "multiple": 3.19,
+    "dd_rs": -40582,
+    "dd_pct": -11.7,
+    "trades": 376
+   },
+   "ladder": {
+    "label": "2 lots, 3 on expiry, +1 per +25%",
+    "final": 1291721,
+    "multiple": 12.92,
+    "dd_rs": -390432,
+    "dd_pct": -25.6,
+    "trades": 367
+   },
+   "worst_single_trade": -55029,
+   "top_year_pct": 93,
+   "top_year": "2025",
+   "y2026": -13062
+  },
+  "pe": {
+   "flat": {
+    "label": "2 lots, flat",
+    "final": 238175,
+    "multiple": 2.38,
+    "dd_rs": -79814,
+    "dd_pct": -49.1,
+    "trades": 578
+   },
+   "expiry": {
+    "label": "1 lot, 3 on expiry",
+    "final": 311125,
+    "multiple": 3.11,
+    "dd_rs": -70190,
+    "dd_pct": -44.1,
+    "trades": 578
+   },
+   "ladder": {
+    "label": "1 lot, 3 on expiry, +1 per +75%",
+    "final": 424654,
+    "multiple": 4.25,
+    "dd_rs": -70190,
+    "dd_pct": -44.1,
+    "trades": 578
+   },
+   "ceiling_lots": 8,
+   "top_year_pct": 63,
+   "top_year": "2026"
+  },
+  "ce_caps": [
+   {
+    "cap": 4,
+    "final": 512573,
+    "multiple": 5.13,
+    "dd_rs": -79748,
+    "dd_pct": -14.0,
+    "worst_trade": -19241,
+    "y2026": -20663
+   },
+   {
+    "cap": 6,
+    "final": 657638,
+    "multiple": 6.58,
+    "dd_rs": -118915,
+    "dd_pct": -16.0,
+    "worst_trade": -28815,
+    "y2026": -29343
+   },
+   {
+    "cap": 8,
+    "final": 783865,
+    "multiple": 7.84,
+    "dd_rs": -158081,
+    "dd_pct": -17.7,
+    "worst_trade": -38388,
+    "y2026": -38023
+   },
+   {
+    "cap": 12,
+    "final": 993544,
+    "multiple": 9.94,
+    "dd_rs": -234750,
+    "dd_pct": -20.7,
+    "worst_trade": -52748,
+    "y2026": -29915
+   },
+   {
+    "cap": 20,
+    "final": 1291721,
+    "multiple": 12.92,
+    "dd_rs": -390432,
+    "dd_pct": -25.6,
+    "worst_trade": -55029,
+    "y2026": -13062
+   }
+  ],
+  "live_settings": {
+   "ce": {
+    "lots": 2,
+    "expiry_day_lots": 3,
+    "step_pct": 25,
+    "max_lots": 20,
+    "base_capital": 100000
+   },
+   "pe": {
+    "lots": 1,
+    "expiry_day_lots": 3,
+    "step_pct": 75,
+    "max_lots": 20,
+    "base_capital": 100000
+   }
+  }
  }
 }

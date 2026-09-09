@@ -18618,6 +18618,11 @@ async def live_runs(request: Request):
                     "side": str(leg.get("option_type") or "").upper(),
                     "lots": leg.get("lots"),
                     "expiry_day_lots": leg.get("expiry_day_lots") or 0,
+                    # The ladder is strategy-level, not per-leg: one rung count
+                    # for the whole run. Shown on the desk so the size a book is
+                    # trading is never a mystery.
+                    "compound_step_pct": float(strategy.get("compound_step_pct", 0) or 0),
+                    "compound_max_lots": int(strategy.get("compound_max_lots", 0) or 0),
                     "sl_pct": leg.get("sl_pct"),
                     "strike_rule": f"{leg.get('strike_type', '')} {leg.get('strike_value', '')}".strip(),
                     "in_trade": bool(engine.in_trade),

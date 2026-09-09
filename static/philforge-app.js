@@ -21548,6 +21548,7 @@ function _cepeBookCard(run) {
   const badgeTone = live ? 'var(--danger)' : (run.running ? '#6ee7b7' : 'var(--muted)');
   const lots = run.lots == null ? '' : `${run.lots} lot${run.lots === 1 ? '' : 's'}`;
   const rule = [lots, Number(run.expiry_day_lots) > 0 ? `${run.expiry_day_lots} on expiry` : '',
+                Number(run.compound_step_pct) > 0 ? `+1 lot per +${run.compound_step_pct}%` : '',
                 run.sl_pct ? `SL ${run.sl_pct}%` : ''].filter(Boolean).join(' · ');
 
   // No Start here. This desk shows, stops and exits; a run is deployed from the

@@ -372,6 +372,7 @@ cap = D["capital"]
 peak = cap["peak_day"]
 CH = D["charges"]
 RC = D.get("reconciliation") or {}
+CP = D.get("compounding") or {}
 SZ = D["sizing"]
 SL = D["slip"]
 SERIES = json.dumps(D["series"], separators=(",", ":"))
@@ -1548,6 +1549,27 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
 
 
 <section>
+  <div class="shead"><div><h2>{t("Sizing up as the book earns", "புத்தகம் சம்பாதிக்கும்போது அளவை உயர்த்துதல்")}</h2>
+    <p>{t("One more lot for every rung of profit actually banked, on top of the expiry-day size. Every number below is produced by the engine sizing and charging each trade &mdash; not by dividing a finished book by its lot count, which is invalid while brokerage is a flat fee per order.", "உண்மையில் சேர்த்த ஒவ்வொரு படி லாபத்துக்கும் ஒரு lot கூடுதல், expiry நாள் அளவுக்கு மேல். கீழுள்ள ஒவ்வொரு எண்ணும் என்ஜின் ஒவ்வொரு வர்த்தகத்தையும் அளவிட்டு கட்டணம் பிடித்து உருவாக்கியது &mdash; முடிந்த புத்தகத்தை lot எண்ணிக்கையால் வகுத்து அல்ல; brokerage ஒரு ஆர்டருக்கு நிலையான கட்டணமாக இருக்கும்வரை அது தவறானது.")}</p></div></div>
+  <table class="tbl">
+    <thead><tr><th>{t("Book", "புத்தகம்")}</th><th class="num">{t("Trades", "வர்த்தகங்கள்")}</th><th class="num">{t("From &#8377;1,00,000", "&#8377;1,00,000-இலிருந்து")}</th><th class="num">&times;</th><th class="num">{t("Worst fall", "மோசமான வீழ்ச்சி")}</th></tr></thead>
+    <tbody>
+      <tr><td>CE &mdash; {t(CP["ce"]["flat"]["label"], "2 lots, flat")}</td><td class="num">{CP["ce"]["flat"]["trades"]}</td><td class="num">{r(CP["ce"]["flat"]["final"])}</td><td class="num">{CP["ce"]["flat"]["multiple"]}</td><td class="num neg">{r(CP["ce"]["flat"]["dd_rs"])} ({CP["ce"]["flat"]["dd_pct"]}%)</td></tr>
+      <tr><td><strong>CE &mdash; {t(CP["ce"]["ladder"]["label"], "2 lots, expiry-இல் 3, +25%-க்கு +1")}</strong></td><td class="num">{CP["ce"]["ladder"]["trades"]}</td><td class="num"><strong>{r(CP["ce"]["ladder"]["final"])}</strong></td><td class="num"><strong>{CP["ce"]["ladder"]["multiple"]}</strong></td><td class="num neg">{r(CP["ce"]["ladder"]["dd_rs"])} ({CP["ce"]["ladder"]["dd_pct"]}%)</td></tr>
+      <tr><td>PE &mdash; {t(CP["pe"]["flat"]["label"], "2 lots, flat")}</td><td class="num">{CP["pe"]["flat"]["trades"]}</td><td class="num">{r(CP["pe"]["flat"]["final"])}</td><td class="num">{CP["pe"]["flat"]["multiple"]}</td><td class="num neg">{r(CP["pe"]["flat"]["dd_rs"])} ({CP["pe"]["flat"]["dd_pct"]}%)</td></tr>
+      <tr><td>PE &mdash; {t(CP["pe"]["expiry"]["label"], "1 lot, expiry-இல் 3")}</td><td class="num">{CP["pe"]["expiry"]["trades"]}</td><td class="num">{r(CP["pe"]["expiry"]["final"])}</td><td class="num">{CP["pe"]["expiry"]["multiple"]}</td><td class="num neg">{r(CP["pe"]["expiry"]["dd_rs"])} ({CP["pe"]["expiry"]["dd_pct"]}%)</td></tr>
+      <tr><td><strong>PE &mdash; {t(CP["pe"]["ladder"]["label"], "1 lot, expiry-இல் 3, +75%-க்கு +1")}</strong></td><td class="num">{CP["pe"]["ladder"]["trades"]}</td><td class="num"><strong>{r(CP["pe"]["ladder"]["final"])}</strong></td><td class="num"><strong>{CP["pe"]["ladder"]["multiple"]}</strong></td><td class="num neg">{r(CP["pe"]["ladder"]["dd_rs"])} ({CP["pe"]["ladder"]["dd_pct"]}%)</td></tr>
+    </tbody>
+  </table>
+  <div class="note" style="margin-top:14px">
+    <h2 class="note-h">{t("Read this before believing the multiple", "இந்த பெருக்கத்தை நம்புவதற்கு முன் இதைப் படியுங்கள்")}</h2>
+    <p>{t("The call book's whole result is one year:", "CE புத்தகத்தின் முழு முடிவும் ஒரே ஆண்டு:")} <strong>{CP["ce"]["top_year_pct"]}%</strong> {t("of it lands in", "லாபம்")} {CP["ce"]["top_year"]}{t(", and the eight months of 2026 LOSE", "-இல்; 2026-இன் எட்டு மாதங்கள்")} {r(abs(CP["ce"]["y2026"]))}{t(" &mdash; at every lot cap tested, while carrying the largest size the ladder had reached. The put book is", " நஷ்டம் &mdash; சோதித்த ஒவ்வொரு lot வரம்பிலும், ladder எட்டிய மிகப்பெரிய அளவை வைத்திருக்கும்போது. PE புத்தகம்")} <strong>{CP["pe"]["top_year_pct"]}%</strong> {t("concentrated in", "செறிவு")} {CP["pe"]["top_year"]}. {t("A ladder multiplies whichever year it is standing in, so it enlarges this concentration rather than diluting it. Switched on today it starts from nothing banked, at the configured base size, and grows only with money actually earned.", "Ladder எந்த ஆண்டில் நிற்கிறதோ அதைப் பெருக்குகிறது; எனவே இந்த செறிவைக் குறைக்காமல் பெரிதாக்குகிறது. இன்று இயக்கினால் எதுவும் சேராத நிலையில், அமைக்கப்பட்ட அடிப்படை அளவில் தொடங்கி, உண்மையில் சம்பாதித்த பணத்துடன் மட்டுமே வளரும்.")}</p>
+    <p>{t("The put book stops climbing on its own at", "PE புத்தகம் தானாகவே நிற்கிறது")} <strong>{CP["pe"]["ceiling_lots"]} {t("lots", "lots")}</strong>{t(" &mdash; caps above that change nothing. For the call book the cap is a real dial: 4 lots returns", " &mdash; அதற்கு மேல் வரம்பு எதையும் மாற்றாது. CE-க்கு வரம்பு உண்மையான dial: 4 lots")} {r(CP["ce_caps"][0]["final"])} {t("at", "&mdash;")} {CP["ce_caps"][0]["dd_pct"]}%{t(", 20 lots returns", "; 20 lots")} {r(CP["ce_caps"][-1]["final"])} {t("at", "&mdash;")} {CP["ce_caps"][-1]["dd_pct"]}%{t(", and the worst single trade grows from", "; மோசமான ஒற்றை வர்த்தகம்")} {r(abs(CP["ce_caps"][0]["worst_trade"]))} {t("to", "இலிருந்து")} {r(abs(CP["ce_caps"][-1]["worst_trade"]))}. {t("The cap does not reduce the 2026 loss.", "வரம்பு 2026 நஷ்டத்தைக் குறைக்காது.")}</p>
+  </div>
+</section>
+
+
+<section>
   <div class="shead"><div><h2>{t("What is running today", "இன்று இயங்குவது என்ன")}</h2>
     <p>{t("The two books as they are configured on the live engine right now, read straight off the deployed state &mdash; not a description of an idealised version.", "இரண்டு புத்தகங்களும் இப்போது லைவ் என்ஜினில் எப்படி அமைக்கப்பட்டுள்ளனவோ அப்படியே &mdash; இயங்கும் நிலையிலிருந்து நேரடியாக எடுக்கப்பட்டது, கற்பனையான பதிப்பு அல்ல.")}</p></div></div>
   <div class="cfg">
@@ -1556,7 +1578,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
       <dl class="deflist" style="padding:6px 16px 12px">
         <div><dt>{t("Instrument &amp; expiry", "கருவி &amp; எக்ஸ்பயரி")}</dt><dd>{t("NIFTY, current week", "NIFTY, நடப்பு வாரம்")}</dd></div>
         <div><dt>{t("Strike", "ஸ்ட்ரைக்")}</dt><dd>{t("nearest &#8377;250 premium", "&#8377;250 பிரீமியத்துக்கு அருகில்")}</dd></div>
-        <div><dt>{t("Size", "அளவு")}</dt><dd>{t("4 lots, BUY", "4 லாட், BUY")}</dd></div>
+        <div><dt>{t("Size", "அளவு")}</dt><dd>{t("1 lot, 3 on expiry, +1 lot per +75% banked (cap 20), BUY", "1 லாட், expiry-இல் 3, சேர்த்த +75%-க்கு +1 லாட் (வரம்பு 20), BUY")}</dd></div>
         <div><dt>{t("Bar", "கேண்டில்")}</dt><dd>{t("5m from 1m raw", "1m இலிருந்து 5m")}</dd></div>
         <div><dt>{t("Leg stop", "ஸ்டாப் லாஸ்")}</dt><dd>{t("20% of premium", "பிரீமியத்தில் 20%")}</dd></div>
         <div><dt>{t("Strategy target", "இலக்கு")}</dt><dd>{t("none &mdash; runs to a CPR cross or the stop", "இல்லை &mdash; CPR கிராஸ் அல்லது ஸ்டாப் வரை")}</dd></div>
@@ -1573,7 +1595,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
       <dl class="deflist" style="padding:6px 16px 12px">
         <div><dt>{t("Instrument &amp; expiry", "கருவி &amp; எக்ஸ்பயரி")}</dt><dd>{t("NIFTY, current week", "NIFTY, நடப்பு வாரம்")}</dd></div>
         <div><dt>{t("Strike", "ஸ்ட்ரைக்")}</dt><dd>{t("first above &#8377;250 premium", "&#8377;250 பிரீமியத்துக்கு மேல் முதலாவது")}</dd></div>
-        <div><dt>{t("Size", "அளவு")}</dt><dd>{t("4 lots, BUY", "4 லாட், BUY")}</dd></div>
+        <div><dt>{t("Size", "அளவு")}</dt><dd>{t("2 lots, 3 on expiry, +1 lot per +25% banked (cap 20), BUY", "2 லாட், expiry-இல் 3, சேர்த்த +25%-க்கு +1 லாட் (வரம்பு 20), BUY")}</dd></div>
         <div><dt>{t("Bar", "கேண்டில்")}</dt><dd>{t("5m, 3m context", "5m, 3m சூழல்")}</dd></div>
         <div><dt>{t("Leg stop", "ஸ்டாப் லாஸ்")}</dt><dd>{t("15% of premium", "பிரீமியத்தில் 15%")}</dd></div>
         <div><dt>{t("Strategy target", "இலக்கு")}</dt><dd>{t("none &mdash; runs to a signal", "இல்லை &mdash; சிக்னல் வரும் வரை")}</dd></div>
