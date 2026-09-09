@@ -373,6 +373,10 @@ peak = cap["peak_day"]
 CH = D["charges"]
 RC = D.get("reconciliation") or {}
 CP = D.get("compounding") or {}
+LC = D.get("live_config") or {}
+# One source for the execution numbers, so a paragraph cannot quote 6/8/12
+# while the config card beside it quotes 10/14/18.
+_SLIP = (LC.get("shared") or {}).get("slippage_bps") or {"entry": 0, "exit": 0, "spread": 0}
 SRC = D.get("source_comparison") or {}
 SZ = D["sizing"]
 SL = D["slip"]
@@ -634,8 +638,8 @@ PARA03 = t(
 )
 
 PARA04 = t(
-    """Both books carry <span class="num">6 bps</span> entry slippage, <span class="num">8 bps</span> exit slippage and a <span class="num">12 bps</span> spread allowance in the engine itself, on top of the charges above. Orders go out as MARKET on both sides under MIS, with a leg stop placed at the broker. Signals are read only from a <strong>closed</strong> 5-minute bar and the fill goes in one second into the next bar, so no trade can act on a candle that has not finished.""",
-    """இரண்டு புத்தகங்களும் என்ஜினிலேயே <span class='num'>6 bps</span> நுழைவு ஸ்லிப்பேஜ், <span class='num'>8 bps</span> வெளியேற்ற ஸ்லிப்பேஜ், <span class='num'>12 bps</span> ஸ்ப்ரெட் ஒதுக்கீடு ஆகியவற்றை மேற்கண்ட கட்டணங்களுக்கு மேல் கணக்கிடுகின்றன. ஆர்டர்கள் MIS-இல் இரு பக்கமும் MARKET ஆக செல்கின்றன, ஸ்டாப் லாஸ் புரோக்கரிடம் வைக்கப்படுகிறது. சிக்னல் <strong>முடிந்த</strong> 5 நிமிட கேண்டிலிலிருந்து மட்டுமே படிக்கப்படுகிறது; அடுத்த கேண்டில் தொடங்கிய ஒரு வினாடியில் நுழைவு நிகழ்கிறது. எனவே முடியாத கேண்டிலின் மீது எந்த டிரேடும் செயல்பட முடியாது.""",
+    f"""Both books carry <span class="num">{_SLIP["entry"]} bps</span> entry slippage, <span class="num">{_SLIP["exit"]} bps</span> exit slippage and a <span class="num">{_SLIP["spread"]} bps</span> spread allowance in the engine itself, on top of the charges above. Orders go out as MARKET on both sides under MIS, with a leg stop placed at the broker. Signals are read only from a <strong>closed</strong> 5-minute bar and the fill goes in one second into the next bar, so no trade can act on a candle that has not finished.""",
+    f"""இரண்டு புத்தகங்களும் என்ஜினிலேயே <span class='num'>{_SLIP["entry"]} bps</span> நுழைவு ஸ்லிப்பேஜ், <span class='num'>{_SLIP["exit"]} bps</span> வெளியேற்ற ஸ்லிப்பேஜ், <span class='num'>{_SLIP["spread"]} bps</span> ஸ்ப்ரெட் ஒதுக்கீடு ஆகியவற்றை மேற்கண்ட கட்டணங்களுக்கு மேல் கணக்கிடுகின்றன. ஆர்டர்கள் MIS-இல் இரு பக்கமும் MARKET ஆக செல்கின்றன, ஸ்டாப் லாஸ் புரோக்கரிடம் வைக்கப்படுகிறது. சிக்னல் <strong>முடிந்த</strong> 5 நிமிட கேண்டிலிலிருந்து மட்டுமே படிக்கப்படுகிறது; அடுத்த கேண்டில் தொடங்கிய ஒரு வினாடியில் நுழைவு நிகழ்கிறது. எனவே முடியாத கேண்டிலின் மீது எந்த டிரேடும் செயல்பட முடியாது.""",
 )
 
 PARA05 = t(
@@ -1579,38 +1583,48 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
     <p>{t("The two books as they are configured on the live engine right now, read straight off the deployed state &mdash; not a description of an idealised version.", "இரண்டு புத்தகங்களும் இப்போது லைவ் என்ஜினில் எப்படி அமைக்கப்பட்டுள்ளனவோ அப்படியே &mdash; இயங்கும் நிலையிலிருந்து நேரடியாக எடுக்கப்பட்டது, கற்பனையான பதிப்பு அல்ல.")}</p></div></div>
   <div class="cfg">
     <div class="cfg-card">
-      <h3>{t("Put book", "PUT புத்தகம்")} &mdash; PE_NoTarget</h3>
+      <h3>{t("Put book", "PUT புத்தகம்")} &mdash; {LC["pe"]["run_name"]}</h3>
       <dl class="deflist" style="padding:6px 16px 12px">
-        <div><dt>{t("Instrument &amp; expiry", "கருவி &amp; எக்ஸ்பயரி")}</dt><dd>{t("NIFTY, current week", "NIFTY, நடப்பு வாரம்")}</dd></div>
-        <div><dt>{t("Strike", "ஸ்ட்ரைக்")}</dt><dd>{t("nearest &#8377;250 premium", "&#8377;250 பிரீமியத்துக்கு அருகில்")}</dd></div>
-        <div><dt>{t("Size", "அளவு")}</dt><dd>{t("2 lots, 3 on expiry, +1 lot per +75% banked (cap 20), BUY", "2 லாட், expiry-இல் 3, சேர்த்த +75%-க்கு +1 லாட் (வரம்பு 20), BUY")}</dd></div>
-        <div><dt>{t("Bar", "கேண்டில்")}</dt><dd>{t("5m from 1m raw", "1m இலிருந்து 5m")}</dd></div>
-        <div><dt>{t("Leg stop", "ஸ்டாப் லாஸ்")}</dt><dd>{t("20% of premium", "பிரீமியத்தில் 20%")}</dd></div>
-        <div><dt>{t("Strategy target", "இலக்கு")}</dt><dd>{t("none &mdash; runs to a CPR cross or the stop", "இல்லை &mdash; CPR கிராஸ் அல்லது ஸ்டாப் வரை")}</dd></div>
-        <div><dt>{t("Trades per day", "நாளுக்கு டிரேடுகள்")}</dt><dd>{t("1 maximum", "அதிகபட்சம் 1")}</dd></div>
-        <div><dt>{t("Cool-off", "ஓய்வு")}</dt><dd>{t("none", "இல்லை")}</dd></div>
-        <div><dt>{t("Square-off", "ஸ்கொயர்-ஆஃப்")}</dt><dd>15:25</dd></div>
+        <div><dt>{t("Instrument &amp; expiry", "கருவி &amp; எக்ஸ்பயரி")}</dt><dd>{LC["shared"]["instrument"]}, {LC["shared"]["expiry"]}</dd></div>
+        <div><dt>{t("Strike", "ஸ்ட்ரைக்")}</dt><dd>{LC["pe"]["strike"]}, {LC["pe"]["transaction"]}</dd></div>
+        <div><dt>{t("Size", "அளவு")}</dt><dd>{LC["pe"]["lots"]} {t("lots", "லாட்")}, {LC["pe"]["expiry_day_lots"]} {t("on expiry", "expiry-இல்")}</dd></div>
+        <div><dt>{t("Compounding", "கூட்டு வளர்ச்சி")}</dt><dd>{LC["pe"]["ladder"]}, {t("cap", "வரம்பு")} {LC["shared"]["ladder_cap_lots"]}</dd></div>
+        <div><dt>{t("Leg stop", "கால் ஸ்டாப்")}</dt><dd>{LC["pe"]["leg_stop"]}</dd></div>
+        <div><dt>{t("Target / trail", "இலக்கு / டிரெயில்")}</dt><dd>{LC["pe"]["target"]} / {LC["pe"]["trail"]}</dd></div>
+        <div><dt>{t("Trades per day", "நாளொன்றுக்கு")}</dt><dd>{LC["shared"]["trades_per_day"]} {t("maximum", "அதிகபட்சம்")}</dd></div>
+        <div><dt>{t("Cool-off", "ஓய்வு")}</dt><dd>{LC["pe"]["cool_off"]}</dd></div>
+        <div><dt>{t("Signal cutoff", "சிக்னல் கட்-ஆஃப்")}</dt><dd>{LC["shared"]["signal_cutoff"]}</dd></div>
+        <div><dt>{t("Square-off", "ஸ்கொயர்-ஆஃப்")}</dt><dd>{LC["shared"]["square_off"]}</dd></div>
+        <div><dt>{t("Indicators", "இண்டிகேட்டர்கள்")}</dt><dd class="mono">{" &middot; ".join(LC["pe"]["indicators"])}</dd></div>
       </dl>
-      <div class="cfg-rule"><b>{t("Entry", "நுழைவு")}</b>close below EMA_20_5m &middot; CPR not wide &middot;
-        Mon/Tue/Thu/Fri &middot; close below CPR_BC &middot; {t("before 11:00", "11:00 க்கு முன்")}</div>
-      <div class="cfg-rule"><b>{t("Exit", "வெளியேற்றம்")}</b>close crosses CPR_S1, S2, S3 or TC &mdash; {t("either direction", "இரு திசையிலும்")}</div>
+      <div class="cfg-rule"><b>{t("Exit", "வெளியேற்றம்")}</b>close below Supertrend_10_2 (3m), the leg stop, or 15:25</div>
     </div>
     <div class="cfg-card">
-      <h3>{t("Call book", "CALL புத்தகம்")} &mdash; My_First_Run_CE</h3>
+      <h3>{t("Call book", "CALL புத்தகம்")} &mdash; {LC["ce"]["run_name"]}</h3>
       <dl class="deflist" style="padding:6px 16px 12px">
-        <div><dt>{t("Instrument &amp; expiry", "கருவி &amp; எக்ஸ்பயரி")}</dt><dd>{t("NIFTY, current week", "NIFTY, நடப்பு வாரம்")}</dd></div>
-        <div><dt>{t("Strike", "ஸ்ட்ரைக்")}</dt><dd>{t("first above &#8377;250 premium", "&#8377;250 பிரீமியத்துக்கு மேல் முதலாவது")}</dd></div>
-        <div><dt>{t("Size", "அளவு")}</dt><dd>{t("2 lots, 3 on expiry, +1 lot per +25% banked (cap 20), BUY", "2 லாட், expiry-இல் 3, சேர்த்த +25%-க்கு +1 லாட் (வரம்பு 20), BUY")}</dd></div>
-        <div><dt>{t("Bar", "கேண்டில்")}</dt><dd>{t("5m, 3m context", "5m, 3m சூழல்")}</dd></div>
-        <div><dt>{t("Leg stop", "ஸ்டாப் லாஸ்")}</dt><dd>{t("15% of premium", "பிரீமியத்தில் 15%")}</dd></div>
-        <div><dt>{t("Strategy target", "இலக்கு")}</dt><dd>{t("none &mdash; runs to a signal", "இல்லை &mdash; சிக்னல் வரும் வரை")}</dd></div>
-        <div><dt>{t("Trades per day", "நாளுக்கு டிரேடுகள்")}</dt><dd>{t("1 maximum", "அதிகபட்சம் 1")}</dd></div>
-        <div><dt>{t("Cool-off", "ஓய்வு")}</dt><dd>{t("skip 2 days after a &#8377;20,000 day", "&#8377;20,000 நாளுக்குப் பின் 2 நாள் விடு")}</dd></div>
+        <div><dt>{t("Instrument &amp; expiry", "கருவி &amp; எக்ஸ்பயரி")}</dt><dd>{LC["shared"]["instrument"]}, {LC["shared"]["expiry"]}</dd></div>
+        <div><dt>{t("Strike", "ஸ்ட்ரைக்")}</dt><dd>{LC["ce"]["strike"]}, {LC["ce"]["transaction"]}</dd></div>
+        <div><dt>{t("Size", "அளவு")}</dt><dd>{LC["ce"]["lots"]} {t("lots", "லாட்")}, {LC["ce"]["expiry_day_lots"]} {t("on expiry", "expiry-இல்")}</dd></div>
+        <div><dt>{t("Compounding", "கூட்டு வளர்ச்சி")}</dt><dd>{LC["ce"]["ladder"]}, {t("cap", "வரம்பு")} {LC["shared"]["ladder_cap_lots"]}</dd></div>
+        <div><dt>{t("Leg stop", "கால் ஸ்டாப்")}</dt><dd>{LC["ce"]["leg_stop"]}</dd></div>
+        <div><dt>{t("Target / trail", "இலக்கு / டிரெயில்")}</dt><dd>{LC["ce"]["target"]} / {LC["ce"]["trail"]}</dd></div>
+        <div><dt>{t("Trades per day", "நாளொன்றுக்கு")}</dt><dd>{LC["shared"]["trades_per_day"]} {t("maximum", "அதிகபட்சம்")}</dd></div>
+        <div><dt>{t("Cool-off", "ஓய்வு")}</dt><dd>{LC["ce"]["cool_off"]}</dd></div>
+        <div><dt>{t("Signal cutoff", "சிக்னல் கட்-ஆஃப்")}</dt><dd>{LC["shared"]["signal_cutoff"]}</dd></div>
+        <div><dt>{t("Square-off", "ஸ்கொயர்-ஆஃப்")}</dt><dd>{LC["shared"]["square_off"]}</dd></div>
+        <div><dt>{t("Indicators", "இண்டிகேட்டர்கள்")}</dt><dd class="mono">{" &middot; ".join(LC["ce"]["indicators"])}</dd></div>
       </dl>
-      <div class="cfg-rule"><b>{t("Entry", "நுழைவு")}</b>close above EMA_17_5m &middot; RSI_14_5m above threshold &middot;
-        CPR not wide &middot; close above yesterday's high &middot; Wed/Thu/Fri in the later window</div>
-      <div class="cfg-rule"><b>{t("Exit", "வெளியேற்றம்")}</b>close below Supertrend_10_2.7 (3m)</div>
+      <div class="cfg-rule"><b>{t("Exit", "வெளியேற்றம்")}</b>close below Supertrend_10_2.7 (3m), the leg stop, or 15:25</div>
     </div>
+  </div>
+  <div class="note" style="margin-top:12px">
+    <h2 class="note-h">{t("What both books share", "இரு புத்தகங்களும் பகிர்வது")}</h2>
+    <p>{t("Account", "கணக்கு")} {r(LC["shared"]["account_capital"])} &middot; {t("capital check", "மூலதன சோதனை")} {LC["shared"]["capital_check"]} &middot;
+       {t("ladder measured against", "ladder அளவீடு")} {r(LC["shared"]["ladder_capital"])} &middot;
+       {t("market", "சந்தை")} {LC["shared"]["market"]} &middot; {LC["shared"]["orders"]} &middot;
+       {t("slippage", "ஸ்லிப்பேஜ்")} {LC["shared"]["slippage_bps"]["entry"]}bps {t("in", "நுழைவு")} / {LC["shared"]["slippage_bps"]["exit"]}bps {t("out", "வெளியேற்றம்")} &middot;
+       {t("charges", "கட்டணங்கள்")}: {LC["shared"]["charges"]}.
+       {t("Read from the live database on", "லைவ் தரவுத்தளத்திலிருந்து படிக்கப்பட்டது")} {LC["read_from"]}.</p>
   </div>
   <div class="note" style="margin-top:14px">
     <h2 class="note-h">{t("The live engine already prices slippage &mdash; it is not assumed away", "லைவ் என்ஜின் ஏற்கனவே ஸ்லிப்பேஜை கணக்கிடுகிறது &mdash; அது புறக்கணிக்கப்படவில்லை")}</h2>

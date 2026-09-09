@@ -754,40 +754,50 @@ tr.wk td, tr.wk th { background:var(--surface-2); }
     <div class="cfg-card">
       <h3><span class="tr"><i lang="en">Put book</i><i lang="ta">PUT புத்தகம்</i></span> &mdash; PE_NoTarget</h3>
       <dl class="deflist" style="padding:6px 16px 12px">
-        <div><dt><span class="tr"><i lang="en">Instrument &amp; expiry</i><i lang="ta">கருவி &amp; எக்ஸ்பயரி</i></span></dt><dd><span class="tr"><i lang="en">NIFTY, current week</i><i lang="ta">NIFTY, நடப்பு வாரம்</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Strike</i><i lang="ta">ஸ்ட்ரைக்</i></span></dt><dd><span class="tr"><i lang="en">nearest &#8377;250 premium</i><i lang="ta">&#8377;250 பிரீமியத்துக்கு அருகில்</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></dt><dd><span class="tr"><i lang="en">2 lots, 3 on expiry, +1 lot per +75% banked (cap 20), BUY</i><i lang="ta">2 லாட், expiry-இல் 3, சேர்த்த +75%-க்கு +1 லாட் (வரம்பு 20), BUY</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Bar</i><i lang="ta">கேண்டில்</i></span></dt><dd><span class="tr"><i lang="en">5m from 1m raw</i><i lang="ta">1m இலிருந்து 5m</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Leg stop</i><i lang="ta">ஸ்டாப் லாஸ்</i></span></dt><dd><span class="tr"><i lang="en">20% of premium</i><i lang="ta">பிரீமியத்தில் 20%</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Strategy target</i><i lang="ta">இலக்கு</i></span></dt><dd><span class="tr"><i lang="en">none &mdash; runs to a CPR cross or the stop</i><i lang="ta">இல்லை &mdash; CPR கிராஸ் அல்லது ஸ்டாப் வரை</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Trades per day</i><i lang="ta">நாளுக்கு டிரேடுகள்</i></span></dt><dd><span class="tr"><i lang="en">1 maximum</i><i lang="ta">அதிகபட்சம் 1</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Cool-off</i><i lang="ta">ஓய்வு</i></span></dt><dd><span class="tr"><i lang="en">none</i><i lang="ta">இல்லை</i></span></dd></div>
+        <div><dt><span class="tr"><i lang="en">Instrument &amp; expiry</i><i lang="ta">கருவி &amp; எக்ஸ்பயரி</i></span></dt><dd>NIFTY 50 (26000), indices, current week</dd></div>
+        <div><dt><span class="tr"><i lang="en">Strike</i><i lang="ta">ஸ்ட்ரைக்</i></span></dt><dd>nearest ₹250 premium, BUY</dd></div>
+        <div><dt><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></dt><dd>2 <span class="tr"><i lang="en">lots</i><i lang="ta">லாட்</i></span>, 3 <span class="tr"><i lang="en">on expiry</i><i lang="ta">expiry-இல்</i></span></dd></div>
+        <div><dt><span class="tr"><i lang="en">Compounding</i><i lang="ta">கூட்டு வளர்ச்சி</i></span></dt><dd>+1 lot per +75% of ₹1,00,000 banked, <span class="tr"><i lang="en">cap</i><i lang="ta">வரம்பு</i></span> 20</dd></div>
+        <div><dt><span class="tr"><i lang="en">Leg stop</i><i lang="ta">கால் ஸ்டாப்</i></span></dt><dd>20% of premium</dd></div>
+        <div><dt><span class="tr"><i lang="en">Target / trail</i><i lang="ta">இலக்கு / டிரெயில்</i></span></dt><dd>none / none</dd></div>
+        <div><dt><span class="tr"><i lang="en">Trades per day</i><i lang="ta">நாளொன்றுக்கு</i></span></dt><dd>1 <span class="tr"><i lang="en">maximum</i><i lang="ta">அதிகபட்சம்</i></span></dd></div>
+        <div><dt><span class="tr"><i lang="en">Cool-off</i><i lang="ta">ஓய்வு</i></span></dt><dd>none</dd></div>
+        <div><dt><span class="tr"><i lang="en">Signal cutoff</i><i lang="ta">சிக்னல் கட்-ஆஃப்</i></span></dt><dd>15:15</dd></div>
         <div><dt><span class="tr"><i lang="en">Square-off</i><i lang="ta">ஸ்கொயர்-ஆஃப்</i></span></dt><dd>15:25</dd></div>
+        <div><dt><span class="tr"><i lang="en">Indicators</i><i lang="ta">இண்டிகேட்டர்கள்</i></span></dt><dd class="mono">Current_Candle_5m &middot; Supertrend_10_2_3m &middot; EMA_20_5m &middot; CPR_0.2_0.5 &middot; Previous_Day &middot; RSI_14_5m &middot; Previous_Candle_5m</dd></div>
       </dl>
-      <div class="cfg-rule"><b><span class="tr"><i lang="en">Entry</i><i lang="ta">நுழைவு</i></span></b>close below EMA_20_5m &middot; CPR not wide &middot;
-        Mon/Tue/Thu/Fri &middot; close below CPR_BC &middot; <span class="tr"><i lang="en">before 11:00</i><i lang="ta">11:00 க்கு முன்</i></span></div>
-      <div class="cfg-rule"><b><span class="tr"><i lang="en">Exit</i><i lang="ta">வெளியேற்றம்</i></span></b>close crosses CPR_S1, S2, S3 or TC &mdash; <span class="tr"><i lang="en">either direction</i><i lang="ta">இரு திசையிலும்</i></span></div>
+      <div class="cfg-rule"><b><span class="tr"><i lang="en">Exit</i><i lang="ta">வெளியேற்றம்</i></span></b>close below Supertrend_10_2 (3m), the leg stop, or 15:25</div>
     </div>
     <div class="cfg-card">
-      <h3><span class="tr"><i lang="en">Call book</i><i lang="ta">CALL புத்தகம்</i></span> &mdash; My_First_Run_CE</h3>
+      <h3><span class="tr"><i lang="en">Call book</i><i lang="ta">CALL புத்தகம்</i></span> &mdash; CE_SL15_NoMonTue</h3>
       <dl class="deflist" style="padding:6px 16px 12px">
-        <div><dt><span class="tr"><i lang="en">Instrument &amp; expiry</i><i lang="ta">கருவி &amp; எக்ஸ்பயரி</i></span></dt><dd><span class="tr"><i lang="en">NIFTY, current week</i><i lang="ta">NIFTY, நடப்பு வாரம்</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Strike</i><i lang="ta">ஸ்ட்ரைக்</i></span></dt><dd><span class="tr"><i lang="en">first above &#8377;250 premium</i><i lang="ta">&#8377;250 பிரீமியத்துக்கு மேல் முதலாவது</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></dt><dd><span class="tr"><i lang="en">2 lots, 3 on expiry, +1 lot per +25% banked (cap 20), BUY</i><i lang="ta">2 லாட், expiry-இல் 3, சேர்த்த +25%-க்கு +1 லாட் (வரம்பு 20), BUY</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Bar</i><i lang="ta">கேண்டில்</i></span></dt><dd><span class="tr"><i lang="en">5m, 3m context</i><i lang="ta">5m, 3m சூழல்</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Leg stop</i><i lang="ta">ஸ்டாப் லாஸ்</i></span></dt><dd><span class="tr"><i lang="en">15% of premium</i><i lang="ta">பிரீமியத்தில் 15%</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Strategy target</i><i lang="ta">இலக்கு</i></span></dt><dd><span class="tr"><i lang="en">none &mdash; runs to a signal</i><i lang="ta">இல்லை &mdash; சிக்னல் வரும் வரை</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Trades per day</i><i lang="ta">நாளுக்கு டிரேடுகள்</i></span></dt><dd><span class="tr"><i lang="en">1 maximum</i><i lang="ta">அதிகபட்சம் 1</i></span></dd></div>
-        <div><dt><span class="tr"><i lang="en">Cool-off</i><i lang="ta">ஓய்வு</i></span></dt><dd><span class="tr"><i lang="en">skip 2 days after a &#8377;20,000 day</i><i lang="ta">&#8377;20,000 நாளுக்குப் பின் 2 நாள் விடு</i></span></dd></div>
+        <div><dt><span class="tr"><i lang="en">Instrument &amp; expiry</i><i lang="ta">கருவி &amp; எக்ஸ்பயரி</i></span></dt><dd>NIFTY 50 (26000), indices, current week</dd></div>
+        <div><dt><span class="tr"><i lang="en">Strike</i><i lang="ta">ஸ்ட்ரைக்</i></span></dt><dd>first above ₹250 premium, BUY</dd></div>
+        <div><dt><span class="tr"><i lang="en">Size</i><i lang="ta">அளவு</i></span></dt><dd>2 <span class="tr"><i lang="en">lots</i><i lang="ta">லாட்</i></span>, 3 <span class="tr"><i lang="en">on expiry</i><i lang="ta">expiry-இல்</i></span></dd></div>
+        <div><dt><span class="tr"><i lang="en">Compounding</i><i lang="ta">கூட்டு வளர்ச்சி</i></span></dt><dd>+1 lot per +25% of ₹1,00,000 banked, <span class="tr"><i lang="en">cap</i><i lang="ta">வரம்பு</i></span> 20</dd></div>
+        <div><dt><span class="tr"><i lang="en">Leg stop</i><i lang="ta">கால் ஸ்டாப்</i></span></dt><dd>15% of premium</dd></div>
+        <div><dt><span class="tr"><i lang="en">Target / trail</i><i lang="ta">இலக்கு / டிரெயில்</i></span></dt><dd>none / none</dd></div>
+        <div><dt><span class="tr"><i lang="en">Trades per day</i><i lang="ta">நாளொன்றுக்கு</i></span></dt><dd>1 <span class="tr"><i lang="en">maximum</i><i lang="ta">அதிகபட்சம்</i></span></dd></div>
+        <div><dt><span class="tr"><i lang="en">Cool-off</i><i lang="ta">ஓய்வு</i></span></dt><dd>skip 2 days after a ₹20,000 day</dd></div>
+        <div><dt><span class="tr"><i lang="en">Signal cutoff</i><i lang="ta">சிக்னல் கட்-ஆஃப்</i></span></dt><dd>15:15</dd></div>
+        <div><dt><span class="tr"><i lang="en">Square-off</i><i lang="ta">ஸ்கொயர்-ஆஃப்</i></span></dt><dd>15:25</dd></div>
+        <div><dt><span class="tr"><i lang="en">Indicators</i><i lang="ta">இண்டிகேட்டர்கள்</i></span></dt><dd class="mono">Current_Candle_5m &middot; Supertrend_10_2.7_3m &middot; EMA_17_5m &middot; CPR_0.2_0.5 &middot; Previous_Day &middot; RSI_14_5m &middot; Previous_Candle_10m</dd></div>
       </dl>
-      <div class="cfg-rule"><b><span class="tr"><i lang="en">Entry</i><i lang="ta">நுழைவு</i></span></b>close above EMA_17_5m &middot; RSI_14_5m above threshold &middot;
-        CPR not wide &middot; close above yesterday's high &middot; Wed/Thu/Fri in the later window</div>
-      <div class="cfg-rule"><b><span class="tr"><i lang="en">Exit</i><i lang="ta">வெளியேற்றம்</i></span></b>close below Supertrend_10_2.7 (3m)</div>
+      <div class="cfg-rule"><b><span class="tr"><i lang="en">Exit</i><i lang="ta">வெளியேற்றம்</i></span></b>close below Supertrend_10_2.7 (3m), the leg stop, or 15:25</div>
     </div>
+  </div>
+  <div class="note" style="margin-top:12px">
+    <h2 class="note-h"><span class="tr"><i lang="en">What both books share</i><i lang="ta">இரு புத்தகங்களும் பகிர்வது</i></span></h2>
+    <p><span class="tr"><i lang="en">Account</i><i lang="ta">கணக்கு</i></span> ₹1,00,000 &middot; <span class="tr"><i lang="en">capital check</i><i lang="ta">மூலதன சோதனை</i></span> on, 5% buffer &middot;
+       <span class="tr"><i lang="en">ladder measured against</i><i lang="ta">ladder அளவீடு</i></span> ₹1,00,000 &middot;
+       <span class="tr"><i lang="en">market</i><i lang="ta">சந்தை</i></span> 09:15 to 15:25 &middot; MARKET in and out &middot;
+       <span class="tr"><i lang="en">slippage</i><i lang="ta">ஸ்லிப்பேஜ்</i></span> 10bps <span class="tr"><i lang="en">in</i><i lang="ta">நுழைவு</i></span> / 14bps <span class="tr"><i lang="en">out</i><i lang="ta">வெளியேற்றம்</i></span> &middot;
+       <span class="tr"><i lang="en">charges</i><i lang="ta">கட்டணங்கள்</i></span>: statutory schedule, not a flat fee_pct.
+       <span class="tr"><i lang="en">Read from the live database on</i><i lang="ta">லைவ் தரவுத்தளத்திலிருந்து படிக்கப்பட்டது</i></span> philforge.db strategies table, 2026-09-09 18:30 IST.</p>
   </div>
   <div class="note" style="margin-top:14px">
     <h2 class="note-h"><span class="tr"><i lang="en">The live engine already prices slippage &mdash; it is not assumed away</i><i lang="ta">லைவ் என்ஜின் ஏற்கனவே ஸ்லிப்பேஜை கணக்கிடுகிறது &mdash; அது புறக்கணிக்கப்படவில்லை</i></span></h2>
-    <p><span class="tr"><i lang="en">Both books carry <span class="num">6 bps</span> entry slippage, <span class="num">8 bps</span> exit slippage and a <span class="num">12 bps</span> spread allowance in the engine itself, on top of the charges above. Orders go out as MARKET on both sides under MIS, with a leg stop placed at the broker. Signals are read only from a <strong>closed</strong> 5-minute bar and the fill goes in one second into the next bar, so no trade can act on a candle that has not finished.</i><i lang="ta">இரண்டு புத்தகங்களும் என்ஜினிலேயே <span class='num'>6 bps</span> நுழைவு ஸ்லிப்பேஜ், <span class='num'>8 bps</span> வெளியேற்ற ஸ்லிப்பேஜ், <span class='num'>12 bps</span> ஸ்ப்ரெட் ஒதுக்கீடு ஆகியவற்றை மேற்கண்ட கட்டணங்களுக்கு மேல் கணக்கிடுகின்றன. ஆர்டர்கள் MIS-இல் இரு பக்கமும் MARKET ஆக செல்கின்றன, ஸ்டாப் லாஸ் புரோக்கரிடம் வைக்கப்படுகிறது. சிக்னல் <strong>முடிந்த</strong> 5 நிமிட கேண்டிலிலிருந்து மட்டுமே படிக்கப்படுகிறது; அடுத்த கேண்டில் தொடங்கிய ஒரு வினாடியில் நுழைவு நிகழ்கிறது. எனவே முடியாத கேண்டிலின் மீது எந்த டிரேடும் செயல்பட முடியாது.</i></span></p>
+    <p><span class="tr"><i lang="en">Both books carry <span class="num">10 bps</span> entry slippage, <span class="num">14 bps</span> exit slippage and a <span class="num">18 bps</span> spread allowance in the engine itself, on top of the charges above. Orders go out as MARKET on both sides under MIS, with a leg stop placed at the broker. Signals are read only from a <strong>closed</strong> 5-minute bar and the fill goes in one second into the next bar, so no trade can act on a candle that has not finished.</i><i lang="ta">இரண்டு புத்தகங்களும் என்ஜினிலேயே <span class='num'>10 bps</span> நுழைவு ஸ்லிப்பேஜ், <span class='num'>14 bps</span> வெளியேற்ற ஸ்லிப்பேஜ், <span class='num'>18 bps</span> ஸ்ப்ரெட் ஒதுக்கீடு ஆகியவற்றை மேற்கண்ட கட்டணங்களுக்கு மேல் கணக்கிடுகின்றன. ஆர்டர்கள் MIS-இல் இரு பக்கமும் MARKET ஆக செல்கின்றன, ஸ்டாப் லாஸ் புரோக்கரிடம் வைக்கப்படுகிறது. சிக்னல் <strong>முடிந்த</strong> 5 நிமிட கேண்டிலிலிருந்து மட்டுமே படிக்கப்படுகிறது; அடுத்த கேண்டில் தொடங்கிய ஒரு வினாடியில் நுழைவு நிகழ்கிறது. எனவே முடியாத கேண்டிலின் மீது எந்த டிரேடும் செயல்பட முடியாது.</i></span></p>
   </div>
 </section>
 

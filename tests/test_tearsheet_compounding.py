@@ -48,13 +48,14 @@ class TheDocumentSaysIt(unittest.TestCase):
     def test_the_live_size_lines_match_the_live_settings(self):
         """ "What is running today" must describe the engine, not the document."""
         live = DATA["compounding"]["live_settings"]
+        lc = DATA["live_config"]
+        # The card is rendered from live_config now, as separate Size and
+        # Compounding rows, so the two blocks must agree rather than the card
+        # carrying one concatenated sentence.
         for book in ("ce", "pe"):
-            expected = "%d lots, %d on expiry, +1 lot per +%d%% banked" % (
-                live[book]["lots"],
-                live[book]["expiry_day_lots"],
-                live[book]["step_pct"],
-            )
-            self.assertIn(expected, BUILD, book)
+            self.assertEqual(lc[book]["lots"], live[book]["lots"], book)
+            self.assertEqual(lc[book]["expiry_day_lots"], live[book]["expiry_day_lots"], book)
+            self.assertIn(str(live[book]["step_pct"]), lc[book]["ladder"], book)
         self.assertNotIn('{t("4 lots, BUY"', BUILD, "the stale 4-lot description is gone")
 
     def test_it_does_not_leak_into_the_shared_helper(self):

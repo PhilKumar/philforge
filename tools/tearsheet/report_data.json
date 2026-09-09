@@ -15313,5 +15313,72 @@
    "trades": 938,
    "lots": 4
   }
+ },
+ "live_config": {
+  "read_from": "philforge.db strategies table, 2026-09-09 18:30 IST",
+  "shared": {
+   "instrument": "NIFTY 50 (26000), indices",
+   "expiry": "current week",
+   "market": "09:15 to 15:25",
+   "signal_cutoff": "15:15",
+   "square_off": "15:25",
+   "trades_per_day": 1,
+   "account_capital": 100000,
+   "capital_check": "on, 5% buffer",
+   "ladder_capital": 100000,
+   "ladder_cap_lots": 20,
+   "slippage_bps": {
+    "entry": 10,
+    "exit": 14,
+    "spread": 18
+   },
+   "charges": "statutory schedule, not a flat fee_pct",
+   "orders": "MARKET in and out"
+  },
+  "pe": {
+   "run_name": "PE_NoTarget",
+   "side": "PE",
+   "transaction": "BUY",
+   "strike": "nearest \u20b9250 premium",
+   "lots": 2,
+   "expiry_day_lots": 3,
+   "ladder": "+1 lot per +75% of \u20b91,00,000 banked",
+   "leg_stop": "20% of premium",
+   "target": "none",
+   "trail": "none",
+   "cool_off": "none",
+   "indicators": [
+    "Current_Candle_5m",
+    "Supertrend_10_2_3m",
+    "EMA_20_5m",
+    "CPR_0.2_0.5",
+    "Previous_Day",
+    "RSI_14_5m",
+    "Previous_Candle_5m"
+   ]
+  },
+  "ce": {
+   "run_name": "CE_SL15_NoMonTue",
+   "side": "CE",
+   "transaction": "BUY",
+   "strike": "first above \u20b9250 premium",
+   "lots": 2,
+   "expiry_day_lots": 3,
+   "ladder": "+1 lot per +25% of \u20b91,00,000 banked",
+   "leg_stop": "15% of premium",
+   "target": "none",
+   "trail": "none",
+   "cool_off": "skip 2 days after a \u20b920,000 day",
+   "execution_mode": "next_minute",
+   "indicators": [
+    "Current_Candle_5m",
+    "Supertrend_10_2.7_3m",
+    "EMA_17_5m",
+    "CPR_0.2_0.5",
+    "Previous_Day",
+    "RSI_14_5m",
+    "Previous_Candle_10m"
+   ]
+  }
  }
 }
