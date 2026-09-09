@@ -2061,6 +2061,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'setGapCarryRsi',
   'setGapCarryOffset',
   'setGapCarryLots',
+  'setGapCarryCompound',
   'killCascadeOptionsPaper',
   'showOptionsCascadeTab',
   'showInsightsTab',
@@ -3886,6 +3887,7 @@ window.setGapCarryExpiry = setGapCarryExpiry;
 window.setGapCarryRsi = setGapCarryRsi;
 window.setGapCarryOffset = setGapCarryOffset;
 window.setGapCarryLots = setGapCarryLots;
+window.setGapCarryCompound = setGapCarryCompound;
 window.startCandleEntryPaper = startCandleEntryPaper;
 window.killCandleEntryPaper = killCandleEntryPaper;
 window.runCandleEntryBacktest = runCandleEntryBacktest;
@@ -3947,6 +3949,9 @@ function _gapCarryPayload() {
     rsi_threshold: Number(val('oc-gap-rsi', '70')),
     strike_offset_steps: Number(val('oc-gap-offset', '4')),
     lots: Number(val('oc-gap-lots', '1')),
+    compound_step_pct: Number(val('oc-gap-compound-step', '0')) || 0,
+    compound_base_capital: Number(val('oc-gap-compound-capital', '0')) || 0,
+    compound_max_lots: 20,
     entry_time: val('oc-gap-entry-time', '15:10'),
     exit_time: val('oc-gap-exit-time', '09:20'),
     expiry_rule: val('oc-gap-expiry-rule', 'weekly'),
@@ -3964,6 +3969,10 @@ function _syncGapCarryRecipe() {
       `EMA20 + RSI ${p.rsi_threshold}`,
       `ATM+${p.strike_offset_steps} ITM`,
       `${p.exit_time} out`,
+      p.compound_step_pct > 0 && p.compound_base_capital > 0
+        ? `+1 lot per +${p.compound_step_pct}%` : null,
+      p.compound_step_pct > 0 && !(p.compound_base_capital > 0)
+        ? 'ladder needs a capital' : null,
       (document.getElementById('oc-gap-mode')?.value === 'live') ? 'LIVE' : null,
     ].filter(Boolean).join(' · ');
   }
@@ -3998,6 +4007,17 @@ function setGapCarryOffset(_event, button) {
 }
 function setGapCarryLots(_event, button) {
   _ocpSetSwitch('oc-gap-lots', 'oc-gap-lots-toggle', button?.dataset?.value || '1');
+  _syncGapCarryRecipe();
+}
+
+// A step with no capital behind it has no rung to climb, and the engine refuses
+// it rather than quietly sizing flat. So turning the step on offers a capital
+// if the box is empty, and the recipe strip says what will actually happen.
+function setGapCarryCompound(_event, button) {
+  const step = button?.dataset?.value || '0';
+  _ocpSetSwitch('oc-gap-compound-step', 'oc-gap-compound-toggle', step);
+  const capital = document.getElementById('oc-gap-compound-capital');
+  if (capital && Number(step) > 0 && !(Number(capital.value) > 0)) capital.value = 200000;
   _syncGapCarryRecipe();
 }
 

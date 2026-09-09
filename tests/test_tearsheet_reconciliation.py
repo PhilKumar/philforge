@@ -31,9 +31,18 @@ DATA = json.load(open(os.path.join(ROOT, "tools", "tearsheet", "report_data.json
 
 class ThePublishedFiguresAreUntouched(unittest.TestCase):
     def test_the_headline_still_says_what_it_said(self):
-        self.assertEqual(DATA["headline"]["combined"]["net"], 1245086.92)
-        self.assertEqual(DATA["headline"]["combined"]["trades"], 920)
-        self.assertIn("₹12,45,087", DOC)
+        """Re-pinned 10-Sep-2026 to the DEPLOYED configuration.
+
+        This guard exists so the published figures cannot move without somebody
+        noticing, and it worked: rebasing the document onto what the engine
+        actually runs -- 4 lots, 5 on expiry, both ladders, Dhan prices, every
+        charge -- turned it red. The old pin was Rs 12,45,087 over 920 trades on
+        the flat-lot spliced book, which is not what is deployed.
+        """
+        self.assertEqual(DATA["headline"]["combined"]["net"], 1911711.18)
+        self.assertEqual(DATA["headline"]["combined"]["trades"], 931)
+        self.assertIn("₹19,11,711", DOC)
+        self.assertNotIn("₹12,45,087", DOC.split("Slippage")[0], "the old basis may survive only in the slippage table")
 
     def test_the_document_still_declares_four_lots(self):
         self.assertEqual(DATA["lots"], 4)

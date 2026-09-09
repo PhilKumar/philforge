@@ -88,3 +88,92 @@ class BothPathsUseTheOneHelper(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ItReachesTheEngineFromThePage(unittest.TestCase):
+    """Phil, 2026-09-10: "so I get it on UI correct?"
+
+    Not until this. The engine took the settings and the API never sent them,
+    so anything set on the page stopped at the request boundary and the book
+    traded flat -- the failure that looks like the ladder simply never firing.
+    """
+
+    APP = open(os.path.join(ROOT, "app.py"), encoding="utf-8").read()
+    HTML = open(os.path.join(ROOT, "strategy.html"), encoding="utf-8").read()
+    JS = open(os.path.join(ROOT, "static", "philforge-app.js"), encoding="utf-8").read()
+    KEYS = ("compound_step_pct", "compound_base_capital", "compound_max_lots")
+
+    def test_both_payload_models_accept_it(self):
+        for model in ("GapCarryPaperStartPayload", "GapCarryBacktestPayload"):
+            i = self.APP.find(f"class {model}")
+            self.assertGreater(i, 0, model)
+            block = self.APP[i : i + 1400]
+            for k in self.KEYS:
+                self.assertIn(k, block, f"{model}.{k}")
+
+    def test_every_place_that_builds_the_engine_config_passes_it(self):
+        built = self.APP.count("_gap_carry_mod.GapCarryConfig(")
+        passed = self.APP.count("compound_step_pct=float(")
+        self.assertEqual(passed, built, "a config built without the ladder trades flat")
+
+    def test_the_pinned_automation_rule_keeps_it_off(self):
+        block = self.APP.split("_GAP_CARRY_AUTO_RULE = {")[1].split("}")[0]
+        self.assertIn('"compound_step_pct": 0.0', block)
+
+    def test_the_page_sends_it(self):
+        block = self.JS.split("function _gapCarryPayload(")[1][:900]
+        for k in self.KEYS:
+            self.assertIn(k, block, k)
+
+    def test_the_page_has_controls_for_it(self):
+        self.assertIn('id="oc-gap-compound-step"', self.HTML)
+        self.assertIn('id="oc-gap-compound-capital"', self.HTML)
+        self.assertIn("setGapCarryCompound", self.HTML)
+
+    def test_the_action_is_registered(self):
+        """An unregistered action renders and then does nothing when clicked."""
+        self.assertIn("'setGapCarryCompound'", self.JS)
+        self.assertIn("function setGapCarryCompound(", self.JS)
+
+    def test_the_recipe_says_whether_the_ladder_will_fire(self):
+        block = self.JS.split("function _syncGapCarryRecipe()")[1][:1200]
+        self.assertIn("+1 lot per +", block)
+        self.assertIn("ladder needs a capital", block)
+
+
+class TheTearsheetSaysIt(unittest.TestCase):
+    """The document claimed "There is no position sizing in this rule" and
+    "Every figure in this document is one lot". The second is still true; the
+    first stopped being true the moment the engine grew a ladder."""
+
+    BUILD = open(os.path.join(ROOT, "tools", "tearsheet", "build_gapcarry_report.py"), encoding="utf-8").read()
+    OUT = os.path.join(ROOT, "docs", "assets", "gap-carry-tearsheet.html")
+
+    def test_the_contradicted_claim_is_gone(self):
+        self.assertNotIn("There is no position sizing in this rule", self.BUILD)
+
+    def test_the_document_still_says_its_own_figures_are_one_lot(self):
+        self.assertIn("Every figure in this document is ONE lot", self.BUILD)
+
+    def test_each_row_was_its_own_engine_run(self):
+        """Scaling a one-lot book by the lot count is the invalid method that
+        produced two wrong CE/PE figures; the comment must say these are not."""
+        block = self.BUILD.split("LADDER = [")[0][-500:]
+        self.assertIn("not scaled", block)
+
+    def test_the_rows_match_what_the_engine_returned(self):
+        block = self.BUILD.split("LADDER = [")[1].split("]")[0]
+        for net in ("277173", "680111", "2299104", "3597754"):
+            self.assertIn(net, block, net)
+
+    def test_it_reports_capital_efficiency_not_just_the_headline(self):
+        self.assertIn('row["net"] / row["peak"]', self.BUILD)
+
+    def test_the_page_carries_the_section(self):
+        if not os.path.exists(self.OUT):
+            self.skipTest("tearsheet not built here")
+        html = open(self.OUT, encoding="utf-8").read()
+        self.assertIn("Sizing up as the book earns", html)
+        for net in ("2,77,173", "35,97,754"):
+            self.assertIn(net, html, net)
+        self.assertIn("too few trades", html, "the noise caveat must travel with the numbers")

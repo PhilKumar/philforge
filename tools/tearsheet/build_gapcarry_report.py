@@ -510,8 +510,8 @@ def lots(b: dict) -> str:
     }</h2>
     <p>{
         t(
-            "There is no position sizing in this rule. It buys ONE lot when the candle qualifies and nothing when it does not — no ramp with a winning streak, no cut after a loss, no second lot ever, and never two positions open at once. Every figure in this document is one lot.",
-            "இந்த விதியில் position sizing இல்லை. Candle தகுதி பெற்றால் ஒரு lot, இல்லையெனில் ஒன்றுமில்லை — வெற்றித் தொடரில் அதிகரிப்பு இல்லை, நஷ்டத்திற்குப் பின் குறைப்பு இல்லை, இரண்டாவது lot ஒருபோதும் இல்லை.",
+            "Every figure in this document is ONE lot. The rule buys one lot when the candle qualifies and nothing when it does not — no ramp on a winning streak, no cut after a loss, and never two positions open at once. The engine will now also size up as the book banks money, the way the CE and PE books do, and that is measured separately below; it is OFF unless it is switched on, and nothing above it uses it.",
+            "இந்த ஆவணத்தின் ஒவ்வொரு எண்ணும் ஒரு lot. Candle தகுதி பெற்றால் ஒரு lot, இல்லையெனில் ஒன்றுமில்லை — வெற்றித் தொடரில் அதிகரிப்பு இல்லை, நஷ்டத்திற்குப் பின் குறைப்பு இல்லை. இப்போது என்ஜின், CE மற்றும் PE புத்தகங்களைப் போல, சேர்த்த பணத்திற்கு ஏற்ப அளவை உயர்த்தவும் முடியும்; அது கீழே தனியாக அளக்கப்பட்டுள்ளது. இயக்காதவரை அது OFF; மேலுள்ள எண்கள் அதைப் பயன்படுத்தவில்லை.",
         )
     }</p></div></div>
   <p>{
@@ -535,6 +535,44 @@ def lots(b: dict) -> str:
         )
     }</p>
 </section>"""
+
+
+# Measured through the engine, one run per step, not scaled from the one-lot
+# book -- a ladder changes the charges as well as the size, and a per-lot
+# figure recovered by division is wrong whenever a fee does not scale.
+LADDER = [
+    {"label": "flat, one lot", "step": 0, "net": 277173, "dd": -17965, "peak": 33304},
+    {"label": "+1 lot per +100% banked", "step": 100, "net": 680111, "dd": -116952, "peak": 171717},
+    {"label": "+1 lot per +50% banked", "step": 50, "net": 2299104, "dd": -292168, "peak": 490620},
+    {"label": "+1 lot per +25% banked", "step": 25, "net": 3597754, "dd": -351236, "peak": 666075},
+]
+
+
+def ladder_section() -> str:
+    """What compounding does to this book, and what it costs to get it."""
+    rows = "".join(
+        f'<tr><td>{t(row["label"], row["label"])}</td>'
+        f'<td class="num">{r(row["net"])}</td>'
+        f'<td class="num neg">{r(row["dd"])}</td>'
+        f'<td class="num">{r(row["peak"])}</td>'
+        f'<td class="num">{row["net"] / row["peak"]:.2f}</td></tr>'
+        for row in LADDER
+    )
+    return f"""
+<section>
+  <div class="shead"><div><h2>{t("Sizing up as the book earns", "புத்தகம் சம்பாதிக்கும்போது அளவை உயர்த்துதல்")}</h2>
+    <p>{t("One more lot for every rung of profit actually banked. Each row is its own engine run over the same nights, so the charges are computed at the size actually traded rather than scaled from the one-lot book.", "உண்மையில் சேர்த்த ஒவ்வொரு படி லாபத்துக்கும் ஒரு lot கூடுதல். ஒவ்வொரு வரிசையும் அதே இரவுகள் மீது தனித்தனி என்ஜின் இயக்கம்; கட்டணங்கள் உண்மையில் வர்த்தகம் செய்த அளவில் கணக்கிடப்பட்டவை.")}</p></div></div>
+  <table class="tbl">
+    <thead><tr><th>{t("Sizing", "அளவு")}</th><th class="num">{t("Net", "நிகரம்")}</th><th class="num">{t("Worst fall", "மோசமான வீழ்ச்சி")}</th><th class="num">{t("Peak capital", "உச்ச மூலதனம்")}</th><th class="num">{t("Net per rupee", "ரூபாய்க்கு நிகரம்")}</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  <div class="note" style="margin-top:14px">
+    <h2 class="note-h">{t("The last column is the one to read", "கடைசி நெடுவரிசையே படிக்க வேண்டியது")}</h2>
+    <p>{t("Compounding earns thirteen times the money and needs twenty times the capital, so per rupee committed the flat book is the most efficient of the four at 8.32 against 5.40. What the ladder buys is a bigger absolute result from an account that is willing to grow into it, not a better use of the money.", "Compounding பதின்மூன்று மடங்கு பணம் தருகிறது, ஆனால் இருபது மடங்கு மூலதனம் கேட்கிறது; எனவே ஒரு ரூபாய்க்கு நிலையான புத்தகமே சிறந்தது &mdash; 8.32 எதிராக 5.40. Ladder தருவது பெரிய முழுமையான முடிவு, பணத்தின் சிறந்த பயன்பாடு அல்ல.")}</p>
+    <p>{t("The ordering of the steps is not reliable. Across 179 nights +75% measured WORSE per rupee than not compounding at all, which is a middle setting losing to both its neighbours &mdash; a sign these thresholds rest on too few trades to be structure. The engine therefore ships with compounding OFF and the step as a setting, and picks none of them.", "படிகளின் வரிசை நம்பகமானது அல்ல. 179 இரவுகளில் +75%, compounding செய்யாததை விட ஒரு ரூபாய்க்கு மோசமாக அளந்தது &mdash; இரு பக்கத்து அமைப்புகளையும் விட நடுவில் உள்ளது மோசமாக இருப்பது, இந்த வரம்புகள் மிகச் சில வர்த்தகங்களில் நிற்கின்றன என்பதன் அறிகுறி. எனவே என்ஜின் compounding OFF ஆக வருகிறது; படி ஒரு அமைப்பு, தேர்வு அல்ல.")}</p>
+  </div>
+</section>
+"""
 
 
 def sizing_section(b: dict) -> str:
@@ -749,6 +787,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 {cuts(b).split("<!--CUT-->")[0]}
 {heat(b)}
 {sizing_section(b)}
+{ladder_section()}
 {honesty(b)}
 {cuts(b).split("<!--CUT-->")[1]}
 {ten(b)}

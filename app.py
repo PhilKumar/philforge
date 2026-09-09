@@ -5074,6 +5074,12 @@ class GapCarryPaperStartPayload(BaseModel):
     # for a put. A negative here would buy the cheap out-of-the-money wing.
     strike_offset_steps: int = Field(default=4, ge=0, le=10)
     lots: int = Field(default=1, ge=1, le=20)
+    # THE LADDER. One extra lot per this many per cent of `compound_base_capital`
+    # BANKED; 0 is off, which is the default. The engine holds the arithmetic --
+    # these only carry the setting to it.
+    compound_step_pct: float = Field(default=0.0, ge=0.0, le=500.0)
+    compound_base_capital: float = Field(default=0.0, ge=0.0)
+    compound_max_lots: int = Field(default=20, ge=1, le=20)
     entry_time: str = "15:10"
     exit_time: str = "09:20"
     expiry_rule: str = "weekly"
@@ -5087,6 +5093,12 @@ class GapCarryBacktestPayload(BaseModel):
     rsi_threshold: float = Field(default=70.0, ge=50.0, le=95.0)
     strike_offset_steps: int = Field(default=4, ge=0, le=10)
     lots: int = Field(default=1, ge=1, le=20)
+    # THE LADDER. One extra lot per this many per cent of `compound_base_capital`
+    # BANKED; 0 is off, which is the default. The engine holds the arithmetic --
+    # these only carry the setting to it.
+    compound_step_pct: float = Field(default=0.0, ge=0.0, le=500.0)
+    compound_base_capital: float = Field(default=0.0, ge=0.0)
+    compound_max_lots: int = Field(default=20, ge=1, le=20)
     entry_time: str = "15:10"
     exit_time: str = "09:20"
     expiry_rule: str = "weekly"
@@ -13344,6 +13356,11 @@ _GAP_CARRY_AUTO_RULE = {
     "rsi_threshold": 70.0,
     "strike_offset_steps": 4,
     "lots": 1,
+    # OFF on the pinned rule. Automation may not put an unattended loop on a
+    # size nobody has replayed, and a ladder changes size on its own.
+    "compound_step_pct": 0.0,
+    "compound_base_capital": 0.0,
+    "compound_max_lots": 20,
     "entry_time": "15:10",
     "exit_time": "09:20",
     "expiry_rule": "weekly",
@@ -13436,6 +13453,9 @@ def _gap_carry_config(payload) -> "_gap_carry_mod.GapCarryConfig":
             rsi_threshold=float(getattr(payload, "rsi_threshold", 70.0)),
             strike_offset_steps=int(getattr(payload, "strike_offset_steps", 4)),
             lots=int(getattr(payload, "lots", 1)),
+            compound_step_pct=float(getattr(payload, "compound_step_pct", 0.0) or 0.0),
+            compound_base_capital=float(getattr(payload, "compound_base_capital", 0.0) or 0.0),
+            compound_max_lots=int(getattr(payload, "compound_max_lots", 20) or 20),
             entry_time=entry_time,
             exit_time=exit_time,
         )
@@ -14051,6 +14071,9 @@ async def gap_carry_backtest(payload: GapCarryBacktestPayload, request: Request)
             "timeframe": config.timeframe,
             "rsi_threshold": config.rsi_threshold,
             "strike_offset_steps": config.strike_offset_steps,
+            "compound_step_pct": config.compound_step_pct,
+            "compound_base_capital": config.compound_base_capital,
+            "compound_max_lots": config.compound_max_lots,
             "lots": config.lots,
             "entry_time": config.entry_time.strftime("%H:%M"),
             "exit_time": config.exit_time.strftime("%H:%M"),
@@ -14244,6 +14267,9 @@ async def gap_carry_backtest_chart(request: Request):
             rsi_threshold=float(rule.get("rsi_threshold") or 70.0),
             strike_offset_steps=int(rule.get("strike_offset_steps") or 4),
             lots=int(rule.get("lots") or 1),
+            compound_step_pct=float(rule.get("compound_step_pct") or 0.0),
+            compound_base_capital=float(rule.get("compound_base_capital") or 0.0),
+            compound_max_lots=int(rule.get("compound_max_lots") or 20),
             entry_time=_gap_carry_clock(str(rule.get("entry_time") or "15:10"), label="Entry time"),
             exit_time=_gap_carry_clock(str(rule.get("exit_time") or "09:20"), label="Exit time"),
         )

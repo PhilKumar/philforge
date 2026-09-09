@@ -3462,6 +3462,23 @@
                 </div>
               </div>
               <div>
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;"
+                       title="Add one lot for every this many per cent of the ladder capital the book has BANKED. Off means a fixed size.">Compound step</label>
+                <input type="hidden" id="oc-gap-compound-step" value="0">
+                <div id="oc-gap-compound-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Compounding step">
+                  <button type="button" class="scalp-toggle-btn active" data-value="0" data-tone="ember" data-pf-action="setGapCarryCompound" role="radio" aria-checked="true"><span>Off</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-value="25" data-tone="ember" data-pf-action="setGapCarryCompound" role="radio" aria-checked="false" title="Best per rupee of capital over the 5.6-year book"><span>+25%</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-value="50" data-tone="ember" data-pf-action="setGapCarryCompound" role="radio" aria-checked="false"><span>+50%</span></button>
+                  <button type="button" class="scalp-toggle-btn" data-value="100" data-tone="ember" data-pf-action="setGapCarryCompound" role="radio" aria-checked="false"><span>+100%</span></button>
+                </div>
+              </div>
+              <div>
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;"
+                       title="The capital the step is a percentage of. A step needs one; with no capital there is no rung to climb.">Ladder capital</label>
+                <input type="number" id="oc-gap-compound-capital" value="0" min="0" step="25000" placeholder="0"
+                       style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--panel);color:var(--text);font:12px 'JetBrains Mono',monospace;">
+              </div>
+              <div>
                 <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Contract</label>
                 <input type="hidden" id="oc-gap-expiry-rule" value="weekly">
                 <div id="oc-gap-expiry-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Which expiry">
