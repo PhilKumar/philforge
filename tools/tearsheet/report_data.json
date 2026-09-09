@@ -15010,41 +15010,41 @@
  "slip": [
   {
    "bps": 0,
-   "net": 1245087,
-   "win": 46.6
+   "net": 2291345,
+   "win": 45.6
   },
   {
    "bps": 6,
-   "net": 1181730,
-   "win": 46.4
-  },
-  {
-   "bps": 10,
-   "net": 1139493,
-   "win": 46.4
-  },
-  {
-   "bps": 14,
-   "net": 1097255,
-   "win": 46.2
-  },
-  {
-   "bps": 25,
-   "net": 981101,
-   "win": 45.9
-  },
-  {
-   "bps": 50,
-   "net": 717115,
+   "net": 2112533,
    "win": 45.3
   },
   {
+   "bps": 10,
+   "net": 1945548,
+   "win": 45.2
+  },
+  {
+   "bps": 14,
+   "net": 1859998,
+   "win": 45.2
+  },
+  {
+   "bps": 25,
+   "net": 1565214,
+   "win": 44.8
+  },
+  {
+   "bps": 50,
+   "net": 506417,
+   "win": 42.3
+  },
+  {
    "bps": 100,
-   "net": 189143,
-   "win": 43.7
+   "net": 3668,
+   "win": 39.8
   }
  ],
- "breakeven_slip_pct": 1.18,
+ "breakeven_slip_pct": 1.0,
  "best10": [
   [
    "2025-05-15",
@@ -15554,8 +15554,13 @@
   "basis": "4 lots, 5 on expiry, CE ladder +25% and PE ladder +75% capped at 20; Dhan archive 2021-01-01 to 2026-08-31; every statutory charge and 10/14 bps slippage applied to every trade"
  },
  "slip_basis": {
-  "stale": true,
-  "describes": "the flat 4-lot spliced book, not the deployed configuration",
-  "note": "This sensitivity has not been re-run on the deployed configuration. The shape of it holds -- more slippage costs more, and the book survives to about 100 bps -- but the rupee figures belong to the older, larger-priced book and should not be read as current."
+  "stale": false,
+  "describes": "the deployed configuration: 4 lots, 5 on expiry, both ladders, Dhan prices",
+  "note": "Re-run on the deployed configuration; the same slippage is applied to entry and exit."
+ },
+ "slip_margin": {
+  "live_bps_per_side": 30.0,
+  "breakeven_bps": 100,
+  "multiple_inside": 3.3
  }
 }

@@ -382,6 +382,7 @@ SRC = D.get("source_comparison") or {}
 SZ = D["sizing"]
 SL = D["slip"]
 SLIP_BASIS = D.get("slip_basis") or {}
+SLIP_MARGIN = D.get("slip_margin") or {}
 SERIES = json.dumps(D["series"], separators=(",", ":"))
 
 CHARGE_ROWS = "".join(
@@ -670,8 +671,8 @@ PARA09 = t(
 )
 
 PARA10 = t(
-    f"""<strong>Where it breaks:</strong> the strategy goes to zero at about <strong>{D["breakeven_slip_pct"]}% per side</strong> at 4 lots, and at <strong>0.87%</strong> at 1 lot &mdash; smaller size has less room because flat brokerage is already eating more. The live engine models 6&ndash;8 bps plus a 12 bps spread, so the deployed assumption sits at roughly 0.14% per side, about <strong>8&times; inside</strong> the break-even point. That is the margin of safety; it is not unlimited.""",
-    f"""<strong>எங்கே உடைகிறது:</strong> 4 லாட்டில் ஒரு பக்கம் சுமார் <strong>{D["breakeven_slip_pct"]}%</strong> ஸ்லிப்பேஜில் உத்தி பூஜ்ஜியமாகிறது; 1 லாட்டில் <strong>0.87%</strong> &mdash; சிறிய அளவுக்கு இடம் குறைவு, ஏனெனில் நிலையான புரோக்கரேஜ் ஏற்கனவே அதிகம் உண்கிறது. லைவ் என்ஜின் 6&ndash;8 bps + 12 bps ஸ்ப்ரெட் கணக்கிடுகிறது, அதாவது ஒரு பக்கம் சுமார் 0.14% &mdash; உடையும் புள்ளியிலிருந்து சுமார் <strong>8 மடங்கு</strong> உள்ளே. அதுவே பாதுகாப்பு வரம்பு; அது எல்லையற்றது அல்ல.""",
+    f"""<strong>Where it breaks:</strong> the book goes to zero at about <strong>{D["breakeven_slip_pct"]}% per side</strong> &mdash; {SLIP_MARGIN["breakeven_bps"]} bps, where five and a half years return almost nothing. The deployed assumption is {SLIP_MARGIN["live_bps_per_side"]:.0f} bps per side (10 bps in, 14 bps out, plus an 18 bps spread allowance), which sits <strong>{SLIP_MARGIN["multiple_inside"]}&times; inside</strong> that point. Compounding makes this tighter, not looser: the ladder puts more lots on later trades, so every basis point costs more as the book grows. On the flat book 100 bps still returned money; on this one it returns {r(D["slip"][-1]["net"])}. That is the margin of safety, and it is thinner than it looks.""",
+    f"""<strong>எங்கே உடைகிறது:</strong> ஒரு பக்கம் சுமார் <strong>{D["breakeven_slip_pct"]}%</strong> ({SLIP_MARGIN["breakeven_bps"]} bps) ஸ்லிப்பேஜில் புத்தகம் பூஜ்ஜியமாகிறது &mdash; ஐந்தரை ஆண்டுகள் கிட்டத்தட்ட எதுவும் தராது. இயங்கும் அமைப்பு ஒரு பக்கம் {SLIP_MARGIN["live_bps_per_side"]:.0f} bps (நுழைவு 10, வெளியேற்றம் 14, மேலும் 18 bps ஸ்ப்ரெட்), அதாவது அந்த எல்லைக்கு <strong>{SLIP_MARGIN["multiple_inside"]}&times; உள்ளே</strong>. கூட்டு வளர்ச்சி இதை இறுக்கமாக்குகிறது: ladder பிந்தைய வர்த்தகங்களில் அதிக lots வைப்பதால், புத்தகம் வளர வளர ஒவ்வொரு பேசிஸ் பாயிண்டும் அதிக செலவாகிறது. பழைய நிலையான புத்தகத்தில் 100 bps-இலும் லாபம் இருந்தது; இதில் {r(D["slip"][-1]["net"])} மட்டுமே. இதுவே பாதுகாப்பு இடைவெளி &mdash; தோற்றத்தை விட மெல்லியது.""",
 )
 
 PARA11 = t(

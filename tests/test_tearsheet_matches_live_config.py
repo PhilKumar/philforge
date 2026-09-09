@@ -152,3 +152,44 @@ class TheFundingIsMeasuredNotAssumed(unittest.TestCase):
             for key in ("median", "avg", "worst_single"):
                 v = self.KP["live"][book][key]
                 self.assertIn(f"{v:,}".replace(",", ""), html.replace(",", ""), f"{book}.{key}")
+
+
+class TheSlippageTableIsCurrent(unittest.TestCase):
+    """Phil: "Finish this... why you left it as such?"
+
+    The sensitivity had been left on the flat-lot book and merely labelled.
+    Re-run on the deployed configuration it says something the old one did not:
+    the ladder makes the book MORE sensitive to slippage, not less, because it
+    puts more lots on later trades. At 100 bps the flat book still returned
+    Rs 1,89,143; this one returns Rs 3,668.
+    """
+
+    def test_it_is_no_longer_marked_stale(self):
+        basis = DATA.get("slip_basis") or {}
+        self.assertFalse(basis.get("stale"), "the table has been re-run")
+        self.assertIn("deployed", basis.get("describes", ""))
+
+    def test_every_level_was_measured(self):
+        self.assertEqual([r["bps"] for r in DATA["slip"]], [0, 6, 10, 14, 25, 50, 100])
+
+    def test_it_degrades_monotonically(self):
+        nets = [r["net"] for r in DATA["slip"]]
+        self.assertEqual(nets, sorted(nets, reverse=True), "more slippage must cost more")
+
+    def test_the_zero_row_agrees_with_the_headline_direction(self):
+        """At zero slippage the book must beat the deployed 10/14 result."""
+        self.assertGreater(DATA["slip"][0]["net"], DATA["headline"]["combined"]["net"])
+
+    def test_the_breakeven_and_the_margin_are_derived_not_typed(self):
+        m = DATA["slip_margin"]
+        self.assertEqual(m["live_bps_per_side"], 30)
+        self.assertAlmostEqual(m["multiple_inside"], round(m["breakeven_bps"] / 30, 1), places=1)
+        self.assertAlmostEqual(DATA["breakeven_slip_pct"], m["breakeven_bps"] / 100, places=2)
+
+    def test_the_page_no_longer_claims_the_old_margin(self):
+        if not os.path.exists(HTML_PATH):
+            self.skipTest("tearsheet not built here")
+        html = open(HTML_PATH, encoding="utf-8").read()
+        self.assertNotIn("8&times; inside", html)
+        self.assertNotIn("These rupee figures are not current", html)
+        self.assertIn(f'{DATA["slip_margin"]["multiple_inside"]}&times; inside', html)
