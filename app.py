@@ -18578,6 +18578,55 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
+async def _account_option_history(user_id: int, limit: int = 60) -> list[dict]:
+    """Closed NIFTY option trades from the BROKER ACCOUNT, newest first.
+
+    An engine's closed_trades list is per-run and starts empty on every fresh
+    deploy, so a re-deployed book shows nothing it did last week. trade_history
+    is the durable record -- rebuilt FIFO from the broker's own fills -- and
+    survives any restart.
+
+    It carries NO strategy attribution. Gap Carry has traded real NIFTY options
+    since 02-Sep-2026 as well, so a row here cannot be claimed for the CE or PE
+    book; it is split by CE/PE only so the desk's own filter still works, and
+    the desk labels these rows as coming from the account rather than the book.
+    """
+    try:
+        history = await _db_mod.list_trade_history(int(user_id))
+    except Exception:
+        return []
+    rows: list[dict] = []
+    for trade_date, payload in (history or {}).items():
+        if str((payload or {}).get("mode", "")) != "real":
+            continue
+        for leg in (payload or {}).get("details") or []:
+            symbol = str(leg.get("symbol") or "")
+            upper = symbol.upper()
+            if "NIFTY" not in upper:
+                continue
+            if "PE" in upper.split() or "PUT" in upper or upper.endswith("-PE"):
+                side = "PE"
+            elif "CE" in upper.split() or "CALL" in upper or upper.endswith("-CE"):
+                side = "CE"
+            else:
+                continue
+            rows.append(
+                {
+                    "date": str(trade_date),
+                    "side": side,
+                    "symbol": symbol,
+                    "quantity": leg.get("qty"),
+                    "entry_premium": leg.get("buy_avg"),
+                    "exit_premium": leg.get("sell_avg"),
+                    "pnl": round(float(leg.get("pnl", 0) or 0), 2),
+                    "charges": round(float(leg.get("total_costs", 0) or 0), 2),
+                    "from_account": True,
+                }
+            )
+    rows.sort(key=lambda r: r["date"], reverse=True)
+    return rows[:limit]
+
+
 @app.get("/api/live/runs")
 async def live_runs(request: Request):
     """Every strategy-builder run this user has, in one slim summary.
@@ -18696,6 +18745,9 @@ async def live_runs(request: Request):
         "count": len(runs),
         "booked_total": round(sum(float(r.get("booked_pnl", 0) or 0) for r in runs), 2),
         "day_total": round(sum(float(r.get("daily_pnl", 0) or 0) for r in runs), 2),
+        # Everything the account closed before this deploy. A fresh deploy wipes
+        # each engine's own list; this one outlives it.
+        "history": await _account_option_history(user_id),
     }
 
 

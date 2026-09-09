@@ -9636,3 +9636,14 @@ body :is(
 @media (max-width:640px){
   .cepe-pages{ grid-template-columns:1fr; }
 }
+
+/* An "old closed" row came from the broker account, not from this book's own
+   run. The account records no strategy, so the row is dimmed and tagged rather
+   than presented as this book's history. */
+.cepe-old-tag{
+  margin-left:6px; padding:1px 5px; border-radius:4px;
+  font:600 9px 'JetBrains Mono',monospace; letter-spacing:.04em;
+  color:var(--muted); border:1px dashed var(--border); white-space:nowrap;
+}
+.cepe-row-old{ opacity:.72; }
+.cepe-row-old:hover{ opacity:1; }

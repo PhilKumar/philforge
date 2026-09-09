@@ -21700,17 +21700,33 @@ function renderCePe(data) {
   books.innerHTML = runs.map(_cepeBookCard).join('');
 
   // ── one flat ledger under both books, newest first ──
+  // Live rows come from each engine's own list, which a fresh deploy empties.
+  // The OLD rows come from the broker account and outlive every restart -- they
+  // carry no strategy attribution, so they are labelled as the account's, not
+  // the book's (Phil, 2026-09-09).
   const rows = [];
   runs.forEach(r => (r.recent || []).forEach(t => rows.push({ run: r, t })));
+  ((data && data.history) || [])
+    .filter(h => _cepeFilter === 'all' || String(h.side).toUpperCase() === _cepeFilter)
+    .forEach(h => rows.push({
+      run: { side: h.side },
+      old: true,
+      t: {
+        entry_time: h.date, exit_time: h.date, symbol: h.symbol,
+        quantity: h.quantity, entry_premium: h.entry_premium,
+        exit_premium: h.exit_premium, pnl: h.pnl, exit_reason: '', why: [], id: null,
+      },
+    }));
   rows.sort((a, b) => String(b.t.exit_time).localeCompare(String(a.t.exit_time)));
   const body = document.getElementById('oc-cepe-closed-rows');
   const count = document.getElementById('oc-cepe-closed-count');
   const net = rows.reduce((n, r) => n + (Number(r.t.pnl) || 0), 0);
   if (count) count.textContent = rows.length ? `${rows.length} · net ${_cepeMoney(net)}` : '0';
   if (body) {
-    body.innerHTML = rows.length ? rows.map(({ run, t }) => `
-      <tr style="box-shadow:inset 3px 0 0 ${_cepeSide(run.side).tint};">
-        <td><span class="cepe-tattoo" style="background:${_cepeSide(run.side).wash};color:${_cepeSide(run.side).tint};border-color:${_cepeSide(run.side).tint};">${escapeHtml(_cepeSide(run.side).label)}</span></td>
+    body.innerHTML = rows.length ? rows.map(({ run, t, old }) => `
+      <tr class="${old ? 'cepe-row-old' : ''}" style="box-shadow:inset 3px 0 0 ${_cepeSide(run.side).tint};">
+        <td><span class="cepe-tattoo" style="background:${_cepeSide(run.side).wash};color:${_cepeSide(run.side).tint};border-color:${_cepeSide(run.side).tint};">${escapeHtml(_cepeSide(run.side).label)}</span>${
+          old ? '<span class="cepe-old-tag" title="Closed before this deploy. From the broker account, which records no strategy, so it may belong to another book.">old closed</span>' : ''}</td>
         <td>${_cepeTime(t.entry_time)}</td>
         <td>${_cepeTime(t.exit_time)}</td>
         <td>${escapeHtml(String(t.symbol || '—'))}</td>
