@@ -281,6 +281,7 @@ test('Insights, Cascade, and Journal subpanels have no serious automated WCAG vi
 
   await openTradingSection(page, 'cascade');
   for (const [control, panel] of [
+    ['#oc-tabbtn-cepe', '#oc-tab-cepe'],
     ['#oc-tabbtn-fib', '#oc-tab-fib'],
     ['#oc-tabbtn-candle', '#oc-tab-candle'],
     ['#oc-tabbtn-recovery', '#oc-tab-recovery'],
@@ -293,9 +294,9 @@ test('Insights, Cascade, and Journal subpanels have no serious automated WCAG vi
   }
   await page.locator('#oc-tabbtn-supertrend').focus();
   await page.keyboard.press('Home');
-  // Home goes to the FIRST tab, and Gap Carry leads the strip now (Phil,
-  // 2026-08-25: "Get the Gap carry to the first strategy before Fib boundary").
-  await expect(page.locator('#oc-tabbtn-gapcarry')).toHaveAttribute('aria-selected', 'true');
+  // Home goes to the FIRST tab. Gap Carry led the strip from 2026-08-25; CE + PE
+  // took the front on 2026-09-09, being the desk that trades real money.
+  await expect(page.locator('#oc-tabbtn-cepe')).toHaveAttribute('aria-selected', 'true');
 
   await page.click('#nav-charts');
   for (const [control, panel] of [

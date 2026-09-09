@@ -18,6 +18,7 @@ seconds.
 """
 
 import os
+import re
 import sys
 import unittest
 
@@ -64,6 +65,24 @@ class TheTabExistsAndIsWired(unittest.TestCase):
             with self.subTest(action=action):
                 self.assertIn(f"'{action}'", allow, f"{action} is not delegated")
                 self.assertIn(f"window.{action} = {action};", APP_JS, f"{action} is not on window")
+
+    def test_every_scrollable_table_on_this_tab_is_keyboard_reachable(self):
+        """axe: scrollable-region-focusable, serious. The ten-column ledger and
+        the holdings table both overflow, and this rule already refused one push
+        on the tearsheet's wider table."""
+        panel = HTML[HTML.index('id="oc-tab-cepe"') :]
+        panel = panel[: panel.index('id="oc-tab-gapcarry"')] if 'id="oc-tab-gapcarry"' in panel else panel
+        for wrap in re.findall(r'<div class="ocp-table-wrap"([^>]*)>', panel):
+            self.assertIn("tabindex", wrap, "a scrollable table on this tab cannot be reached by keyboard")
+        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        wrap = re.search(r'<div class="ocp-table-wrap"([^`]*?)>', card)
+        self.assertIsNotNone(wrap)
+        self.assertIn("tabindex", wrap.group(1))
+
+    def test_the_new_panel_is_in_the_e2e_accessibility_sweep(self):
+        e2e = open(os.path.join(ROOT, "e2e-tests", "tests", "01-smoke.spec.ts"), encoding="utf-8").read()
+        self.assertIn("['#oc-tabbtn-cepe', '#oc-tab-cepe']", e2e)
+        self.assertIn("await expect(page.locator('#oc-tabbtn-cepe')).toHaveAttribute('aria-selected', 'true')", e2e)
 
     def test_the_books_have_a_layout(self):
         self.assertIn(".oc-cepe-books", CSS)

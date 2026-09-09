@@ -21559,7 +21559,7 @@ function _cepeBookCard(run) {
       <span>${run.closed_count} closed</span>
     </div>
     ${legs
-      ? `<div class="ocp-table-wrap" style="margin-top:10px;"><table class="ocp-table">
+      ? `<div class="ocp-table-wrap" tabindex="0" role="region" aria-label="Open holding, ${escapeHtml(String(run.name || run.run_id))}" style="margin-top:10px;"><table class="ocp-table">
            <thead><tr><th>Holding</th><th>Qty</th><th>In</th><th>Now</th><th>Unrealised</th><th>Stop</th><th></th></tr></thead>
            <tbody>${legs}</tbody></table></div>`
       : '<div style="margin-top:10px;font:11px \'JetBrains Mono\',monospace;color:var(--muted);">No open position.</div>'}
