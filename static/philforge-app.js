@@ -13074,7 +13074,10 @@ async function openCePeIndexChart(event, el) {
     body.innerHTML = '<div class="pf-cascade-chart-empty">Loading NIFTY candles…</div>';
   }
   try {
-    const res = await fetch(`/api/live/index-chart?timeframe=${encodeURIComponent(tf)}`, {
+    // The books read different Supertrends, so the chart follows whichever
+    // book the desk is filtered to rather than drawing one line for both.
+    const book = (_cepeFilter && _cepeFilter !== 'all') ? _cepeFilter : 'all';
+    const res = await fetch(`/api/live/index-chart?timeframe=${encodeURIComponent(tf)}&book=${encodeURIComponent(book)}`, {
       credentials: 'same-origin', cache: 'no-store',
     });
     const data = await res.json().catch(() => ({}));
@@ -13087,7 +13090,10 @@ async function openCePeIndexChart(event, el) {
       const last = Number(data.live_price || 0);
       meta.textContent = `${String(data.timeframe || tf).toUpperCase()} candles`
         + `${last > 0 ? ` · last ${last.toFixed(2)}` : ''}`
-        + ' · CPR, R1-R4, S1-S4, 20-EMA, Supertrend 10,2 · drag to pan, wheel to zoom';
+        + ` · CPR, R1-R4, S1-S4, 20-EMA, ${
+            _cepeFilter === 'CE' ? 'Supertrend 10,2.7 (CE)'
+            : _cepeFilter === 'PE' ? 'Supertrend 10,2 (PE)'
+            : 'Supertrend 10,2 (PE) and 10,2.7 (CE, dashed)'} · drag to pan, wheel to zoom`;
     }
     let host = document.getElementById('live-entry-chart-canvas');
     if (!host && body) {
@@ -21546,10 +21552,16 @@ function setCePeMode(event, el) {
 }
 
 function setCePeFilter(event, el) {
+  const previous = _cepeFilter;
   _cepeFilter = el?.dataset?.cepeFilter || 'all';
   document.querySelectorAll('[data-cepe-filter]').forEach(b =>
     b.classList.toggle('is-active', b.dataset.cepeFilter === _cepeFilter));
   if (_cepeLast) renderCePe(_cepeLast);
+  // An open chart is showing the other book's Supertrend now, so redraw it.
+  const chart = document.getElementById('live-entry-chart-modal');
+  if (previous !== _cepeFilter && chart && chart.classList.contains('is-open')) {
+    openCePeIndexChart(null, { dataset: { cepeTf: _liveEntryChartTf } });
+  }
 }
 let _cepeLast = null;
 

@@ -18765,7 +18765,7 @@ async def live_runs(request: Request):
 
 
 @app.get("/api/live/index-chart")
-async def live_index_chart(request: Request, instrument: str = "26000", timeframe: str = "5m"):
+async def live_index_chart(request: Request, instrument: str = "26000", timeframe: str = "5m", book: str = "all"):
     """The index itself, on the chart standard every entry chart already uses.
 
     Both books on the CE + PE desk read the same NIFTY chart -- one buys above
@@ -18839,7 +18839,7 @@ async def live_index_chart(request: Request, instrument: str = "26000", timefram
         # Taking only ["overlays"] here left the chart with the 20-EMA alone.
         "lines": analytics["lines"]
         + [{"label": "LAST", "price": spot, "color": "#e2e8f0", "dash": [2, 3], "width": 1.2, "opacity": 0.95}],
-        "overlays": analytics["overlays"] + _supertrend_overlay_lines(candles),
+        "overlays": analytics["overlays"] + _supertrend_overlay_lines(candles, book),
         "live_price": spot,
     }
 
@@ -22164,25 +22164,43 @@ def _supertrend_overlay(candles: list[dict], period: int = 10, multiplier: float
     return {"segments": segments, "label": f"ST {period},{multiplier:g}"}
 
 
-def _supertrend_overlay_lines(candles: list[dict]) -> list[dict]:
-    """The Supertrend as canvas overlays: one entry per trend segment.
+# The two books do NOT read the same Supertrend. PE_NoTarget exits on
+# Supertrend_10_2_3m and CE_SL15_NoMonTue on Supertrend_10_2.7_3m, so one line
+# drawn for both would be right for one book and wrong for the other.
+_BOOK_SUPERTREND = {"PE": 2.0, "CE": 2.7}
 
-    Only the first segment carries the label, so the legend reads "ST 10,2"
-    once rather than once per flip.
+
+def _supertrend_overlay_lines(candles: list[dict], book: str = "all") -> list[dict]:
+    """The Supertrend(s) the requested book actually trades, as canvas overlays.
+
+    One overlay per trend segment so the canvas never draws a vertical jump at
+    a flip; only the first segment of each line carries a label, so the legend
+    reads "ST 10,2" once rather than once per flip.
     """
-    built = _supertrend_overlay(candles)
-    if not built:
-        return []
-    overlays = []
-    for i, seg in enumerate(built["segments"]):
-        overlays.append(
-            {
-                "label": built["label"] if i == 0 else "",
+    wanted = str(book or "all").upper()
+    if wanted in _BOOK_SUPERTREND:
+        multipliers = [(wanted, _BOOK_SUPERTREND[wanted])]
+    else:
+        multipliers = sorted(_BOOK_SUPERTREND.items())
+
+    overlays: list[dict] = []
+    for side, mult in multipliers:
+        built = _supertrend_overlay(candles, multiplier=mult)
+        if not built:
+            continue
+        # When both are drawn they must be told apart: the call book's line is
+        # dashed, and each carries the side in its label.
+        dash = [4, 3] if side == "CE" and len(multipliers) > 1 else None
+        for i, seg in enumerate(built["segments"]):
+            entry = {
+                "label": f"{side} {built['label']}" if i == 0 else "",
                 "color": "#4ade80" if seg["dir"] > 0 else "#f87171",
                 "width": 1.4,
                 "points": seg["points"],
             }
-        )
+            if dash:
+                entry["dash"] = dash
+            overlays.append(entry)
     return overlays
 
 

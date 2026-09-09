@@ -102,6 +102,24 @@ def main() -> None:
         # be guessed from a nominal premium, and a laddered book's requirement
         # grows with the book -- the one number a reader most needs is the peak.
         "capital": _capital_profile(trades),
+        # The full trade list, so a report can be rebuilt on this configuration
+        # instead of describing an older one. trade_keys carries only net P&L,
+        # which is not enough for fees, win/loss detail or hold time.
+        "trades_full": [
+            {
+                "entry_time": str(t.get("entry_time"))[:16],
+                "exit_time": str(t.get("exit_time"))[:16],
+                "option_type": t.get("option_type"),
+                "strike": t.get("strike"),
+                "qty": t.get("qty"),
+                "entry_price": t.get("entry_price"),
+                "exit_price": t.get("exit_price"),
+                "pnl": round(float(t.get("pnl", 0) or 0), 2),
+                "fees": round(float(t.get("fees", 0) or 0), 2),
+                "exit_reason": t.get("exit_reason"),
+            }
+            for t in trades
+        ],
     }
     json.dump(summary, open(out_path, "w"), indent=1)
     print(f"bars={summary['bars']} trades={summary['trades']} wins={wins} net={summary['net']:,.2f}")

@@ -381,6 +381,7 @@ _SLIP = (LC.get("shared") or {}).get("slippage_bps") or {"entry": 0, "exit": 0, 
 SRC = D.get("source_comparison") or {}
 SZ = D["sizing"]
 SL = D["slip"]
+SLIP_BASIS = D.get("slip_basis") or {}
 SERIES = json.dumps(D["series"], separators=(",", ":"))
 
 CHARGE_ROWS = "".join(
@@ -1711,6 +1712,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
           <th scope="col">{t("Change", "மாற்றம்")}</th><th scope="col">{t("Win rate", "வெற்றி விகிதம்")}</th></tr></thead>
         <tbody>{SLIP_ROWS}</tbody>
       </table></div>
+      <p class="mit" style="opacity:.85">{t("<strong>These rupee figures are not current.</strong> " + SLIP_BASIS["note"], "<strong>இந்த ரூபாய் எண்கள் தற்போதையவை அல்ல.</strong> இந்த சோதனை இயங்கும் அமைப்பில் மீண்டும் நடத்தப்படவில்லை. வடிவம் சரியே &mdash; ஸ்லிப்பேஜ் அதிகரித்தால் செலவு அதிகரிக்கும், சுமார் 100 bps வரை புத்தகம் தாங்குகிறது &mdash; ஆனால் ரூபாய் மதிப்புகள் பழைய, அதிக விலை கொண்ட புத்தகத்திற்கு உரியவை.") if SLIP_BASIS.get("stale") else ""}</p>
       <p class="mit">{PARA10}</p>
       <p class="mit">{PARA11}</p>
     </div>
