@@ -1307,6 +1307,28 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 if expiry_day_lots > 0 and contract_expiry is not None and contract_expiry == trade_date:
                     leg_lots = expiry_day_lots
 
+                # COMPOUND AS THE BOOK GROWS. One more lot for every
+                # `compound_step_pct` per cent of the starting capital the book
+                # has actually banked, on top of whatever this day's base is.
+                #
+                # It reads total_pnl, which is REALISED money only -- an open
+                # position never sizes the next one. It ratchets: a book that
+                # gives money back drops rungs with it, and never goes below the
+                # configured lots.
+                #
+                # This lives here, in the engine, on purpose. Sizing was
+                # previously estimated by dividing a finished book's P&L by its
+                # lot count, which is wrong whenever fees do not scale with lots
+                # -- brokerage is flat per order, so they never do.
+                step_pct = float(sc.get("compound_step_pct", 0) or 0)
+                if step_pct > 0:
+                    ladder_capital = float(sc.get("compound_base_capital", 0) or initial_capital or 0)
+                    if ladder_capital > 0:
+                        rung = ladder_capital * step_pct / 100.0
+                        extra = int(max(0.0, total_pnl) // rung)
+                        max_lots = int(sc.get("compound_max_lots", 20) or 20)
+                        leg_lots = max(1, min(leg_lots + extra, max_lots))
+
                 positions.append(
                     {
                         "entry_group": trade_group_id,

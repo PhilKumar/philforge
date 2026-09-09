@@ -2565,6 +2565,33 @@ class LiveEngine:
             if expiry_day_lots > 0 and str(expiry) == str(session_date_str):
                 lots = expiry_day_lots
                 self.log_event("info", f"Expiry day — leg {i + 1} sized at {lots} lots instead of {leg.get('lots', 1)}")
+
+            # COMPOUND AS THE BOOK GROWS -- the same rule the backtest applies,
+            # written the same way, reading the same keys. One extra lot per
+            # `compound_step_pct` per cent of the starting capital BANKED, on
+            # top of this day's base. Only closed trades count: an open
+            # position, however green, never sizes the next entry.
+            step_pct = float(self.strategy_config.get("compound_step_pct", 0) or 0)
+            if step_pct > 0:
+                ladder_capital = float(
+                    self.strategy_config.get("compound_base_capital", 0)
+                    or self.strategy_config.get("initial_capital", 0)
+                    or 0
+                )
+                if ladder_capital > 0:
+                    banked = sum(float(t.get("pnl", 0) or 0) for t in self.closed_trades)
+                    rung = ladder_capital * step_pct / 100.0
+                    extra = int(max(0.0, banked) // rung)
+                    max_lots = int(self.strategy_config.get("compound_max_lots", 20) or 20)
+                    laddered = max(1, min(lots + extra, max_lots))
+                    if laddered != lots:
+                        self.log_event(
+                            "info",
+                            f"Compounding — leg {i + 1} sized at {laddered} lots instead of {lots}: "
+                            f"₹{banked:,.0f} banked is {extra} rung{'s' if extra != 1 else ''} "
+                            f"of ₹{rung:,.0f} ({step_pct:g}% of ₹{ladder_capital:,.0f})",
+                        )
+                    lots = laddered
             quantity = lots * lot_size
 
             scanned_premium = 0.0
