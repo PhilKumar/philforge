@@ -116,9 +116,25 @@ class ItReachesTheEngineFromThePage(unittest.TestCase):
         passed = self.APP.count("compound_step_pct=float(")
         self.assertEqual(passed, built, "a config built without the ladder trades flat")
 
-    def test_the_pinned_automation_rule_keeps_it_off(self):
+    def test_the_pinned_automation_rule_compounds(self):
+        """Phil runs this on auto only, so a ladder that needed a manual start
+        would never run."""
         block = self.APP.split("_GAP_CARRY_AUTO_RULE = {")[1].split("}")[0]
-        self.assertIn('"compound_step_pct": 0.0', block)
+        self.assertIn('"compound_step_pct": 25.0', block)
+        self.assertIn('"compound_base_capital": 100000.0', block)
+
+    def test_the_auto_cap_is_what_the_account_can_fund(self):
+        """One lot needs Rs 33,304 on its worst night and a rung is Rs 25,000,
+        so each lot costs more than the rung that earned it. Self-funding holds
+        to 7 lots (Rs 233,128 needed against Rs 237,500 usable) and fails at 8.
+        There is no funds check in this engine, so the cap IS the guard."""
+        block = self.APP.split("_GAP_CARRY_AUTO_RULE = {")[1].split("}")[0]
+        self.assertIn('"compound_max_lots": 7', block)
+        rung, worst, start = 25_000, 33_304, 100_000
+        for lots in range(1, 8):
+            usable = (start + rung * (lots - 1)) * 0.95
+            self.assertLessEqual(worst * lots, usable, f"{lots} lots must be fundable")
+        self.assertGreater(worst * 8, (start + rung * 7) * 0.95, "8 lots must not be")
 
     def test_the_page_sends_it(self):
         block = self.JS.split("function _gapCarryPayload(")[1][:900]

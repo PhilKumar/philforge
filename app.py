@@ -13356,11 +13356,23 @@ _GAP_CARRY_AUTO_RULE = {
     "rsi_threshold": 70.0,
     "strike_offset_steps": 4,
     "lots": 1,
-    # OFF on the pinned rule. Automation may not put an unattended loop on a
-    # size nobody has replayed, and a ladder changes size on its own.
-    "compound_step_pct": 0.0,
-    "compound_base_capital": 0.0,
-    "compound_max_lots": 20,
+    # COMPOUNDING ON, at Phil's instruction (2026-09-10): auto is the only way
+    # he runs this, so a ladder that only worked on a manual start would never
+    # run at all.
+    #
+    # The cap is 7 and not 20, and that number is arithmetic rather than
+    # caution. One lot ties up Rs 33,304 on its worst night; a rung is Rs 25,000
+    # of the Rs 1,00,000 ladder capital. So each extra lot costs more than the
+    # rung that earned it, and the ladder slowly outruns its own funding:
+    # at 7 lots it needs Rs 233,128 against Rs 237,500 usable, and at 8 it needs
+    # Rs 266,432 against Rs 261,250 and the broker starts refusing.
+    #
+    # This holds only while profits STAY in the account -- each rung is what
+    # pays for the next. There is no funds check in the Gap Carry engine, so a
+    # size it cannot fund becomes a rejected order rather than a smaller one.
+    "compound_step_pct": 25.0,
+    "compound_base_capital": 100000.0,
+    "compound_max_lots": 7,
     "entry_time": "15:10",
     "exit_time": "09:20",
     "expiry_rule": "weekly",
