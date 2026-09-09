@@ -138,3 +138,49 @@ class OneColumnMeansOneThing(unittest.TestCase):
         note = JS.split("function _cepeNetNote(")[1][:500]
         self.assertIn("costs_known === false", note)
         self.assertIn("cepe-nocost", JS)
+
+
+class TheStampIsCompleteOrHonest(unittest.TestCase):
+    """Phil, 2026-09-09: "Why no proper time here? I need the exact time and date".
+
+    Two faults. The formatter sliced [5:16], dropping the YEAR -- so an April
+    trade read "04-07" and could not be told from a September one. And the day
+    summary kept only the fill's date: _trade_date_str truncates the broker's
+    stamp to [:10], and the per-symbol detail stored no time at all, so the
+    minute was thrown away at write time and no display could recover it.
+    """
+
+    def test_the_broker_stamp_is_kept_whole(self):
+        self.assertIn("def _trade_stamp_str(", APP)
+        block = APP.split("def _trade_stamp_str(")[1].split("\ndef ")[0]
+        self.assertIn("[:16]", block, "keep the minute, not just the day")
+
+    def test_the_day_summary_records_when_it_opened_and_closed(self):
+        self.assertIn('"first_buy": ""', APP)
+        self.assertIn('"last_sell": ""', APP)
+        self.assertIn('detail["first_buy"]', APP)
+        self.assertIn('detail["last_sell"]', APP)
+
+    def test_existing_rows_are_forced_to_be_rebuilt(self):
+        """Rows written before this carry no times; only a schema bump makes
+        the startup backfill re-pull them from Dhan."""
+        self.assertIn("_TRADE_HISTORY_SCHEMA_VERSION = 5", APP)
+
+    def test_the_payload_carries_both_stamps(self):
+        block = helper_code()
+        self.assertIn('"entry_time": str(leg.get("first_buy")', block)
+        self.assertIn('"exit_time": str(leg.get("last_sell")', block)
+
+    def test_the_display_keeps_the_year(self):
+        fn = JS.split("const _cepeTime = ")[1][:600]
+        self.assertIn("slice(0, 10)", fn, "the full date, not a month-day")
+        self.assertNotIn("slice(5, 16)", fn, "that dropped the year")
+
+    def test_a_missing_time_says_so_rather_than_showing_a_bare_date(self):
+        fn = JS.split("const _cepeTime = ")[1][:600]
+        self.assertIn("time not recorded", fn)
+
+    def test_a_row_falls_back_to_the_day_when_the_broker_gave_no_time(self):
+        body = JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
+        self.assertIn("h.entry_time || h.date", body)
+        self.assertIn("h.exit_time || h.date", body)

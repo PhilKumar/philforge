@@ -21519,7 +21519,17 @@ const _cepeMoney = (v) => {
   return (n < 0 ? '−₹' : '₹') + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 };
 const _cepeTone = (v) => (Number(v) > 0 ? '#6ee7b7' : (Number(v) < 0 ? 'var(--danger)' : 'var(--muted)'));
-const _cepeTime = (s) => (s ? escapeHtml(String(s).slice(5, 16).replace('T', ' ')) : '—');
+// Full date AND time. This used to slice(5,16), which dropped the year -- so a
+// trade from April read "04-07" and could not be told from one this month --
+// and a value carrying no time at all rendered as a bare day (Phil, 2026-09-09).
+const _cepeTime = (s) => {
+  if (!s) return '—';
+  const v = String(s).replace('T', ' ');
+  const date = v.slice(0, 10);
+  const time = v.slice(11, 16);
+  if (!time) return `<span class="cepe-stamp">${escapeHtml(date)}<em>time not recorded</em></span>`;
+  return `<span class="cepe-stamp">${escapeHtml(date)}<em>${escapeHtml(time)}</em></span>`;
+};
 
 // One colour per side, used on the card, the chip and the ledger row, so a
 // glance separates the books without reading a word.
@@ -21736,7 +21746,7 @@ function renderCePe(data) {
       run: { side: h.side },
       old: true,
       t: {
-        entry_time: h.date, exit_time: h.date, symbol: h.symbol,
+        entry_time: h.entry_time || h.date, exit_time: h.exit_time || h.date, symbol: h.symbol,
         quantity: h.quantity, entry_premium: h.entry_premium,
         exit_premium: h.exit_premium, pnl: h.pnl, gross_pnl: h.gross_pnl,
         charges: h.charges, costs_known: h.costs_known,

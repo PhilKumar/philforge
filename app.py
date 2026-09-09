@@ -618,7 +618,10 @@ _TRADE_STATUTORY_CHARGE_FIELDS = (
     "stampDuty",
 )
 _TRADE_BROKERAGE_FIELDS = ("brokerageCharges", "brokerage")
-_TRADE_HISTORY_SCHEMA_VERSION = 4
+# 5: per-symbol fill timestamps (first_buy / last_sell). Bumping this makes
+# the startup backfill re-pull every day from Dhan, so existing rows gain the
+# times they were built without.
+_TRADE_HISTORY_SCHEMA_VERSION = 5
 _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
 _trade_history_repair_attempts: dict[int, float] = {}
 
@@ -717,6 +720,18 @@ def _trade_date_str(trade: dict) -> str:
     raw_time = trade.get("exchangeTime") or trade.get("createTime") or trade.get("updateTime") or ""
     date_str = str(raw_time)[:10]
     return date_str if date_str and len(date_str) >= 10 else ""
+
+
+def _trade_stamp_str(trade: dict) -> str:
+    """The fill's full timestamp, not just its day.
+
+    The day summary used to keep only [:10], so a ledger built from it could
+    say WHICH DAY a trade closed and never at what time. The broker sends the
+    minute; there is no reason to throw it away.
+    """
+    raw_time = trade.get("exchangeTime") or trade.get("createTime") or trade.get("updateTime") or ""
+    stamp = str(raw_time)[:16]
+    return stamp if len(stamp) >= 16 else str(raw_time)[:10]
 
 
 def _trade_history_entry_needs_refresh(
@@ -865,6 +880,8 @@ def _summarize_real_trade_history(
                 "sell_value": 0.0,
                 "closed_segments": 0,
                 "fill_count": 0,
+                "first_buy": "",
+                "last_sell": "",
             },
         )
         statutory_charges = _trade_statutory_charge_total(trade)
@@ -880,9 +897,13 @@ def _summarize_real_trade_history(
             continue
 
         remaining = qty
+        stamp = _trade_stamp_str(trade)
         if side == "BUY":
             detail["buy_qty"] += qty
             detail["buy_value"] += qty * price
+            # earliest buy is when the position was opened
+            if stamp and (not detail["first_buy"] or stamp < detail["first_buy"]):
+                detail["first_buy"] = stamp
             while remaining > 1e-9 and open_shorts[symbol_key]:
                 open_fill = open_shorts[symbol_key][0]
                 matched = min(remaining, open_fill["qty"])
@@ -901,6 +922,9 @@ def _summarize_real_trade_history(
                 open_longs[symbol_key].append({"qty": remaining, "price": price})
         else:
             detail["sell_qty"] += qty
+            # latest sell is when the position was finally closed
+            if stamp and stamp > detail["last_sell"]:
+                detail["last_sell"] = stamp
             detail["sell_value"] += qty * price
             while remaining > 1e-9 and open_longs[symbol_key]:
                 open_fill = open_longs[symbol_key][0]
@@ -18615,6 +18639,8 @@ async def _account_option_history(user_id: int, limit: int = 60) -> list[dict]:
             rows.append(
                 {
                     "date": str(trade_date),
+                    "entry_time": str(leg.get("first_buy") or ""),
+                    "exit_time": str(leg.get("last_sell") or ""),
                     "side": side,
                     "symbol": symbol,
                     "quantity": leg.get("qty"),
