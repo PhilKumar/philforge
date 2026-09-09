@@ -2119,6 +2119,85 @@ async def _archive_paper_campaign(user_id: int, strategy: str, status: Mapping[s
     await _write_paper_campaign_row(int(user_id), strategy, row)
 
 
+# High Entry's terminal statuses, from engine/candle_recovery.py. Everything
+# else is a campaign still deciding.
+_RECOVERY_TERMINAL_STATES = {"RECOVERED", "ABANDONED", "ENDED"}
+
+
+def _recovery_campaign_row(campaign: Mapping[str, Any], symbol: str) -> dict | None:
+    """One finished High Entry campaign, in the ledger's shape.
+
+    This strategy kept NO record of its own. Its book is replayed from the
+    mother dates on every poll and rendered straight into the page, so pressing
+    Remove deleted the campaign's whole history and a mother ageing out of the
+    replay window did the same thing quietly (Phil, 2026-09-09: "it gets removed
+    when I click the remove from the Book Monitor page"). Every other strategy
+    on that page has archived its campaigns since 25 August.
+    """
+    if str(campaign.get("status") or "").upper() not in _RECOVERY_TERMINAL_STATES:
+        return None
+    mother = (campaign.get("mother") or {}).get("timestamp")
+    if not mother:
+        return None
+    trades = [t for t in (campaign.get("trades") or []) if t.get("entry_time")]
+    closed = [t for t in trades if t.get("exit_time")]
+    last = closed[-1] if closed else {}
+    strike = last.get("strike") or (trades[-1].get("strike") if trades else None)
+    side = (trades[-1].get("side") if trades else campaign.get("side")) or ""
+
+    def _money(field: str) -> float | None:
+        values = [t.get(field) for t in closed if t.get(field) is not None]
+        return round(sum(float(v) for v in values), 2) if values else None
+
+    # A leg that never priced is not a flat leg. If any is missing the campaign
+    # has no honest total, and the ledger prints "unpriced" rather than a sum of
+    # the legs that happened to price.
+    unpriced = sum(1 for t in closed if t.get("net_pnl") is None)
+    net = None if unpriced else _money("net_pnl")
+    return {
+        "campaign_key": str(mother),
+        "symbol": str(symbol or ""),
+        "contract": f"{strike} {side}".strip() if strike else "",
+        "opened_at": (trades[0].get("entry_time") if trades else mother),
+        "closed_at": last.get("exit_time") or mother,
+        "status": str(campaign.get("status") or ""),
+        "exit_reason": campaign.get("end_reason") or (None if trades else "no_buy"),
+        "buys": len(trades),
+        "deployed_inr": round(
+            sum(float(t.get("entry_premium") or 0) * float(t.get("quantity") or 0) for t in trades), 2
+        )
+        or None,
+        "gross_pnl": None,
+        "costs_total": _money("costs"),
+        "net_pnl": net,
+        "source": "live",
+        "payload": {
+            "mother": campaign.get("mother"),
+            "side": campaign.get("side"),
+            "timeframe": campaign.get("timeframe"),
+            "mode": campaign.get("mode"),
+            "itm_steps": campaign.get("itm_steps"),
+            "lot_size": campaign.get("lot_size"),
+            "unpriced_legs": unpriced,
+            "trades": list(campaign.get("trades") or []),
+            "zones": campaign.get("zones") or [],
+        },
+    }
+
+
+async def _archive_recovery_campaigns(user_id: int, snapshot: Mapping[str, Any]) -> None:
+    """Archive every terminal High Entry campaign. Idempotent, and never fatal."""
+    symbol = str(snapshot.get("dhan_symbol") or snapshot.get("symbol") or "")
+    for campaign in snapshot.get("campaigns") or []:
+        try:
+            row = _recovery_campaign_row(campaign, symbol)
+        except Exception as exc:  # one malformed campaign must not stop the rest
+            _logger.warning("[LEDGER] candle_recovery: could not build a row: %s", exc)
+            continue
+        if row is not None:
+            await _write_paper_campaign_row(int(user_id), "candle_recovery", row)
+
+
 async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> None:
     """Gap Carry settles a NIGHT, not a campaign, so each closed one is a row.
 
@@ -2905,6 +2984,9 @@ async def _run_recovery_loop(user_id: int, runtime: _RecoveryRuntime) -> None:
                 for exit_ in report.exits:
                     _logger.info("[RECOVERY] %s EXIT %s", runtime.symbol, exit_)
                 await _save_recovery_state(user_id, runtime)
+                # A campaign that has ended goes to the ledger, where Remove and
+                # the replay window cannot reach it.
+                await _archive_recovery_campaigns(user_id, runtime.host.snapshot())
                 await _broadcast_user_ws_json(
                     int(user_id),
                     {"type": "recovery_status", "recovery": _recovery_status_payload(runtime)},
@@ -11837,7 +11919,7 @@ async def _candle_entry_load_ladder(
     return mother, batches
 
 
-_PAPER_LEDGER_STRATEGIES = {"candle_entry", "fib_boundary", "gap_carry", "supertrend"}
+_PAPER_LEDGER_STRATEGIES = {"candle_entry", "candle_recovery", "fib_boundary", "gap_carry", "supertrend"}
 
 
 @app.get("/api/paper-campaigns/{strategy}")
@@ -17493,6 +17575,10 @@ async def recovery_paper_drop(request: Request):
     if runtime is None:
         return {"status": "not_running"}
     campaign_id = str(body.get("campaign_id") or "")
+    # ARCHIVE FIRST. The book is replayed from the named mothers, so dropping one
+    # deletes its campaign everywhere; anything not written before this point is
+    # gone for good.
+    await _archive_recovery_campaigns(user_id, runtime.host.snapshot())
     if not runtime.host.drop(campaign_id):
         raise HTTPException(status_code=404, detail="No such campaign in this run.")
     await _save_recovery_state(user_id, runtime)

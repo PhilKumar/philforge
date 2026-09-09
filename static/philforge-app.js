@@ -2969,6 +2969,7 @@ const _PAPER_LEDGER_UI = {
   fib_boundary: { wrap: 'oc-fib-closed', body: 'oc-fib-closed-rows', count: 'oc-fib-closed-count' },
   supertrend: { wrap: 'oc-st-closed', body: 'oc-st-closed-rows', count: 'oc-st-closed-count' },
   gap_carry: { wrap: 'oc-gap-closed', body: 'oc-gap-closed-rows', count: 'oc-gap-closed-count' },
+  candle_recovery: { wrap: 'oc-high-closed', body: 'oc-high-closed-rows', count: 'oc-high-closed-count' },
 };
 
 // WHY A ROW SAYS "unpriced", AND WHEN IT MUST NOT. A null net has two very
@@ -21312,6 +21313,7 @@ function renderRecovery(data) {
     const emptyWrap = document.getElementById('oc-high-closed');
     if (emptyWrap) emptyWrap.hidden = false;
     list.innerHTML = '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Not running.</div>';
+    _refreshPaperLedger('candle_recovery');
     return;
   }
   const openTrades = campaigns.reduce((a, c) => a + (c.open_trades || 0), 0);
@@ -21336,75 +21338,14 @@ function renderRecovery(data) {
       : _ocpTile('Ledger', _recInr(book.booked_net), ledger >= 0 ? '#6ee7b7' : 'var(--danger)'),
   ].join('');
 
-  // CLOSED TRADES GET THEIR OWN TABLE. Settled paper money was only ever
-  // readable by expanding each campaign; the book deserves one flat ledger.
-  const closedWrap = document.getElementById('oc-high-closed');
-  const closedRows = document.getElementById('oc-high-closed-rows');
-  const closedCount = document.getElementById('oc-high-closed-count');
-  if (closedWrap && closedRows) {
-    // ONE ROW PER CAMPAIGN, in the eight columns every other strategy uses.
-    // It listed one row per TRADE under its own headings, so the same archive
-    // read differently here than on the other three tabs (Phil, 2026-08-26).
-    // NEWEST FIRST. This filtered and never sorted, so the table came out in
-    // whatever order the API happened to send -- oldest at the top, which is
-    // the opposite of every other ledger on this page (Phil, 2026-09-03: "The
-    // old trades has to be on the bottom and new has to be on the top").
-    // Ordered on the campaign's own close, falling back to its mother for one
-    // that never closed a trade.
-    const _endedAt = (c) => {
-      const trades = (c.trades || []).filter(t => t.exit_time);
-      const last = trades.length ? trades[trades.length - 1].exit_time : null;
-      const stamp = last || (c.mother && c.mother.timestamp) || '';
-      const at = Date.parse(stamp);
-      return Number.isFinite(at) ? at : 0;
-    };
-    const ended = campaigns
-      .filter(_recoveryIsOver)
-      .slice()
-      .sort((a, b) => _endedAt(b) - _endedAt(a));
-    closedWrap.hidden = false;
-    const total = ended.reduce((n, c) => n + (Number(c.booked_net) || 0), 0);
-    // A LEG THAT NEVER PRICED IS NOT A FLAT LEG. The tiles above already
-    // refuse to call a book with unpriced exits a total; this table summed the
-    // legs that DID price and printed the result as the net, which is the same
-    // way five stops once read as +Rs 0.
-    const unpricedEnded = ended.reduce((n, c) => n + Number(c.unpriced_legs || 0), 0);
-    if (closedCount) {
-      closedCount.textContent = ended.length
-        ? `· ${ended.length} · net ${_candleEntrySigned(total)}`
-          + (unpricedEnded ? ` · ${unpricedEnded} unpriced` : '')
-        : '· none yet';
-    }
-    closedRows.innerHTML = ended.length ? ended.map(c => {
-      const trades = (c.trades || []).filter(t => t.exit_time);
-      const first = trades[0] || {};
-      const last = trades[trades.length - 1] || {};
-      const deployed = trades.reduce((n, t) => n + (Number(t.entry_premium) || 0) * (Number(t.quantity) || 0), 0);
-      const net = Number(c.booked_net || 0);
-      // A LADDER TRADES MORE THAN ONE STRIKE. The column shows the last one
-      // it held, which is what settled the campaign; the rest are on the
-      // hover, so this row and the card above it can be reconciled.
-      const strike = last.strike || first.strike;
-      const strikes = [...new Set(trades.map(t => t.strike).filter(Boolean))];
-      return `<tr>`
-        + `<td>${escapeHtml(_recTime(first.entry_time || (c.mother && c.mother.timestamp)))}</td>`
-        + `<td>${escapeHtml(_recTime(last.exit_time))}</td>`
-        + `<td${strikes.length > 1 ? ` title="${escapeHtml(strikes.join(', '))}"` : ''}>`
-        + `${strike ? escapeHtml(String(strike)) + ` ${escapeHtml(String(c.side || 'CE'))}` : '—'}`
-        + `${strikes.length > 1 ? ` <span class="ocp-muted">+${strikes.length - 1}</span>` : ''}</td>`
-        + `<td>${trades.length}</td>`
-        + `<td>${deployed ? escapeHtml(_cascadeOptionsMoney(deployed)) : '—'}</td>`
-        + `<td class="ocp-muted">${escapeHtml(String(c.end_reason || c.status || '—').replaceAll('_', ' '))}</td>`
-        + (Number(c.unpriced_legs || 0)
-            ? `<td style="color:#fbbf24;" title="This campaign has ${Number(c.unpriced_legs)} closed leg(s) the archive could not price — the figure beside it is only the legs that did">`
-              + `${escapeHtml(_recInr(c.booked_net))} · ${Number(c.unpriced_legs)} unpriced</td>`
-            : `<td style="color:${net >= 0 ? '#6ee7b7' : '#fca5a5'};">${escapeHtml(_recInr(c.booked_net))}</td>`)
-        + `<td><button type="button" class="cascade-options-control" data-pf-action="loadRecoveryChart"`
-        + ` data-rec-campaign="${escapeHtml(String(c.campaign_id))}" title="Draw this campaign">↗ Chart</button></td>`
-        + `</tr>`;
-    }).join('')
-      : '<tr><td colspan="8" class="ocp-empty" style="padding:16px;text-align:center;color:var(--muted);">No closed campaign yet — a finished one is kept here for good.</td></tr>';
-  }
+  // THE CLOSED TABLE READS THE ARCHIVE, NOT THE LIVE BOOK. This book is
+  // replayed from the named mothers on every poll, so a table built from it
+  // lost a campaign the moment Remove dropped its mother -- and lost one
+  // silently when a mother aged past the replay window (Phil, 2026-09-09).
+  // The other four strategies have read the ledger since 25 August; this one
+  // now uses the same renderer, so the history is permanent and identical in
+  // shape to theirs.
+  _refreshPaperLedger('candle_recovery');
 
   // THE EVENT LOG, in the flow-down section the other three carry. The engine
   // kept these all along; the page simply never asked for them.
@@ -21701,11 +21642,10 @@ async function cepeExit(event, el) {
 }
 
 function openCePeTearsheet(event) {
-  if (event && typeof event.preventDefault === 'function') event.preventDefault();
-  // The five-year options sheet IS this desk's tearsheet — these two books
-  // are what it measures. A doc=cepe key would 404, and an unregistered key
-  // falls back to the options sheet SILENTLY, which is worse than a 404.
-  window.open('/assets/tearsheet?doc=options#cycle', '_blank', 'noopener');
+  // The five-year options sheet IS this desk's tearsheet — these two books are
+  // what it measures, so the doc key is `options`. #cycle is the cumulative
+  // curve; the sheet has no #curve-* anchor of its own.
+  _openStrategyTearsheet(event, 'options', '#cycle');
 }
 
 window.refreshCePeStatus = refreshCePeStatus;

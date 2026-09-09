@@ -37,13 +37,23 @@ class HighEntryClosedLedgerTests(unittest.TestCase):
         self.assertNotIn('"RUNNING"', ENGINE)
         self.assertNotIn("'RUNNING'", ENGINE)
 
-    def test_the_closed_table_filters_on_the_terminal_statuses(self):
+    def test_only_terminal_campaigns_reach_the_closed_table(self):
+        """The table moved to the archive on 2026-09-09, so this rule moved with
+        it: the SERVER now decides what is finished, when it writes the row.
+        The browser-side set survives because the campaign cards still use it."""
         self.assertIn("_RECOVERY_TERMINAL", SCRIPT)
         for status in ("RECOVERED", "ABANDONED", "ENDED"):
             self.assertIn(f"'{status}'", _block("const _RECOVERY_TERMINAL", 400))
-        body = _block("const closedRows = document.getElementById('oc-high-closed-rows')")
-        self.assertIn(".filter(_recoveryIsOver)", body)
-        self.assertNotIn("!== 'RUNNING'", body)
+        self.assertNotIn(
+            "String(c.status || '').toUpperCase() !== 'RUNNING'",
+            SCRIPT,
+            "the filter on a status this engine never produces is back",
+        )
+        app_py = Path(__file__).resolve().parent.parent.joinpath("app.py").read_text(encoding="utf-8")
+        guard = app_py.split("def _recovery_campaign_row(")[1][:900]
+        self.assertIn("_RECOVERY_TERMINAL_STATES", guard)
+        for status in ("RECOVERED", "ABANDONED", "ENDED"):
+            self.assertIn(f'"{status}"', app_py.split("_RECOVERY_TERMINAL_STATES = ")[1][:120])
 
     def test_a_finished_campaign_does_not_claim_an_open_trade(self):
         card = _block("function _recoveryCampaign(c) {")
@@ -55,7 +65,13 @@ class HighEntryClosedLedgerTests(unittest.TestCase):
         self.assertIn("const finished = campaigns.filter(_recoveryIsOver).length;", body)
         self.assertIn("${finished} finished", body)
 
-    def test_unpriced_legs_are_said_out_loud_in_the_ledger(self):
-        body = _block("const closedRows = document.getElementById('oc-high-closed-rows')", 3600)
-        self.assertIn("unpricedEnded", body)
-        self.assertIn("unpriced", body)
+    def test_an_unpriced_leg_still_refuses_to_become_a_total(self):
+        """Also moved to the server: a campaign with a leg that never priced is
+        archived with net_pnl NULL, and the shared ledger renderer prints
+        "unpriced" for a null net. Summing the legs that DID price is how five
+        stops once read as +Rs 0."""
+        app_py = Path(__file__).resolve().parent.parent.joinpath("app.py").read_text(encoding="utf-8")
+        builder = app_py.split("def _recovery_campaign_row(")[1].split("\nasync def")[0]
+        self.assertIn("unpriced", builder)
+        self.assertIn("net = None if unpriced else", builder)
+        self.assertIn("_paperLedgerMoney", SCRIPT)
