@@ -13086,7 +13086,7 @@ async function openCePeIndexChart(event, el) {
       const last = Number(data.live_price || 0);
       meta.textContent = `${String(data.timeframe || tf).toUpperCase()} candles`
         + `${last > 0 ? ` · last ${last.toFixed(2)}` : ''}`
-        + ' · CPR, R1-R4, S1-S4, 20-EMA · drag to pan, wheel to zoom';
+        + ' · CPR, R1-R4, S1-S4, 20-EMA, Supertrend 10,2 · drag to pan, wheel to zoom';
     }
     let host = document.getElementById('live-entry-chart-canvas');
     if (!host && body) {

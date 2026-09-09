@@ -18764,9 +18764,12 @@ async def live_index_chart(request: Request, instrument: str = "26000", timefram
         "candles": candles,
         "entries": [],
         "exits": [],
-        # The one line worth drawing on an index chart with no position on it.
-        "lines": [{"label": "LAST", "price": spot, "color": "#e2e8f0", "dash": [2, 3], "width": 1.2, "opacity": 0.95}],
-        "overlays": analytics["overlays"],
+        # The pivots the header promises: CPR P/BC/TC, R1-R4 and S1-S4 come
+        # from _chart_session_analytics, and LAST is drawn on top of them.
+        # Taking only ["overlays"] here left the chart with the 20-EMA alone.
+        "lines": analytics["lines"]
+        + [{"label": "LAST", "price": spot, "color": "#e2e8f0", "dash": [2, 3], "width": 1.2, "opacity": 0.95}],
+        "overlays": analytics["overlays"] + _supertrend_overlay_lines(candles),
         "live_price": spot,
     }
 
@@ -22043,6 +22046,74 @@ async def _index_supertrend_flips(
             "Marked by TIME: it is an index level, not a premium, so it has no place on this price axis."
         ),
     }
+
+
+def _supertrend_overlay(candles: list[dict], period: int = 10, multiplier: float = 2.0) -> dict | None:
+    """Supertrend(10, 2) as a chart overlay, split where the trend flips.
+
+    Both live books read a Supertrend -- PE_NoTarget on Supertrend_10_2_3m and
+    CE_SL15_NoMonTue on Supertrend_10_2 -- so a chart of the index without it
+    does not show the line the rules actually trade off (Phil, 2026-09-09).
+
+    engine.indicators.supertrend is the one implementation; this only reshapes
+    its output for the canvas. Green means the line is below price (long side),
+    red means above, and the series is broken at each flip so the canvas never
+    draws a vertical jump between the two.
+    """
+    if len(candles) < 30:
+        return None
+    import pandas as pd
+
+    from engine.indicators import supertrend as _supertrend
+
+    frame = pd.DataFrame(
+        {
+            "high": [float(c["h"]) for c in candles],
+            "low": [float(c["l"]) for c in candles],
+            "close": [float(c["c"]) for c in candles],
+        }
+    )
+    out = _supertrend(frame, period=period, multiplier=multiplier)
+    values = out["supertrend"].tolist()
+    dirs = out["supertrend_dir"].tolist()
+
+    segments: list[dict] = []
+    current: list[dict] = []
+    current_dir = None
+    for bar, value, direction in zip(candles, values, dirs, strict=False):
+        if current_dir is not None and direction != current_dir:
+            if len(current) >= 2:
+                segments.append({"dir": current_dir, "points": current})
+            current = []
+        current_dir = int(direction)
+        current.append({"t": bar["t"], "price": round(float(value), 2)})
+    if len(current) >= 2 and current_dir is not None:
+        segments.append({"dir": current_dir, "points": current})
+    if not segments:
+        return None
+    return {"segments": segments, "label": f"ST {period},{multiplier:g}"}
+
+
+def _supertrend_overlay_lines(candles: list[dict]) -> list[dict]:
+    """The Supertrend as canvas overlays: one entry per trend segment.
+
+    Only the first segment carries the label, so the legend reads "ST 10,2"
+    once rather than once per flip.
+    """
+    built = _supertrend_overlay(candles)
+    if not built:
+        return []
+    overlays = []
+    for i, seg in enumerate(built["segments"]):
+        overlays.append(
+            {
+                "label": built["label"] if i == 0 else "",
+                "color": "#4ade80" if seg["dir"] > 0 else "#f87171",
+                "width": 1.4,
+                "points": seg["points"],
+            }
+        )
+    return overlays
 
 
 def _chart_session_analytics(candles: list[dict]) -> dict:
