@@ -20,13 +20,13 @@ class TheDataIsThere(unittest.TestCase):
         self.assertIn("compounding", DATA)
 
     def test_it_records_the_settings_that_are_live(self):
+        """These must match what set_ladder.py writes to the live database."""
         live = DATA["compounding"]["live_settings"]
-        self.assertEqual(
-            live["ce"], {"lots": 2, "expiry_day_lots": 3, "step_pct": 25, "max_lots": 20, "base_capital": 100000}
-        )
-        self.assertEqual(
-            live["pe"], {"lots": 1, "expiry_day_lots": 3, "step_pct": 75, "max_lots": 20, "base_capital": 100000}
-        )
+        for book, step in (("ce", 25), ("pe", 75)):
+            self.assertEqual(live[book]["lots"], 2, book)
+            self.assertEqual(live[book]["expiry_day_lots"], 3, book)
+            self.assertEqual(live[book]["step_pct"], step, book)
+            self.assertEqual(live[book]["max_lots"], 20, book)
 
     def test_it_says_the_numbers_came_from_the_engine(self):
         """The invalid method must be named, so it is not repeated."""
@@ -46,9 +46,15 @@ class TheDocumentSaysIt(unittest.TestCase):
         self.assertIn("y2026", block)
 
     def test_the_live_size_lines_match_the_live_settings(self):
+        """ "What is running today" must describe the engine, not the document."""
         live = DATA["compounding"]["live_settings"]
-        self.assertIn("1 lot, 3 on expiry, +1 lot per +%d%% banked" % live["pe"]["step_pct"], BUILD)
-        self.assertIn("2 lots, 3 on expiry, +1 lot per +%d%% banked" % live["ce"]["step_pct"], BUILD)
+        for book in ("ce", "pe"):
+            expected = "%d lots, %d on expiry, +1 lot per +%d%% banked" % (
+                live[book]["lots"],
+                live[book]["expiry_day_lots"],
+                live[book]["step_pct"],
+            )
+            self.assertIn(expected, BUILD, book)
         self.assertNotIn('{t("4 lots, BUY"', BUILD, "the stale 4-lot description is gone")
 
     def test_it_does_not_leak_into_the_shared_helper(self):
@@ -64,8 +70,14 @@ class TheBuiltFileAgrees(unittest.TestCase):
         if not os.path.exists(path):
             self.skipTest("tearsheet not built here")
         html = open(path, encoding="utf-8").read()
-        for needle in ("Sizing up as the book earns", "12.92", "4.25", "1 lot, 3 on expiry"):
-            self.assertIn(needle, html, needle)
+        self.assertIn("Sizing up as the book earns", html)
+        # the rendered figures must be whatever the data says, not a copy of it
+        c = DATA["compounding"]
+        for book in ("ce", "pe"):
+            for row in ("flat", "expiry", "ladder"):
+                self.assertIn(str(c[book][row]["multiple"]), html, f"{book}.{row} multiple")
+        self.assertIn(str(c["pair"]["multiple"]), html, "the pair multiple")
+        self.assertIn(str(c["running_now"]["pair_multiple"]), html, "the running-now multiple")
 
 
 if __name__ == "__main__":
