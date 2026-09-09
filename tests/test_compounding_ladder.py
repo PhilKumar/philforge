@@ -73,8 +73,11 @@ class BothEnginesImplementIt(unittest.TestCase):
         bt = BACKTEST.split("# COMPOUND AS THE BOOK GROWS")[1][:1400]
         self.assertIn("total_pnl", bt, "the backtest's realised total")
         lv = LIVE.split("# COMPOUND AS THE BOOK GROWS")[1][:1600]
-        self.assertIn("self.closed_trades", lv, "live must sum CLOSED trades")
+        self.assertIn("self.banked_pnl", lv, "live must size on banked money")
         self.assertNotIn("unrealized", lv)
+        # and banked_pnl itself may only ever grow from a CLOSED trade
+        book = LIVE.split("self.banked_pnl +=")[1][:120]
+        self.assertIn("closed_trade", book)
 
     def test_both_use_the_same_arithmetic(self):
         """floor(banked / rung), clamped -- identical in both files."""
@@ -102,3 +105,37 @@ class BothEnginesImplementIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheBankedTotalSurvivesARestart(unittest.TestCase):
+    """The defect this guards against.
+
+    _restore_state returns early when the saved state is from an earlier day
+    ("Stale state ... ignoring"), and closed_trades is restored AFTER that
+    return. A ladder reading closed_trades would therefore reset to base size
+    on the first restart of any later day -- and every deploy restarts the
+    engines, so it would essentially never climb.
+    """
+
+    def test_the_ladder_does_not_read_the_session_list(self):
+        block = LIVE.split("# COMPOUND AS THE BOOK GROWS")[1][:1600]
+        self.assertIn("self.banked_pnl", block)
+        self.assertNotIn("for t in self.closed_trades", block)
+
+    def test_the_total_is_restored_before_the_stale_state_return(self):
+        head = LIVE.split("if saved_date != today and not restoring_stale_positions")[0]
+        self.assertIn(
+            'state.get("banked_pnl"', head, "restoring it after the early return would never run on a later day"
+        )
+
+    def test_it_is_saved(self):
+        self.assertIn('"banked_pnl": round(float(self.banked_pnl), 2)', LIVE)
+
+    def test_it_grows_when_a_trade_closes(self):
+        book = LIVE.split("self.closed_trades.append(closed_trade)")[1][:200]
+        self.assertIn("self.banked_pnl +=", book)
+
+    def test_the_day_roll_does_not_clear_it(self):
+        """trades_today and daily_pnl reset each session; this must not."""
+        for block in LIVE.split("self.trades_today = 0")[1:]:
+            self.assertNotIn("self.banked_pnl = 0", block[:200])

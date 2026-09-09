@@ -222,6 +222,13 @@ class LiveEngine:
         self._background_tasks: set = set()
         self.trades_today = 0
         self.daily_pnl = 0.0
+        # LIFETIME banked profit, for the compounding ladder. closed_trades is
+        # restored only when the saved state is from TODAY -- a restart on any
+        # later day returns early and leaves it empty -- so a ladder reading
+        # closed_trades would silently reset to base size after every deploy.
+        # This total is saved and restored ahead of that early return, exactly
+        # as the profit cooldown is, because it spans sessions by design.
+        self.banked_pnl = 0.0
         self.max_daily_loss = 0.0
         # Date of the last session whose profit armed the skip-N-days cooldown
         self.profit_cooldown_trigger_date: date_type | None = None
@@ -1033,6 +1040,7 @@ class LiveEngine:
                 "in_trade": self.in_trade,
                 "positions": self.positions,
                 "closed_trades": self.closed_trades,
+                "banked_pnl": round(float(self.banked_pnl), 2),
                 "trades_today": self.trades_today,
                 "daily_pnl": self.daily_pnl,
                 "profit_cooldown_trigger_date": str(self.profit_cooldown_trigger_date)
@@ -1088,6 +1096,14 @@ class LiveEngine:
 
             # The profit cooldown spans sessions by design — restore it even when the
             # rest of the state is stale, or a weekend restart would forget it.
+            # The ladder's banked total spans sessions by design -- restore it even
+            # when the rest of the state is stale, or every deploy would drop the
+            # book back to base size.
+            try:
+                self.banked_pnl = float(state.get("banked_pnl", 0) or 0)
+            except (TypeError, ValueError):
+                self.banked_pnl = 0.0
+
             saved_strategy = state.get("strategy") or {}
             saved_skip_n = int(saved_strategy.get("skip_days_after_profit", 0) or 0)
             if saved_skip_n > 0:
@@ -2579,7 +2595,7 @@ class LiveEngine:
                     or 0
                 )
                 if ladder_capital > 0:
-                    banked = sum(float(t.get("pnl", 0) or 0) for t in self.closed_trades)
+                    banked = float(self.banked_pnl or 0)
                     rung = ladder_capital * step_pct / 100.0
                     extra = int(max(0.0, banked) // rung)
                     max_lots = int(self.strategy_config.get("compound_max_lots", 20) or 20)
@@ -3039,6 +3055,7 @@ class LiveEngine:
 
         async with self._trades_lock:
             self.closed_trades.append(closed_trade)
+            self.banked_pnl += float(closed_trade.get("pnl", 0) or 0)
 
         self.log_event(
             "exit",
