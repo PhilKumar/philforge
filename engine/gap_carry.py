@@ -95,6 +95,20 @@ class GapCarryConfig:
     strike_offset_steps: int = 4  # strikes IN the money; ITM is LOWER for a call
     strike_step: int = 50
     lots: int = 1
+    # SIZE UP AS THE BOOK BANKS MONEY -- the same ladder CE and PE run, reading
+    # the same three keys, so one rule is learned once and applies everywhere.
+    # One extra lot per `compound_step_pct` per cent of `compound_base_capital`
+    # actually banked; 0 turns it off, which is the default.
+    #
+    # Measured over the 5.6-year book (2026-09-10) against CE+PE beside it:
+    # +25% returned Rs 36.6L on a Rs 11.0L peak, +50% Rs 23.9L on Rs 9.3L,
+    # +75% Rs 10.2L on Rs 7.8L. Per rupee of capital, +25% is the best of them
+    # and +75% is worse than not compounding at all -- a middle setting losing
+    # to both neighbours over 179 nights is a sign these thresholds sit on few
+    # enough trades to be noise, so the step is a SETTING and not a default.
+    compound_step_pct: float = 0.0
+    compound_base_capital: float = 0.0
+    compound_max_lots: int = 20
     entry_time: time = time(15, 10)
     exit_time: time = time(9, 20)
     # CUT A LOSING CARRY AT THE OPEN. Measured on 5.6 years of the archive
@@ -130,6 +144,12 @@ class GapCarryConfig:
             raise GapCarryError("RSI threshold must sit between 50 and 95.")
         if not 1 <= int(self.lots) <= 20:
             raise GapCarryError("Lots must be between 1 and 20.")
+        if float(self.compound_step_pct) < 0:
+            raise GapCarryError("Compound step cannot be negative.")
+        if float(self.compound_step_pct) > 0 and float(self.compound_base_capital) <= 0:
+            raise GapCarryError("Compounding needs the capital it is a percentage of.")
+        if not 1 <= int(self.compound_max_lots) <= 20:
+            raise GapCarryError("Compound lot cap must be between 1 and 20.")
         if not 0 <= int(self.strike_offset_steps) <= 10:
             raise GapCarryError("Strike offset must be between ATM and ATM+10.")
         if not (SESSION_OPEN < self.entry_time < SESSION_CLOSE):
@@ -464,6 +484,27 @@ def summarise(positions: list) -> dict:
 
 
 # ──────────────────────────────── the replay ────────────────────────────────
+def laddered_lots(config: "GapCarryConfig", banked: float) -> int:
+    """How many lots the next carry takes, given what this book has BANKED.
+
+    The same arithmetic as engine/backtest.py and engine/live.py: one extra lot
+    per rung of realised profit on top of the configured base, clamped. Only
+    realised money counts -- a carry still open, however green, never sizes the
+    next one, because it can still turn overnight.
+    """
+    base = int(config.lots)
+    step = float(getattr(config, "compound_step_pct", 0) or 0)
+    if step <= 0:
+        return base
+    capital = float(getattr(config, "compound_base_capital", 0) or 0)
+    if capital <= 0:
+        return base
+    rung = capital * step / 100.0
+    extra = int(max(0.0, float(banked)) // rung)
+    cap = int(getattr(config, "compound_max_lots", 20) or 20)
+    return max(1, min(base + extra, cap))
+
+
 def replay(
     sessions: list,
     *,
@@ -487,6 +528,7 @@ def replay(
     and a book that quietly swallows those flatters itself.
     """
     positions: list = []
+    banked = 0.0  # realised profit so far, which is what the ladder sizes on
     ordered = sorted(sessions)
     for i, session in enumerate(ordered[:-1]):
         nxt = ordered[i + 1]
@@ -522,7 +564,7 @@ def replay(
             strike=strike,
             expiry=expiry,
             lot_size=lot,
-            lots=int(config.lots),
+            lots=laddered_lots(config, banked),
             signal=signal,
             entry_timestamp=entry_ts,
             entry_spot=float(spot_in),
@@ -565,4 +607,8 @@ def replay(
             position.exit_reason = "MORNING_EXIT_AT_INTRINSIC"
         position.charges = float(charges_for(session, float(premium_in), float(premium_out), position.quantity))
         positions.append(position)
+        # Banked only once the carry has settled, so the next night sizes on
+        # money that is actually in hand.
+        if position.net is not None:
+            banked += float(position.net)
     return positions

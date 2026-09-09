@@ -302,6 +302,16 @@ def main(argv=None) -> int:
     ap.add_argument("--rsi", type=float, default=70.0, help="RSI threshold, read as a mirror (70 -> calls, 30 -> puts)")
     ap.add_argument("--offset", type=int, default=4, help="strikes IN the money")
     ap.add_argument("--lots", type=int, default=1)
+    ap.add_argument(
+        "--compound-step-pct",
+        type=float,
+        default=0.0,
+        help="add one lot per this %% of the ladder capital BANKED; 0 is off",
+    )
+    ap.add_argument(
+        "--compound-capital", type=float, default=0.0, help="the capital the compound step is a percentage of"
+    )
+    ap.add_argument("--compound-max-lots", type=int, default=20)
     ap.add_argument("--start", default="2021-01-01")
     ap.add_argument("--end", default="", help="default: wherever the archives reach")
     ap.add_argument("--pricing", default="hybrid", choices=("dhan", "upstox", "hybrid"))
@@ -348,6 +358,9 @@ def main(argv=None) -> int:
         rsi_threshold=float(args.rsi),
         strike_offset_steps=int(args.offset),
         lots=int(args.lots),
+        compound_step_pct=float(args.compound_step_pct),
+        compound_base_capital=float(args.compound_capital),
+        compound_max_lots=int(args.compound_max_lots),
         exit_time=exit_at,
         cut_losers_at_open=bool(args.cut_losers_at_open),
         early_exit_time=_hhmm(args.early_exit_time, "--early-exit-time"),

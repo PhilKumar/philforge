@@ -38,6 +38,7 @@ from engine.gap_carry import (
     GapCarryConfig,
     GapCarryPosition,
     SignalReading,
+    laddered_lots,
     read_signal,
     strike_for,
 )
@@ -211,7 +212,13 @@ class GapCarryPaper:
             self.notes.append(f"{session}: no premium for {strike}{signal.side}; nothing bought")
             self._status = WAITING
             return
-        quantity = int(lot) * int(self.config.lots)
+        # THE LADDER, on money this book has actually banked. Same helper the
+        # replay uses, so a size decided here and a size decided in a backtest
+        # cannot drift apart. history holds only CLOSED carries.
+        lots = laddered_lots(self.config, sum(float(p.net or 0.0) for p in self.history))
+        if lots != int(self.config.lots):
+            self.notes.append(f"{session}: compounding — {lots} lots instead of {self.config.lots}")
+        quantity = int(lot) * lots
         order_id = bracket_id = None
         traded = float(premium)
         if self.executor is not None:
@@ -256,7 +263,7 @@ class GapCarryPaper:
             strike=strike,
             expiry=expiry,
             lot_size=lot,
-            lots=int(self.config.lots),
+            lots=lots,
             signal=signal,
             entry_timestamp=_ist(entry_ts),
             entry_spot=spot,
