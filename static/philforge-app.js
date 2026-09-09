@@ -2105,6 +2105,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   // which is this file's most expensive silent failure.
   'cepeStop',
   'cepeExit',
+  'openCePeIndexChart',
   'setCePeFilter',
   'openCePeTearsheet',
   'openFibAutoChart',
@@ -13048,6 +13049,77 @@ async function openLiveEntryChart(runId, options = {}) {
   }
 }
 
+// ═══ The index itself, on the desk that reads it ═══
+// Both books decide off the same NIFTY chart, so the desk has ONE chart button
+// rather than one per book (Phil, 2026-09-09). It borrows the entry-chart
+// overlay and the same renderer -- there is one chart vocabulary on this page.
+let _cepeIndexTimer = null;
+
+async function openCePeIndexChart(event, el) {
+  const tf = el?.dataset?.cepeTf || _liveEntryChartTf || '5m';
+  _liveEntryChartTf = tf;
+  _liveJournalTradeId = '';
+  _liveEntryChartRunId = '';
+  const requestId = ++_liveEntryChartRequest;
+  const overlay = _ensureLiveEntryChartOverlay();
+  const body = document.getElementById('live-entry-chart-body');
+  const why = document.getElementById('live-trade-why');
+  if (why) { why.hidden = true; why.innerHTML = ''; }
+  overlay.classList.add('is-open');
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('terminal-cascade-chart-open');
+  if (body && !body.querySelector('#live-entry-chart-canvas')) {
+    body.innerHTML = '<div class="pf-cascade-chart-empty">Loading NIFTY candles…</div>';
+  }
+  try {
+    const res = await fetch(`/api/live/index-chart?timeframe=${encodeURIComponent(tf)}`, {
+      credentials: 'same-origin', cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (requestId !== _liveEntryChartRequest) return;
+    if (!res.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${res.status})`));
+    const title = document.getElementById('live-entry-chart-title');
+    const meta = document.getElementById('live-entry-chart-meta');
+    if (title) title.textContent = (data.instrument || {}).underlying || 'NIFTY 50';
+    if (meta) {
+      const last = Number(data.live_price || 0);
+      meta.textContent = `${String(data.timeframe || tf).toUpperCase()} candles`
+        + `${last > 0 ? ` · last ${last.toFixed(2)}` : ''}`
+        + ' · CPR, R1-R4, S1-S4, 20-EMA · drag to pan, wheel to zoom';
+    }
+    let host = document.getElementById('live-entry-chart-canvas');
+    if (!host && body) {
+      body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>';
+      host = document.getElementById('live-entry-chart-canvas');
+    }
+    const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined'
+      && _pfChartCanvas?.host?.closest('#live-entry-chart-canvas') === host;
+    const drawnKey = `__index__|${data.timeframe || tf}`;
+    const view = canvasIsThisChart && drawnKey === _liveEntryChartDrawnKey
+      && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+    const refreshed = canvasIsThisChart && (data.candles || []).length
+      && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+    if (!refreshed) {
+      if (!host || typeof pfBenchDrawChart !== 'function') throw new Error('Chart renderer is unavailable');
+      if (!(data.candles || []).length) throw new Error('No NIFTY candles yet.');
+      if (!pfBenchDrawChart(host, data)) throw new Error('The chart could not be drawn.');
+    }
+    _liveEntryChartDrawnKey = drawnKey;
+    // Redraw while the overlay is open, and stop the moment it is not.
+    if (_cepeIndexTimer) clearInterval(_cepeIndexTimer);
+    _cepeIndexTimer = setInterval(() => {
+      const open = document.getElementById('live-entry-chart-overlay');
+      if (!open || !open.classList.contains('is-open') || _liveEntryChartDrawnKey.indexOf('__index__') !== 0) {
+        clearInterval(_cepeIndexTimer); _cepeIndexTimer = null; return;
+      }
+      openCePeIndexChart(null, { dataset: { cepeTf: _liveEntryChartTf } });
+    }, 15000);
+  } catch (error) {
+    if (requestId !== _liveEntryChartRequest) return;
+    if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Chart unavailable')}</div>`;
+  }
+}
+
 function _startLiveEntryChartPolling() {
   if (_liveEntryChartPollTimer) clearInterval(_liveEntryChartPollTimer);
   _liveEntryChartPollTimer = setInterval(() => {
@@ -21637,5 +21709,6 @@ function openCePeTearsheet(event) {
 window.refreshCePeStatus = refreshCePeStatus;
 window.cepeStop = cepeStop;
 window.cepeExit = cepeExit;
+window.openCePeIndexChart = openCePeIndexChart;
 window.setCePeFilter = setCePeFilter;
 window.openCePeTearsheet = openCePeTearsheet;

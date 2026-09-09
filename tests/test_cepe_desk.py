@@ -92,6 +92,34 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         self.assertNotIn("▶ Start", card)
         self.assertNotIn('data-pf-action="cepeStart"', card)
 
+    def test_the_desk_has_one_index_chart_not_one_per_book(self):
+        """Both books decide off the same NIFTY chart (Phil, 2026-09-09:
+        "Put a live nifty chart button common in this page")."""
+        for tf in ("5m", "15m", "1h"):
+            self.assertIn(f'data-cepe-tf="{tf}"', HTML, tf)
+        self.assertEqual(HTML.count('data-pf-action="openCePeIndexChart"'), 3)
+        allow = APP_JS[APP_JS.index("const PF_DELEGATED_ACTIONS") :]
+        self.assertIn("'openCePeIndexChart'", allow[: allow.index("]")])
+        self.assertIn("window.openCePeIndexChart = openCePeIndexChart;", APP_JS)
+        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        self.assertNotIn("openCePeIndexChart", card, "the chart belongs to the page, not each card")
+
+    def test_the_index_chart_reuses_the_one_renderer(self):
+        """One chart vocabulary on this page: same overlay, same drawer, same
+        server-side analytics as every other entry chart."""
+        fn = APP_JS.split("async function openCePeIndexChart(")[1].split("\nfunction _startLiveEntryChartPolling")[0]
+        self.assertIn("pfBenchDrawChart", fn)
+        self.assertIn("_ensureLiveEntryChartOverlay", fn)
+        self.assertIn("/api/live/index-chart", fn)
+        route = APP_PY.split('@app.get("/api/live/index-chart")')[1].split("@app.get")[0]
+        self.assertIn("_chart_session_analytics", route)
+        self.assertIn('"overlays"', route)
+
+    def test_the_index_chart_stops_polling_when_it_is_closed(self):
+        fn = APP_JS.split("async function openCePeIndexChart(")[1].split("\nfunction _startLiveEntryChartPolling")[0]
+        self.assertIn("clearInterval", fn)
+        self.assertIn("is-open", fn)
+
     def test_the_books_have_a_layout(self):
         self.assertIn(".oc-cepe-books", CSS)
         self.assertIn("grid-template-columns", CSS.split(".oc-cepe-books")[1][:300])

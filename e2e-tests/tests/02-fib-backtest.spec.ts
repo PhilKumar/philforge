@@ -137,6 +137,7 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/fib-boundary/paper/status') await route.fulfill({ json: paperStatus ?? { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/candle-entry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/gap-carry/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_available: false, auto: {}, timeframes: ['5m', '15m'] } });
+    else if (path === '/api/live/index-chart') await route.fulfill({ json: { status: 'ok', timeframe: '5m', is_open: true, instrument: { underlying: 'NIFTY 50' }, candles: [], entries: [], exits: [], lines: [], overlays: {}, live_price: 0 } });
     else if (path === '/api/live/runs') await route.fulfill({ json: { status: 'ok', runs: [], count: 0, booked_total: 0, day_total: 0 } });
     else if (path === '/api/recovery/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper' } });
     else if (path === '/api/supertrend/paper/status') await route.fulfill({ json: { status: 'not_started', mode: 'paper', live_available: false, auto: {}, timeframes: ['1h', '30m'] } });

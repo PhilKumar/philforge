@@ -9584,3 +9584,13 @@ body :is(
   border:1px solid currentColor; border-radius:999px; padding:3px 8px; white-space:nowrap; flex:0 0 auto;
 }
 .cepe-stop{ font-size:11px; padding:3px 10px; flex:0 0 auto; }
+
+/* The desk's own controls: which book on the left, the index chart on the
+   right. Both books decide off the same NIFTY, so the chart is the page's,
+   not the card's. */
+.cepe-controls{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; flex-wrap:wrap; margin-top:14px;
+}
+.cepe-controls .cepe-filters{ margin-top:0; }
+.cepe-chartbar{ display:flex; gap:6px; flex-wrap:wrap; }

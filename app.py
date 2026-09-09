@@ -18694,6 +18694,83 @@ async def live_runs(request: Request):
     }
 
 
+@app.get("/api/live/index-chart")
+async def live_index_chart(request: Request, instrument: str = "26000", timeframe: str = "5m"):
+    """The index itself, on the chart standard every entry chart already uses.
+
+    Both books on the CE + PE desk read the same NIFTY chart -- one buys above
+    its 17-EMA, the other below the CPR's bottom -- so the desk wants ONE chart
+    of the underlying rather than one per book. The entry chart draws the
+    contract that was bought and only exists while a position does; this draws
+    the index whether anything is open or not.
+
+    Same payload as /api/live/entry-chart so the same renderer draws it, and the
+    same `_chart_session_analytics` for the pivots and the 20-EMA -- there is one
+    chart vocabulary on this page and this does not add a second.
+    """
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=503, detail="A broker connection is needed to load the candles.")
+    candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(str(timeframe).lower())
+    if candle_type is None:
+        raise HTTPException(status_code=400, detail="Charts are 5m, 15m or 1h.")
+    info = _get_instrument_map().get(str(instrument)) or {}
+    if not info:
+        raise HTTPException(status_code=400, detail=f"Unknown instrument {instrument!r}.")
+    today = datetime.now(IST).date()
+    from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(info.get("dhan_id") or "13"),
+            exchange_segment=str(info.get("dhan_seg") or "IDX_I"),
+            instrument_type=str(info.get("dhan_type") or "INDEX"),
+            from_date=from_date,
+            to_date=today.isoformat(),
+            candle_type=candle_type,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Index candle request failed: {exc}") from exc
+    if frame is None or frame.empty:
+        raise HTTPException(status_code=404, detail=f"No {timeframe} candles returned for {info.get('name')}.")
+
+    candles = []
+    for timestamp, row in frame.iterrows():
+        stamp = _scalp_option_chart_timestamp(timestamp)
+        if stamp is None:
+            continue
+        candles.append(
+            {
+                "t": stamp,
+                "o": round(float(row["open"]), 2),
+                "h": round(float(row["high"]), 2),
+                "l": round(float(row["low"]), 2),
+                "c": round(float(row["close"]), 2),
+            }
+        )
+    if not candles:
+        raise HTTPException(status_code=404, detail="Index candles contained no usable timestamps")
+
+    analytics = _chart_session_analytics(candles)
+    spot = candles[-1]["c"]
+    return {
+        "status": "ok",
+        "timeframe": str(timeframe).lower(),
+        "is_open": True,
+        "instrument": {
+            "underlying": str(info.get("name") or "NIFTY 50"),
+            "security_id": str(info.get("dhan_id") or "13"),
+        },
+        "candles": candles,
+        "entries": [],
+        "exits": [],
+        # The one line worth drawing on an index chart with no position on it.
+        "lines": [{"label": "LAST", "price": spot, "color": "#e2e8f0", "dash": [2, 3], "width": 1.2, "opacity": 0.95}],
+        "overlays": analytics["overlays"],
+        "live_price": spot,
+    }
+
+
 @app.get("/api/live/entry-chart")
 async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = "5m"):
     """The chart of the contract this run actually entered — scalp's standard.

@@ -3856,10 +3856,17 @@
         </div>
       </div>
 
-      <div class="cepe-filters" role="group" aria-label="Show which book">
+      <div class="cepe-controls">
+        <div class="cepe-filters" role="group" aria-label="Show which book">
         <button type="button" class="cepe-filter is-active" data-pf-action="setCePeFilter" data-cepe-filter="all">Both <span class="cepe-filter-n">0</span></button>
         <button type="button" class="cepe-filter cepe-filter-ce" data-pf-action="setCePeFilter" data-cepe-filter="CE">CE <span class="cepe-filter-n">0</span></button>
         <button type="button" class="cepe-filter cepe-filter-pe" data-pf-action="setCePeFilter" data-cepe-filter="PE">PE <span class="cepe-filter-n">0</span></button>
+        </div>
+        <div class="cepe-chartbar">
+          <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="5m" title="NIFTY on the 5-minute chart, with CPR, R1-R4, S1-S4 and the 20-EMA">&#8599; NIFTY 5m</button>
+          <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="15m" title="NIFTY on the 15-minute chart">15m</button>
+          <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="1h" title="NIFTY on the hourly chart">1h</button>
+        </div>
       </div>
       <div id="oc-cepe-books" class="oc-cepe-books"></div>
 
