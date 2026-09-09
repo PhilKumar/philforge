@@ -3696,3 +3696,34 @@ class WhereIStandSaysThreeThingsTests(unittest.TestCase):
 
     def test_the_overdraft_is_still_said_and_still_not_counted(self):
         self.assertIn("of overdraft you could draw, not counted", self.page)
+
+
+class ThePayIsASettingNotATileTests(unittest.TestCase):
+    """ "To spend this month" said it over money already swept away.
+
+    The tile held one figure copied from one statement row — the salary that
+    landed at the end of the previous month — under a label promising it was
+    his to spend. His bank sweeps the surplus into the overdraft the night
+    it arrives, which is why "Left to breathe" reads the account instead.
+    The number was right and the sentence was wrong, so the tile went.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_the_tile_is_gone(self):
+        self.assertNotIn("To spend this month", self.page)
+        self.assertNotIn("t.carried_in", self.page)
+
+    def test_the_salary_editor_kept_a_door(self):
+        """It opened from that tile and nowhere else. Dropping the tile
+        without rehoming this would have quietly removed the only way to
+        correct a month whose payslip and bank disagree."""
+        self.assertIn('id="salary-edit"', self.page)
+        self.assertIn('if (e.target.id === "salary-edit") salaryModal();', self.page)
+
+    def test_left_to_breathe_still_reads_the_account(self):
+        self.assertIn("in the account", self.page)

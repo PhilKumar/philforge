@@ -1667,6 +1667,12 @@ html[data-theme="dark"]{color-scheme:dark}
       <button class="iconbtn" id="m-prev" title="Previous month">‹</button>
       <h3 id="m-label" title="Tap to jump to any month" style="cursor:pointer"></h3>
       <button class="iconbtn" id="m-next" title="Next month">›</button>
+      <!-- The pay had to keep a door somewhere. It is a SETTING — the figure
+           the month is checked against when a payslip and the bank disagree
+           — not a number worth a tile of its own, which is what it had and
+           what it was wrong about: it said "to spend this month" over money
+           the bank had already swept into the overdraft. -->
+      <button class="btn subtle small" id="salary-edit" title="What you were paid — used where the bank and a payslip disagree">Pay</button>
     </div>
     <div class="tiles" id="tiles"></div>
 
@@ -3344,9 +3350,6 @@ function renderFinance(){
         : f.bank_in_od
         ? `${inr(f.bank_current)} account + ${inr(f.bank_in_od)} sweep · <span class="edit" id="od-held-edit">edit</span>`
         : `${niceDate(f.bank_as_of)} · <span class="edit" id="od-held-edit">money in the sweep account?</span>`}</div></div>
-    <div class="tile card"><div class="lbl">To spend this month</div>
-      <div class="val num ${t.carried_in < 0 ? "neg" : "pos"}">${inr(t.carried_in)}</div>
-      <div class="sub">${niceMonth(f.carried_from)}'s pay · <span class="edit" id="salary-edit">${f.salary ? "change" : "set"}</span></div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
       <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}${t.inflow ? ` · came in ${inr(t.inflow)}` : ""}</div></div>
