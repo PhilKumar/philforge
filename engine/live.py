@@ -2587,18 +2587,16 @@ class LiveEngine:
             # `compound_step_pct` per cent of the starting capital BANKED, on
             # top of this day's base. Only closed trades count: an open
             # position, however green, never sizes the next entry.
-            step_pct = float(self.strategy_config.get("compound_step_pct", 0) or 0)
+            step_pct = float(self.strategy.get("compound_step_pct", 0) or 0)
             if step_pct > 0:
                 ladder_capital = float(
-                    self.strategy_config.get("compound_base_capital", 0)
-                    or self.strategy_config.get("initial_capital", 0)
-                    or 0
+                    self.strategy.get("compound_base_capital", 0) or self.strategy.get("initial_capital", 0) or 0
                 )
                 if ladder_capital > 0:
                     banked = float(self.banked_pnl or 0)
                     rung = ladder_capital * step_pct / 100.0
                     extra = int(max(0.0, banked) // rung)
-                    max_lots = int(self.strategy_config.get("compound_max_lots", 20) or 20)
+                    max_lots = int(self.strategy.get("compound_max_lots", 20) or 20)
                     laddered = max(1, min(lots + extra, max_lots))
                     if laddered != lots:
                         self.log_event(
