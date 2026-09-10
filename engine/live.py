@@ -223,8 +223,10 @@ class LiveEngine:
         if run_id:
             safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in run_id)
             self._state_file = os.path.join(base_state_dir, f"live_state_{safe_id}.json")
+            self._history_file = os.path.join(base_state_dir, f"live_history_{safe_id}.json")
         else:
             self._state_file = os.path.join(base_state_dir, "live_state.json")
+            self._history_file = os.path.join(base_state_dir, "live_history.json")
 
         # WebSocket feed (injected from app.py — if available, use event-driven mode)
         self._feed = None  # LiveMarketFeed instance
@@ -1189,7 +1191,18 @@ class LiveEngine:
                             pass
 
             if saved_date != today and not restoring_stale_positions:
-                print(f"[LIVE] Stale state from {saved_date} (today={today}) — ignoring")
+                # The day is over, but the book is not. Bank yesterday's trades
+                # into the permanent record and read the whole record back, so
+                # the panel shows what this book has done rather than what it
+                # has done since the last deploy.
+                stale_trades = state.get("closed_trades") or []
+                if stale_trades:
+                    self._save_trade_history(stale_trades)
+                self.closed_trades = self._load_trade_history()
+                print(
+                    f"[LIVE] Stale state from {saved_date} (today={today}) — "
+                    f"session dropped, {len(self.closed_trades)} historical trade(s) kept"
+                )
                 return
 
             # Restore full configuration
@@ -1267,6 +1280,55 @@ class LiveEngine:
             print(f"[LIVE] Restored state: {n_trades} trades, {n_pos} open positions, P&L=₹{pnl:,.2f}")
         except Exception as e:
             print(f"[LIVE] State load failed: {e}")
+
+    def _load_trade_history(self) -> list:
+        """Every trade this book has closed, across sessions."""
+        try:
+            if os.path.exists(self._history_file):
+                with open(self._history_file, "r") as f:
+                    loaded = _json.load(f)
+                return loaded if isinstance(loaded, list) else []
+        except Exception as e:
+            print(f"[LIVE] Trade history load failed: {e}")
+        return []
+
+    def _save_trade_history(self, trades: list) -> None:
+        """Append closed trades to the book's own permanent record.
+
+        THE STATE FILE IS A DAY, NOT A BOOK. `_load_state` drops everything from
+        a previous session, so a live book's Completed Trades emptied at every
+        rollover -- and at every deploy that crossed one. On 2026-09-10
+        CE_SL15_NoMonTue showed "0 trades" and Rs 0.00 although it had traded a
+        real CE on 2026-09-03; the record simply was not kept anywhere. The
+        paper engines have had this file since the beginning, which is why their
+        tabs show a full history and the live ones showed nothing.
+
+        Deduplicated on entry time, strike and option type, so re-saving a
+        session cannot double it up.
+        """
+        try:
+            existing = self._load_trade_history()
+            seen = {
+                (str(t.get("entry_time", "")), str(t.get("strike", "")), str(t.get("option_type", "")))
+                for t in existing
+            }
+            added = 0
+            for trade in trades or []:
+                key = (
+                    str(trade.get("entry_time", "")),
+                    str(trade.get("strike", "")),
+                    str(trade.get("option_type", "")),
+                )
+                if key in seen:
+                    continue
+                existing.append(trade)
+                seen.add(key)
+                added += 1
+            if added:
+                with open(self._history_file, "w") as f:
+                    _json.dump(existing, f, indent=2, default=str)
+        except Exception as e:
+            print(f"[LIVE] Trade history save failed: {e}")
 
     def _delete_state_file(self):
         """Remove state file (called when engine is manually stopped)."""
@@ -3301,6 +3363,9 @@ class LiveEngine:
         async with self._trades_lock:
             self.closed_trades.append(closed_trade)
             self.banked_pnl += float(closed_trade.get("pnl", 0) or 0)
+        # Written the moment it closes, not at the next rollover: a process that
+        # dies overnight must not take the day's record with it.
+        self._save_trade_history([closed_trade])
 
         self.log_event(
             "exit",

@@ -21740,6 +21740,79 @@ STRAT_FILE = "strategies.json"
 RUNS_FILE = "runs.json"
 
 
+def _today_row_is_incomplete(entry: dict | None) -> bool:
+    """A day whose contracts were bought and never sold in the broker's own book."""
+    if not entry:
+        return True
+    for detail in entry.get("details") or []:
+        if float(detail.get("buy_avg", 0) or 0) > 0 and float(detail.get("sell_avg", 0) or 0) <= 0:
+            return True
+    return False
+
+
+def _engine_day_summary(user_id: int, today_str: str) -> dict | None:
+    """What the LIVE ENGINES believe today made, when the broker cannot say yet.
+
+    The broker's trade book is the truth once it settles, but it lags: on
+    2026-09-10 the day's row sat at Rs 0 -- a buy, no sell -- because Dhan's
+    fills had not caught up when the row was written, and nothing rewrote it.
+    The engine knew all along; it had the entry, and after reconciliation it had
+    the broker's own exit price too.
+
+    Deliberately NOT matched contract-by-contract against the broker's rows: the
+    two name the same option differently (`NIFTY-Sep2026-23700-PE` against
+    `NIFTY 23700PE 2026-09-15`), and a wrong match is worse than no match. This
+    is the whole day, from the engines, or nothing.
+    """
+    pnl = charges = 0.0
+    details = []
+    for engine in _registry_bucket(live_engines, user_id).values():
+        for trade in getattr(engine, "closed_trades", None) or []:
+            if str(trade.get("exit_time") or trade.get("entry_time") or "")[:10] != today_str:
+                continue
+            trade_pnl = float(trade.get("pnl", 0) or 0)
+            trade_charges = float(trade.get("charges", 0) or 0)
+            pnl += trade_pnl + trade_charges  # `pnl` here is gross, costs are split out below
+            charges += trade_charges
+            details.append(
+                {
+                    "symbol": str(trade.get("trading_symbol") or trade.get("symbol") or "?"),
+                    "pnl": round(trade_pnl + trade_charges, 2),
+                    "qty": int(trade.get("quantity", 0) or 0),
+                    "buy_avg": round(float(trade.get("entry_premium", 0) or 0), 2),
+                    "sell_avg": round(float(trade.get("exit_premium", 0) or 0), 2),
+                    "charges": round(trade_charges, 2),
+                    "brokerage": 0.0,
+                    "total_costs": round(trade_charges, 2),
+                    "fill_count": 2,
+                    "closed_segments": 1,
+                    "first_buy": str(trade.get("entry_time") or "")[:16],
+                    "last_sell": str(trade.get("exit_time") or "")[:16],
+                }
+            )
+    if not details:
+        return None
+    return {
+        "schema_version": _TRADE_HISTORY_SCHEMA_VERSION,
+        # STILL a provisional row, and still tagged as one, so the settled
+        # figures replace it tomorrow and the duplicate sweep can still reach it.
+        "source": "live_day_fifo",
+        "basis": "engine",
+        "calculation_mode": "engine_day",
+        "pnl": round(pnl, 2),
+        "charges": round(charges, 2),
+        "brokerage": 0.0,
+        "total_costs": round(charges, 2),
+        "net_pnl": round(pnl - charges, 2),
+        "trades": len(details),
+        "trade_legs": len(details) * 2,
+        "order_count": len(details),
+        "wins": sum(1 for d in details if d["pnl"] - d["total_costs"] > 0),
+        "mode": "real",
+        "details": sorted(details, key=lambda d: d["symbol"]),
+    }
+
+
 async def _persist_daily_trades(trades: list, user_id: int):
     """Auto-save today's real Dhan trade P&L summary to SQLite.
 
@@ -21752,13 +21825,30 @@ async def _persist_daily_trades(trades: list, user_id: int):
     entry = _summarize_real_trade_fills(trades)
     if not entry:
         return
+
+    # A BOUGHT CONTRACT WITH NO SALE IS NOT A ZERO. When the broker's own book
+    # cannot close the day, the engines can: they hold the entry, and after
+    # reconciliation the broker's exit price too. The row stays provisional and
+    # is replaced by the settled figures on the next backfill.
+    if _today_row_is_incomplete(entry):
+        from_engines = _engine_day_summary(user_id, today_str)
+        if from_engines:
+            print(
+                f"[TRADE_HISTORY] {today_str}: the broker's book is still open on a contract — "
+                f"using the engines' own P&L of ₹{from_engines['net_pnl']:,.2f} until Dhan settles it"
+            )
+            entry = from_engines
+
     trade_legs = entry.get("trade_legs", 0)
 
-    # Only overwrite if new data has more trade legs (more complete)
+    # Only overwrite if new data has more trade legs (more complete). An
+    # INCOMPLETE stored row is the exception: a buy with no sell is worth
+    # replacing however many legs it counted.
     existing = await _db_mod.get_trade_history_entry(user_id, today_str) or {}
     existing_legs = existing.get("trade_legs", existing.get("trades", 0))
-    if existing_legs > trade_legs or (
-        str(existing.get("source") or "") == "historical_fifo" and existing_legs >= trade_legs
+    if not _today_row_is_incomplete(existing) and (
+        existing_legs > trade_legs
+        or (str(existing.get("source") or "") == "historical_fifo" and existing_legs >= trade_legs)
     ):
         print(f"[TRADE_HISTORY] Skipping update — existing has {existing_legs} legs vs new {trade_legs}")
         return
@@ -23600,6 +23690,18 @@ async def _backfill_in_background():
         else:
             loaded = await _db_mod.list_trade_history(admin_id)
             print(f"📊 [TRADE_HISTORY] {len(loaded)} days of trade data ({count} refreshed)")
+        # TODAY IS NOT PART OF THE BACKFILL, so nothing was rewriting it. Its
+        # row is written once from whatever fills existed at the time and then
+        # only refreshed if somebody happened to open the trades page. On
+        # 2026-09-10 that left the day showing Rs 0 -- a buy, no sell -- for
+        # hours after the position had been closed and settled. Ask once, here.
+        try:
+            todays_fills = await asyncio.to_thread(broker_client.get_trades)
+            if isinstance(todays_fills, list) and todays_fills:
+                await _persist_daily_trades(todays_fills, admin_id)
+        except Exception as exc:
+            print(f"📊 [TRADE_HISTORY] Could not refresh today from the broker: {exc}")
+
         _backfill_state.update({"status": "done", "message": "Trade history up to date.", "new_dates": count})
     except Exception as e:
         print(f"📊 [BACKFILL] Startup backfill failed: {e}")
@@ -23813,6 +23915,32 @@ async def _start_token_renewal():
         print("♻️ [Startup] Engine restore disabled (PHILFORGE_STARTUP_ENGINE_RESTORE=0)")
 
 
+async def _reconcile_flagged_engine(engine, run_id: str) -> bool:
+    """Ask the broker what a flagged engine actually holds. True = still open.
+
+    The engine's own reconciler books whatever the broker closed while we were
+    not looking, at the broker's own fill price, so a position squared off by
+    Dhan lands in the book as a real closed trade rather than as a zero. If it
+    comes back flat there is nothing left for a human to do, and the flag goes.
+    """
+    try:
+        await engine._reconcile_broker_positions()
+    except Exception as exc:
+        print(f"🔄 [Restore] Could not reach the broker to reconcile '{run_id}': {exc}")
+        return True  # unknown is not the same as flat — leave the book shut
+
+    if [p for p in (engine.positions or []) if p.get("status") != "closed"]:
+        return True
+
+    engine.manual_intervention_required = False
+    engine.in_trade = False
+    engine._save_state()
+    print(
+        f"🔄 [Restore] '{run_id}' was flagged, but the broker is flat — the fill has been booked and the flag cleared"
+    )
+    return False
+
+
 async def _restore_live_engines():
     """Scan for live_state_*.json files and re-start engines that were running."""
     import json as _json
@@ -23825,9 +23953,14 @@ async def _restore_live_engines():
             with open(fpath, "r") as f:
                 state = _json.load(f)
 
-            if state.get("manual_intervention_required"):
-                print(f"🔄 [Restore] Skipping unsafe live state: {fname} requires broker reconciliation")
-                continue
+            # A FLAG IS NOT A FACT. `manual_intervention_required` says the
+            # engine could not prove what it held; it does not say the position
+            # is still open. On 2026-09-10 the PE book set it when Dhan refused
+            # its 15:25 exit, and Dhan then squared the position off itself at
+            # 15:26:36 -- so the book sat out of the Live page for a position
+            # that had been flat for hours, and would have missed the next
+            # morning entirely. Ask the broker before believing the flag.
+            needs_reconcile = bool(state.get("manual_intervention_required"))
 
             if state.get("session_date") != today and not _state_has_open_positions(state):
                 print(f"🔄 [Restore] Skipping stale state: {fname} (date={state.get('session_date')})")
@@ -23875,6 +24008,16 @@ async def _restore_live_engines():
 
             # Restore trading state (positions, in_trade, closed trades, P&L, etc.)
             engine._load_state()
+
+            if needs_reconcile:
+                still_open = await _reconcile_flagged_engine(engine, run_id)
+                if still_open:
+                    print(
+                        f"🔄 [Restore] Skipping unsafe live state: {fname} — the broker still shows an open "
+                        f"position. Reconcile it at Dhan before this book trades again."
+                    )
+                    continue
+
             engine.running = True
 
             # The SHARED helper, not a local copy of it. The copy that used to
