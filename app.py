@@ -9428,6 +9428,32 @@ def _backfill_trade_history(
         else:
             print("[BACKFILL] No new dates to add (all existing)")
 
+        # DROP A PROVISIONAL DAY THE BROKER DOES NOT HAVE.
+        # A live_day_fifo row is written from the day's own fills and can land
+        # on the wrong date: on 2026-09-09 one was written for a trade Dhan
+        # settles under 2026-09-08, so the same 130-lot PE appeared twice --
+        # once as -Rs 2,859.18 and again as -Rs 2,739.75. The incremental
+        # backfill only ever WRITES days that have trades, so the duplicate
+        # could never be cleared and the ledger double-counted it forever.
+        #
+        # Only a settled day, only a provisional row, and only inside the
+        # window this pull actually asked about. A historical row is never
+        # touched, and neither is today's.
+        removed = 0
+        for date_str in sorted(existing_dates):
+            if date_str >= today_str or date_str < from_date:
+                continue
+            if date_str in daily_entries:
+                continue  # the broker does have trades for it
+            existing_entry = history.get(date_str) or {}
+            if str(existing_entry.get("source") or "") != "live_day_fifo":
+                continue  # never drop a settled record
+            if _db_mod.delete_trade_history_entry_sync(owner_id, date_str):
+                history.pop(date_str, None)
+                removed += 1
+        if removed:
+            print(f"[BACKFILL] Dropped {removed} provisional day(s) the broker has no trades for")
+
         return new_dates
     except Exception as e:
         print(f"[BACKFILL] Error: {e}")

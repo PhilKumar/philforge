@@ -1340,6 +1340,22 @@ def list_trade_history_sync(user_id: int) -> dict[str, dict]:
         return history
 
 
+def delete_trade_history_entry_sync(user_id: int, trade_date: str) -> bool:
+    """Remove one day from the trade history. Returns True if a row went.
+
+    Used only to clear a provisional live-day row that the authoritative
+    historical pull has since contradicted -- a settled day Dhan reports no
+    trades for cannot legitimately hold any.
+    """
+    with _connect_sync() as conn:
+        cursor = conn.execute(
+            "DELETE FROM trade_history WHERE user_id = ? AND trade_date = ?",
+            (int(user_id), str(trade_date)),
+        )
+        conn.commit()
+        return bool(cursor.rowcount)
+
+
 def upsert_trade_history_entry_sync(user_id: int, trade_date: str, data: dict) -> None:
     """Synchronous trade-history upsert for thread-based backfill tasks."""
     with _connect_sync() as conn:
