@@ -18680,6 +18680,65 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
+def _one_row_per_trade(runs: list, history: list) -> list:
+    """One trade, one row. The book's row, with Dhan's money once Dhan has it.
+
+    The desk's ledger prints every book's own closed list AND the whole broker
+    record underneath it, and nothing reconciled the two — so a trade the engine
+    had booked appeared twice: once as its own row with the exit reason and the
+    chart, and again tagged "old closed" from the account (Phil, 2026-09-10:
+    "I have said I need one entry but why you are making 2?").
+
+    They are the same trade, and each half knows something the other does not.
+    The engine's row knows WHY it closed and can draw itself. The account's row
+    knows what it really cost, but only after Dhan books the day's charges
+    overnight — until then its P&L is gross, which is why it read ₹1,879 beside
+    the engine's ₹1,763 for one 130-lot PE.
+
+    So: keep the book's row, drop the account's copy, and when the account has
+    settled the charges, take its net for the P&L column ("once the charges
+    updates on Dhan, update the PL column on the next day"). Matched on the day
+    and the option side, and only where each side of the match is unambiguous —
+    a book takes one trade a day, and a day with two of them is left alone
+    rather than guessed at.
+    """
+    own_by_key: dict[tuple, list] = defaultdict(list)
+    for run in runs:
+        side = str(run.get("side") or "").upper()
+        if not side:
+            continue
+        for trade in run.get("recent") or []:
+            own_by_key[(str(trade.get("entry_time") or "")[:10], side)].append(trade)
+
+    account_by_key: dict[tuple, list] = defaultdict(list)
+    for row in history or []:
+        account_by_key[(str(row.get("date") or ""), str(row.get("side") or "").upper())].append(row)
+
+    settled = []
+    corrections: dict[str, float] = {}
+    for key, rows in account_by_key.items():
+        mine = own_by_key.get(key) or []
+        if not mine:
+            settled.extend(rows)  # the account knows of a day no book does
+            continue
+        if len(mine) != 1 or len(rows) != 1:
+            settled.extend(rows)  # ambiguous — show both rather than pick wrong
+            continue
+        # The same trade. The book's row survives; the account's money wins once
+        # the broker has actually booked the charges.
+        corrections[key[1]] = corrections.get(key[1], 0.0) + _settle_against_account(mine, key[1], rows)
+
+    # The book's booked total is computed from its WHOLE closed list, of which
+    # `recent` is the tail, so it is nudged by what changed rather than added up
+    # again from the rows that happen to be visible.
+    for run in runs:
+        delta = corrections.get(str(run.get("side") or "").upper(), 0.0)
+        if delta:
+            run["booked_pnl"] = round(float(run.get("booked_pnl", 0) or 0) + delta, 2)
+    settled.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
+    return settled
+
+
 def _with_account_history(status: dict, account_rows: list) -> dict:
     """Fold a live book's earlier trades into the status the Live page reads.
 
@@ -18690,15 +18749,53 @@ def _with_account_history(status: dict, account_rows: list) -> dict:
     if not isinstance(status, dict):
         return status
     own = list(status.get("closed_trades") or [])
+    side = _book_option_side(status.get("strategy") or {})
+    # The same settlement the CE + PE desk applies, so the two pages cannot
+    # disagree about what one trade made.
+    settled_by = _settle_against_account(own, side, account_rows)
     borrowed = _account_rows_this_book_is_missing(status.get("strategy") or {}, own, account_rows)
-    if not borrowed:
+    if not borrowed and not settled_by:
         return status
     borrowed_pnl = sum(float(row.get("pnl", 0) or 0) for row in borrowed)
     return {
         **status,
         "closed_trades": borrowed + own,
-        "total_pnl": round(float(status.get("total_pnl", 0) or 0) + borrowed_pnl, 2),
+        "total_pnl": round(float(status.get("total_pnl", 0) or 0) + borrowed_pnl + settled_by, 2),
     }
+
+
+def _settle_against_account(own_rows: list, side: str, account_rows: list) -> float:
+    """Replace an engine's estimated P&L with the broker's, once Dhan has it.
+
+    An engine books a trade the moment it closes, costing it from the statutory
+    schedule. Dhan books the day's real charges overnight. Until then the two
+    disagree by a few rupees -- ₹1,763.21 against ₹1,798.44 on 2026-09-10 -- and
+    the broker's is the one that is true (Phil: "once the charges updates on
+    Dhan, update the PL column on the next day").
+
+    Mutates the rows in place and returns how much the total moved by, so a
+    caller can nudge a headline it computed from a longer list.
+    """
+    if not side or not own_rows:
+        return 0.0
+    mine_by_day: dict[str, list] = defaultdict(list)
+    for trade in own_rows:
+        mine_by_day[str(trade.get("entry_time") or "")[:10]].append(trade)
+
+    moved = 0.0
+    for row in account_rows or []:
+        if str(row.get("side") or "").upper() != side or not row.get("costs_known"):
+            continue
+        mine = mine_by_day.get(str(row.get("date") or "")) or []
+        if len(mine) != 1:
+            continue  # a day with two trades is left alone rather than guessed at
+        was = float(mine[0].get("pnl", 0) or 0)
+        mine[0]["pnl"] = row.get("pnl")
+        mine[0]["gross_pnl"] = row.get("gross_pnl")
+        mine[0]["charges"] = row.get("charges")
+        mine[0]["settled_by_broker"] = True
+        moved += float(mine[0]["pnl"] or 0) - was
+    return round(moved, 2)
 
 
 def _account_rows_this_book_is_missing(strategy: dict, own_closed: list, account_rows: list) -> list:
@@ -18949,15 +19046,16 @@ async def live_runs(request: Request):
                 }
             )
     runs.sort(key=lambda r: (r.get("side") != "CE", r.get("name", "")))
+    history = _one_row_per_trade(runs, await _account_option_history(user_id))
     return {
         "status": "ok",
         "runs": runs,
         "count": len(runs),
         "booked_total": round(sum(float(r.get("booked_pnl", 0) or 0) for r in runs), 2),
         "day_total": round(sum(float(r.get("daily_pnl", 0) or 0) for r in runs), 2),
-        # Everything the account closed before this deploy. A fresh deploy wipes
-        # each engine's own list; this one outlives it.
-        "history": await _account_option_history(user_id),
+        # Everything the account closed that a book has no record of. A fresh
+        # deploy wipes each engine's own list; this one outlives it.
+        "history": history,
     }
 
 

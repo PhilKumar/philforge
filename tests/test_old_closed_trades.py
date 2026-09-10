@@ -42,7 +42,11 @@ class TheSourceOutlivesADeploy(unittest.TestCase):
 
     def test_the_runs_payload_carries_it(self):
         body = APP.split('@app.get("/api/live/runs")')[1].split("@app.get(")[0]
-        self.assertIn('"history": await _account_option_history(user_id)', body)
+        # Reconciled on the way out — `_one_row_per_trade` drops the account's
+        # copy of a trade the book has already booked, so one trade is one row —
+        # but the record itself still reaches the desk.
+        self.assertIn("await _account_option_history(user_id)", body)
+        self.assertIn('"history": history', body)
 
     def test_only_real_money_and_only_nifty_options(self):
         block = helper_code()

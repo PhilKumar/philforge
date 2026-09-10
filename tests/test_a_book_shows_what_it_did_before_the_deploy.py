@@ -182,9 +182,17 @@ class ExactlyOnePageBorrows(unittest.TestCase):
         self.assertNotIn("_account_rows_this_book_is_missing(", calls)
         self.assertNotIn("_with_account_history(", calls)
 
-    def test_the_desk_still_receives_the_record_whole(self):
-        """Removing the borrowing must not remove the ALL TIME table's source."""
-        self.assertIn('"history": await _account_option_history(user_id)', self._body("live_runs"))
+    def test_the_desk_still_receives_the_account_record(self):
+        """Removing the borrowing must not remove the ALL TIME table's source.
+
+        It reaches the desk reconciled now — `_one_row_per_trade` drops the
+        account's copy of a trade a book has already booked — but it still
+        reaches it.
+        """
+        body = self._body("live_runs")
+        self.assertIn("await _account_option_history(user_id)", body)
+        self.assertIn('"history": history', body)
+        self.assertIn("_one_row_per_trade(", body)
 
     def test_only_a_live_book_borrows(self):
         """A paper book's trades never reached the broker at all."""
