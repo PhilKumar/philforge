@@ -187,3 +187,59 @@ class TheStampIsCompleteOrHonest(unittest.TestCase):
         body = JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
         self.assertIn("h.entry_time || h.date", body)
         self.assertIn("h.exit_time || h.date", body)
+
+
+class OnlyWhatBelongsToTheseBooks(unittest.TestCase):
+    """Phil, 2026-09-10: "Except those latest 3 trades, all others has to be
+    removed... It populated all trades some months old back".
+
+    The helper took the newest 60 ROWS, which reached back to March -- twelve
+    legs on a single day of activity that has nothing to do with these books.
+    A row count is the wrong window; the date the books went live is the right
+    one, because nothing before it can belong to them.
+    """
+
+    def test_there_is_a_go_live_floor(self):
+        self.assertIn('_CEPE_LIVE_FROM = "2026-09-03"', APP)
+
+    def test_the_helper_applies_it(self):
+        block = helper_code()
+        self.assertIn("if str(trade_date) < _CEPE_LIVE_FROM", block)
+
+    def test_it_is_applied_before_anything_else(self):
+        """Cheapest test first, and it must not be reachable only for real
+        rows -- a paper row from March should not be examined either."""
+        block = helper_code()
+        self.assertLess(block.index("_CEPE_LIVE_FROM"), block.index('"mode", ""'))
+
+
+class TheLedgerPages(unittest.TestCase):
+    """Phil: "Also put pagination on the pages". A live book adds a row a day."""
+
+    def test_a_page_is_a_screenful(self):
+        self.assertIn("const _CEPE_PAGE_SIZE = 25", JS)
+
+    def test_the_total_describes_every_row_not_the_page(self):
+        """A net that changed as you paged would be worse than none."""
+        body = JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
+        self.assertIn("const net = rows.reduce(", body)
+        self.assertIn("const shown = rows.slice(from", body)
+        self.assertIn("shown.map(", body)
+
+    def test_it_clamps_rather_than_running_off_either_end(self):
+        body = JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
+        self.assertIn("if (_cepeClosedPage > pages)", body)
+        self.assertIn("if (_cepeClosedPage < 1)", body)
+
+    def test_changing_the_filter_returns_to_the_first_page(self):
+        block = JS.split("function setCePeFilter(")[1][:400]
+        self.assertIn("_cepeClosedPage = 1", block)
+
+    def test_the_control_is_registered(self):
+        self.assertIn("'setCePeClosedPage'", JS)
+        self.assertIn("function setCePeClosedPage(", JS)
+        self.assertIn('id="oc-cepe-closed-pager"', HTML)
+
+    def test_the_pager_hides_itself_on_a_single_page(self):
+        block = JS.split("function _cepeRenderPager(")[1][:500]
+        self.assertIn("total <= _CEPE_PAGE_SIZE", block)

@@ -9653,3 +9653,13 @@ body :is(
    so rather than showing a bare date that looks like a missing value. */
 .cepe-stamp{ display:inline-flex; flex-direction:column; line-height:1.25; }
 .cepe-stamp em{ font-style:normal; font-size:10px; color:var(--muted); letter-spacing:.02em; }
+
+/* The pager sits under the ledger, quiet unless there is more than one page. */
+.cepe-pager{
+  display:flex; align-items:center; justify-content:flex-end; gap:10px;
+  margin-top:8px; font:11px 'JetBrains Mono',monospace; color:var(--muted);
+}
+.cepe-pager:empty{ display:none; }
+.cepe-pager-at{ margin-right:auto; }
+.cepe-pager-n{ min-width:52px; text-align:center; }
+.cepe-pager button[disabled]{ opacity:.4; cursor:default; }

@@ -2109,6 +2109,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'openCePeIndexChart',
   'setCePeFilter',
   'setCePeMode',
+  'setCePeClosedPage',
   'openCePeTearsheet',
   'openFibAutoChart',
   'loadFibBoundaryChart',
@@ -21584,6 +21585,7 @@ function setCePeMode(event, el) {
 function setCePeFilter(event, el) {
   const previous = _cepeFilter;
   _cepeFilter = el?.dataset?.cepeFilter || 'all';
+  _cepeClosedPage = 1;   // a different set of rows starts at its own beginning
   document.querySelectorAll('[data-cepe-filter]').forEach(b =>
     b.classList.toggle('is-active', b.dataset.cepeFilter === _cepeFilter));
   if (_cepeLast) renderCePe(_cepeLast);
@@ -21667,6 +21669,34 @@ function _cepeNetNote(t) {
   if (!Number.isFinite(g) || !Number.isFinite(c)) return 'Net result.';
   if (t.costs_known === false) return `Gross ${_cepeMoney(g)}. Charges not booked for this day yet.`;
   return `Gross ${_cepeMoney(g)} less ${_cepeMoney(c)} charges.`;
+}
+
+// ── paging the closed ledger ──
+// A live book adds a row a day and the table would grow without end. 25 keeps
+// it to one screen; the page survives a refresh so a poll cannot yank you back
+// to the top while you are reading page three.
+const _CEPE_PAGE_SIZE = 25;
+let _cepeClosedPage = 1;
+
+function setCePeClosedPage(event, el) {
+  const want = el?.dataset?.cepePage;
+  if (!want) return;
+  _cepeClosedPage = want === 'prev' ? _cepeClosedPage - 1
+    : want === 'next' ? _cepeClosedPage + 1 : Number(want) || 1;
+  if (_cepeLast) renderCePe(_cepeLast);
+}
+
+function _cepeRenderPager(total, pages, from, on) {
+  const host = document.getElementById('oc-cepe-closed-pager');
+  if (!host) return;
+  if (total <= _CEPE_PAGE_SIZE) { host.innerHTML = ''; return; }
+  host.innerHTML = `
+    <span class="cepe-pager-at">${from + 1}&ndash;${from + on} of ${total}</span>
+    <button type="button" class="cascade-options-control" data-pf-action="setCePeClosedPage"
+            data-cepe-page="prev" ${_cepeClosedPage <= 1 ? 'disabled' : ''}>&larr; Newer</button>
+    <span class="cepe-pager-n">${_cepeClosedPage} / ${pages}</span>
+    <button type="button" class="cascade-options-control" data-pf-action="setCePeClosedPage"
+            data-cepe-page="next" ${_cepeClosedPage >= pages ? 'disabled' : ''}>Older &rarr;</button>`;
 }
 
 function renderCePe(data) {
@@ -21777,9 +21807,17 @@ function renderCePe(data) {
   const body = document.getElementById('oc-cepe-closed-rows');
   const count = document.getElementById('oc-cepe-closed-count');
   const net = rows.reduce((n, r) => n + (Number(r.t.pnl) || 0), 0);
+  // The count and the net describe EVERY row, not the page being shown -- a
+  // total that changed as you paged would be worse than no total.
   if (count) count.textContent = rows.length ? `${rows.length} · net ${_cepeMoney(net)}` : '0';
+  const pages = Math.max(1, Math.ceil(rows.length / _CEPE_PAGE_SIZE));
+  if (_cepeClosedPage > pages) _cepeClosedPage = pages;   // rows can shrink under you
+  if (_cepeClosedPage < 1) _cepeClosedPage = 1;
+  const from = (_cepeClosedPage - 1) * _CEPE_PAGE_SIZE;
+  const shown = rows.slice(from, from + _CEPE_PAGE_SIZE);
+  _cepeRenderPager(rows.length, pages, from, shown.length);
   if (body) {
-    body.innerHTML = rows.length ? rows.map(({ run, t, old }) => `
+    body.innerHTML = shown.length ? shown.map(({ run, t, old }) => `
       <tr class="${old ? 'cepe-row-old' : ''}" style="box-shadow:inset 3px 0 0 ${_cepeSide(run.side).tint};">
         <td><span class="cepe-tattoo" style="background:${_cepeSide(run.side).wash};color:${_cepeSide(run.side).tint};border-color:${_cepeSide(run.side).tint};">${escapeHtml(_cepeSide(run.side).label)}</span>${
           old ? '<span class="cepe-old-tag" title="Closed before this deploy. From the broker account, which records no strategy, so it may belong to another book.">old closed</span>' : ''}</td>
@@ -21864,4 +21902,5 @@ window.cepeExit = cepeExit;
 window.openCePeIndexChart = openCePeIndexChart;
 window.setCePeFilter = setCePeFilter;
 window.setCePeMode = setCePeMode;
+window.setCePeClosedPage = setCePeClosedPage;
 window.openCePeTearsheet = openCePeTearsheet;

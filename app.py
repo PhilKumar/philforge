@@ -18647,6 +18647,13 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
+# The CE and PE books went live on this date. The account traded NIFTY options
+# long before it -- April carries a dozen rows from other activity entirely --
+# and none of that can belong to these books, so none of it belongs on their
+# desk (Phil, 2026-09-10: "It populated all trades some months old back").
+_CEPE_LIVE_FROM = "2026-09-03"
+
+
 async def _account_option_history(user_id: int, limit: int = 60) -> list[dict]:
     """Closed NIFTY option trades from the BROKER ACCOUNT, newest first.
 
@@ -18666,6 +18673,8 @@ async def _account_option_history(user_id: int, limit: int = 60) -> list[dict]:
         return []
     rows: list[dict] = []
     for trade_date, payload in (history or {}).items():
+        if str(trade_date) < _CEPE_LIVE_FROM:
+            continue
         if str((payload or {}).get("mode", "")) != "real":
             continue
         for leg in (payload or {}).get("details") or []:
