@@ -137,46 +137,83 @@ class TheBooksOwnRecordWins(unittest.TestCase):
         self.assertEqual(app._account_rows_this_book_is_missing(_book("CE"), [], None), [])
 
 
-class ItIsWiredIntoTheEndpointTheDeskActuallyCalls(unittest.TestCase):
-    """Two earlier attempts wired this into `/api/live/status`, which the desk
-    never calls — the fix read as correct and changed nothing on the page."""
+class ExactlyOnePageBorrows(unittest.TestCase):
+    """Three endpoints serve three pages, and the borrowing belongs in one.
+
+    `/api/engines/all` -> the Live page. Its panel builds Completed Trades from
+      `closed_trades` and has no account table of its own, so it borrows.
+    `/api/live/runs` -> the CE + PE desk. It already receives the whole account
+      record as `history` and prints it in an ALL TIME table, so borrowing there
+      too showed every trade twice: once "from the account", once "old closed".
+    `/api/live/status` -> the builder preview. One engine, different page.
+
+    Two earlier attempts put it in `/api/live/status`, a third in
+    `/api/live/runs`. Each read as correct. Each was wrong.
+    """
 
     def _body(self, name):
         after = SRC.split(f"async def {name}(")[1]
-        # Stop at the next top-level definition OR decorator, whichever is
+        # Stop at the next top-level definition OR decorator, whichever comes
         # first: `live_status` is followed by a plain `def`, not by `@app.`,
-        # and slicing to the decorator swallowed the helper defined between
-        # them — which is how this very test first passed while the page
-        # stayed broken.
+        # and slicing only to the decorator swallowed the helper defined
+        # between them — a test that passed while the page stayed broken.
         cuts = [after.find(marker) for marker in ("\n@app.", "\ndef ", "\nasync def ")]
         end = min(c for c in cuts if c != -1)
         return after[:end]
 
-    def test_live_runs_borrows(self):
-        self.assertIn("_account_rows_this_book_is_missing", self._body("live_runs"))
+    def _calls(self, name):
+        """The body with comments stripped: these tests are about what the code
+        DOES. The comment in `live_runs` names the helper precisely to say it is
+        not called there, and must not be read as calling it."""
+        body = self._body(name)
+        return "\n".join(line for line in body.splitlines() if not line.strip().startswith("#"))
 
-    def test_live_status_does_not(self):
-        """It answers for one engine and is used by a different page. Borrowing
-        in two places would double-count nothing but would drift."""
-        self.assertNotIn("_account_rows_this_book_is_missing", self._body("live_status"))
+    def test_the_live_page_borrows(self):
+        self.assertIn("_with_account_history(", self._calls("engines_all"))
 
-    def test_it_happens_before_the_numbers_are_derived(self):
-        """`closed_count`, `booked_pnl` and `recent` all read `closed`."""
-        body = self._body("live_runs")
-        borrow = body.index("_account_rows_this_book_is_missing")
-        for derived in ('"closed_count"', '"booked_pnl"', '"recent"'):
-            self.assertLess(borrow, body.index(derived), derived)
+    def test_the_ce_pe_desk_does_not(self):
+        """It prints the account record itself; borrowing would duplicate it."""
+        calls = self._calls("live_runs")
+        self.assertNotIn("_account_rows_this_book_is_missing(", calls)
+        self.assertNotIn("_with_account_history(", calls)
 
-    def test_only_a_live_book_borrows_from_the_broker(self):
+    def test_the_builder_preview_does_not(self):
+        calls = self._calls("live_status")
+        self.assertNotIn("_account_rows_this_book_is_missing(", calls)
+        self.assertNotIn("_with_account_history(", calls)
+
+    def test_the_desk_still_receives_the_record_whole(self):
+        """Removing the borrowing must not remove the ALL TIME table's source."""
+        self.assertIn('"history": await _account_option_history(user_id)', self._body("live_runs"))
+
+    def test_only_a_live_book_borrows(self):
         """A paper book's trades never reached the broker at all."""
-        body = self._body("live_runs")
-        line = [ln for ln in body.splitlines() if "_account_rows_this_book_is_missing" in ln][0]
-        guard = body[: body.index(line)].splitlines()[-1]
-        self.assertIn("is_live_registry", guard)
+        calls = self._calls("engines_all")
+        paper_loop = calls.index("paper_engines")
+        borrow = calls.index("_with_account_history(")
+        self.assertLess(paper_loop, borrow, "the paper loop must be done before any borrowing")
+        self.assertNotIn("_with_account_history(", calls[paper_loop:borrow])
 
-    def test_the_account_is_read_once_for_the_whole_desk(self):
-        body = self._body("live_runs")
-        self.assertEqual(body.count("await _account_option_history("), 1)
+    def test_the_account_is_read_once_per_request(self):
+        self.assertEqual(self._calls("engines_all").count("await _account_option_history("), 1)
+
+
+class TheHeadlineMovesWithTheRows(unittest.TestCase):
+    def test_the_total_takes_the_borrowed_pnl(self):
+        status = {"strategy": _book("CE"), "closed_trades": [], "total_pnl": 0.0}
+        merged = app._with_account_history(status, ACCOUNT)
+        self.assertEqual(merged["total_pnl"], -1740.25)
+        self.assertEqual(len(merged["closed_trades"]), 1)
+
+    def test_a_book_with_nothing_to_borrow_is_returned_untouched(self):
+        status = {"strategy": _book("CE"), "closed_trades": [], "total_pnl": 0.0}
+        self.assertIs(app._with_account_history(status, []), status)
+
+    def test_an_existing_total_is_added_to_not_replaced(self):
+        own = [{"entry_time": "2026-09-12 09:20:00", "pnl": 500.0}]
+        status = {"strategy": _book("CE"), "closed_trades": own, "total_pnl": 500.0}
+        merged = app._with_account_history(status, ACCOUNT)
+        self.assertEqual(merged["total_pnl"], round(500.0 - 1740.25, 2))
 
 
 if __name__ == "__main__":

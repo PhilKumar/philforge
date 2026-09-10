@@ -18680,6 +18680,27 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
+def _with_account_history(status: dict, account_rows: list) -> dict:
+    """Fold a live book's earlier trades into the status the Live page reads.
+
+    The panel builds its Completed Trades table from `closed_trades` and its
+    headline from `total_pnl`, so both move together or the page disagrees with
+    itself -- ₹0.00 above a table of real losses is worse than either half.
+    """
+    if not isinstance(status, dict):
+        return status
+    own = list(status.get("closed_trades") or [])
+    borrowed = _account_rows_this_book_is_missing(status.get("strategy") or {}, own, account_rows)
+    if not borrowed:
+        return status
+    borrowed_pnl = sum(float(row.get("pnl", 0) or 0) for row in borrowed)
+    return {
+        **status,
+        "closed_trades": borrowed + own,
+        "total_pnl": round(float(status.get("total_pnl", 0) or 0) + borrowed_pnl, 2),
+    }
+
+
 def _account_rows_this_book_is_missing(strategy: dict, own_closed: list, account_rows: list) -> list:
     """This book's earlier trades, from the broker's record, as engine trades.
 
@@ -18822,8 +18843,6 @@ async def live_runs(request: Request):
     # that reads only the first shows two books when five are loaded.
     pairs = [(rid, eng, True) for rid, eng in _registry_bucket(live_engines, user_id).items()]
     pairs += [(rid, eng, False) for rid, eng in _registry_bucket(paper_engines, user_id).items()]
-    # Fetched once, read by every live book below and returned whole at the end.
-    account_rows = await _account_option_history(user_id)
     runs = []
     for run_id, engine, is_live_registry in pairs:
         try:
@@ -18831,15 +18850,15 @@ async def live_runs(request: Request):
             legs = strategy.get("legs") or []
             leg = legs[0] if legs else {}
             open_legs = [p for p in engine.positions if p.get("status") != "closed"]
+            # DELIBERATELY NOT BORROWED FROM THE ACCOUNT HERE. This desk already
+            # receives the whole account record as `history` below and renders it
+            # in its own ALL TIME table, so adding those rows to a book's list
+            # too printed every trade twice -- once "from the account" and once
+            # tagged "old closed" (Phil, 2026-09-10: "I am seeing a duplicate
+            # here in this Trading -> strategies -> CE PE"). The Live page has no
+            # such table, which is why the borrowing belongs there and only
+            # there. See `_with_account_history` on /api/engines/all.
             closed = list(engine.closed_trades or [])
-            # WHAT THIS BOOK DID BEFORE THIS DEPLOY. An engine's own list starts
-            # empty every time it restarts, so CE_SL15_NoMonTue read "0 trades"
-            # and Rs 0.00 while its real CE of 2026-09-03 sat in the account
-            # table lower down the same page. Everything below -- the count, the
-            # booked total, the table -- is derived from `closed`, so borrowing
-            # here is the only place it has to happen.
-            if is_live_registry:
-                closed = _account_rows_this_book_is_missing(strategy, closed, account_rows) + closed
             runs.append(
                 {
                     "run_id": run_id,
@@ -18938,7 +18957,7 @@ async def live_runs(request: Request):
         "day_total": round(sum(float(r.get("daily_pnl", 0) or 0) for r in runs), 2),
         # Everything the account closed before this deploy. A fresh deploy wipes
         # each engine's own list; this one outlives it.
-        "history": account_rows,
+        "history": await _account_option_history(user_id),
     }
 
 
@@ -20171,12 +20190,21 @@ async def engines_all(request: Request):
             engines.append(st)
 
     # Add all live engines
+    #
+    # A LIVE BOOK SHOWS WHAT IT TRADED, NOT WHAT IT TRADED SINCE IT RESTARTED.
+    # `get_status()` reports the engine's own closed list, which begins empty at
+    # every restart -- so CE_SL15_NoMonTue read "0 trades" and Rs 0.00 on this
+    # page while its real CE of 2026-09-03 sat in the broker's record. The
+    # account fills the gap here, and ONLY here: the CE + PE desk
+    # (/api/live/runs) already prints that record in a table of its own, and
+    # doing it in both places showed every trade twice.
+    account_rows = await _account_option_history(user_id) if _registry_bucket(live_engines, user_id) else []
     for run_id, engine in _registry_bucket(live_engines, user_id).items():
         if engine.running:
             st = _attach_strategy_folder(engine.get_status())
             st["run_id"] = run_id
             st["mode"] = "auto"
-            engines.append(st)
+            engines.append(_with_account_history(st, account_rows))
 
     # Add stopped engine snapshots (persisted panels)
     active_ids = {_engine_status_key(e) for e in engines}
