@@ -1507,6 +1507,44 @@ class LiveEngine:
         )
         self._save_state()  # Persist final state
 
+    def _warm_option_shelf(self) -> None:
+        """Pre-fetch the strikes an entry would scan, so the scan is warm.
+
+        Deliberately silent. This is an optimisation, not a step: if it fails,
+        is rate-limited, or the strategy never enters, nothing depends on it.
+        """
+        try:
+            leg = (self.strategy.get("legs") or [{}])[0]
+            strike_type = str(leg.get("strike_type", "") or "")
+            if not strike_type.startswith("premium_"):
+                return  # only the premium rules scan a range
+            spot = float(self.current_spot or 0)
+            if spot <= 0 or self.dhan is None:
+                return
+            # Resolved exactly as the entry resolves it, so the shelf that is
+            # warmed is the shelf the entry will read.
+            from broker.dhan import ScripMaster
+
+            symbol = ScripMaster.instrument_to_symbol(self.strategy.get("instrument", "26000"))
+            session_date_str = self.session_date.strftime("%Y-%m-%d") if self.session_date else None
+            expiry = ScripMaster.resolve_expiry(symbol, leg.get("expiry"), session_date_str)
+            if not expiry:
+                return
+            step = int(self.strategy.get("strike_step") or 50)
+            asyncio.create_task(
+                self._find_premium_strike(
+                    symbol=symbol,
+                    expiry=expiry,
+                    option_type=str(leg.get("option_type") or "CE"),
+                    target_prem=float(leg.get("strike_value") or 0) or 250.0,
+                    spot=spot,
+                    strike_step=step,
+                    mode=strike_type.replace("premium_", "") or "near",
+                )
+            )
+        except Exception:
+            pass
+
     # ── WebSocket Event-Driven Mode ───────────────────────────
     async def _run_ws_mode(self, callback=None):
         """
@@ -1767,6 +1805,17 @@ class LiveEngine:
                     "candle",
                     f"🕯️ {execution_timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)",
                 )
+
+                # WARM THE OPTION SHELF while the conditions are being read.
+                # The entry's strike scan is one batched LTP call behind a 3s
+                # cache, and the entry lands about two seconds after this point
+                # -- so asking now means the scan reads memory instead of the
+                # network. It cost 3 of the 15 seconds on 2026-09-10.
+                #
+                # Fire and forget, and only when flat: a failure here must not
+                # touch the entry, which does its own fetch with its own retry.
+                if not self.in_trade:
+                    self._warm_option_shelf()
 
                 candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)
                 if (

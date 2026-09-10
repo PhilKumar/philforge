@@ -116,6 +116,12 @@ class CandleAggregator:
         # Current forming candle
         self._current: Optional[dict] = None
         self._current_slot: Optional[datetime] = None
+        # When the forming candle last actually saw a price. A clock-closed
+        # candle whose last tick is old is carrying a stale close, and the
+        # reader can measure that for itself rather than trust a flag.
+        self._last_tick_ts: Optional[datetime] = None
+        # The newest slot already emitted, so a late tick cannot resurrect it.
+        self._last_closed_slot: Optional[datetime] = None
 
         # Completed candles
         self.candles: List[dict] = []
@@ -134,6 +140,13 @@ class CandleAggregator:
 
         slot = self._get_slot(ts)
 
+        # A tick from a slot the clock has ALREADY closed must not reopen it.
+        # Ticks can arrive out of order and a moment late, and re-emitting a
+        # closed candle would hand the strategy the same bar twice -- which on
+        # an entry rule means acting on it twice.
+        if self._last_closed_slot is not None and slot <= self._last_closed_slot:
+            return
+
         # New candle slot?
         if self._current_slot is None or slot > self._current_slot:
             # Close previous candle
@@ -142,6 +155,7 @@ class CandleAggregator:
 
             # Start new candle
             self._current_slot = slot
+            self._last_tick_ts = ts
             self._current = {
                 "timestamp": slot,
                 "open": price,
@@ -151,11 +165,43 @@ class CandleAggregator:
                 "volume": volume,
             }
         else:
+            self._last_tick_ts = ts
             # Update forming candle
             self._current["high"] = max(self._current["high"], price)
             self._current["low"] = min(self._current["low"], price)
             self._current["close"] = price
             self._current["volume"] += volume
+
+    def close_due_candles(self, now: Optional[datetime] = None) -> bool:
+        """Close the forming candle if its slot has ENDED, by the clock.
+
+        feed_tick() used to be the only thing that could end a candle, so a
+        candle closed when the NEXT tick arrived rather than when it was
+        actually over. On a quiet minute the engine stayed blind: on
+        2026-09-10 the 09:20 candle was complete at 09:25:00 and the engine
+        did not learn of it until 09:25:09, because that was when NIFTY next
+        printed. Seven point nine seconds of a fifteen-second entry, spent
+        waiting for the market to speak.
+
+        Called on a timer, this ends the candle on time. Ticks then only shape
+        the candle that is forming. Returns True if a candle was closed.
+        """
+        if self._current is None or self._current_slot is None:
+            return False
+        now = now or _now_ist()
+        slot_ends = self._current_slot + timedelta(minutes=self.tf)
+        if now < slot_ends:
+            return False
+        # How old the close price is at the moment the clock ends the candle.
+        # Zero means a tick landed on the boundary; several seconds means the
+        # market went quiet and this close is that many seconds behind.
+        if self._last_tick_ts is not None:
+            self._current["close_age_s"] = round((slot_ends - self._last_tick_ts).total_seconds(), 1)
+        self._close_candle()
+        self._current = None
+        self._current_slot = None
+        self._last_tick_ts = None
+        return True
 
     def _close_candle(self):
         """Close the current candle and fire callback."""
@@ -163,6 +209,10 @@ class CandleAggregator:
             return
 
         candle = self._current.copy()
+        candle.setdefault("close_age_s", 0.0)
+        slot = candle.get("timestamp")
+        if slot is not None and (self._last_closed_slot is None or slot > self._last_closed_slot):
+            self._last_closed_slot = slot
         self.candles.append(candle)
 
         # Trim to max
@@ -268,6 +318,8 @@ class LiveMarketFeed:
 
         # Candle aggregators (keyed by instrument label, e.g. "NIFTY_IDX")
         self._aggregators: Dict[str, CandleAggregator] = {}
+        self._closer_thread: Optional[threading.Thread] = None
+        self._closer_stop = threading.Event()
 
         # Index security IDs we need to feed into aggregators
         self._index_sec_ids: Dict[int, str] = {}  # sec_id → label
@@ -348,6 +400,33 @@ class LiveMarketFeed:
 
     # ── Candle Aggregation ────────────────────────────────────
 
+    # ── closing candles on the clock ──────────────────────────────
+    def _run_candle_closer(self):
+        """End every aggregator's candle when its slot ends, not when the next
+        tick happens to arrive.
+
+        A tick-driven close makes the engine blind for as long as the market is
+        quiet. On 2026-09-10 that was 7.9 seconds of a 15-second entry. This
+        checks four times a second, which is far finer than any timeframe here
+        and costs nothing measurable.
+        """
+        while not self._closer_stop.wait(0.25):
+            try:
+                for agg in list(self._aggregators.values()):
+                    agg.close_due_candles()
+            except Exception as exc:  # a bad callback must not kill the clock
+                print(f"[FEED] candle closer: {exc}")
+
+    def start_candle_closer(self):
+        if self._closer_thread and self._closer_thread.is_alive():
+            return
+        self._closer_stop.clear()
+        self._closer_thread = threading.Thread(target=self._run_candle_closer, name="candle-closer", daemon=True)
+        self._closer_thread.start()
+
+    def stop_candle_closer(self):
+        self._closer_stop.set()
+
     def set_candle_config(
         self, instrument_id: str, timeframe: int, callback: Callable, history_df: pd.DataFrame = None
     ):
@@ -397,6 +476,9 @@ class LiveMarketFeed:
                 agg.candles = agg.candles[-agg.max_candles :]
 
         self._aggregators[agg_key] = agg
+        # The clock that ends candles on time, started with the first
+        # aggregator and shared by all of them.
+        self.start_candle_closer()
         print(f"[FEED] Candle aggregator set: {agg_key}")
 
     def remove_candle_callback(self, instrument_id: str, timeframe: int, callback: Callable):
