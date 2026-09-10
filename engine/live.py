@@ -19,6 +19,34 @@ from typing import List, Optional
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
+# WHEN DHAN STOPS ACCEPTING INTRADAY ORDERS.
+#
+# There is no way to look this up, so it was learned the only way it can be. On
+# 2026-09-10 the PE book reached its configured 15:25 square-off for the first
+# time in live trading and was refused three times in three seconds:
+#
+#   15:25:05  REJECTED  RMS: Intraday orders cannot be placed at this time.
+#   15:25:06  REJECTED  RMS: Intraday orders cannot be placed at this time.
+#   15:25:08  REJECTED  RMS: Intraday orders cannot be placed at this time.
+#
+# Dhan then squared the position off itself at 15:26:36. Every exit that ever
+# filled was earlier in the session (10:15, 10:45, 09:55), so all this fixes is
+# an upper bound: the window is shut by 15:25 and open at 15:00. 15:15 is the
+# conservative reading, and a book whose square-off sits at or after it cannot
+# be relied on to close itself.
+BROKER_INTRADAY_CUTOFF = time(15, 15)
+
+
+def _intraday_window_shut(message) -> bool:
+    """True when the broker refused an order because its intraday window closed.
+
+    Matched on the message because the API returns no code for it. A refusal of
+    this kind is the one rejection that retrying can never fix -- the window
+    does not reopen -- and each retry cancels the protective stop again.
+    """
+    return "intraday orders cannot be placed" in str(message or "").lower()
+
+
 def _now_ist() -> datetime:
     """Return current time in IST (naive datetime)."""
     return datetime.now(IST).replace(tzinfo=None)
@@ -387,6 +415,20 @@ class LiveEngine:
         # closing auction means the index is no longer priced by real trades.
         # Stop-loss, target and the timed square-off are unaffected — they read
         # the option's own premium, and options trade until 15:40.
+        # A SQUARE-OFF THE BROKER WILL NOT ACCEPT IS NOT A SQUARE-OFF.
+        # Said here rather than discovered at 15:25 with the stop already
+        # cancelled and the position still open.
+        # `deploy_config` is read defensively: this runs from _load_state too,
+        # and a restore must never fail on a warning.
+        _deploy = getattr(self, "deploy_config", None) or strategy.get("deploy_config") or {}
+        if self._market_close >= BROKER_INTRADAY_CUTOFF and self._is_intraday_product(strategy, _deploy):
+            self.log_event(
+                "warning",
+                f"⚠ Square-off is set to {self._market_close.strftime('%H:%M')}, at or after Dhan's intraday "
+                f"cut-off ({BROKER_INTRADAY_CUTOFF.strftime('%H:%M')}). The exit order will be REJECTED and the "
+                f"broker will square off at its own price. Move the square-off earlier.",
+            )
+
         sco = strategy.get("signal_cutoff_time") or ""
         if isinstance(sco, time):
             self._signal_cutoff = sco
@@ -762,12 +804,30 @@ class LiveEngine:
         if not self._is_intraday_product():
             return False
 
+        # A POSITION THE BROKER HAS TAKEN OVER IS NOT OURS TO SELL. Once Dhan's
+        # intraday window shuts it refuses every exit we send, so re-sending one
+        # every five seconds achieves nothing and cancels the stop each time.
+        # What it will do is square off itself, and the reconciler below is what
+        # turns that fill into a closed trade in our own book -- rather than the
+        # engine sitting on a position that was sold an hour ago.
+        handed_over = [p for p in self.positions if p.get("_awaiting_broker_squareoff")]
+        if handed_over:
+            await self._reconcile_broker_positions(callback)
+            if not [p for p in self.positions if p.get("status") != "closed"]:
+                return True
+
+        sellable = [
+            p for p in self.positions if p.get("status") != "closed" and not p.get("_awaiting_broker_squareoff")
+        ]
+        if not sellable:
+            return bool(handed_over)
+
         self.log_event(
             "warning",
-            f"⏰ Market close reached ({self._market_close.strftime('%H:%M')}) — force exiting {len(self.positions)} open position(s)",
+            f"⏰ Market close reached ({self._market_close.strftime('%H:%M')}) — force exiting {len(sellable)} open position(s)",
         )
 
-        for pos in list(self.positions):
+        for pos in sellable:
             if pos.get("status") == "closed":
                 continue
 
@@ -3040,6 +3100,65 @@ class LiveEngine:
         else:
             self.log_event("error", "No legs could be entered")
 
+    async def _restore_stop_after_failed_exit(self, pos: dict, sl_state: str) -> None:
+        """Put the protective stop back when the exit did not fill.
+
+        An exit cancels the stop first and only then sells -- it has to, because
+        a resting stop and an exit for the same quantity are priced by RMS as a
+        naked short (2026-09-08, refused for Rs 400,396 of margin the account
+        never needed). But when the sell is then refused, that ordering leaves
+        the position naked: on 2026-09-10 the stop was cancelled at 15:25:05 and
+        three exits in a row were rejected, so 130 lots sat with nothing under
+        them until Dhan squared off 90 seconds later.
+
+        So: if we took the net away and the position is still open, put it back.
+        """
+        if sl_state not in ("CANCELLED", "UNCONFIRMED"):
+            return  # nothing of ours was cancelled, or it had already traded
+        if pos.get("status") == "closed" or self._safe_float(pos.get("sl_pct"), 0.0) <= 0:
+            return
+        try:
+            await self._place_sl_order(pos)
+            self.log_event(
+                "order",
+                f"🛡 Stop restored for Leg {pos.get('leg_num')} after the exit was refused — "
+                f"the position is protected again",
+            )
+        except Exception as exc:  # noqa: BLE001 - reported, never raised into the exit path
+            self.log_event(
+                "error",
+                f"CRITICAL: Leg {pos.get('leg_num')} ({pos.get('trading_symbol')}) is OPEN WITH NO STOP — "
+                f"the exit was refused and the stop could not be put back: {exc}",
+            )
+
+    async def _hand_over_to_broker_squareoff(self, pos: dict, sl_state: str) -> None:
+        """The broker's intraday window is shut. Stop fighting it.
+
+        Retrying cannot work -- the window does not reopen -- and every retry
+        cancels the stop again. What the broker WILL do is square the position
+        off itself, at its own price and in its own time. So the engine stays
+        running and lets the reconciler book that fill, instead of stopping with
+        a position it believes is open and disappearing from the page.
+        """
+        pos["_awaiting_broker_squareoff"] = True
+        pos["_exit_retry_after"] = _now_ist() + timedelta(hours=24)
+        pos.pop("_force_exit_reason", None)
+        await self._restore_stop_after_failed_exit(pos, sl_state)
+        self.log_event(
+            "error",
+            f"⛔ Dhan refused the exit for Leg {pos.get('leg_num')} ({pos.get('trading_symbol')}): its intraday "
+            f"window is shut. Not retrying — the broker will square this off at its own price. The square-off "
+            f"time for this book is later than the broker allows and must be moved earlier.",
+        )
+        # DELIBERATELY NOT `manual_intervention_required`. That flag stops the
+        # engine AND blocks it from being restored on the next start, and on
+        # 2026-09-10 it did exactly that: the PE book vanished from the page
+        # while the position it thought it held had already been sold. Nothing
+        # here needs a human -- the broker closes the position and the
+        # reconciler books the fill. What it needs is to stay running long
+        # enough to see that happen.
+        self._save_state()
+
     # ── SL Order Placement ────────────────────────────────────
     async def _place_sl_order(self, pos: dict):
         """Place a stop-loss order at the broker for a position (async)."""
@@ -3320,6 +3439,7 @@ class LiveEngine:
                 tag=f"AF_X_{pos['option_type']}_{pos['strike']}",
             )
 
+        sl_state = "NONE"
         try:
             try:
                 # The stop goes first and is confirmed; only then the exit.
@@ -3367,9 +3487,17 @@ class LiveEngine:
                     "message": "Exit submission is unconfirmed. Reconcile the broker position before retrying.",
                 }
             except Exception as e:
+                if _intraday_window_shut(e):
+                    await self._hand_over_to_broker_squareoff(pos, sl_state)
+                    return {
+                        "status": "error",
+                        "closed": False,
+                        "message": "Dhan's intraday window is shut; the broker will square this off.",
+                    }
                 pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
                 attempt = pos["_exit_attempts"]
                 self.log_event("error", f"❌ Exit order FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {e}")
+                await self._restore_stop_after_failed_exit(pos, sl_state)
                 if attempt >= 3:
                     self.manual_intervention_required = True
                     pos["_exit_retry_after"] = _now_ist() + timedelta(seconds=5)
@@ -3416,12 +3544,20 @@ class LiveEngine:
                     }
                 return {"status": "error", "closed": False, "message": "Exit fill could not be confirmed"}
             if not verification.get("passed"):
+                if _intraday_window_shut(verification.get("message")):
+                    await self._hand_over_to_broker_squareoff(pos, sl_state)
+                    return {
+                        "status": "error",
+                        "closed": False,
+                        "message": "Dhan's intraday window is shut; the broker will square this off.",
+                    }
                 pos["_exit_attempts"] = pos.get("_exit_attempts", 0) + 1
                 attempt = pos["_exit_attempts"]
                 self.log_event(
                     "error",
                     f"❌ Exit verification FAILED for Leg {pos['leg_num']} (attempt {attempt}/3): {verification.get('status')} {verification.get('message', '')}".strip(),
                 )
+                await self._restore_stop_after_failed_exit(pos, sl_state)
                 if attempt >= 3:
                     self.manual_intervention_required = True
                     pos["_exit_retry_after"] = _now_ist() + timedelta(seconds=5)

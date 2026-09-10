@@ -127,6 +127,9 @@ class _StubEngineMixin:
         engine.entry_conditions = _always_true()
         engine.exit_conditions = _always_true()
         engine.current_time = None
+        # `_apply_session_times` now logs when the square-off sits at or after
+        # the broker's intraday cut-off, so the stub needs somewhere to log to.
+        engine.event_log = []
         return engine
 
 
@@ -162,6 +165,7 @@ class LiveSignalCutoffTests(unittest.TestCase, _StubEngineMixin):
         engine._signal_cutoff = None
         engine._market_open = time(9, 15)
         engine._market_close = time(15, 25)
+        engine.event_log = []
         engine._apply_session_times({"market_close": "15:25", "signal_cutoff_time": "15:15"})
         self.assertEqual(engine._signal_cutoff, time(15, 15))
 
