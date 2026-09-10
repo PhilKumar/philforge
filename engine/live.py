@@ -697,18 +697,37 @@ class LiveEngine:
         return security_id
 
     def _broker_exit_premium(self, pos: dict, broker_position: dict | None = None) -> float:
+        """What the broker actually got out at, when it closed a position for us.
+
+        THE SIDE MATTERS. A long is closed by a SELL, so its exit is `sellAvg`;
+        a short is closed by a BUY, so its exit is `buyAvg`. The old order asked
+        for a mark first and then `buyAvg` before `sellAvg`, which for a bought
+        option is its own ENTRY price -- so on 2026-09-10 Dhan's square-off of
+        130 NIFTY 23700 PE at Rs 279.45 was booked as
+
+            Entry Rs 265.00 -> Exit Rs 265.00 | P&L: -Rs 112.94
+
+        a real Rs 1,798 gain recorded as the charges alone. Worse, `banked_pnl`
+        feeds the compounding ladder, so a broker-closed winner would have sized
+        the book DOWN.
+
+        A mark (`lastTradedPrice`, `ltp`) is a fallback and nothing more: it is
+        not a fill, and after hours it is not even current.
+        """
+        is_long = str(pos.get("transaction_type") or "BUY").upper() == "BUY"
         candidates = []
         if isinstance(broker_position, dict):
+            if is_long:
+                fills = ["sellAvg", "sellAvgPrice"]
+            else:
+                fills = ["buyAvg", "buyAvgPrice"]
+            candidates.extend(broker_position.get(key) for key in fills)
             candidates.extend(
                 [
                     broker_position.get("lastTradedPrice"),
                     broker_position.get("lastPrice"),
                     broker_position.get("ltp"),
                     broker_position.get("averagePrice"),
-                    broker_position.get("buyAvg"),
-                    broker_position.get("sellAvg"),
-                    broker_position.get("buyAvgPrice"),
-                    broker_position.get("sellAvgPrice"),
                     broker_position.get("costPrice"),
                 ]
             )
