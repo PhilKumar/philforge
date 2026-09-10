@@ -4066,7 +4066,21 @@ async function startGapCarryPaper() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, 'The campaign could not be started.'));
     _renderGapCarryStatus(data.campaign || null, true);
-    _setGapCarryFormStatus('Paper carry started.', 'success');
+    // Say which mode the SERVER started, not which the form asked for. The two
+    // disagreed: a live start replied "paper" and this line said so, so the one
+    // message that has to distinguish real money from a simulation could not.
+    const started = String(data.mode || '').toLowerCase() === 'live' ? 'LIVE carry started.' : 'Paper carry started.';
+    // Gap Carry enters at 15:10 and sells the next morning. Started outside
+    // that window it is correctly idle, and saying so beats a message about
+    // pricing a contract it is not pricing.
+    const entryAt = (document.getElementById('oc-gap-entry-time')?.value || '15:10');
+    const now = new Date();
+    const [eh, em] = entryAt.split(':').map(Number);
+    const waiting = (now.getHours() * 60 + now.getMinutes()) < (eh * 60 + em);
+    _setGapCarryFormStatus(
+      waiting ? `${started} Waiting for ${entryAt} to read the candle.` : started,
+      'success',
+    );
   } catch (error) {
     _setGapCarryFormStatus(error.message || 'The campaign could not be started.', 'error');
   } finally {

@@ -13729,6 +13729,9 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
     # NIGHT, and Dhan squares an INTRADAY book off at ~15:20 -- before the
     # carry has even started.
     trade_mode = str(getattr(payload, "mode", "paper") or "paper").strip().lower()
+    # Anything that is not exactly "live" is paper. A typo must fall to the
+    # safe side, never to the side that places real orders.
+    trade_mode = "live" if trade_mode == "live" else "paper"
     engine = _gap_carry_paper.GapCarryPaper(
         config=config,
         option_premium_lookup=_gap_carry_premium_lookup(broker_client, await _gap_carry_history_lookup(broker_client)),
@@ -13966,7 +13969,11 @@ async def gap_carry_paper_start(payload: GapCarryPaperStartPayload, request: Req
     runtime = await _start_gap_carry_campaign(user_id, payload, broker_client=broker_client)
     return {
         "status": "started",
-        "mode": "paper",
+        # The mode this campaign ACTUALLY started in. It was hardcoded to
+        # "paper", so a LIVE start answered "paper" and the page said so.
+        # A reply that cannot tell real money from a simulation is the one
+        # thing a start must never get wrong (Phil, 2026-09-10).
+        "mode": "live" if getattr(runtime.engine, "executor", None) is not None else "paper",
         "campaign": {**runtime.engine.get_status(), "running": runtime.running},
     }
 
