@@ -738,6 +738,114 @@ class LiveEngine:
                 return premium
         return 0.0
 
+    async def _repair_broker_exits_booked_at_entry(self) -> int:
+        """Re-price broker-made exits that were booked at their own entry price.
+
+        Until `3d7c104` the reconciler read `buyAvg` as the exit of a LONG, which
+        for a bought option is the entry — so Dhan's 279.45 square-off of a
+        265.00 PE was recorded as `Entry 265.00 -> Exit 265.00, P&L -112.94`, a
+        +Rs 1,763 trade written down as its own charges. Those records are on
+        disk and no later reconciliation will revisit them: the position is
+        closed, so nothing looks at it again.
+
+        Narrow on purpose. Only a BROKER_MANUAL_EXIT, only where the exit equals
+        the entry to the paisa, and only where the broker's trade book can still
+        prove the real fill — which means today. An older one cannot be
+        recovered from here and is left alone rather than guessed at.
+        """
+        today = _now_ist().date().isoformat()
+        repaired = 0
+        for trade in self.closed_trades:
+            if trade.get("exit_reason") != "BROKER_MANUAL_EXIT":
+                continue
+            entry_premium = self._safe_float(trade.get("entry_premium"), 0.0)
+            if entry_premium <= 0 or self._safe_float(trade.get("exit_premium"), 0.0) != entry_premium:
+                continue
+            if str(trade.get("entry_time") or "")[:10] != today:
+                continue
+
+            real_price, real_stamp = await self._broker_closing_fill(trade)
+            if real_price <= 0 or real_price == entry_premium:
+                continue
+
+            quantity = self._position_quantity(trade)
+            direction = 1 if trade.get("transaction_type") == "BUY" else -1
+            gross = round((real_price - entry_premium) * direction * quantity, 2)
+            charges = statutory_round_charges(
+                entry_premium=entry_premium,
+                exit_premium=real_price,
+                quantity=quantity,
+                lots=trade.get("lots", 1),
+                option_type=trade.get("option_type"),
+            )
+            was = self._safe_float(trade.get("pnl"), 0.0)
+            now_pnl = round(gross - charges, 2)
+
+            trade["exit_premium"] = real_price
+            trade["gross_pnl"] = gross
+            trade["charges"] = charges
+            trade["pnl"] = now_pnl
+            if real_stamp is not None:
+                trade["exit_time"] = real_stamp
+            self.banked_pnl += now_pnl - was
+            self.daily_pnl += now_pnl - was
+            repaired += 1
+            self.log_event(
+                "info",
+                f"Repriced a broker exit from the trade book: {trade.get('trading_symbol')} "
+                f"exit ₹{entry_premium:.2f} → ₹{real_price:.2f}, P&L ₹{was:,.2f} → ₹{now_pnl:,.2f}",
+            )
+
+        if repaired:
+            self._rewrite_trade_history(self.closed_trades)
+            self._save_state()
+        return repaired
+
+    async def _broker_closing_fill(self, pos: dict) -> tuple[float, datetime | None]:
+        """The price and time the BROKER got out at, from its own trade book.
+
+        A position row carries averages, not fills, and no time at all. The
+        trade book carries both -- so a square-off Dhan made for us can be
+        booked at the price it happened and the moment it happened, rather than
+        at an average and at whenever we next looked.
+
+        Returns (0.0, None) when it cannot be established; the caller falls back
+        to the position row.
+        """
+        security_id = self._resolve_position_security_id(pos)
+        if not security_id or self.dhan is None:
+            return 0.0, None
+        closing_side = "SELL" if str(pos.get("transaction_type") or "BUY").upper() == "BUY" else "BUY"
+        try:
+            fills = await asyncio.to_thread(self.dhan.get_trades)
+        except Exception as exc:
+            self.log_event("warning", f"Could not read the broker's trade book: {exc}")
+            return 0.0, None
+
+        latest_price, latest_stamp = 0.0, None
+        for fill in fills or []:
+            if not isinstance(fill, dict):
+                continue
+            if str(fill.get("securityId") or fill.get("security_id") or "").strip() != str(security_id):
+                continue
+            if str(fill.get("transactionType") or "").upper() != closing_side:
+                continue
+            price = self._safe_float(fill.get("tradedPrice") or fill.get("price"), 0.0)
+            if price <= 0:
+                continue
+            raw_stamp = str(fill.get("exchangeTime") or fill.get("createTime") or "")[:19]
+            stamp = None
+            for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    stamp = datetime.strptime(raw_stamp, pattern)
+                    break
+                except ValueError:
+                    continue
+            # The LAST closing fill is the one that flattened us.
+            if latest_stamp is None or (stamp is not None and stamp >= latest_stamp):
+                latest_price, latest_stamp = price, stamp or latest_stamp
+        return latest_price, latest_stamp
+
     async def _reconcile_broker_positions(self, callback=None) -> bool:
         if not self.positions:
             return False
@@ -771,12 +879,17 @@ class LiveEngine:
             if broker_qty >= engine_qty:
                 continue
 
-            exit_premium = self._broker_exit_premium(pos, broker_position)
+            # The trade book first: it holds the fill itself, with its time.
+            exit_premium, exit_stamp = await self._broker_closing_fill(pos)
+            if exit_premium <= 0:
+                exit_premium = self._broker_exit_premium(pos, broker_position)
             if exit_premium <= 0:
                 exit_premium = self._safe_float(pos.get("entry_premium"), 0.0)
 
             if broker_qty <= 0:
-                closed_trade = await self._record_closed_trade(pos, "BROKER_MANUAL_EXIT", exit_premium, engine_qty)
+                closed_trade = await self._record_closed_trade(
+                    pos, "BROKER_MANUAL_EXIT", exit_premium, engine_qty, exit_time=exit_stamp
+                )
                 async with self._trades_lock:
                     if pos in self.positions:
                         self.positions.remove(pos)
@@ -788,7 +901,9 @@ class LiveEngine:
                 closed_qty = max(0, engine_qty - broker_qty)
                 if closed_qty <= 0:
                     continue
-                closed_trade = await self._record_closed_trade(pos, "BROKER_PARTIAL_EXIT", exit_premium, closed_qty)
+                closed_trade = await self._record_closed_trade(
+                    pos, "BROKER_PARTIAL_EXIT", exit_premium, closed_qty, exit_time=exit_stamp
+                )
                 pos["quantity"] = broker_qty
                 pos["lots"] = broker_qty / pos["lot_size"] if pos.get("lot_size") else pos.get("lots", 0)
                 pos["current_premium"] = exit_premium
@@ -1321,6 +1436,39 @@ class LiveEngine:
             print(f"[LIVE] Trade history load failed: {e}")
         return []
 
+    def _rewrite_trade_history(self, trades: list) -> None:
+        """Replace matching records in the permanent file, in place.
+
+        `_save_trade_history` deduplicates -- which is right when appending, and
+        wrong when correcting: a repriced trade has the same key as the wrong
+        one it replaces, so appending would silently keep the wrong numbers.
+        """
+        try:
+            existing = self._load_trade_history()
+            replacements = {
+                (
+                    str(t.get("entry_time", "")),
+                    str(t.get("strike", "")),
+                    str(t.get("option_type", "")),
+                ): t
+                for t in trades or []
+            }
+            changed = False
+            for index, record in enumerate(existing):
+                key = (
+                    str(record.get("entry_time", "")),
+                    str(record.get("strike", "")),
+                    str(record.get("option_type", "")),
+                )
+                if key in replacements:
+                    existing[index] = replacements[key]
+                    changed = True
+            if changed:
+                with open(self._history_file, "w") as f:
+                    _json.dump(existing, f, indent=2, default=str)
+        except Exception as e:
+            print(f"[LIVE] Trade history rewrite failed: {e}")
+
     def _save_trade_history(self, trades: list) -> None:
         """Append closed trades to the book's own permanent record.
 
@@ -1614,6 +1762,10 @@ class LiveEngine:
         self._reset_intraday_status()
 
         self.log_event("start", "🚀 Live Auto-Trading Engine Started (REAL ORDERS)")
+        try:
+            await self._repair_broker_exits_booked_at_entry()
+        except Exception as exc:  # noqa: BLE001 - a repair must never stop the engine
+            self.log_event("warning", f"Could not reprice earlier broker exits: {exc}")
         self.log_event("info", f"Instrument: {self._get_instrument_name()}")
         self.log_event("info", f"Timeframe: {describe_timeframe(self._get_timeframe_spec())}")
         self.log_event("info", f"Max trades/day: {self.strategy.get('max_trades_per_day', 1)}")
@@ -3339,14 +3491,20 @@ class LiveEngine:
                 out.append(f"{text} ({left} vs {right})" if left is not None else text)
         return out
 
-    async def _record_closed_trade(self, pos: dict, reason: str, exit_premium: float, quantity: int):
+    async def _record_closed_trade(
+        self, pos: dict, reason: str, exit_premium: float, quantity: int, exit_time: datetime | None = None
+    ):
         quantity = max(0, int(quantity or 0))
         if quantity <= 0:
             return None
 
         closed_trade = pos.copy()
         closed_trade["status"] = "closed"
-        closed_trade["exit_time"] = self.current_time
+        # `current_time` is when the ENGINE noticed. For a fill the broker made
+        # on its own that can be hours late -- Dhan sold at 15:26:36 on
+        # 2026-09-10 and the trade was stamped 19:32:04, the moment a deploy
+        # happened to reconcile it. Where the broker tells us when, use when.
+        closed_trade["exit_time"] = exit_time or self.current_time
         closed_trade["exit_reason"] = reason
         try:
             latest = self.candle_buffer.iloc[-1] if not self.candle_buffer.empty else None
