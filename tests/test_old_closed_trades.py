@@ -42,7 +42,13 @@ class TheSourceOutlivesADeploy(unittest.TestCase):
 
     def test_the_runs_payload_carries_it(self):
         body = APP.split('@app.get("/api/live/runs")')[1].split("@app.get(")[0]
-        self.assertIn('"history": await _account_option_history(user_id)', body)
+        # Fetched once at the top now, because each live book also reads it to
+        # fill the gap its own list starts with — but it must still reach the
+        # desk whole, which is what the ALL TIME table below the books is built
+        # from.
+        self.assertIn("await _account_option_history(user_id)", body)
+        self.assertIn('"history": account_rows', body)
+        self.assertEqual(body.count("await _account_option_history("), 1, "read it once per poll, not per book")
 
     def test_only_real_money_and_only_nifty_options(self):
         block = helper_code()

@@ -18657,11 +18657,11 @@ async def live_status(request: Request, run_id: str = ""):
     user_id = _request_user_id(request)
     live_bucket = _registry_bucket(live_engines, user_id)
     if run_id and run_id in live_bucket:
-        return await _with_account_history(live_bucket[run_id].get_status(), user_id)
+        return live_bucket[run_id].get_status()
     # Return first running engine's status
     for rid, engine in live_bucket.items():
         if engine.running:
-            return await _with_account_history(engine.get_status(), user_id)
+            return engine.get_status()
     # Nothing running — return idle status
     return {
         "running": False,
@@ -18680,59 +18680,52 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
-async def _with_account_history(status: dict, user_id: int) -> dict:
-    """Show a book what it did before this deploy, from the broker's record.
+def _account_rows_this_book_is_missing(strategy: dict, own_closed: list, account_rows: list) -> list:
+    """This book's earlier trades, from the broker's record, as engine trades.
 
-    A book's own Completed Trades list only covers what it has closed since the
-    engine last started, so CE_SL15_NoMonTue read "0 trades" and ₹0.00 while its
-    real CE trade of 2026-09-03 sat in the account below (Phil, three times:
-    "the CE trade is not populating", "I am not seeing here").
+    A book's own list only covers what it has closed since the engine last
+    started, so CE_SL15_NoMonTue read "0 trades" and ₹0.00 while its real CE
+    trade of 2026-09-03 sat in the account table lower down the same page.
 
-    These rows are tagged `from_account`, and they are not proof. The broker
-    records the fill, not the strategy that placed it, and Gap Carry has traded
-    real NIFTY options since 02-Sep-2026 -- so a CE row from the account is
-    probably this book and cannot be shown as certainly this book. Only the
-    option side is matched, only dates on or after the books went live, and only
-    days the engine has no record of its own for: where the book knows, the book
-    wins.
+    These rows are NOT proof. The broker records the fill, not the strategy that
+    placed it, and Gap Carry has traded real NIFTY options since 02-Sep-2026 --
+    so a CE row from the account is probably this book and cannot be shown as
+    certainly this book. Hence: the option side must match and be unambiguous, a
+    two-sided book borrows nothing, and a day the engine has its own record for
+    is never touched. Where the book knows, the book wins.
+
+    Shaped like an engine trade rather than an account row, because the count,
+    the booked total and the table are all derived from one list -- so a
+    borrowed row has to look like the thing that list holds. `from_account`
+    marks it, and it carries no `id`, so it offers no journal chart it cannot
+    draw.
     """
-    if not isinstance(status, dict):
-        return status
-    own = list(status.get("closed_trades") or [])
-    side = _book_option_side(status.get("strategy") or {})
+    side = _book_option_side(strategy)
     if not side:
-        return status
-
-    covered = {str(t.get("entry_time") or "")[:10] for t in own}
-    try:
-        account = await _account_option_history(int(user_id))
-    except Exception:
-        return status
-
-    borrowed = []
-    for row in account:
-        if row.get("side") != side or row.get("date") in covered:
-            continue
-        borrowed.append(
-            {
-                **row,
-                "transaction_type": "BUY",
-                "exit_reason": "from the account",
-                "from_account": True,
-            }
-        )
-    if borrowed:
-        # Oldest first, matching the engine's own list, which the panel reverses.
-        borrowed.sort(key=lambda r: r["date"])
-        # The headline moves with the rows. A tile reading Rs 0.00 above a table
-        # of real losses is the kind of disagreement that makes a page useless.
-        borrowed_pnl = sum(float(r.get("pnl", 0) or 0) for r in borrowed)
-        status = {
-            **status,
-            "closed_trades": borrowed + own,
-            "total_pnl": round(float(status.get("total_pnl", 0) or 0) + borrowed_pnl, 2),
+        return []
+    covered = {str(t.get("entry_time") or "")[:10] for t in own_closed or []}
+    borrowed = [
+        {
+            "trading_symbol": row.get("symbol"),
+            "entry_time": row.get("entry_time"),
+            "exit_time": row.get("exit_time"),
+            "transaction_type": "BUY",
+            "option_type": side,
+            "entry_premium": row.get("entry_premium"),
+            "exit_premium": row.get("exit_premium"),
+            "quantity": row.get("quantity"),
+            "pnl": row.get("pnl"),
+            "gross_pnl": row.get("gross_pnl"),
+            "charges": row.get("charges"),
+            "exit_reason": "from the account",
+            "from_account": True,
         }
-    return status
+        for row in account_rows or []
+        if row.get("side") == side and row.get("date") not in covered
+    ]
+    # Oldest first, matching the engine's own list, which the desk reverses.
+    borrowed.sort(key=lambda r: str(r.get("entry_time") or ""))
+    return borrowed
 
 
 def _book_option_side(strategy: dict) -> str:
@@ -18829,6 +18822,8 @@ async def live_runs(request: Request):
     # that reads only the first shows two books when five are loaded.
     pairs = [(rid, eng, True) for rid, eng in _registry_bucket(live_engines, user_id).items()]
     pairs += [(rid, eng, False) for rid, eng in _registry_bucket(paper_engines, user_id).items()]
+    # Fetched once, read by every live book below and returned whole at the end.
+    account_rows = await _account_option_history(user_id)
     runs = []
     for run_id, engine, is_live_registry in pairs:
         try:
@@ -18837,6 +18832,14 @@ async def live_runs(request: Request):
             leg = legs[0] if legs else {}
             open_legs = [p for p in engine.positions if p.get("status") != "closed"]
             closed = list(engine.closed_trades or [])
+            # WHAT THIS BOOK DID BEFORE THIS DEPLOY. An engine's own list starts
+            # empty every time it restarts, so CE_SL15_NoMonTue read "0 trades"
+            # and Rs 0.00 while its real CE of 2026-09-03 sat in the account
+            # table lower down the same page. Everything below -- the count, the
+            # booked total, the table -- is derived from `closed`, so borrowing
+            # here is the only place it has to happen.
+            if is_live_registry:
+                closed = _account_rows_this_book_is_missing(strategy, closed, account_rows) + closed
             runs.append(
                 {
                     "run_id": run_id,
@@ -18935,7 +18938,7 @@ async def live_runs(request: Request):
         "day_total": round(sum(float(r.get("daily_pnl", 0) or 0) for r in runs), 2),
         # Everything the account closed before this deploy. A fresh deploy wipes
         # each engine's own list; this one outlives it.
-        "history": await _account_option_history(user_id),
+        "history": account_rows,
     }
 
 
