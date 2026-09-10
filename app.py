@@ -987,13 +987,25 @@ def _summarize_real_trade_fills(trades: list[dict]) -> dict | None:
 
     Live get_trades() snapshots are treated as day-local. Completed dates are
     later rebuilt from historical trade history using cross-day FIFO.
+
+    The DATE travels with the summary. It was worked out here from the fills'
+    own exchange timestamps and then thrown away, leaving the caller to file the
+    row under whatever day it happened to be when it wrote -- so a refresh after
+    midnight filed 2026-09-10's trade under 2026-09-11, and the desk showed the
+    same PE twice: once as the book's own row on the 10th, once as the account's
+    on the 11th. The identical fault put 2026-09-08's trade on the 09-09 (see
+    the provisional-day sweep in `_backfill_trade_history`, which cleaned up
+    after this rather than preventing it).
     """
 
     entries = _summarize_real_trade_history(trades, source="live_day_fifo", carry_inventory=False)
     if not entries:
         return None
     latest_date = max(entries.keys())
-    return entries.get(latest_date)
+    entry = entries.get(latest_date)
+    if isinstance(entry, dict):
+        entry["trade_date"] = latest_date
+    return entry
 
 
 def _running_statuses_for_user(registry: dict, user_id: int) -> list[dict]:
@@ -22012,10 +22024,25 @@ async def _persist_daily_trades(trades: list, user_id: int):
     """
     if not trades:
         return
-    today_str = _ist_date_str()
     entry = _summarize_real_trade_fills(trades)
     if not entry:
         return
+
+    # THE DAY THE FILLS HAPPENED, NOT THE DAY WE NOTICED. `_ist_date_str()` is
+    # the clock, and the clock rolls at midnight while the trade book still
+    # holds the session that just ended -- so a refresh at 00:05 filed the 10th
+    # of September's PE under the 11th, and it showed up as a second row beside
+    # the book's own. The fills carry their own exchange timestamps; use those.
+    today_str = str(entry.get("trade_date") or _ist_date_str())
+    clock_str = _ist_date_str()
+    if clock_str != today_str:
+        # And clear up after the version of this that filed by the clock. Only a
+        # provisional row, only on a day these fills prove had no session of its
+        # own -- a settled record is never touched.
+        stale = await _db_mod.get_trade_history_entry(user_id, clock_str) or {}
+        if str(stale.get("source") or "") == "live_day_fifo":
+            if await asyncio.to_thread(_db_mod.delete_trade_history_entry_sync, user_id, clock_str):
+                print(f"[TRADE_HISTORY] Dropped {clock_str}: it was {today_str}'s session, filed by the clock")
 
     # A BOUGHT CONTRACT WITH NO SALE IS NOT A ZERO. When the broker's own book
     # cannot close the day, the engines can: they hold the entry, and after
