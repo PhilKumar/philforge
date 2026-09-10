@@ -176,5 +176,27 @@ class TheShelfIsWarmBeforeTheEntryReadsIt(unittest.TestCase):
         """It is an optimisation. A failure must be silent and total."""
         block = self.SRC.split("def _warm_option_shelf")[1].split("\n    def ")[0]
         self.assertIn("except Exception:", block)
-        self.assertIn("asyncio.create_task", block, "fire and forget, never awaited")
+        self.assertIn("_spawn_quiet", block, "fire and forget, never awaited")
+        self.assertNotIn("_spawn_tracked", block, "a warm-up failing is not CRITICAL")
         self.assertNotIn("raise", block)
+
+    def test_the_quiet_spawn_is_actually_quiet(self):
+        """`_spawn_quiet` is what makes the warm-up harmless: it holds a strong
+        reference so the task is not collected mid-flight, and it swallows what
+        the task raises. `_spawn_tracked` does the opposite -- it logs CRITICAL,
+        which is right for a stop order and wrong for a pre-fetch."""
+        block = self.SRC.split("def _spawn_quiet")[1].split("\n    def ")[0]
+        self.assertIn("except Exception:", block)
+        self.assertIn("asyncio.create_task", block)
+        self.assertIn("_background_tasks.add", block, "a dropped task can be collected part-way")
+        self.assertNotIn("log_event", block)
+
+    def test_the_funds_call_is_warmed_too(self):
+        """The capital check sits between the strike and the order, and it asks
+        the broker for the balance. Warming it moves that round trip -- and its
+        share of Dhan's rate budget -- off the critical path."""
+        block = self.SRC.split("def _warm_option_shelf")[1].split("\n    def ")[0]
+        self.assertIn("_warm_funds", block)
+        warm = self.SRC.split("def _warm_funds")[1].split("\n    def ")[0]
+        self.assertIn("async_get_funds", warm)
+        self.assertIn("except Exception:", warm, "a failed warm-up must not stop an entry")

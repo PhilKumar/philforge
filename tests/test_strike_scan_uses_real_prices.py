@@ -150,9 +150,14 @@ class PaperStocksTheShelfLiveReadsFrom(unittest.TestCase):
         self.assertEqual(paper, live, "paper and live must trade off the same prices")
 
     def test_both_helpers_use_one_key_namespace(self):
-        """Two namespaces would look right and share nothing."""
+        """Two namespaces would look right and share nothing.
+
+        Five uses: the sync helper reads and writes, the async helper reads and
+        writes, and a caller that waited on someone else's fetch reads the shelf
+        that fetch filled.
+        """
         src = (ROOT / "broker" / "dhan.py").read_text(encoding="utf-8")
-        self.assertEqual(src.count('f"ltp1:{exchange_segment}:{sid}"'), 4)
+        self.assertEqual(src.count('f"ltp1:{exchange_segment}:{sid}"'), 5)
 
 
 class AGuessedChainCannotChooseAStrike(unittest.TestCase):

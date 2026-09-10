@@ -1335,7 +1335,7 @@ class PaperTradingEngine:
                                 try:
                                     symbol_name = self._get_symbol_name()
                                     current_premium = (
-                                        self.dhan.get_option_ltp(
+                                        await self.dhan.async_get_option_ltp(
                                             symbol_name,
                                             int(position["strike"]),
                                             position["expiry"],
@@ -1980,7 +1980,7 @@ class PaperTradingEngine:
             expiry = position.get("expiry", "")
 
             if underlying and strike and expiry:
-                ltp = self.dhan.get_option_ltp(underlying, int(strike), expiry, option_type)
+                ltp = await self.dhan.async_get_option_ltp(underlying, int(strike), expiry, option_type)
                 if ltp > 0:
                     return ltp
         except Exception as e:
@@ -2205,7 +2205,7 @@ class PaperTradingEngine:
             entry_premium = scanned_premium if scanned_premium > 0 else 0.0
             if entry_premium <= 0 and expiry:
                 try:
-                    entry_premium = self.dhan.get_option_ltp(symbol, int(strike), expiry, option_type)
+                    entry_premium = await self.dhan.async_get_option_ltp(symbol, int(strike), expiry, option_type)
                 except Exception as e:
                     self.log_event("warning", f"LTP fetch failed: {e}")
 
@@ -2339,7 +2339,7 @@ class PaperTradingEngine:
         live_ltps = {}  # strike -> ltp
         if sec_id_map:
             try:
-                prices = self.dhan.get_ltp_prices(list(sec_id_map.values()), exchange_segment=exchange_seg)
+                prices = await self.dhan.async_get_ltp_prices(list(sec_id_map.values()), exchange_segment=exchange_seg)
                 live_ltps = {s: prices[sid] for s, sid in sec_id_map.items() if sid in prices}
             except Exception as e:
                 self.log_event("warning", f"Batch LTP fetch failed: {e}, using estimates")

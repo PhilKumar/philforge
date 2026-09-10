@@ -186,6 +186,11 @@ class _TTLCache:
 
 _api_cache = _TTLCache()
 
+# In-flight batched-LTP requests, so N callers asking the same question in the
+# same instant cost ONE call. Keyed on the event loop as well as the request, so
+# a future is only ever awaited on the loop that created it.
+_ltp_inflight: Dict[tuple, "asyncio.Future"] = {}
+
 
 # ══════════════════════════════════════════════════════════════
 #  Exchange Tick Size Rounding
@@ -2794,16 +2799,58 @@ class DhanClient:
         if not missing:
             return prices
 
-        raw = await self.async_get_ltp(missing, exchange_segment=exchange_segment)
-        for key, value in (raw.get(exchange_segment) or {}).items():
-            try:
-                price = float(value.get("last_price", value.get("ltp", 0)) if isinstance(value, dict) else value)
-            except (TypeError, ValueError):
-                continue
-            if price > 0:
-                sid = int(key)
-                prices[sid] = price
-                _api_cache.set(f"ltp1:{exchange_segment}:{sid}", price, ttl)
+        # ONE CALL, HOWEVER MANY ASK. The TTL shelf above only helps a caller
+        # that arrives after an answer has come BACK. At a candle close the
+        # engines ask in the same instant, so every one of them saw an empty
+        # shelf and made its own identical request -- and Dhan answered the
+        # last of them, the live one, with a 429. Whoever asks first here does
+        # the fetch; the rest wait on that same fetch and then read the shelf
+        # it filled. `shield` so a caller giving up does not cancel the fetch
+        # the others are waiting on.
+        loop = asyncio.get_running_loop()
+        flight_key = (id(loop), exchange_segment, tuple(sorted(missing)))
+        inflight = _ltp_inflight.get(flight_key)
+        if inflight is not None:
+            shared, failure = await asyncio.shield(inflight)
+            if failure is not None:
+                raise failure
+            for sid in missing:
+                hit = _api_cache.get(f"ltp1:{exchange_segment}:{sid}")
+                if hit is not None:
+                    prices[sid] = float(hit)
+            return prices
+
+        flight = loop.create_future()
+        _ltp_inflight[flight_key] = flight
+        raw: dict | None = None
+        failure: BaseException | None = None
+        try:
+            raw = await self.async_get_ltp(missing, exchange_segment=exchange_segment)
+            for key, value in (raw.get(exchange_segment) or {}).items():
+                try:
+                    price = float(value.get("last_price", value.get("ltp", 0)) if isinstance(value, dict) else value)
+                except (TypeError, ValueError):
+                    continue
+                if price > 0:
+                    sid = int(key)
+                    prices[sid] = price
+                    _api_cache.set(f"ltp1:{exchange_segment}:{sid}", price, ttl)
+        except asyncio.CancelledError as exc:
+            # The leader's own caller walked away. The waiters did not, and they
+            # were never cancelled -- hand them something their retry can act on
+            # rather than a cancellation that was never theirs.
+            failure = RuntimeError("the shared LTP fetch was cancelled")
+            raise exc
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            # ALWAYS resolve the flight, and only after the shelf is written, so
+            # waiters read the answer rather than the empty shelf they were
+            # waiting to have filled -- and never wait on a flight that ended.
+            _ltp_inflight.pop(flight_key, None)
+            if not flight.done():
+                flight.set_result((raw, failure))
         return prices
 
     async def async_get_option_ltp(self, underlying: str, strike: int, expiry: str, option_type: str) -> float:

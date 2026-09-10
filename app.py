@@ -20282,7 +20282,8 @@ async def place_order(req: OrderRequest, request: Request):
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return broker_client.place_order(
+        return await asyncio.to_thread(
+            broker_client.place_order,
             security_id=req.security_id,
             exchange_segment=values["exchange_segment"],
             transaction_type=values["transaction_type"],
@@ -20314,7 +20315,7 @@ async def get_orders(request: Request):
         user, broker_client, source = await _request_broker_context(request)
         if not broker_client:
             return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
-        orders = broker_client.get_order_book()
+        orders = await asyncio.to_thread(broker_client.get_order_book)
         return {"status": "success", "data": orders if isinstance(orders, list) else []}
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
@@ -20326,7 +20327,7 @@ async def get_order_status(order_id: str, request: Request):
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        status = broker_client.get_order_status(order_id)
+        status = await asyncio.to_thread(broker_client.get_order_status, order_id)
         if isinstance(status, dict) and not (status.get("orderId") or status.get("order_id")):
             status["orderId"] = order_id
         return {"status": "success", "data": status if isinstance(status, dict) else {}}
@@ -20340,7 +20341,7 @@ async def get_positions(request: Request):
         user, broker_client, source = await _request_broker_context(request)
         if not broker_client:
             return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
-        positions = broker_client.get_positions()
+        positions = await asyncio.to_thread(broker_client.get_positions)
         return {"status": "success", "data": positions if isinstance(positions, list) else []}
     except Exception as e:
         return {"status": "error", "message": str(e)[:100], "data": []}
@@ -20352,7 +20353,7 @@ async def get_funds(request: Request):
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return broker_client.get_funds()
+        return await asyncio.to_thread(broker_client.get_funds)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -20363,7 +20364,7 @@ async def cancel_order(order_id: str, request: Request):
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        return broker_client.cancel_order(order_id)
+        return await asyncio.to_thread(broker_client.cancel_order, order_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -20945,7 +20946,9 @@ async def terminal_quote(symbol: str, request: Request):
     if not broker_client:
         return {"status": "error", "message": "Broker not configured", "stock": stock}
     try:
-        data = broker_client.get_ltp([stock["security_id"]], exchange_segment=stock["exchange_segment"])
+        data = await asyncio.to_thread(
+            broker_client.get_ltp, [stock["security_id"]], exchange_segment=stock["exchange_segment"]
+        )
         ltp = _extract_marketfeed_ltp(data, stock["exchange_segment"], stock["security_id"])
         return {"status": "ok", "stock": stock, "ltp": ltp}
     except Exception as e:
@@ -21007,7 +21010,9 @@ async def terminal_stock_chart(request: Request, symbol: str, timeframe: str = "
     lines = list(analytics["lines"])
     live_price = 0.0
     try:
-        data = broker_client.get_ltp([stock["security_id"]], exchange_segment=stock["exchange_segment"])
+        data = await asyncio.to_thread(
+            broker_client.get_ltp, [stock["security_id"]], exchange_segment=stock["exchange_segment"]
+        )
         live_price = float(_extract_marketfeed_ltp(data, stock["exchange_segment"], stock["security_id"]) or 0)
     except Exception:
         live_price = 0.0
@@ -21614,7 +21619,8 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
     if not broker_client:
         raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
     try:
-        result = broker_client.place_order(
+        result = await asyncio.to_thread(
+            broker_client.place_order,
             security_id=stock["security_id"],
             exchange_segment=stock["exchange_segment"],
             transaction_type=transaction_type,
@@ -22853,7 +22859,7 @@ async def get_option_ltp(request: Request, underlying: str, strike: int, expiry:
     if not broker_client:
         return {"status": "error", "message": "Broker not configured"}
     try:
-        ltp = broker_client.get_option_ltp(underlying, strike, expiry, option_type)
+        ltp = await asyncio.to_thread(broker_client.get_option_ltp, underlying, strike, expiry, option_type)
         return {"status": "ok", "ltp": ltp}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -22931,7 +22937,15 @@ def _ticker_json_response(payload: dict) -> JSONResponse:
 
 
 def _fetch_nse_vix() -> dict:
-    """Fetch India VIX from NSE allIndices API. Returns {price, prev_close} or cached."""
+    """Fetch India VIX from NSE allIndices API. Returns {price, prev_close} or cached.
+
+    SYNCHRONOUS ON PURPOSE, AND CALLED THROUGH A THREAD. Two blocking GETs to
+    nseindia.com, one of them a cookie round trip that regularly 403s first.
+    Called straight from `get_ticker`, which is a coroutine, it held the only
+    event loop this process has -- and on 2026-09-10 it held it while a live
+    option order was in flight, so the order's response sat unread for two
+    seconds. Every caller must wrap it: `await asyncio.to_thread(_fetch_nse_vix)`.
+    """
     now = time.time()
     if _vix_cache["price"] > 0 and (now - _vix_cache["timestamp"]) < _vix_cache["ttl"]:
         return {"price": _vix_cache["price"], "prev_close": _vix_cache["prev_close"]}
@@ -23188,7 +23202,7 @@ async def get_ticker(request: Request):
                     if _ticker_cache["data"]:
                         last_nifty = _ticker_cache["data"].get("nifty", {}).get("price", 0)
                     if last_nifty <= 0 and market_closed:
-                        prev = _get_prev_close(ticker_client)
+                        prev = await asyncio.to_thread(_get_prev_close, ticker_client)
                         last_nifty = prev.get("nifty_ltp", 0) or prev.get("nifty", 0)
                     if last_nifty <= 0:
                         last_nifty = 24500
@@ -23205,7 +23219,7 @@ async def get_ticker(request: Request):
             if ce_sid and pe_sid:
                 segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
 
-            all_data = ticker_client.get_ohlc_multi(segments)
+            all_data = await asyncio.to_thread(ticker_client.get_ohlc_multi, segments)
 
             idx = all_data.get("IDX_I", {})
             fno = all_data.get("NSE_FNO", {})
@@ -23272,7 +23286,7 @@ async def get_ticker(request: Request):
                 # Dhan's after-hours prev-close can flatten change to 0.00.
                 # Outside market hours, prefer yfinance previous close for NIFTY/SENSEX.
                 prev = (
-                    _get_prev_close(ticker_client)
+                    await asyncio.to_thread(_get_prev_close, ticker_client)
                     if (_is_cash_market_closed_ist() or (nifty_ltp > 0 and n_chg == 0 and n_pct == 0))
                     else {}
                 )
@@ -23294,7 +23308,7 @@ async def get_ticker(request: Request):
                             s_chg, s_pct = _chg_yf(sensex_ltp, "sensex", s_chg, s_pct)
 
                 # VIX from NSE India (yfinance ^INDIAVIX delisted)
-                vix_data = _fetch_nse_vix()
+                vix_data = await asyncio.to_thread(_fetch_nse_vix)
                 vix_ltp = vix_data["price"]
                 vix_prev = vix_data["prev_close"]
                 v_chg = round(vix_ltp - vix_prev, 2) if vix_prev > 0 else 0
@@ -23370,9 +23384,9 @@ async def get_ticker(request: Request):
             pct = (change / prev * 100) if prev else 0.0
             return close, change, pct
 
-        nifty_price, nifty_chg, nifty_pct = _last_close_and_change("^NSEI")
-        sensex_price, sensex_chg, sensex_pct = _last_close_and_change("^BSESN")
-        vix_data = _fetch_nse_vix()
+        nifty_price, nifty_chg, nifty_pct = await asyncio.to_thread(_last_close_and_change, "^NSEI")
+        sensex_price, sensex_chg, sensex_pct = await asyncio.to_thread(_last_close_and_change, "^BSESN")
+        vix_data = await asyncio.to_thread(_fetch_nse_vix)
         vix_price = vix_data["price"]
         vix_prev = vix_data["prev_close"]
         vix_chg = round(vix_price - vix_prev, 2) if vix_prev > 0 else 0

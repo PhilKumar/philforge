@@ -12,6 +12,7 @@ import json as _json
 import math
 from datetime import date as date_type
 from datetime import datetime, time, timedelta, timezone
+from time import perf_counter as _perf
 from typing import List, Optional
 
 # IST timezone (UTC+5:30)
@@ -251,6 +252,7 @@ class LiveEngine:
         self.last_order_verification: dict = {}
         self.manual_intervention_required = False
         self._entry_fill_timeout_sec = 15
+        self._entry_phase_s: dict[str, float] = {}
         self._exit_fill_timeout_sec = 15
         # How long an exit will wait for the broker to confirm the stop is
         # gone before sending the exit anyway. Short on purpose: the cost of
@@ -1241,6 +1243,22 @@ class LiveEngine:
         task.add_done_callback(_finished)
         return task
 
+    def _spawn_quiet(self, coro, label: str) -> asyncio.Task:
+        """Run a warm-up detached: referenced so it is not collected, silent if
+        it fails. `_spawn_tracked` shouts CRITICAL, which is right for a stop
+        order and wrong for an optimisation the entry does not depend on."""
+
+        async def _guarded():
+            try:
+                await coro
+            except Exception:
+                pass
+
+        task = asyncio.create_task(_guarded())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
     def _unprotected_legs(self) -> list[dict]:
         """Open legs that carry a stop percentage with nothing resting at Dhan.
 
@@ -1507,13 +1525,37 @@ class LiveEngine:
         )
         self._save_state()  # Persist final state
 
+    async def _warm_funds(self) -> None:
+        """Fill the funds cache so the capital check is not a network call.
+
+        `_can_enter_trade` runs BETWEEN the strike being chosen and the order
+        being sent, and it asks the broker for the balance. That put a round
+        trip -- and a share of Dhan's rate budget -- directly in front of the
+        order. The balance only changes when we trade, so asking a couple of
+        seconds early costs nothing and takes the call off the critical path.
+        """
+        if not self._enforce_capital or self.dhan is None:
+            return
+        try:
+            await self.dhan.async_get_funds()
+        except Exception:
+            pass  # the entry asks again for itself; this is only a head start
+
     def _warm_option_shelf(self) -> None:
-        """Pre-fetch the strikes an entry would scan, so the scan is warm.
+        """Pre-fetch what an entry is about to need, so the entry does not wait.
+
+        Two things: the strikes the premium rule will scan, and the broker
+        balance the capital check will read. Both land on shelves the entry
+        reads, and both are single-flighted, so the entry either finds the
+        answer waiting or joins the call already in flight -- it never issues a
+        second identical request.
 
         Deliberately silent. This is an optimisation, not a step: if it fails,
         is rate-limited, or the strategy never enters, nothing depends on it.
         """
         try:
+            if self.dhan is not None and self._enforce_capital:
+                self._spawn_quiet(self._warm_funds(), "warm-funds")
             leg = (self.strategy.get("legs") or [{}])[0]
             strike_type = str(leg.get("strike_type", "") or "")
             if not strike_type.startswith("premium_"):
@@ -1531,7 +1573,7 @@ class LiveEngine:
             if not expiry:
                 return
             step = int(self.strategy.get("strike_step") or 50)
-            asyncio.create_task(
+            self._spawn_quiet(
                 self._find_premium_strike(
                     symbol=symbol,
                     expiry=expiry,
@@ -1540,7 +1582,8 @@ class LiveEngine:
                     spot=spot,
                     strike_step=step,
                     mode=strike_type.replace("premium_", "") or "near",
-                )
+                ),
+                "warm-option-shelf",
             )
         except Exception:
             pass
@@ -1704,7 +1747,7 @@ class LiveEngine:
                             if rest_counter % 5 == 1:
                                 try:
                                     current_premium = (
-                                        self.dhan.get_option_ltp(
+                                        await self.dhan.async_get_option_ltp(
                                             pos.get("underlying", ""),
                                             int(pos["strike"]),
                                             pos["expiry"],
@@ -1806,11 +1849,12 @@ class LiveEngine:
                     f"🕯️ {execution_timeframe}m candle @ {self.current_spot:.2f} (latency: {latency:.1f}s)",
                 )
 
-                # WARM THE OPTION SHELF while the conditions are being read.
-                # The entry's strike scan is one batched LTP call behind a 3s
-                # cache, and the entry lands about two seconds after this point
-                # -- so asking now means the scan reads memory instead of the
-                # network. It cost 3 of the 15 seconds on 2026-09-10.
+                # WARM WHAT THE ENTRY WILL ASK FOR while the conditions are
+                # being read. An entry armed on this bar fires about two seconds
+                # from here, and before it can send an order it needs the strike
+                # chain and the account balance -- two round trips, in series,
+                # in front of the order. On 2026-09-10 they cost 3 of the 16.7
+                # seconds between the bar closing and Dhan accepting the order.
                 #
                 # Fire and forget, and only when flat: a failure here must not
                 # touch the entry, which does its own fetch with its own retry.
@@ -2148,6 +2192,7 @@ class LiveEngine:
             # Success — mark candle as processed
             self._last_processed_candle_time = po.get("signal_candle_time")
             self.log_event("entry", f"✅ Entry succeeded on attempt {attempt}")
+            self._log_entry_latency(po)
             self._clear_pending_order()
             return True
         else:
@@ -2175,6 +2220,25 @@ class LiveEngine:
                     f"⚠ Entry failed (attempt {attempt}). Retry scheduled at {po['retry_at'].strftime('%H:%M:%S')}",
                 )
                 return False
+
+    def _log_entry_latency(self, pending_order: dict) -> None:
+        """Report the gap between the bar that decided and the order that acted.
+
+        `signal_to_order` is the only number that matters to the fill: the bar
+        closed, and this is how long the premium had to move before we owned
+        anything. The phases say which part to go and fix.
+        """
+        phases = getattr(self, "_entry_phase_s", None) or {}
+        order = ("strike", "price", "capital", "submit", "fill")
+        parts = [f"{name} {phases[name]:.2f}s" for name in order if name in phases]
+        bar_close = pending_order.get("signal_candle_time")
+        head = ""
+        if isinstance(bar_close, datetime):
+            bar_close = bar_close + timedelta(minutes=self._get_timeframe())
+            head = f"signal→order {(_now_ist() - bar_close).total_seconds():.1f}s"
+        line = " | ".join([p for p in [head, *parts] if p])
+        if line:
+            self.log_event("entry", f"⏱ Entry latency: {line}")
 
     async def _try_flush_pending_order(self, callback=None):
         """Check and execute pending order from the 1-second poll loop.
@@ -2576,6 +2640,11 @@ class LiveEngine:
         """
         self._entry_submission_ambiguous = False
         self._entry_retry_blocked = False
+        # WHERE THE SECONDS GO. An option entry is only worth what the premium
+        # was when the signal fired, so each phase is timed and reported --
+        # otherwise "the order was late" is an opinion.
+        _phase_t0 = _perf()
+        self._entry_phase_s = {}
         # The why, frozen at the instant of decision, attached to every leg below.
         entry_why = decision_why(row, self.entry_conditions, self._condition_debug, self._prev_row, "ENTRY_SIGNAL")
         self.log_event(
@@ -2679,7 +2748,10 @@ class LiveEngine:
 
             leg_plans.append((i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size))
 
-        capital_plans = []
+        self._entry_phase_s["strike"] = _perf() - _phase_t0
+        _phase_t0 = _perf()
+
+        capital_plans = []  # what each leg will cost, so the balance can be checked once
         for plan in leg_plans:
             i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size = plan
             preview_premium = scanned_premium if scanned_premium > 0 else 0.0
@@ -2701,8 +2773,13 @@ class LiveEngine:
                 }
             )
 
+        self._entry_phase_s["price"] = _perf() - _phase_t0
+        _phase_t0 = _perf()
+
         if not await self._can_enter_trade(capital_plans):
             return
+        self._entry_phase_s["capital"] = _perf() - _phase_t0
+        _phase_t0 = _perf()
 
         # ── Phase 2: Fire all leg orders in parallel (asyncio.gather) ──
         async def _place_one_leg(plan):
@@ -2724,6 +2801,7 @@ class LiveEngine:
                     tag=f"AF_E{i + 1}_{opt_type}_{strike}",
                 )
                 order_id = result.get("orderId", "")
+                self._entry_phase_s["submit"] = max(self._entry_phase_s.get("submit", 0.0), _perf() - _phase_t0)
                 self.log_event("order", f"✅ Order placed: {txn_type} {trading_symbol} | OrderID: {order_id}")
                 verification = await self._verify_order_execution(
                     order_id,
@@ -2800,6 +2878,7 @@ class LiveEngine:
                 )
 
         results = await asyncio.gather(*[_place_one_leg(p) for p in leg_plans])
+        self._entry_phase_s["fill"] = _perf() - _phase_t0
 
         if any(bool(result[-1].get("ambiguous")) for result in results):
             self._entry_submission_ambiguous = True
