@@ -788,7 +788,6 @@ class LiveEngine:
             if real_stamp is not None:
                 trade["exit_time"] = real_stamp
             self.banked_pnl += now_pnl - was
-            self.daily_pnl += now_pnl - was
             repaired += 1
             self.log_event(
                 "info",
@@ -797,6 +796,17 @@ class LiveEngine:
             )
 
         if repaired:
+            # `daily_pnl` is zeroed by start(), so nudging it by the correction
+            # would leave it short by whatever the wrong number was. Add it up
+            # again from today's trades instead of arithmetic on a reset field.
+            self.daily_pnl = round(
+                sum(
+                    self._safe_float(t.get("pnl"), 0.0)
+                    for t in self.closed_trades
+                    if str(t.get("entry_time") or "")[:10] == today
+                ),
+                2,
+            )
             self._rewrite_trade_history(self.closed_trades)
             self._save_state()
         return repaired
@@ -1309,6 +1319,18 @@ class LiveEngine:
             except (TypeError, ValueError):
                 self.banked_pnl = 0.0
 
+            # AND THE PERMANENT RECORD OUTRANKS THE STATE FILE. Restoring the
+            # state file was only ever half the protection: re-deploying a
+            # strategy from the Strategy builder builds a BRAND NEW engine,
+            # whose `banked_pnl` starts at zero and is written straight over the
+            # saved one. On 2026-09-10 that quietly erased the ladder's memory
+            # in the middle of the day. The history file is this book's whole
+            # closed record and cannot be zeroed by a redeploy, so where it has
+            # trades it is the answer.
+            banked_from_record = self._banked_from_trade_history()
+            if banked_from_record is not None:
+                self.banked_pnl = banked_from_record
+
             saved_strategy = state.get("strategy") or {}
             saved_skip_n = int(saved_strategy.get("skip_days_after_profit", 0) or 0)
             if saved_skip_n > 0:
@@ -1435,6 +1457,25 @@ class LiveEngine:
         except Exception as e:
             print(f"[LIVE] Trade history load failed: {e}")
         return []
+
+    def _banked_from_trade_history(self) -> float | None:
+        """This book's realised total, from its permanent record. None if empty.
+
+        `None` rather than 0.0 on purpose: a book with no record yet must fall
+        back to whatever the state file carries, not be told it has banked
+        nothing. A book that has genuinely lost money returns a negative, and
+        the ladder is right to see it.
+        """
+        history = self._load_trade_history()
+        if not history:
+            return None
+        total = 0.0
+        for trade in history:
+            try:
+                total += float(trade.get("pnl", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+        return round(total, 2)
 
     def _rewrite_trade_history(self, trades: list) -> None:
         """Replace matching records in the permanent file, in place.

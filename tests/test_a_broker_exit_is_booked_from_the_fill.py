@@ -200,3 +200,41 @@ class TheOldRowsAreRepriced(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheLadderRemembersAcrossADeploy(unittest.TestCase):
+    """Re-deploying a strategy from the Strategy builder builds a BRAND NEW
+    engine whose `banked_pnl` starts at zero and is written straight over the
+    saved one. On 2026-09-10 that erased the ladder's memory mid-afternoon:
+    the book's banked total went to 0 while its trade record still held the
+    money. The permanent record cannot be zeroed by a redeploy, so it wins.
+    """
+
+    def _book(self, history):
+        engine = _engine()
+        engine._load_trade_history = lambda: history
+        return engine
+
+    def test_the_total_comes_from_the_record(self):
+        book = self._book([{"pnl": 1763.21}, {"pnl": -2739.75}])
+        self.assertEqual(book._banked_from_trade_history(), -976.54)
+
+    def test_an_empty_record_defers_to_the_state_file(self):
+        """None, not 0.0 — a book with no record yet must not be told it has
+        banked nothing when the state file knows better."""
+        self.assertIsNone(self._book([])._banked_from_trade_history())
+
+    def test_a_losing_book_reports_a_loss(self):
+        self.assertEqual(self._book([{"pnl": -4345.25}])._banked_from_trade_history(), -4345.25)
+
+    def test_an_unreadable_row_does_not_poison_the_total(self):
+        book = self._book([{"pnl": 1763.21}, {"pnl": "nonsense"}, {}])
+        self.assertEqual(book._banked_from_trade_history(), 1763.21)
+
+    def test_the_load_path_prefers_it_over_the_state_file(self):
+        import inspect
+
+        source = inspect.getsource(LiveEngine._load_state)
+        state_read = source.index('state.get("banked_pnl"')
+        record_read = source.index("_banked_from_trade_history()")
+        self.assertLess(state_read, record_read, "the record must be applied AFTER the state file, not before")

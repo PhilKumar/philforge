@@ -75,9 +75,22 @@ class BothEnginesImplementIt(unittest.TestCase):
         lv = LIVE.split("# COMPOUND AS THE BOOK GROWS")[1][:1600]
         self.assertIn("self.banked_pnl", lv, "live must size on banked money")
         self.assertNotIn("unrealized", lv)
-        # and banked_pnl itself may only ever grow from a CLOSED trade
-        book = LIVE.split("self.banked_pnl +=")[1][:120]
-        self.assertIn("closed_trade", book)
+        # and banked_pnl itself may only ever move on CLOSED money — every
+        # increment, not just the first one in the file.
+        for increment in LIVE.split("self.banked_pnl +=")[1:]:
+            head = increment[:120]
+            self.assertTrue(
+                "closed_trade" in head or "now_pnl - was" in head,
+                f"banked_pnl moved on something that is not a closed trade: {head.strip()[:60]}",
+            )
+        # It may also be READ BACK from the book's permanent closed record,
+        # which is what survives a redeploy building a brand new engine.
+        for assignment in LIVE.split("self.banked_pnl =")[1:]:
+            head = assignment[:80]
+            self.assertTrue(
+                "0.0" in head or "banked_from_record" in head or "float(state.get" in head,
+                f"banked_pnl was set from something unexpected: {head.strip()[:60]}",
+            )
 
     def test_both_use_the_same_arithmetic(self):
         """floor(banked / rung), clamped -- identical in both files."""
