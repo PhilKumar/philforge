@@ -1102,7 +1102,14 @@ class LiveEngine:
                 "deploy_config": self.deploy_config,
                 # Trading state
                 "in_trade": self.in_trade,
-                "positions": self.positions,
+                # `_exit_in_flight` says "a coroutine in THIS process is selling
+                # right now". Written to disk it becomes a claim about a process
+                # that no longer exists -- and the broker reconciler skips any
+                # position carrying it. On 2026-09-10 a failed exit saved the
+                # flag mid-flight, the deploy killed the process, and the PE
+                # book's position could never be reconciled again: the engine
+                # was skipped as unsafe for a position Dhan had already closed.
+                "positions": [{k: v for k, v in p.items() if k != "_exit_in_flight"} for p in self.positions],
                 "closed_trades": self.closed_trades,
                 "banked_pnl": round(float(self.banked_pnl), 2),
                 "trades_today": self.trades_today,
@@ -1225,6 +1232,9 @@ class LiveEngine:
 
             # Restore trading state
             self.positions = state.get("positions", [])
+            for position in self.positions:
+                # Belt as well as braces: an older state file may still carry it.
+                position.pop("_exit_in_flight", None)
             open_positions = [position for position in self.positions if (position or {}).get("status") != "closed"]
             self.in_trade = bool(open_positions) or bool(state.get("in_trade", False))
             self.closed_trades = state.get("closed_trades", [])

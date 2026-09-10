@@ -201,3 +201,46 @@ class TheConfigIsCheckedBeforeTheDayStarts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnInFlightExitDoesNotSurviveTheProcess(unittest.TestCase):
+    """`_exit_in_flight` means "a coroutine here is selling right now".
+
+    2026-09-10: the failed exit saved state while the flag was set, the deploy
+    killed the process, and the flag came back from disk. The broker reconciler
+    skips any position carrying it — so the PE book's position could never be
+    reconciled, and the restore kept refusing to start the book for a position
+    Dhan had closed at 15:26:36. A claim about a running coroutine must not
+    outlive the coroutine.
+    """
+
+    def test_it_is_never_written_to_disk(self):
+        source = SRC.split("def _save_state")[1].split("\n    def ")[0]
+        self.assertIn('k != "_exit_in_flight"', source)
+
+    def test_it_is_stripped_from_anything_already_written(self):
+        source = SRC.split("def _load_state")[1].split("\n    def ")[0]
+        self.assertIn('position.pop("_exit_in_flight", None)', source)
+
+    def test_the_reconciler_still_skips_a_live_in_flight_exit(self):
+        """Within one process the guard is right and must stay: reconciling a
+        position while its own sell is in the air would book it twice."""
+        source = SRC.split("async def _reconcile_broker_positions")[1].split("\n    def ")[0]
+        self.assertIn('pos.get("_exit_in_flight")', source)
+
+    def test_a_saved_position_round_trips_without_the_flag(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from engine.live import LiveEngine
+
+        engine = LiveEngine.__new__(LiveEngine)
+        engine.positions = [{"leg_num": 1, "quantity": 130, "status": "open", "_exit_in_flight": True}]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "live_state_test.json"
+            saved = [{k: v for k, v in p.items() if k != "_exit_in_flight"} for p in engine.positions]
+            path.write_text(json.dumps({"positions": saved}))
+            restored = json.loads(path.read_text())["positions"]
+        self.assertNotIn("_exit_in_flight", restored[0])
+        self.assertEqual(restored[0]["quantity"], 130)

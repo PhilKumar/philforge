@@ -23923,6 +23923,11 @@ async def _reconcile_flagged_engine(engine, run_id: str) -> bool:
     Dhan lands in the book as a real closed trade rather than as a zero. If it
     comes back flat there is nothing left for a human to do, and the flag goes.
     """
+    # The trade about to be booked is stamped with `current_time`, which a
+    # freshly restored engine has not set yet — an exit with no time on it is
+    # how a closed trade ends up unsortable and undated in the ledger.
+    if getattr(engine, "current_time", None) is None:
+        engine.current_time = datetime.now(IST).replace(tzinfo=None)
     try:
         await engine._reconcile_broker_positions()
     except Exception as exc:
