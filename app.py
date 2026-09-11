@@ -8,6 +8,7 @@ Fixed:
 
 import asyncio
 import base64
+import csv
 import hashlib
 import inspect
 import io
@@ -784,7 +785,7 @@ def _trade_history_refresh_start(
     try:
         today_date = date.fromisoformat(today_value)
     except ValueError:
-        today_date = datetime.now(_IST).date()
+        today_date = datetime.now(IST).date()
 
     stale_dates: list[date] = []
     for trade_date, entry in (history or {}).items():
@@ -4553,7 +4554,10 @@ def _normalize_origin_value(value: str) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    parsed = _urlparse(text)
+    try:
+        parsed = _urlparse(text)
+    except ValueError:
+        return ""
     if not parsed.scheme or not parsed.netloc:
         return ""
     return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
@@ -4562,10 +4566,10 @@ def _normalize_origin_value(value: str) -> str:
 def _allowed_request_origins(request: Request) -> set[str]:
     allowed = {_normalize_origin_value(origin) for origin in _CORS_ALLOWED_ORIGINS}
     allowed.discard("")
-    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or "").strip().lower()
+    # Nginx supplies Host and TrustedHostMiddleware validates it. Never build
+    # a CSRF allowlist from the caller-controlled X-Forwarded-Host header.
+    host = str(request.headers.get("host") or "").strip().lower()
     if host:
-        allowed.add(f"https://{host}")
-        allowed.add(f"http://{host}")
         if _request_is_https(request):
             allowed.add(f"https://{host}")
         else:
@@ -4579,13 +4583,15 @@ def _browser_origin_allowed(request: Request) -> bool:
         return False
 
     allowed = _allowed_request_origins(request)
-    origin = _normalize_origin_value(request.headers.get("origin", ""))
-    if origin:
-        return origin in allowed
+    raw_origin = request.headers.get("origin")
+    if raw_origin is not None:
+        origin = _normalize_origin_value(raw_origin)
+        return bool(origin) and origin in allowed
 
-    referer = _normalize_origin_value(request.headers.get("referer", ""))
-    if referer:
-        return referer in allowed
+    raw_referer = request.headers.get("referer")
+    if raw_referer is not None:
+        referer = _normalize_origin_value(raw_referer)
+        return bool(referer) and referer in allowed
 
     # Non-browser/API clients commonly omit Origin and Referer.
     return True
@@ -19311,7 +19317,7 @@ async def live_index_chart(request: Request, instrument: str = "26000", timefram
         "candles": candles,
         "entries": [],
         "exits": [],
-        # The pivots the header promises: CPR P/BC/TC, R1-R4 and S1-S4 come
+        # The pivots the header promises: CPR P/BC/TC, R1-R4 and S1-S5 come
         # from _chart_session_analytics, and LAST is drawn on top of them.
         # Taking only ["overlays"] here left the chart with the 20-EMA alone.
         "lines": analytics["lines"]
@@ -19326,7 +19332,7 @@ async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = 
     """The chart of the contract this run actually entered — scalp's standard.
 
     Phil (2026-08-13): the run page should show the entered option the way the
-    scalp desk does — CPR, R1-R4/S1-S4, 20-EMA, entry mark, stop and target
+    scalp desk does — CPR, R1-R4/S1-S5, 20-EMA, entry mark, stop and target
     levels and the live premium as a dotted line. Works for the OPEN position
     first, and falls back to the most recent closed trade so the chart is
     still there to study after the exit. Paper and live runs alike.
@@ -19492,7 +19498,7 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     entry TO THE EXIT and stops there -- CryptoForge's `end_ts` freeze, so a
     trade viewed days later still shows the market as it was -- and returns
     the entry/exit `why` the engines now record. Same renderer, same
-    CPR/R1-R4/S1-S4/20-EMA analytics as the entry chart.
+    CPR/R1-R4/S1-S5/20-EMA analytics as the entry chart.
     """
     user_id = _request_user_id(request)
     engine = None
@@ -20566,9 +20572,10 @@ def _ws_serialize(payload: dict) -> bytes:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    origin = _normalize_origin_value(ws.headers.get("origin", ""))
+    raw_origin = ws.headers.get("origin")
+    origin = _normalize_origin_value(raw_origin or "")
     websocket_origins = {_normalize_origin_value(value) for value in _CORS_ALLOWED_ORIGINS}
-    if origin and origin not in websocket_origins:
+    if raw_origin is not None and (not origin or origin not in websocket_origins):
         await ws.close(code=4003, reason="Forbidden origin")
         return
     # Authenticate WebSocket via session cookie (DB-backed)
@@ -21336,7 +21343,7 @@ async def terminal_stock_chart(request: Request, symbol: str, timeframe: str = "
     """The Velocity Entry chart — the picked stock, in the site's one renderer.
 
     Phil (2026-08-13): the manual desk should see the stock it is about to
-    order the way the scalp desk sees its option — CPR, R1-R4/S1-S4, 20-EMA
+    order the way the scalp desk sees its option — CPR, R1-R4/S1-S5, 20-EMA
     and the live price as a dotted line, on a pannable canvas with 5m-1D
     timeframes. Native exchange OHLC only; the LTP line is the quote the
     order ticket itself shows.
@@ -22805,7 +22812,7 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
     """CPR + floor pivots + a 20-EMA for any intraday candle series.
 
     Phil's chart standard (2026-08-13): every entry chart carries the previous
-    session's CPR (P/BC/TC), R1-R4 and S1-S4, and a 20-EMA — the same frame he
+    session's CPR (P/BC/TC), R1-R4 and S1-S5, and a 20-EMA — the same frame he
     reads on TradingView. Pivots come from the PREVIOUS session's H/L/C of the
     series being charted; with no previous session there are no pivots, and the
     EMA alone is returned rather than pivots invented from a partial day.
@@ -22844,11 +22851,13 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         p = (high + low + close) / 3.0
         bc = (high + low) / 2.0
         tc = 2.0 * p - bc
+        bc, tc = min(bc, tc), max(bc, tc)
         rng = high - low
         r1, s1 = 2 * p - low, 2 * p - high
         r2, s2 = p + rng, p - rng
         r3, s3 = high + 2 * (p - low), low - 2 * (high - p)
         r4, s4 = r3 + rng, s3 - rng
+        s5 = s4 - rng
         amber, red, green = "#f59e0b", "#f87171", "#4ade80"
         for label, price, color in (
             ("CPR TC", tc, amber),
@@ -22862,6 +22871,7 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
             ("S2", s2, green),
             ("S3", s3, green),
             ("S4", s4, green),
+            ("S5", s5, green),
         ):
             lines.append(
                 {

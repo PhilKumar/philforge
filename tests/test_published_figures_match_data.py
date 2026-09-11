@@ -88,7 +88,7 @@ class PublishedFiguresMatchTheBook(unittest.TestCase):
             ("win rate", f'"{self.head["win_rate"]}%"'),
             ("max drawdown", f'"−₹{_inr(abs(self.head["max_dd"]))}"'),
             ("charges", f'"₹{_inr(self.charges["total"])}"'),
-            ("trading days", f'"{self.head["trading_days"]}"'),
+            ("trading days", f'"{self.day["trading_days"]}"'),
             ("green months", f'"{self.day["green_months"]} / {self.day["months"]}"'),
         ):
             self.assertIn(needle, js, f"dojima.js tape has no {label} {needle}")

@@ -188,6 +188,66 @@ async function login(page: Page) {
   await page.waitForFunction(() => document.documentElement.getAttribute('data-nav-ready') === '1');
 }
 
+test('audit: switching saved strategies clears stale targets and treats labels as text', async ({ page }) => {
+  await login(page);
+  const malicious = '<img src=x onerror="window.__auditXss=1">';
+  await page.evaluate((label) => {
+    const strategies = [
+      { id: 991, run_name: 'Targeted', combined_target_rupees: 10000, combined_sl_rupees: 500 },
+      { id: 992, run_name: label, combined_target_rupees: 0, combined_sl_rupees: 0,
+        indicators: [label], folder: 'A "] quoted folder' },
+      { id: 993, run_name: 'No optional combined limits' },
+    ];
+    (window as any).eval('savedStrategiesCache = ' + JSON.stringify(strategies));
+    (window as any).loadStrategy(991);
+  }, malicious);
+  await expect(page.locator('#combined-target-rupees')).toHaveValue('10000');
+  await page.evaluate(() => (window as any).loadStrategy(992));
+  await expect(page.locator('#combined-target-rupees')).toHaveValue('0');
+  await expect(page.locator('#combined-sl-rupees')).toHaveValue('0');
+  await expect(page.locator('#active-indicators-list img')).toHaveCount(0);
+  await expect(page.locator('#active-indicators-list')).toContainText(malicious);
+  await expect(page.locator('#loaded-strategy-info img')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__auditXss)).toBeUndefined();
+  await expect(page.locator('#active-indicators-list .pf-indicator-remove')).toHaveAttribute('type', 'button');
+  await page.locator('#active-indicators-list .pf-indicator-remove').click();
+  await expect(page.locator('#active-indicators-list .pf-indicator-remove')).toHaveCount(0);
+  await page.evaluate(() => (window as any).loadStrategy(993));
+  await expect(page.locator('#combined-target-rupees')).toHaveValue('');
+});
+
+test('audit: light chart overlays resolve readable colors and missing PnL is not zero', async ({ page }) => {
+  await login(page);
+  const result = await page.evaluate(() => (window as any).eval(`({
+    missing: _cepeMoney(null), empty: _cepeMoney(''), zero: _cepeMoney(0),
+    light: _pfChartSeriesColor('#4ade80', _PF_CHART_LIGHT, '#000'),
+    dark: _pfChartSeriesColor('#4ade80', _PF_CHART_DARK, '#000')
+  })`));
+  expect(result.missing).toBe('—');
+  expect(result.empty).toBe('—');
+  expect(result.zero).not.toBe('—');
+  expect(result.light).toBe('#15803d');
+  expect(result.dark).toBe('#4ade80');
+  await openTradingSection(page, 'cascade');
+  await page.locator('#oc-tabbtn-cepe').click();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => (window as any).pfApplyTheme(value), theme);
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(page.locator('#options-cascade-page')).toHaveClass(/active-page/);
+      const headerState = await page.locator('#options-cascade-page .trading-workspace-head').evaluate((header) => {
+        // Reproduce focus/scroll-into-view scrolling a decorative overflow-hidden header.
+        header.scrollTo(76, 21);
+        return { left: header.scrollLeft, top: header.scrollTop,
+          titleInside: header.querySelector('.trading-workspace-intro')!.getBoundingClientRect().left >= header.getBoundingClientRect().left };
+      });
+      expect(headerState).toEqual({ left: 0, top: 0, titleInside: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBeTruthy();
+      await page.screenshot({ path: test.info().outputPath(`cepe-${theme}-${width}.png`), fullPage: true, animations: 'disabled' });
+    }
+  }
+});
+
 async function openTradingSection(page: Page, section: 'equity' | 'scalp' | 'cascade') {
   await page.click('#nav-trading');
   const pageId = {
@@ -265,6 +325,8 @@ test('Authenticated primary surfaces have landmarks and no serious automated WCA
 });
 
 test('Insights, Cascade, and Journal subpanels have no serious automated WCAG violations', async ({ page }) => {
+  // Multiple complete Axe scans share this test's deadline.
+  test.setTimeout(90000);
   await login(page);
 
   await page.click('#nav-insights');

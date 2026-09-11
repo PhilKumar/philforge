@@ -23,6 +23,9 @@ async function openEquity(page: Page) {
 }
 
 async function login(page: Page) {
+  // Offline layout/controls tests do not consume the live socket. A custom
+  // localhost test port is intentionally outside production's WS allowlist.
+  if (process.env.E2E_OFFLINE !== '0') await page.routeWebSocket('**/ws', () => {});
   await page.goto('/app');
   await page.fill('#username-input', USERNAME);
   const passwordInput = page.locator('#password-input');

@@ -1,7 +1,7 @@
 """The desk chart must draw the frame its own header advertises.
 
 Phil, 2026-09-09: "The chart doesn't show the CPR markings and the supertrend".
-The header reads "CPR, R1-R4, S1-S4, 20-EMA", but /api/live/index-chart took
+The header reads "CPR, R1-R4, S1-S5, 20-EMA", but /api/live/index-chart took
 only analytics["overlays"] and threw analytics["lines"] away, so the chart
 carried the 20-EMA and nothing else.
 
@@ -53,7 +53,7 @@ def _fake_candles(n: int = 400) -> list[dict]:
 
 class TheChartKeepsItsPivots(unittest.TestCase):
     def test_the_route_does_not_discard_the_pivot_lines(self):
-        """The regression: analytics["lines"] holds CPR/R1-R4/S1-S4."""
+        """The regression: analytics["lines"] holds CPR/R1-R4/S1-S5."""
         body = _route_body()
         self.assertIn('analytics["lines"]', body)
         self.assertIn('"LAST"', body, "LAST is drawn on top of the pivots, not instead of them")
@@ -61,7 +61,7 @@ class TheChartKeepsItsPivots(unittest.TestCase):
     def test_the_header_and_the_payload_agree(self):
         """A header promising CPR must not sit above an EMA-only chart."""
         fn = APP_JS.split("async function openCePeIndexChart(")[1][:3000]
-        self.assertIn("CPR, R1-R4, S1-S4, 20-EMA", fn)
+        self.assertIn("CPR, R1-R4, S1-S5, 20-EMA", fn)
         self.assertIn("Supertrend 10,2.7 (CE)", fn)
         self.assertIn("Supertrend 10,2 (PE)", fn)
         self.assertIn('analytics["lines"]', _route_body())

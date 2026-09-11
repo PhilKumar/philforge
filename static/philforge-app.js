@@ -7729,10 +7729,10 @@ async function moveRunToFolder(id) {
   } catch(e) {}
   const run = _allRunsCache.find(x => x.id === id);
   const currentFolder = run?.folder || '';
-  let optionsHtml = folders.map(f => `<option value="${f}"${f === currentFolder ? ' selected' : ''}>${f}</option>`).join('');
+  let optionsHtml = folders.map(f => `<option value="${escapeAttr(f)}"${f === currentFolder ? ' selected' : ''}>${escapeHtml(f)}</option>`).join('');
   optionsHtml = '<option value="">— No Folder —</option>' + optionsHtml + '<option value="__custom__">+ Custom Folder</option>';
   const html = `<div style="font-size:13px;">
-    <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">Move "<strong>${run?.run_name||'Unnamed'}</strong>" to folder:</label>
+    <label style="font-size:12px;color:var(--muted);margin-bottom:6px;display:block;">Move "<strong>${escapeHtml(run?.run_name || 'Unnamed')}</strong>" to folder:</label>
     <select id="move-folder-sel" onchange="if(this.value==='__custom__'){document.getElementById('move-folder-custom').style.display='block'}else{document.getElementById('move-folder-custom').style.display='none'}" style="width:100%;padding:8px;font-size:13px;margin-bottom:8px;">${optionsHtml}</select>
     <input type="text" id="move-folder-custom" placeholder="Custom folder name" style="display:none;width:100%;padding:8px;font-size:13px;">
   </div>`;
@@ -9350,7 +9350,7 @@ async function drawStockTerminalChart() {
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
     if (meta) {
       const live = Number(data.live_price || 0);
-      meta.textContent = `${data.candles.length} ${String(data.timeframe).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'No live quote'}${String(data.timeframe) === '1d' ? ' · 20-EMA' : ' · CPR, R1-R4, S1-S4, 20-EMA'} · drag to pan, wheel to zoom, double-click to reset`;
+      meta.textContent = `${data.candles.length} ${String(data.timeframe).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'No live quote'}${String(data.timeframe) === '1d' ? ' · 20-EMA' : ' · CPR, R1-R4, S1-S5, 20-EMA'} · drag to pan, wheel to zoom, double-click to reset`;
     }
     // An already-mounted canvas is UPDATED in place — element churn is the
     // flicker. The viewport survives only a same symbol + timeframe redraw.
@@ -12980,7 +12980,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     if (title) title.textContent = symbol || 'Option Chart';
     if (meta) {
       const live = Number(data.live_price || 0);
-      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _scalpOptionChartTf).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Waiting for live premium'} · CPR, R1-R4, S1-S4, 20-EMA · entry, target, stop marked · drag to pan, wheel to zoom`;
+      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _scalpOptionChartTf).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Waiting for live premium'} · CPR, R1-R4, S1-S5, 20-EMA · entry, target, stop marked · drag to pan, wheel to zoom`;
     }
     if (body) {
       // An already-mounted canvas is UPDATED in place, never torn down and
@@ -13114,7 +13114,7 @@ async function openLiveEntryChart(runId, options = {}) {
     if (title) title.textContent = symbol || 'Entry Chart';
     if (meta) {
       const live = Number(data.live_price || 0);
-      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · ${data.is_open ? (live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Position open') : 'Position closed — entry and exit marked'} · CPR, R1-R4, S1-S4, 20-EMA · drag to pan, wheel to zoom`;
+      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · ${data.is_open ? (live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Position open') : 'Position closed — entry and exit marked'} · CPR, R1-R4, S1-S5, 20-EMA · drag to pan, wheel to zoom`;
     }
     if (body) {
       // An already-mounted canvas is UPDATED in place, never torn down and
@@ -13182,7 +13182,7 @@ async function openCePeIndexChart(event, el) {
       const last = Number(data.live_price || 0);
       meta.textContent = `${String(data.timeframe || tf).toUpperCase()} candles`
         + `${last > 0 ? ` · last ${last.toFixed(2)}` : ''}`
-        + ` · CPR, R1-R4, S1-S4, 20-EMA, ${
+        + ` · CPR, R1-R4, S1-S5, 20-EMA, ${
             _cepeFilter === 'CE' ? 'Supertrend 10,2.7 (CE)'
             : _cepeFilter === 'PE' ? 'Supertrend 10,2 (PE)'
             : 'Supertrend 10,2 (PE) and 10,2.7 (CE, dashed)'} · drag to pan, wheel to zoom`;
@@ -13335,7 +13335,7 @@ async function openLiveTradeJournal(runId, tradeId) {
     const title = document.getElementById('live-entry-chart-title');
     const meta = document.getElementById('live-entry-chart-meta');
     if (title) title.textContent = `${symbol || 'Trade'} · journal`;
-    if (meta) meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · FROZEN at the exit · ${trade.transaction_type || ''} ${trade.quantity ? trade.quantity + ' qty' : ''} · CPR, R1-R4, S1-S4, 20-EMA · drag to pan, wheel to zoom`;
+    if (meta) meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · FROZEN at the exit · ${trade.transaction_type || ''} ${trade.quantity ? trade.quantity + ' qty' : ''} · CPR, R1-R4, S1-S5, 20-EMA · drag to pan, wheel to zoom`;
     if (body) {
       let host = document.getElementById('live-entry-chart-canvas');
       if (!host) { body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>'; host = document.getElementById('live-entry-chart-canvas'); }
@@ -14421,7 +14421,7 @@ function loadStrategy(id) {
   if (s.folder) {
     const folderSel = document.getElementById('folder-select');
     const folderCustom = document.getElementById('folder-custom');
-    if (folderSel.querySelector(`option[value="${s.folder}"]`) && s.folder !== '__custom__') {
+    if (Array.from(folderSel.options).some(option => option.value === s.folder) && s.folder !== '__custom__') {
       folderSel.value = s.folder;
       folderCustom.style.display = 'none';
     } else {
@@ -14444,7 +14444,7 @@ function loadStrategy(id) {
         ? "display:inline-flex;align-items:center;padding:5px 10px;background:linear-gradient(135deg, var(--accent2), var(--purple));color:white;border-radius:4px;font-weight:600;font-size:12px;"
         : "display:inline-flex;align-items:center;padding:5px 10px;background:var(--accent2);color:white;border-radius:4px;font-weight:600;font-size:12px;";
       const displayName = isCPR ? `CPR (${indId.replace('CPR_','').replace('_','% / ')}%)` : indId;
-      badge.innerHTML = `${displayName} <span style="cursor:pointer;margin-left:8px;color:#ffb3b3;font-size:14px;" onclick="removeIndicator('${indId}')">&times;</span>`;
+      _setIndicatorBadgeContent(badge, indId, displayName);
       document.getElementById('active-indicators-list').appendChild(badge);
     });
   }
@@ -14561,12 +14561,12 @@ function loadStrategy(id) {
   }
 
   // 6. Combined P&L
-  if (s.combined_sl_rupees) document.getElementById('combined-sl-rupees').value = s.combined_sl_rupees;
-  if (s.combined_target_rupees) document.getElementById('combined-target-rupees').value = s.combined_target_rupees;
-  if (s.combined_sqoff_time) document.getElementById('combined-sqoff-time').value = s.combined_sqoff_time;
-  if (s.fee_pct !== undefined) document.getElementById('fee-pct').value = s.fee_pct;
-  if (s.trailing_sl_pct !== undefined) document.getElementById('trailing-sl-pct').value = s.trailing_sl_pct;
-  if (s.initial_capital) document.getElementById('initial-capital').value = s.initial_capital;
+  document.getElementById('combined-sl-rupees').value = s.combined_sl_rupees ?? '';
+  document.getElementById('combined-target-rupees').value = s.combined_target_rupees ?? '';
+  document.getElementById('combined-sqoff-time').value = s.combined_sqoff_time ?? '15:20';
+  document.getElementById('fee-pct').value = s.fee_pct ?? 0;
+  document.getElementById('trailing-sl-pct').value = s.trailing_sl_pct ?? 0;
+  document.getElementById('initial-capital').value = s.initial_capital ?? 500000;
   _fillCompoundFields(s);
   restoreExecutionSettings(s);
 
@@ -14582,17 +14582,17 @@ function loadStrategy(id) {
   const indCount = (s.indicators || []).length;
   panel.innerHTML = `
     <div style="margin-bottom: 10px;">
-      <span style="color: var(--accent); font-weight: 600; font-size: 15px;">${s.run_name}</span>
-      <span style="color: var(--muted); font-size: 12px; margin-left: 8px;">ID: ${s.id}</span>
+      <span style="color: var(--accent); font-weight: 600; font-size: 15px;">${escapeHtml(s.run_name)}</span>
+      <span style="color: var(--muted); font-size: 12px; margin-left: 8px;">ID: ${escapeHtml(s.id)}</span>
     </div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px;">
-      <div><span style="color: var(--muted);">Instrument:</span> <strong>${instName}</strong></div>
-      <div><span style="color: var(--muted);">Lots:</span> <strong>${s.lots || 1} × ${s.lot_size || _getLotSizeForInstrument(s.instrument)}</strong></div>
+      <div><span style="color: var(--muted);">Instrument:</span> <strong>${escapeHtml(instName)}</strong></div>
+      <div><span style="color: var(--muted);">Lots:</span> <strong>${escapeHtml(s.lots || 1)} × ${escapeHtml(s.lot_size || _getLotSizeForInstrument(s.instrument))}</strong></div>
       <div><span style="color: var(--muted);">Indicators:</span> <strong>${indCount}</strong></div>
       <div><span style="color: var(--muted);">Legs:</span> <strong>${legCount}</strong></div>
       <div><span style="color: var(--muted);">Entry Rules:</span> <strong>${entryCount}</strong></div>
       <div><span style="color: var(--muted);">Exit Rules:</span> <strong>${exitCount}</strong></div>
-      <div><span style="color: var(--muted);">SL:</span> <strong>${s.sl_type === 'rupees' ? '₹' + (s.stoploss_rupees || 0) : (s.stoploss_pct || 0) + '%'}</strong></div>
+      <div><span style="color: var(--muted);">SL:</span> <strong>${escapeHtml(s.sl_type === 'rupees' ? '₹' + (s.stoploss_rupees || 0) : (s.stoploss_pct || 0) + '%')}</strong></div>
       <div><span style="color: var(--muted);">Saved:</span> <strong>${new Date(s.created_at).toLocaleString('en-IN', {month:'short',day:'numeric'})}</strong></div>
     </div>
   `;
@@ -14609,6 +14609,16 @@ async function deleteStrategy(id) {
 //  INDICATORS
 // ══════════════════════════════════════════════════════════════
 let myIndicators = [];
+function _setIndicatorBadgeContent(badge, id, label) {
+  badge.textContent = String(label);
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'pf-indicator-remove';
+  remove.textContent = '×';
+  remove.setAttribute('aria-label', `Remove ${label}`);
+  remove.addEventListener('click', () => removeIndicator(id));
+  badge.appendChild(remove);
+}
 function renderIndicatorFields() {
   const name = document.getElementById('new-indicator-name').value;
   const c = document.getElementById('dynamic-indicator-fields');
@@ -14657,7 +14667,7 @@ function addIndicator() {
     badge.id = `badge-${id}`;
     badge.style = "display:inline-flex;align-items:center;padding:5px 10px;background:var(--accent2);color:white;border-radius:4px;font-weight:600;font-size:12px;";
     let displayId = id.replace(/_/g, ' ');
-    badge.innerHTML = `${displayId} <span style="cursor:pointer;margin-left:8px;color:#ffb3b3;font-size:14px;" onclick="removeIndicator('${id}')">&times;</span>`;
+    _setIndicatorBadgeContent(badge, id, displayId);
     document.getElementById('active-indicators-list').appendChild(badge);
     syncConditionDropdowns();
     toast(`Added ${id}`, 'success');
@@ -14689,7 +14699,7 @@ function confirmAddCPR() {
   const badge = document.createElement('span');
   badge.id = `badge-${indId}`;
   badge.style = "display:inline-flex;align-items:center;padding:5px 10px;background:linear-gradient(135deg, var(--accent2), var(--purple));color:white;border-radius:4px;font-weight:600;font-size:12px;";
-  badge.innerHTML = `CPR ${tfLabel} (N:${narrowPct}% M:${moderatePct}%) <span style="cursor:pointer;margin-left:8px;color:#ffb3b3;font-size:14px;" onclick="removeIndicator('${indId}')">&times;</span>`;
+  _setIndicatorBadgeContent(badge, indId, `CPR ${tfLabel} (N:${narrowPct}% M:${moderatePct}%)`);
   document.getElementById('active-indicators-list').appendChild(badge);
 
   syncConditionDropdowns();
@@ -14824,7 +14834,7 @@ function _buildDynamicIndicatorOptionsHtml() {
   myIndicators.forEach(indicatorId => {
     if (!_isDynamicConditionIndicator(indicatorId)) return;
     _buildIndicatorConditionOptions(indicatorId).forEach(opt => {
-      html += `<option value="${opt.value}">${opt.label}</option>`;
+      html += `<option value="${escapeAttr(opt.value)}">${escapeHtml(opt.label)}</option>`;
     });
   });
   return html;
@@ -15392,7 +15402,7 @@ async function copyEditStrategy(runId) {
         badge.id = `badge-${indId}`;
         badge.style = "display:inline-flex;gap:6px;align-items:center;padding:4px 8px;background:var(--accent2);color:white;border-radius:3px;font-weight:500;font-size:11px;";
         let dn = indId.replace(/_/g, ' ');
-        badge.innerHTML = `${dn} <span style="cursor:pointer;opacity:0.7;" onclick="removeIndicator('${indId}')">[×]</span>`;
+        _setIndicatorBadgeContent(badge, indId, dn);
         document.getElementById('active-indicators-list').appendChild(badge);
       });
     }
@@ -21606,11 +21616,12 @@ window.refreshRecoveryStatus = refreshRecoveryStatus;
 let _cepeTimer = null;
 
 const _cepeMoney = (v) => {
+  if (v == null || v === '') return '—';
   const n = Number(v);
   if (!Number.isFinite(n)) return '—';
   return (n < 0 ? '−₹' : '₹') + Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 };
-const _cepeTone = (v) => (Number(v) > 0 ? '#6ee7b7' : (Number(v) < 0 ? 'var(--danger)' : 'var(--muted)'));
+const _cepeTone = (v) => (Number(v) > 0 ? 'var(--success)' : (Number(v) < 0 ? 'var(--danger)' : 'var(--muted)'));
 // Full date AND time. This used to slice(5,16), which dropped the year -- so a
 // trade from April read "04-07" and could not be told from one this month --
 // and a value carrying no time at all rendered as a bare day (Phil, 2026-09-09).
@@ -21626,8 +21637,8 @@ const _cepeTime = (s) => {
 // One colour per side, used on the card, the chip and the ledger row, so a
 // glance separates the books without reading a word.
 const _CEPE_SIDE = {
-  CE: { tint: '#38bdf8', wash: 'rgba(56,189,248,.12)', label: 'CE' },
-  PE: { tint: '#f0a13a', wash: 'rgba(240,161,58,.12)', label: 'PE' },
+  CE: { tint: 'var(--cepe-ce)', wash: 'rgba(56,189,248,.12)', label: 'CE' },
+  PE: { tint: 'var(--cepe-pe)', wash: 'rgba(240,161,58,.12)', label: 'PE' },
 };
 const _cepeSide = (side) => _CEPE_SIDE[String(side || '').toUpperCase()]
   || { tint: 'var(--muted)', wash: 'transparent', label: String(side || '—') };
@@ -21683,7 +21694,7 @@ function _cepeBookCard(run) {
   const tone = _cepeSide(side);
   const live = !!run.real_orders;
   const badge = live ? '● LIVE' : (run.running ? '◎ PAPER' : 'IDLE');
-  const badgeTone = live ? 'var(--danger)' : (run.running ? '#6ee7b7' : 'var(--muted)');
+  const badgeTone = live ? 'var(--danger)' : (run.running ? 'var(--success)' : 'var(--muted)');
   const lots = run.lots == null ? '' : `${run.lots} lot${run.lots === 1 ? '' : 's'}`;
   const rule = [lots, Number(run.expiry_day_lots) > 0 ? `${run.expiry_day_lots} on expiry` : '',
                 Number(run.compound_step_pct) > 0 ? `+1 lot per +${run.compound_step_pct}%` : '',

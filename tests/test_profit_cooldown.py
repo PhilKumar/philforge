@@ -41,7 +41,7 @@ def _four_rising_days() -> pd.DataFrame:
 
 
 def _run(df, **config):
-    base = {"instrument": "RELIANCE", "timeframe_minutes": 1, "lot_size": 1}
+    base = {"instrument": "RELIANCE", "timeframe_minutes": 1, "lot_size": 1, "skip_stub_sessions": False}
     base.update(config)
     with contextlib.redirect_stdout(io.StringIO()):
         return run_backtest(

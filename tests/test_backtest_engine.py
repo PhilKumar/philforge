@@ -29,6 +29,9 @@ def _always_true_conditions():
 
 
 def _run_backtest(*args, **kwargs):
+    # These fixtures deliberately contain only a few minutes. Session
+    # completeness is tested separately; keep exercising the execution rules.
+    kwargs["strategy_config"] = {"skip_stub_sessions": False, **kwargs.get("strategy_config", {})}
     with contextlib.redirect_stdout(io.StringIO()):
         return run_backtest(*args, **kwargs)
 

@@ -9,9 +9,8 @@ refresh is a command rather than a careful afternoon.
     python3 update_landing.py --write   # rewrite it
 
 Every value is anchored on the label beside it, never on the old number, so this
-is idempotent and safe to re-run. Anything the rebuild does not produce -- the
-reconciliation gap, the days-re-priced pair -- is left alone rather than
-invented.
+is idempotent and safe to re-run. The headline tape uses only its own dataset;
+legacy re-pricing and reconciliation figures belong to their separate scenarios.
 """
 
 from __future__ import annotations
@@ -144,25 +143,25 @@ def render(data: dict) -> dict[str, str]:
     html = _sub(html, r"[\d.]+% won\.", f"{head['win_rate']}% won.", "win rate")
     html = _sub(
         html,
-        r"₹[\d.]+ returned for every ₹1\.00",
-        f"₹{head['profit_factor']:.2f} returned for every ₹1.00",
+        r"₹[\d.]+ (?:returned|won) for every ₹1\.00",
+        f"₹{head['profit_factor']:.2f} won for every ₹1.00",
         "profit-factor line",
     )
     html = _sub(
-        html, r"Five years\. \d+ trading days\.", f"Five years. {head['trading_days']} trading days.", "trading days"
+        html, r"Five years\. \d+ trading days\.", f"Five years. {day['trading_days']} trading days.", "trading days"
     )
     html = _sub(
         html,
-        r"Flat ₹80 brokerage is \d+% of all charges",
-        f"Flat ₹80 brokerage is {round(charges['brokerage'] / charges['total'] * 100)}% of all charges",
+        r"(?:Flat ₹80|Recorded) brokerage is \d+% of all charges",
+        f"Recorded brokerage is {round(charges['brokerage'] / charges['total'] * 100)}% of all charges",
         "brokerage share",
     )
     html = _row(html, "Turnover traded", f"₹{charges['turnover'] / 1e7:.2f} cr")
     html = _row(html, "Total charges", f"₹{inr(charges['total'])}")
     html = _row(html, "Charges / turnover", f"{charges['total'] / charges['turnover'] * 100:.3f}%")
     html = _row(html, "Per trade", f"₹{charges['per_trade']}")
-    html = _row(html, "1 lot — the minimum", f"₹{inr(sizing[1]['funded'])} · {sizing[1]['roi']}%/yr")
-    html = _row(html, "4 lots — as deployed", f"₹{inr(sizing[4]['funded'])} · {sizing[4]['roi']}%/yr")
+    html = _row(html, "1 lot — starting comparison", f"₹{inr(sizing[1]['funded'])} · {sizing[1]['roi']}% total")
+    html = _row(html, "4 lots — sizing comparison", f"₹{inr(sizing[4]['funded'])} · {sizing[4]['roi']}% total")
     html = _row(html, "Charges eaten, 1 lot", f"{eaten[1]}% of gross")
     html = _row(html, "Charges eaten, 4 lots", f"{eaten[4]}% of gross")
     html = _sub(html, r"<b>5 yrs · \d+ trades</b>", f"<b>5 yrs · {head['trades']} trades</b>", "evidence row")
@@ -195,12 +194,6 @@ def render(data: dict) -> dict[str, str]:
     )
 
     js = (_LANDING / "dojima.js").read_text()
-    keep = dict(re.findall(r'\["([^"]+)",\s*"(Days re-priced|Reconciliation gap)"', js))
-    repriced = next(
-        (v for v, k in keep.items() if k == "Days re-priced"),
-        f"{data['splice']['pe_engine_from']} / {data['splice']['pe_engine_from']}",
-    )
-    gap = next((v for v, k in keep.items() if k == "Reconciliation gap"), "±₹0.51")
     tape = [
         (f"₹{inr(net)}", "Net, 5 years", "up"),
         (f"{head['trades']}", "Trades", ""),
@@ -211,9 +204,8 @@ def render(data: dict) -> dict[str, str]:
         (f"₹{charges['turnover'] / 1e7:.2f} cr", "Turnover", ""),
         (f"₹{inr(charges['total'])}", "Charges paid", "dn"),
         (f"{day['green_months']} / {day['months']}", "Months green", ""),
-        (f"{head['trading_days']}", "Trading days", ""),
-        (repriced, "Days re-priced", ""),
-        (gap, "Reconciliation gap", ""),
+        (f"{day['trading_days']}", "Trading days", ""),
+        (head["last"], "Last recorded trade", ""),
     ]
     js = _sub(
         js,

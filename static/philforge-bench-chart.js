@@ -98,6 +98,21 @@ function _pfChartPalette() {
   return theme === 'light' ? _PF_CHART_LIGHT : _PF_CHART_DARK;
 }
 
+// API overlays carry literal colours. Resolve their light-theme equivalents
+// at paint time so switching theme also updates CPR, Supertrend and quotes.
+function _pfChartSeriesColor(color, PAL, fallback) {
+  if (!color) return fallback;
+  if (PAL !== _PF_CHART_LIGHT) return color;
+  var light = {
+    '#4ade80': '#15803d', '#6ee7b7': '#047857', '#34d399': '#047857',
+    '#f87171': '#b91c1c', '#fca5a5': '#b91c1c',
+    '#f59e0b': '#92400e', '#fbbf24': '#92400e',
+    '#38bdf8': '#0369a1', '#60a5fa': '#1d4ed8', '#93c5fd': '#1d4ed8',
+    '#e2e8f0': '#334155', '#ffffff': '#334155', '#fff': '#334155'
+  };
+  return light[String(color).toLowerCase()] || color;
+}
+
 // THE ONE PALETTE, exported so a second chart cannot invent its own. The
 // Terminal campaign chart kept a private copy and it drifted: two of its three
 // dark fib colours were written `var(--green)` and `var(--red)`, and Canvas does
@@ -736,10 +751,10 @@ function _pfChartCanvasLines(c, p, PAL, labels) {
   var d = c.data || {}, count = 0;
   (d.lines || []).forEach(function (line, index) {
     if (line == null || line.price == null) return;
-    // A line may name its own colour/dash (CPR, R1-R4, S1-S4, the dotted LIVE
+    // A line may name its own colour/dash (CPR, R1-R4, S1-S5, the dotted LIVE
     // line). Literal hex only -- Canvas silently ignores var(--x). Lines that
     // name nothing keep the old palette-by-index behaviour.
-    var color = line.color || PAL.fibs[index % PAL.fibs.length];
+    var color = _pfChartSeriesColor(line.color, PAL, PAL.fibs[index % PAL.fibs.length]);
     var spent = Number(line.inr_notional) || 0;
     // A line with NO label is drawn silent: the line only, no price in the
     // gutter. Under "where two meet" the fib levels are ghosted structure
@@ -764,7 +779,7 @@ function _pfChartCanvasOverlays(c, p, PAL, labels) {
   (d.overlays || []).forEach(function (ov) {
     var pts = (ov && ov.points || []).filter(function (pt) { return pt && pt.t != null && pt.price != null; });
     if (pts.length < 2) return;
-    var color = ov.color || PAL.avg;
+    var color = _pfChartSeriesColor(ov.color, PAL, PAL.avg);
     _pfChartCanvasClip(ctx, p, function () {
       ctx.strokeStyle = color;
       ctx.lineWidth = Number(ov.width) || 1.3;

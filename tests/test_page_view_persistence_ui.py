@@ -32,7 +32,7 @@ def test_top_level_page_and_nested_views_use_ui_only_local_state():
 
 
 def test_options_insights_assets_and_journal_restore_validated_choices():
-    assert "_storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'gapcarry')" in APP_JS
+    assert "_storedView(PF_VIEW_STATE.optionsCascadeTab, _OC_TABS, 'cepe')" in APP_JS
     assert "_storedView(PF_VIEW_STATE.insightsTab, _INSIGHTS_TABS, 'heatmap')" in APP_JS
     assert "_storedView(PF_VIEW_STATE.architectureView" in APP_JS
     assert "_storedView(PF_VIEW_STATE.journalPanel, ['journal', 'plan'], 'journal')" in APP_JS

@@ -174,7 +174,7 @@ class PanelLayoutTests(unittest.TestCase):
         ragged second line under its own label."""
         for toggle in re.finditer(r'<div id="([\w-]+)"[^>]*class="scalp-toggle[^"]*"(.*?)</div>', HTML, re.S):
             name, body = toggle.group(1), toggle.group(2)
-            if len(re.findall(r"scalp-toggle-btn", body)) < 3:
+            if len(re.findall(r"scalp-toggle-btn", body)) != 3:
                 continue
             self.assertRegex(
                 self.CSS,

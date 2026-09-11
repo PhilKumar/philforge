@@ -9,6 +9,7 @@ from engine.backtest import get_lot_size, get_option_contract_lot_size, run_back
 
 
 def _run_backtest(*args, **kwargs):
+    kwargs["strategy_config"] = {"skip_stub_sessions": False, **kwargs.get("strategy_config", {})}
     with contextlib.redirect_stdout(io.StringIO()):
         return run_backtest(*args, **kwargs)
 

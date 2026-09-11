@@ -59,6 +59,9 @@ jobs:
       - name: Ruff lint
         run: ruff check .
 
+      - name: Runtime name resolution
+        run: ruff check --isolated --select F821 app.py auth.py engine broker sanctuary.py
+
       - name: Ruff format check
         run: git ls-files -z '*.py' | xargs -0 ruff format --check
 

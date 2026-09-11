@@ -11,6 +11,8 @@
     html { scrollbar-gutter: stable; }
   }
   :root {
+    --cepe-ce: #38bdf8;
+    --cepe-pe: #f0a13a;
     --brand-rail-space: 206px;
     --shell-gutter: 14px;
     --font-body: 'Outfit', sans-serif;
@@ -8674,6 +8676,11 @@ body :is(
   isolation: isolate;
   overflow: hidden;
 }
+.trading-workspace-head {
+  /* This decorative header is not a scroll region. Hidden overflow allows
+     focus/scroll-into-view to pan it and crop its title after navigation. */
+  overflow: clip;
+}
 .pf-hero-rail {
   position: absolute;
   z-index: -1;
@@ -9545,8 +9552,8 @@ body :is(
 .cepe-filter:hover{ color:var(--text); }
 .cepe-filter .cepe-filter-n{ opacity:.6; margin-left:5px; }
 .cepe-filter.is-active{ color:var(--text); border-color:currentColor; background:rgba(148,163,184,.10); }
-.cepe-filter-ce.is-active{ color:#38bdf8; background:rgba(56,189,248,.12); }
-.cepe-filter-pe.is-active{ color:#f0a13a; background:rgba(240,161,58,.12); }
+.cepe-filter-ce.is-active{ color:var(--cepe-ce); background:rgba(56,189,248,.12); }
+.cepe-filter-pe.is-active{ color:var(--cepe-pe); background:rgba(240,161,58,.12); }
 .cepe-filter:focus-visible{ outline:2px solid var(--brand, #38bdf8); outline-offset:2px; }
 
 /* The card meta, kept to one short row per fact instead of one long sentence. */
@@ -9631,8 +9638,21 @@ body :is(
   color:var(--danger); border-color:var(--danger); background:rgba(248,113,113,.08);
 }
 .cepe-page[data-cepe-mode="paper"].is-active{
-  color:#6ee7b7; border-color:#6ee7b7; background:rgba(110,231,183,.08);
+  color:var(--success); border-color:var(--success); background:rgba(110,231,183,.08);
 }
+
+html[data-theme="light"] { --cepe-ce:#0369a1; --cepe-pe:#92400e; }
+html[data-theme="light"] .ocp-eyebrow[style*="#38bdf8"],
+html[data-theme="light"] .ocp-monitor-kicker { color:#0369a1 !important; }
+html[data-theme="light"] .ocp-eyebrow[style*="#fbbf24"] { color:#92400e !important; }
+.pf-indicator-remove {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:24px; min-height:24px; margin-left:6px; padding:0;
+  border:0; border-radius:4px; background:transparent; color:inherit;
+  font:inherit; font-size:17px; cursor:pointer;
+}
+.pf-indicator-remove:hover { background:rgba(0,0,0,.16); }
+.pf-indicator-remove:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
 @media (max-width:640px){
   .cepe-pages{ grid-template-columns:1fr; }
 }
@@ -9672,7 +9692,7 @@ body :is(
    opens beneath it and WRAPS — the one cell in this table allowed to. */
 .cepe-ledger td.cepe-why { white-space:normal; min-width:130px; max-width:260px; }
 .cepe-why-label { white-space:nowrap; }
-.cepe-why-btn { margin-left:6px; width:17px; height:17px; font-size:10px; }
+.cepe-why-btn { margin-left:6px; width:24px; height:24px; font-size:12px; }
 .cepe-why-pop { margin:6px 0 0; padding:7px 10px; font-size:10.5px; line-height:1.5;
   white-space:normal; overflow-wrap:anywhere; font-family:'JetBrains Mono',monospace; }
 

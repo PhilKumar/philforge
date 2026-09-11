@@ -646,12 +646,26 @@ def dow_bucket(trades):
     return {k: {"net": round(v["net"], 2), "n": v["n"], "w": v["w"]} for k, v in sorted(b.items())}
 
 
+def _guard_current_report(path):
+    """The legacy splice builder cannot reproduce the newer ladder dataset."""
+    if path.exists():
+        current = json.loads(path.read_text())
+        if current.get("deployed") or current.get("live_config"):
+            raise SystemExit(
+                "Refusing to overwrite the ladder/configuration report with the legacy "
+                "splice dataset. Rebuild from the matching archived replay and configuration; "
+                "the legacy baseline check does not validate the current report."
+            )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="compare against the published report_data.json")
     ap.add_argument("--honest-fill", action="store_true", help="cap PE target exits at the target")
     ap.add_argument("--write", action="store_true", help="overwrite report_data.json")
     args = ap.parse_args()
+    if args.write:
+        _guard_current_report(_HERE / "report_data.json")
 
     if args.check:
         # Validate the machinery, not today's book: rebuild the OLD target book
@@ -674,7 +688,7 @@ def main():
         baseline = _HERE / "report_data.json.published-inflated"
         if not baseline.exists():
             print(f"no baseline at {baseline.name} — cannot validate")
-            return
+            return 1
         old = json.load(open(baseline))
         print(f"rebuilding {PE_TARGET_FILE} to reproduce the Aug-2026 published figures\n")
         checks = [
@@ -707,7 +721,7 @@ def main():
             f"\n{'MATCHES' if not bad else str(bad) + ' MISMATCH(ES)'} — "
             f"{'safe to rebuild' if not bad else 'do NOT publish until these agree'}"
         )
-        return
+        return int(bool(bad))
     if args.write:
         json.dump(data, open(_HERE / "report_data.json", "w"), indent=1)
         print(
@@ -720,4 +734,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

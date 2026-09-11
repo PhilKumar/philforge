@@ -2451,7 +2451,7 @@
   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Step 1 · Pick a strategy</div>
   <div class="oc-tabs" role="tablist" aria-label="Options Cascade strategies">
     <button id="oc-tabbtn-cepe" class="oc-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="oc-tab-cepe" tabindex="0" data-pf-action="showOptionsCascadeTab" data-oc-tab="cepe" title="The two strategy-builder books that trade live: a call book on the 17-EMA and RSI, a put book under the CPR — one trade a day each"><span class="oc-tab-name">◆ CE + PE</span><span class="oc-tab-sub">CE and PE &middot; live</span></button>
-    <button id="oc-tabbtn-gapcarry" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-gapcarry" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="gapcarry" title="15:10 close against its EMA20 and RSI, held one night; cut at 09:15 if it opens down, else sold at 09:20 — paper"><span class="oc-tab-name">◑ Gap Carry</span><span class="oc-tab-sub">In 15:10 · out 09:20</span></button>
+    <button id="oc-tabbtn-gapcarry" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-gapcarry" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="gapcarry" title="15:10 close against its EMA20 and RSI, held one night; cut at 09:15 if it opens down, else sold at 09:20 — paper"><span class="oc-tab-name">◑ Gap Carry</span><span class="oc-tab-sub">15:10 → 09:15 cut / 09:20</span></button>
     <button id="oc-tabbtn-fib" class="oc-tab" type="button" role="tab" aria-selected="false" aria-controls="oc-tab-fib" tabindex="-1" data-pf-action="showOptionsCascadeTab" data-oc-tab="fib" title="Your mother, auto trendlines and fibs — Lone (every level), or only where two fibs meet"><span class="oc-tab-name">⑃ Fib Boundary</span><span class="oc-tab-sub">Your mother · every level</span></button>
 <!-- Fib Space was folded into Fib Boundary on 2026-08-15 and its tab removed on
      2026-08-16: same geometry, same levels, and "Where two meet" is what this
@@ -3834,7 +3834,7 @@
                 <h5>5 &middot; What this desk does not do</h5>
                 <p>No profit target, no trailing stop, no second trade in a day, no spread, no next-week expiry, no mirroring one book's signals onto the other side. Every one of those was replayed over the full archive and every one lost money. Exit rules were searched exhaustively &mdash; all 127 combinations &mdash; and the best-on-history choice <strong>lost &#8377;50,210</strong> against changing nothing, so the exits stay as they are.</p>
               </section>
-              <p class="pf-info-warn"><strong>Read the numbers as a floor and the risk as real.</strong> Prices come from an archive whose strike band drops some of the winners; priced from a second archive over the overlap the put book is <strong>20.6% higher</strong>, so these figures understate rather than flatter. Against that: the worst losing streak is <strong>10 trades</strong>, <strong>42%</strong> of individual months finish negative, and the longest stretch below a previous high is <strong>540 days</strong>. Being down after three trades carries no information &mdash; 49% of all three-trade runs in this archive finish negative.</p>
+              <p class="pf-info-warn"><strong>Historical research is not a guaranteed performance floor.</strong> These figures describe the research scenarios above, not live account returns. Missing contracts or minutes can bias a backtest in either direction; a higher result from another archive over one overlap does not prove a lower bound. Consult the dated tearsheet for each scenario's sizing, costs and data coverage. Live execution and future losses can differ materially.</p>
             </div>
             <div class="pf-doc-lang" data-pf-lang="ta">
               <p class="pf-info-lede">ஒரே index-ஐ எதிர் திசைகளில் வாங்கும் இரண்டு புத்தகங்கள். ஒவ்வொன்றும் நாளொன்றுக்கு ஒரு trade. <strong>இது hedge அல்ல.</strong> இரண்டும் சேர்ந்து வைக்கப்படுவதற்குக் காரணம், அவற்றின் நல்ல ஆண்டுகள் வெவ்வேறு: CE புத்தகம் 2025-இல், PE புத்தகம் 2026-இல். தனித்தனியாக ஆறில் நான்கு ஆண்டுகள் பச்சை; சேர்ந்தால் <strong>ஆறில் ஐந்து</strong>.</p>
@@ -3854,7 +3854,7 @@
                 <h5>4 &middot; Expiry நாள்தான் PE புத்தகம்</h5>
                 <p>NIFTY weekly expiry ஆகஸ்ட் 2025 வரை வியாழன், அதன் பிறகு <strong>செவ்வாய்</strong>. செவ்வாய் சாதாரண நாளாக இருந்தபோது <strong>&minus;&#8377;79,519</strong>; expiry ஆனபின் <strong>+&#8377;97,343</strong>. Expiry-இல் 3 lot, மற்ற நாட்களில் 1 lot &rarr; <strong>&#8377;2,11,125</strong> (&#8377;1,38,174-க்கு பதிலாக), drawdown குறைவு. CE இதற்கு பொருந்தாது.</p>
               </section>
-              <p class="pf-info-warn"><strong>எண்களை குறைந்தபட்சமாகவும், ஆபத்தை உண்மையாகவும் படியுங்கள்.</strong> தொடர்ச்சியான நஷ்டம் <strong>10 trades</strong> வரை; மாதங்களில் <strong>42%</strong> நஷ்டம்; முந்தைய உச்சத்திற்குக் கீழே <strong>540 நாட்கள்</strong> வரை. மூன்று trades-இல் நஷ்டம் என்பது எதையும் சொல்லாது &mdash; இந்த archive-இல் <strong>49%</strong> மூன்று-trade தொடர்கள் நஷ்டத்தில் முடிகின்றன.</p>
+              <p class="pf-info-warn"><strong>வரலாற்று ஆய்வு உறுதியான குறைந்தபட்ச லாபம் அல்ல.</strong> இந்த எண்கள் மேலுள்ள ஆய்வுச் சோதனைகளுக்கானவை; லைவ் கணக்கின் வருமானம் அல்ல. காணாமல் போன காண்ட்ராக்ட் அல்லது நிமிடத் தரவு முடிவுகளை இரு திசைகளிலும் மாற்றலாம். மற்றொரு காப்பகத்தின் உயர்ந்த முடிவு குறைந்தபட்ச லாபத்தை நிரூபிக்காது. ஒவ்வொரு சோதனையின் அளவு, கட்டணங்கள் மற்றும் தரவு வரம்புகளுக்கு தேதியிட்ட அறிக்கையைப் பார்க்கவும். லைவ் நிறைவேற்றமும் எதிர்கால இழப்புகளும் மாறலாம்.</p>
             </div>
           </div>
         </div>
@@ -3899,7 +3899,7 @@
         <button type="button" class="cepe-filter cepe-filter-pe" data-pf-action="setCePeFilter" data-cepe-filter="PE">PE <span class="cepe-filter-n">0</span></button>
         </div>
         <div class="cepe-chartbar">
-          <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="5m" title="NIFTY on the 5-minute chart, with CPR, R1-R4, S1-S4 and the 20-EMA">&#8599; NIFTY 5m</button>
+          <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="5m" title="NIFTY on the 5-minute chart, with CPR, R1-R4, S1-S5 and the 20-EMA">&#8599; NIFTY 5m</button>
           <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="15m" title="NIFTY on the 15-minute chart">15m</button>
           <button type="button" class="cascade-options-control" data-pf-action="openCePeIndexChart" data-cepe-tf="1h" title="NIFTY on the hourly chart">1h</button>
         </div>

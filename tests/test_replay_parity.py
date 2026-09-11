@@ -227,6 +227,7 @@ class ReplayParityTests(unittest.TestCase):
                 "lot_size": 1,
                 "lots": 1,
                 "max_trades_per_day": 10,
+                "skip_stub_sessions": False,
                 "market_open": "09:15",
                 "market_close": "15:25",
                 "combined_sqoff_time": "15:25",

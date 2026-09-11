@@ -589,6 +589,7 @@ def inspect_condition_group(row, conditions, prev_row=None):
 DECISION_WHY_INDICATOR_KEYS = (
     "CPR_TC",
     "CPR_P",
+    "CPR_Pivot",
     "CPR_BC",
     "CPR_R1",
     "CPR_R2",
@@ -598,6 +599,7 @@ DECISION_WHY_INDICATOR_KEYS = (
     "CPR_S2",
     "CPR_S3",
     "CPR_S4",
+    "CPR_S5",
     "CPR_is_wide",
     "EMA_20_5m",
     "EMA_20",

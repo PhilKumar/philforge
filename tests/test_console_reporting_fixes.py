@@ -114,17 +114,20 @@ class TheSupertrendChartActuallyDraws(unittest.TestCase):
 
 
 class TheNewestClosedCampaignIsOnTop(unittest.TestCase):
-    """High Entry filtered and never sorted, so it showed oldest first."""
+    """High Entry now uses the persistent shared ledger, ordered by SQL."""
 
     def test_the_rows_are_ordered_newest_first(self):
-        self.assertIn(".sort((a, b) => _endedAt(b) - _endedAt(a))", APP_JS)
+        self.assertIn("_refreshPaperLedger('candle_recovery')", APP_JS)
+        self.assertIn("ORDER BY COALESCE(closed_at, created_at) DESC, id DESC", (ROOT / "db.py").read_text())
 
     def test_it_orders_on_the_campaign_s_own_close(self):
-        self.assertIn("const _endedAt = (c) => {", APP_JS)
-        self.assertIn("trades[trades.length - 1].exit_time", APP_JS)
+        builder = APP.split("def _recovery_campaign_row(")[1].split("\nasync def ")[0]
+        self.assertIn("last = closed[-1] if closed else {}", builder)
+        self.assertIn('"closed_at": last.get("exit_time") or mother', builder)
 
     def test_a_campaign_that_closed_nothing_falls_back_to_its_mother(self):
-        self.assertIn("last || (c.mother && c.mother.timestamp)", APP_JS)
+        builder = APP.split("def _recovery_campaign_row(")[1].split("\nasync def ")[0]
+        self.assertIn('"closed_at": last.get("exit_time") or mother', builder)
 
     def test_the_shared_ledger_was_already_right(self):
         """It is the SQL that orders that one; this was a second renderer."""
@@ -171,7 +174,7 @@ class ThePageAgreesWithItselfAboutGapCarry(unittest.TestCase):
     """The ⓘ said one rule and the tile beside it said another."""
 
     def test_the_picker_tile_says_the_current_rule(self):
-        self.assertIn("15:10 in · cut 09:15 · out 09:20", HTML)
+        self.assertIn("15:10 → 09:15 cut / 09:20", HTML)
         self.assertNotIn('<span class="oc-tab-sub">15:10 in · 09:20 out</span>', HTML)
 
     def test_the_auto_status_lines_say_it_too(self):

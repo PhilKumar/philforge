@@ -1,4 +1,4 @@
-"""Every line of "What is running today" must equal the deployed config.
+"""Every line of "Recorded configuration snapshot" must equal the deployed config.
 
 Phil, 2026-09-09: "update the tearsheet with the correct data from this
 strategy clearly line by line if we are going to have this from now on".
@@ -96,7 +96,7 @@ class TheBuiltPageCarriesIt(unittest.TestCase):
             self.assertIn(f"{v} bps", self.html, str(v))
 
     def test_exactly_two_books_are_described(self):
-        section = self.html.split("What is running today")[1].split("</section>")[0]
+        section = self.html.split("Recorded configuration snapshot")[1].split("</section>")[0]
         self.assertEqual(section.count('<div class="cfg-card">'), 2)
 
 

@@ -275,8 +275,9 @@ class TheDocumentationIsHonest(unittest.TestCase):
     def test_it_states_the_risk_and_not_only_the_return(self):
         doc = HTML.split('id="oc-cepe-info"')[1][:14000]
         self.assertIn("pf-info-warn", doc)
-        for fact in ("540 days", "10 trades", "49%"):
+        for fact in ("not a guaranteed performance floor", "bias a backtest in either direction", "future losses"):
             self.assertIn(fact, doc, f"the warning omits {fact}")
+        self.assertNotIn("these figures understate rather than flatter", doc)
 
 
 if __name__ == "__main__":

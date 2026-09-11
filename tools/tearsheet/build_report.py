@@ -190,7 +190,7 @@ def method_and_limits(t, steps, running=None):
     if running:
         today = f"""
 <section>
-  <div class="shead"><div><h2>{t("What is running today", "இன்று இயங்குவது என்ன")}</h2></div></div>
+  <div class="shead"><div><h2>{t("Recorded configuration snapshot", "பதிவுசெய்யப்பட்ட அமைப்பு")}</h2></div></div>
   <div class="panel"><p>{t(running[0], running[1])}</p></div>
 </section>
 """
@@ -390,12 +390,12 @@ CHARGE_ROWS = "".join(
     f"<td class='neg'>{r(CH[k])}</td><td>{100 * CH[k] / CH['total']:.1f}%</td>"
     f"<td>{r(CH[k] / D['headline']['combined']['trades'])}</td></tr>"
     for k, lbl, basis in [
-        ("brokerage", "Brokerage", "&#8377;80 flat per round trip"),
-        ("exchange", "Exchange transaction", "0.053% of turnover"),
-        ("gst", "GST", "18% on brokerage + exchange"),
-        ("stt", "STT", "0.0125%, sell side only"),
-        ("stamp", "Stamp duty", "0.003% of turnover"),
-        ("sebi", "SEBI turnover fee", "&#8377;10 per crore"),
+        ("brokerage", "Brokerage", "Recorded backtest brokerage; see scenario basis"),
+        ("exchange", "Exchange transaction", "Recorded exchange charges for the replay"),
+        ("gst", "GST", "Recorded GST for the replay"),
+        ("stt", "STT", "Recorded sell-side STT for the replay"),
+        ("stamp", "Stamp duty", "Recorded stamp duty for the replay"),
+        ("sebi", "SEBI turnover fee", "Recorded SEBI fee for the replay"),
     ]
 )
 
@@ -403,7 +403,7 @@ LIVE_ROW = " class='trow-live'"
 SIZE_ROWS = "".join(
     f"<tr{LIVE_ROW if s['lots'] == 4 else ''}>"
     f"<th scope='row'>{s['lots']} lot{'s' if s['lots'] > 1 else ''}"
-    f"{' &larr; live' if s['lots'] == 4 else ''}</th>"
+    f"{' &larr; sizing comparison' if s['lots'] == 4 else ''}</th>"
     f"<td>{r(s['peak'])}</td><td class='neg'>{r(s['dd'])}</td>"
     f"<td><strong>{r(s['funded'])}</strong></td>"
     f"<td class='pos'>{r(s['net'])}</td><td>{r(s['per_year'])}</td>"
@@ -413,7 +413,7 @@ SIZE_ROWS = "".join(
 
 SLIP_ROWS = "".join(
     f"<tr{LIVE_ROW if x['bps'] == 14 else ''}>"
-    f"<th scope='row'>{x['bps'] / 100:.2f}%{' &larr; live model' if x['bps'] == 14 else ''}</th>"
+    f"<th scope='row'>{x['bps'] / 100:.2f}%{' &larr; comparison assumption' if x['bps'] == 14 else ''}</th>"
     f"<td class='{cls(x['net'])}'>{r(x['net'])}</td>"
     f"<td class='{'neg' if x['net'] < SL[0]['net'] else 'flat'}'>"
     f"{100 * (x['net'] - SL[0]['net']) / SL[0]['net']:+.0f}%</td>"
@@ -626,13 +626,13 @@ LEDGER_BTNS = "".join(f'<button type="button" data-year="{y}" aria-pressed="fals
 
 # ── prose blocks, bilingual ──────────────────────────────────────────
 PARA01 = t(
-    f"""Restating all three moves the headline from <span class="num">{r(D["as_exported"]["pe"] + D["as_exported"]["ce"])}</span> as exported to <span class="num"><strong>{r(H["combined"]["net"])}</strong></span> net &mdash; <span class="num">{r(H["combined"]["fees"])}</span> of that gap is transaction cost and <span class="num">{r(FC["pe_removed"])}</span> is the unreachable target fill described below. The lower number is the one this document uses throughout.""",
-    f"""மூன்றையும் திருத்தியதும் தலைப்பு எண் <span class='num'>{r(D["as_exported"]["pe"] + D["as_exported"]["ce"])}</span> என்பதிலிருந்து <span class='num'><strong>{r(H["combined"]["net"])}</strong></span> நிகரமாக மாறுகிறது &mdash; அந்த இடைவெளியில் <span class='num'>{r(H["combined"]["fees"])}</span> பரிவர்த்தனைக் கட்டணம், <span class='num'>{r(FC["pe_removed"])}</span> கீழே விவரிக்கப்பட்ட அடைய முடியாத இலக்கு விலை. இந்த ஆவணம் முழுவதும் சிறிய எண்ணையே பயன்படுத்துகிறது.""",
+    f"""The headline net is <strong>{r(H["combined"]["net"])}</strong> for the archived ladder comparison. Earlier exports and target-fill corrections below describe older research scenarios. Their differences cannot be subtracted from this headline to reconstruct its returns.""",
+    f"""தலைப்பு நிகரம் <strong>{r(H["combined"]["net"])}</strong> காப்பக படிநிலை ஒப்பீட்டுக்கானது. கீழுள்ள பழைய ஏற்றுமதி மற்றும் இலக்கு விலைத் திருத்தங்கள் முந்தைய ஆய்வுகளுக்கானவை; அவற்றின் வேறுபாடுகளைக் கழித்து இத்தலைப்பை மீண்டும் கணக்கிட முடியாது.""",
 )
 
 PARA02 = t(
-    f"""<span class="num">{r(CH["brokerage"])}</span> of the <span class="num">{r(CH["total"])}</span> taken &mdash; <strong>{100 * CH["brokerage"] / CH["total"]:.0f}%</strong> &mdash; is the flat &#8377;80 per round trip. It does not shrink with position size, so it is a fixed toll on every trade regardless of how many lots are behind it. Turnover-linked charges (exchange, STT, GST, stamp, SEBI) come to <span class="num">{r(CH["total"] - CH["brokerage"])}</span>, or <span class="num">{100 * (CH["total"] - CH["brokerage"]) / CH["turnover"]:.3f}%</span> of the <span class="num">{r(CH["turnover"])}</span> traded. This is exactly why the small-size rows in the capital table below earn a lower return per rupee.""",
-    f"""பிடிக்கப்பட்ட <span class='num'>{r(CH["total"])}</span>-இல் <span class='num'>{r(CH["brokerage"])}</span> &mdash; <strong>{100 * CH["brokerage"] / CH["total"]:.0f}%</strong> &mdash; ஒரு டிரேடுக்கு &#8377;80 என்ற நிலையான புரோக்கரேஜ். பொசிஷன் அளவு கூடினாலும் அது குறையாது; எத்தனை லாட் இருந்தாலும் ஒவ்வொரு டிரேடுக்கும் அது நிலையான சுங்கம். டர்ன்ஓவர் சார்ந்த கட்டணங்கள் (எக்ஸ்சேஞ்ச், STT, GST, ஸ்டாம்ப், SEBI) மொத்தம் <span class='num'>{r(CH["total"] - CH["brokerage"])}</span>, அதாவது வர்த்தகமான <span class='num'>{r(CH["turnover"])}</span>-இல் <span class='num'>{100 * (CH["total"] - CH["brokerage"]) / CH["turnover"]:.3f}%</span>. கீழே உள்ள மூலதன அட்டவணையில் சிறிய அளவுகள் ஏன் குறைவான வருவாய் தருகின்றன என்பதற்கு இதுவே காரணம்.""",
+    f"""Recorded brokerage is {r(CH["brokerage"])} of total recorded charges {r(CH["total"])} ({100 * CH["brokerage"] / CH["total"]:.0f}%). Other recorded charges total {r(CH["total"] - CH["brokerage"])}. These are historical replay amounts, not a quotation of current broker or statutory rates.""",
+    f"""பதிவான மொத்த கட்டணம் {r(CH["total"])}; அதில் புரோக்கரேஜ் {r(CH["brokerage"])} ({100 * CH["brokerage"] / CH["total"]:.0f}%). மற்ற கட்டணங்கள் {r(CH["total"] - CH["brokerage"])}. இவை வரலாற்று சோதனைத் தொகைகள்; தற்போதைய கட்டண விகிதங்கள் அல்ல.""",
 )
 
 PARA03 = t(
@@ -651,23 +651,23 @@ PARA05 = t(
 )
 
 PARA06 = t(
-    f"""<strong>The floor is 1 lot at about {r(SZ[0]["funded"])}.</strong> Below that the position cannot be split further &mdash; one NIFTY lot is the smallest tradable unit, and a single trade needs roughly {r(cap["median"] // 4)} of premium at today's prices.""",
-    f"""<strong>அடிமட்டம் 1 லாட், சுமார் {r(SZ[0]["funded"])}.</strong> அதற்குக் கீழே பொசிஷனைப் பிரிக்க முடியாது &mdash; ஒரு NIFTY லாட்தான் மிகச்சிறிய அலகு, ஒரு டிரேடுக்கு இன்றைய விலையில் சுமார் {r(cap["median"] // 4)} பிரீமியம் தேவை.""",
+    f"""The one-lot starting comparison has a modelled funding allowance of {r(SZ[0]["funded"])}. This is based on its historical peak deployment and drawdown; it is not a current premium quote or a guaranteed minimum account balance.""",
+    f"""ஒரு லாட் தொடக்க ஒப்பீட்டின் கணக்கிட்ட நிதி ஒதுக்கீடு {r(SZ[0]["funded"])}. இது வரலாற்று உச்ச பயன்பாடு மற்றும் இறக்கத்தைச் சார்ந்தது; தற்போதைய பிரீமியம் அல்லது உறுதியான குறைந்தபட்ச கணக்கு இருப்பு அல்ல.""",
 )
 
 PARA07 = t(
-    f"""<strong>Live today is 4 lots</strong>, which wants about {r(SZ[3]["funded"])} funded. The engine is set to a &#8377;5,00,000 initial capital with a 4% buffer and capital enforcement on, so it refuses a trade it cannot fund rather than over-committing.""",
-    f"""<strong>இன்று லைவ் 4 லாட்</strong>, அதற்கு சுமார் {r(SZ[3]["funded"])} தேவை. என்ஜின் &#8377;5,00,000 தொடக்க மூலதனம், 4% இருப்பு, மூலதன கட்டுப்பாடு ஆன் என அமைக்கப்பட்டுள்ளது &mdash; எனவே பணம் போதாத டிரேடை அது மறுக்கிறதே தவிர அதிகமாக ஈடுபடுத்தாது.""",
+    f"""The four-lot starting comparison has a modelled funding allowance of {r(SZ[3]["funded"])}. It does not describe current live settings. Use the separately dated configuration snapshot to identify which settings were recorded.""",
+    f"""நான்கு லாட் தொடக்க ஒப்பீட்டின் கணக்கிட்ட நிதி ஒதுக்கீடு {r(SZ[3]["funded"])}. இது தற்போதைய லைவ் அமைப்பு அல்ல. பதிவான அமைப்புகளை அறிய தனியாகத் தேதியிட்ட அமைப்புப் பதிவைப் பார்க்கவும்.""",
 )
 
 PARA08 = t(
-    f"""Return per rupee funded is <strong>{SZ[0]["roi"]}%</strong> a year at 1 lot and <strong>{SZ[3]["roi"]}%</strong> at 4 &mdash; not because the edge changes, but because &#8377;80 of flat brokerage is the same on both. At 1 lot, charges eat {100 * SZ[0]["charges"] / (SZ[0]["net"] + SZ[0]["charges"]):.0f}% of gross profit; at 4 lots, {100 * SZ[3]["charges"] / (SZ[3]["net"] + SZ[3]["charges"]):.0f}%.""",
-    f"""ஒரு ரூபாய்க்கான வருவாய் 1 லாட்டில் ஆண்டுக்கு <strong>{SZ[0]["roi"]}%</strong>, 4 லாட்டில் <strong>{SZ[3]["roi"]}%</strong> &mdash; லாபத் திறன் மாறுவதால் அல்ல, &#8377;80 நிலையான புரோக்கரேஜ் இரண்டிலும் ஒன்றுதான் என்பதால். 1 லாட்டில் கட்டணங்கள் மொத்த லாபத்தில் {100 * SZ[0]["charges"] / (SZ[0]["net"] + SZ[0]["charges"]):.0f}% உண்கின்றன; 4 லாட்டில் {100 * SZ[3]["charges"] / (SZ[3]["net"] + SZ[3]["charges"]):.0f}%.""",
+    f"""Total-period net divided by modelled funding is <strong>{SZ[0]["roi"]}%</strong> for the one-lot starting comparison and <strong>{SZ[3]["roi"]}%</strong> for four lots. These are <strong>not annual returns or CAGR</strong>. Sizing and ladder paths can change trade counts and costs, so the rows are not simple linear scaling.""",
+    f"""முழுக் கால நிகரத்தை கணக்கிட்ட நிதியால் வகுத்த வருவாய் ஒரு லாட் தொடக்கத்தில் <strong>{SZ[0]["roi"]}%</strong>, நான்கு லாட்டில் <strong>{SZ[3]["roi"]}%</strong>. இவை <strong>ஆண்டு வருவாய் அல்லது CAGR அல்ல</strong>. அளவு மற்றும் படிநிலை மாற்றங்கள் டிரேடு எண்ணிக்கை, கட்டணங்களை மாற்றலாம்; வரிசைகள் நேர்விகிதப் பெருக்கம் அல்ல.""",
 )
 
 PARA09 = t(
-    """Practical reading: <strong>1 lot is viable but inefficient</strong> and is best treated as a proving size. Every added lot improves the cost ratio, with most of the gain captured by 3&ndash;4 lots.""",
-    """நடைமுறை முடிவு: <strong>1 லாட் சாத்தியம், ஆனால் திறனற்றது</strong> &mdash; அதை சோதனை அளவாகவே கருதுங்கள். ஒவ்வொரு கூடுதல் லாட்டும் கட்டண விகிதத்தை மேம்படுத்துகிறது; பெரும்பாலான பயன் 3&ndash;4 லாட்டிலேயே கிடைத்துவிடுகிறது.""",
+    """These comparisons report historical model outcomes, not a recommendation to increase position size. Future drawdowns and funding requirements can exceed the amounts shown.""",
+    """இவை வரலாற்று மாதிரி முடிவுகள்; பொசிஷன் அளவை அதிகரிக்கப் பரிந்துரை அல்ல. எதிர்கால இறக்கமும் நிதித் தேவையும் காட்டிய தொகைகளை மீறலாம்.""",
 )
 
 PARA10 = t(
@@ -1281,11 +1281,11 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
   <div class="hero-copy">
     <p class="eyebrow"><b>TEARSHEET</b>{t("PhilForge &middot; Strategy Research", "PhilForge &middot; உத்தி ஆய்வு")}</p>
     <h1>{t("NIFTY Weekly Options &mdash; Five-Year Tearsheet", "NIFTY வாராந்திர ஆப்ஷன்ஸ் &mdash; ஐந்தாண்டு அறிக்கை")}</h1>
-    <p class="lede">{t("A directional intraday options-buying programme on the NIFTY 50 index, trading a put book and a call book side by side. From October 2024 every trade is priced on the real Upstox option premium of the contract it traded; before that, on the exported backtest. Every trade is on the exchange lot size actually in force on its expiry, and charged real Indian F&amp;O costs. Figures are net.", "NIFTY 50 குறியீட்டில் இன்ட்ராடே ஆப்ஷன் வாங்கும் உத்தி &mdash; ஒரு PUT புத்தகமும் ஒரு CALL புத்தகமும் இணையாக இயங்குகின்றன. அக்டோபர் 2024 முதல் ஒவ்வொரு டிரேடும் அது வர்த்தகம் செய்த காண்ட்ராக்டின் உண்மையான Upstox பிரீமியத்தில்; அதற்கு முன் ஏற்றுமதி செய்யப்பட்ட பேக்டெஸ்டில். ஒவ்வொரு டிரேடும் அதன் எக்ஸ்பயரி அன்று அமலில் இருந்த லாட் அளவில், இந்திய F&amp;O கட்டணங்கள் கழிக்கப்பட்டு. எல்லா எண்களும் நிகரம் (net).")}</p>
+    <p class="lede">{t("Historical NIFTY options research, not live account performance. The headline is the archived Dhan four-lot ladder comparison, with five lots on expiry and recorded fees and slippage. Supplementary sizing, legacy Upstox and configuration-snapshot sections describe separate scenarios; do not combine their figures. Archive coverage and simulated execution limit what this backtest can establish.", "இது வரலாற்று NIFTY ஆப்ஷன் ஆய்வு; லைவ் கணக்கின் செயல்திறன் அல்ல. தலைப்பு எண் Dhan காப்பகத்தின் நான்கு லாட் படிநிலை ஒப்பீடு; எக்ஸ்பயரியில் ஐந்து லாட், பதிவான கட்டணங்கள் மற்றும் ஸ்லிப்பேஜ் அடங்கும். நிலையான அளவு, பழைய Upstox மற்றும் அமைப்புப் பதிவு பகுதிகள் தனித்தனி சோதனைகள்; அவற்றின் எண்களைக் கலக்க வேண்டாம். காப்பகத் தரவு மற்றும் உருவக நிறைவேற்றத்தின் வரம்புகள் இந்த ஆய்வுக்கும் பொருந்தும்.")}</p>
     <div class="document-meta" aria-label="Document metadata">
       <div class="meta-chip"><span>{t("Period", "காலம்")}</span><strong>{H["combined"]["first"]} &rarr; {H["combined"]["last"]}</strong></div>
       <div class="meta-chip"><span>{t("Trades", "டிரேடுகள்")}</span><strong>{H["combined"]["trades"]}</strong></div>
-      <div class="meta-chip"><span>{t("Position size", "பொசிஷன் அளவு")}</span><strong>{t("4 lots, index weeklies", "4 லாட், வாராந்திர இண்டெக்ஸ்")}</strong></div>
+      <div class="meta-chip"><span>{t("Position size", "பொசிஷன் அளவு")}</span><strong>{t("4 lots / 5 expiry, ladder to 20", "4 லாட் / எக்ஸ்பயரியில் 5, அதிகபட்சம் 20")}</strong></div>
       <div class="meta-chip"><span>{t("Capital at work", "பயன்பட்ட மூலதனம்")}</span><strong>{r(peak)} {t("peak", "உச்சம்")}</strong></div>
       <div class="meta-chip"><span>{t("Costs", "கட்டணங்கள்")}</span><strong>{t("Brokerage, STT, GST, stamp", "புரோக்கரேஜ், STT, GST, ஸ்டாம்ப்")}</strong></div>
     </div>
@@ -1321,7 +1321,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
     <div class="rail-card">
       <span>{t("DOCUMENT STATE", "ஆவண நிலை")}</span>
       <strong><i></i> {t("Net of every charge", "அனைத்து கட்டணங்களுக்குப் பின்")}</strong>
-      <small>{H["combined"]["trades"]} {t("trades &middot; lot sizes restated &middot; real Upstox premiums from Oct 2024", "டிரேடுகள் &middot; லாட் அளவுகள் திருத்தப்பட்டவை &middot; அக் 2024 முதல் உண்மையான Upstox பிரீமியங்கள்")}</small>
+      <small>{H["combined"]["trades"]} {t("trades &middot; archived Dhan ladder comparison", "டிரேடுகள் &middot; Dhan காப்பக படிநிலை ஒப்பீடு")}</small>
     </div>
   </div>
 </aside>
@@ -1582,8 +1582,8 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
 
 
 <section>
-  <div class="shead"><div><h2>{t("What is running today", "இன்று இயங்குவது என்ன")}</h2>
-    <p>{t("The two books as they are configured on the live engine right now, read straight off the deployed state &mdash; not a description of an idealised version.", "இரண்டு புத்தகங்களும் இப்போது லைவ் என்ஜினில் எப்படி அமைக்கப்பட்டுள்ளனவோ அப்படியே &mdash; இயங்கும் நிலையிலிருந்து நேரடியாக எடுக்கப்பட்டது, கற்பனையான பதிப்பு அல்ல.")}</p></div></div>
+  <div class="shead"><div><h2>{t("Recorded configuration snapshot", "பதிவுசெய்யப்பட்ட அமைப்பு")}</h2>
+    <p>{t("Historical configuration snapshot, not a live status feed. The read date below applies to these settings; the headline is a separate four-lot ladder comparison.", "இது வரலாற்று அமைப்பின் பதிவு; தற்போதைய லைவ் நிலை அல்ல. கீழே உள்ள தேதி இந்த அமைப்புகளுக்குப் பொருந்தும். தலைப்பு எண் தனியான நான்கு லாட் படிநிலை ஒப்பீடு.")}</p></div></div>
   <div class="cfg">
     <div class="cfg-card">
       <h3>{t("Put book", "PUT புத்தகம்")} &mdash; {LC["pe"]["run_name"]}</h3>
@@ -1655,7 +1655,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
   <div class="tblwrap"><table>
     <thead><tr><th scope="col">{t("Size", "அளவு")}</th><th scope="col">{t("Peak deployed", "உச்ச பயன்பாடு")}</th><th scope="col">{t("Max drawdown", "அதிகபட்ச இறக்கம்")}</th>
       <th scope="col">{t("Account to fund", "தேவையான கணக்கு")}</th><th scope="col">{t("5-yr net", "5 ஆண்டு நிகரம்")}</th><th scope="col">{t("Per year", "ஆண்டுக்கு")}</th>
-      <th scope="col">{t("Return", "வருவாய்")}</th></tr></thead>
+      <th scope="col">{t("Total return", "முழுக் கால வருவாய்")}</th></tr></thead>
     <tbody>{SIZE_ROWS}</tbody>
   </table></div>
   <div class="split" style="margin-top:14px">
@@ -1666,7 +1666,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
       <p style="font-size:13.5px;margin-bottom:0">{PARA07}</p>
     </div>
     <div class="panel">
-      <h3>{t("Small size is punished, and by how much", "சிறிய அளவு தண்டிக்கப்படுகிறது &mdash; எவ்வளவு என்பதுடன்")}</h3>
+      <h3>{t("Comparing starting sizes", "தொடக்க அளவுகளின் ஒப்பீடு")}</h3>
       <p style="font-size:13.5px">{PARA08}</p>
       <p style="font-size:13.5px;margin-bottom:0">{PARA09}</p>
     </div>

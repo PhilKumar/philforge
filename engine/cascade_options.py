@@ -35,6 +35,8 @@ from engine.candle_ladder import (
 from engine.cascade_fib_geometry import boundaries_for_timeframe, boundary_price, normalise_timeframe
 from engine.cascade_instruments import InstrumentError, index_spec
 
+_logger = logging.getLogger(__name__)
+
 
 class CascadeError(ValueError):
     """Invalid strategy configuration or missing historical data."""
