@@ -1644,6 +1644,29 @@ async def _load_alert_state(state_key: str) -> dict:
     return state
 
 
+async def _reset_alert_state_for_start(user_id: int, run_id: str, closed_trades: list) -> None:
+    """A book started from the page begins flat — without forgetting what it has announced.
+
+    Both start routes used to seed the cache with the shape this state had
+    BEFORE it tracked announced trades:  {"in_trade": False, "closed_count": 0}.
+    `_check_trade_alerts` reads `state["seen"]`, so on 2026-09-11 every event
+    from both live books raised KeyError: 'seen' — 4,386 times from 09:15 — and
+    no Telegram alert went out for the 09:20 PE entry. Trading was untouched
+    (`_emit` catches a callback that raises), which is exactly why nobody saw it.
+
+    Not reset to an empty `seen` either: a fresh start reloads the book's
+    history, and every one of those trades would be announced again as a new
+    exit. So the saved state is read as it is, the book is marked flat, and the
+    trades it reloaded count as already announced.
+    """
+    key = _alert_state_key(user_id, run_id)
+    _alert_state.pop(key, None)
+    state = await _load_alert_state(key)
+    state["in_trade"] = False
+    state["seen"].update(_closed_trade_fingerprint(t) for t in closed_trades or [])
+    await _save_alert_state(key, state)
+
+
 async def _save_alert_state(state_key: str, state: Mapping[str, Any]) -> None:
     seen = list(state.get("seen") or [])[-_ALERT_SEEN_CAP:]
     try:
@@ -18702,7 +18725,7 @@ async def live_start(req: LiveStartRequest, request: Request):
     engine.in_trade = False
     engine.trades_today = 0
 
-    _alert_state[_alert_state_key(user_id, run_id)] = {"in_trade": False, "closed_count": 0}
+    await _reset_alert_state_for_start(user_id, run_id, engine.closed_trades)
 
     async def broadcast(event: dict):
         await _broadcast_user_ws_json(user_id, {"source": "live", "run_id": run_id, **event})
@@ -19842,7 +19865,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     engine.trades_today = 0
 
     # Broadcast updates to WebSocket clients + Telegram alerts
-    _alert_state[_alert_state_key(user_id, run_id)] = {"in_trade": False, "closed_count": 0}
+    await _reset_alert_state_for_start(user_id, run_id, engine.closed_trades)
 
     async def broadcast(event: dict):
         await _broadcast_user_ws_json(user_id, {"source": "paper", "run_id": run_id, **event})
