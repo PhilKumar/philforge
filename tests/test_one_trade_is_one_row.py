@@ -49,8 +49,14 @@ def _account_row(date, side, pnl, costs_known=True, symbol="NIFTY-Sep2026-23700-
     }
 
 
-def _run(side, recent, booked=0.0):
-    return {"side": side, "name": f"{side}_book", "booked_pnl": booked, "recent": list(recent)}
+def _run(side, recent, booked=0.0, real_orders=True, name=None):
+    return {
+        "side": side,
+        "name": name or f"{side}_book",
+        "booked_pnl": booked,
+        "recent": list(recent),
+        "real_orders": real_orders,
+    }
 
 
 class TheDuplicateIsGone(unittest.TestCase):
@@ -159,6 +165,70 @@ class TheAccountStillCarriesWhatNoBookKnows(unittest.TestCase):
     def test_an_empty_desk_is_not_an_error(self):
         self.assertEqual(app._one_row_per_trade([], []), [])
         self.assertEqual(app._one_row_per_trade([], None), [])
+
+
+class PaperBooksNeverTouchedTheBroker(unittest.TestCase):
+    """The desk's run list carries paper books too, and 208871f matched the
+    broker's record against them. Production on 2026-09-10 held exactly this:
+
+        live  CE_SL15_NoMonTue   no trades
+        paper My_First_Run_CE    CE on 09-03, −₹2,936.31
+        live  PE_NoTarget        PE on 09-10, ₹1,763.21
+        paper My_First_Run_PE    PE on 09-10, ₹9,799.04
+        paper PE_NoTarget        PE on 09-10, ₹3,178.52
+
+    and the page showed the real CE row deleted, the PE duplicate kept, and a
+    phantom ₹1,196 booked on a live CE book that had never traded.
+    """
+
+    def _production(self):
+        runs = [
+            _run("CE", [], 0.0, name="CE_SL15_NoMonTue"),
+            _run("CE", [_engine_row("2026-09-03", -2936.31, "PAPER CE")], -10375.21, False, "My_First_Run_CE"),
+            _run("PE", [_engine_row("2026-09-10", 1763.21)], 1763.21, name="PE_NoTarget"),
+            _run("PE", [_engine_row("2026-09-10", 9799.04, "PAPER PE A")], 12264.7, False, "My_First_Run_PE"),
+            _run("PE", [_engine_row("2026-09-10", 3178.52, "PAPER PE B")], 15721.99, False, "PE_NoTarget"),
+        ]
+        history = [
+            _account_row("2026-09-10", "PE", 1878.5, costs_known=False),
+            _account_row("2026-09-08", "PE", -2859.18, symbol="NIFTY 08 SEP 23950 PUT"),
+            _account_row("2026-09-07", "PE", 979.12, symbol="NIFTY 08 SEP 24100 PUT"),
+            _account_row("2026-09-03", "CE", -1740.25, symbol="NIFTY 08 SEP 23750 CALL"),
+        ]
+        return runs, app._one_row_per_trade(runs, history)
+
+    def test_the_real_ce_row_is_not_deleted_by_a_paper_trade(self):
+        _runs, left = self._production()
+        self.assertIn("NIFTY 08 SEP 23750 CALL", [r["symbol"] for r in left])
+
+    def test_the_live_duplicate_is_still_caught_when_paper_books_traded_too(self):
+        _runs, left = self._production()
+        self.assertNotIn("NIFTY-Sep2026-23700-PE", [r["symbol"] for r in left])
+
+    def test_no_phantom_money_lands_on_a_book_that_never_traded(self):
+        runs, _left = self._production()
+        self.assertEqual(runs[0]["booked_pnl"], 0.0, "the ₹1,196 that appeared on CE_SL15_NoMonTue")
+
+    def test_a_paper_trade_keeps_its_own_pnl(self):
+        runs, _left = self._production()
+        self.assertEqual(runs[1]["recent"][0]["pnl"], -2936.31)
+        self.assertNotIn("settled_by_broker", runs[1]["recent"][0])
+
+    def test_the_live_view_prints_four_rows_for_four_trades(self):
+        runs, left = self._production()
+        printed = sum(len(r["recent"]) for r in runs if r["real_orders"]) + len(left)
+        self.assertEqual(printed, 4)
+
+
+class ACorrectionGoesToTheBookThatMatched(unittest.TestCase):
+    def test_not_to_every_book_on_that_side(self):
+        """208871f summed corrections per SIDE and added them to every run of
+        that side — which is how a paper match moved a live book's total."""
+        matched = _run("PE", [_engine_row("2026-09-10", 1763.21)], 1763.21, name="matched")
+        bystander = _run("PE", [], 500.0, name="bystander")
+        app._one_row_per_trade([matched, bystander], [_account_row("2026-09-10", "PE", 1798.44)])
+        self.assertEqual(matched["booked_pnl"], 1798.44)
+        self.assertEqual(bystander["booked_pnl"], 500.0)
 
 
 class ItIsWiredIntoTheDesk(unittest.TestCase):

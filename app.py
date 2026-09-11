@@ -18714,39 +18714,47 @@ def _one_row_per_trade(runs: list, history: list) -> list:
     a book takes one trade a day, and a day with two of them is left alone
     rather than guessed at.
     """
+    # ONLY BOOKS WHOSE ORDERS REACHED THE BROKER. The broker's record holds real
+    # fills, and a paper book's trades never got there — so a paper trade can
+    # never be the account row's twin. `real_orders` is the same field the
+    # desk's LIVE/PAPER split and the LIVE badge read. Matching paper books did
+    # three wrong things at once on 2026-09-10: the paper book My_First_Run_CE
+    # had a CE on 09-03 for −₹2,936.31, so the REAL account CE of −₹1,740.25
+    # was paired with it and deleted from the table; the paper trade's own P&L
+    # was overwritten with the broker's; and the difference, +₹1,196, was booked
+    # onto the live CE book. Meanwhile three PE books had traded on 09-10 (one
+    # live, two paper), so the genuine duplicate was waved through as ambiguous.
     own_by_key: dict[tuple, list] = defaultdict(list)
     for run in runs:
         side = str(run.get("side") or "").upper()
-        if not side:
+        if not side or not run.get("real_orders"):
             continue
         for trade in run.get("recent") or []:
-            own_by_key[(str(trade.get("entry_time") or "")[:10], side)].append(trade)
+            own_by_key[(str(trade.get("entry_time") or "")[:10], side)].append((run, trade))
 
     account_by_key: dict[tuple, list] = defaultdict(list)
     for row in history or []:
         account_by_key[(str(row.get("date") or ""), str(row.get("side") or "").upper())].append(row)
 
     settled = []
-    corrections: dict[str, float] = {}
     for key, rows in account_by_key.items():
         mine = own_by_key.get(key) or []
         if not mine:
-            settled.extend(rows)  # the account knows of a day no book does
+            settled.extend(rows)  # the account knows of a day no live book does
             continue
         if len(mine) != 1 or len(rows) != 1:
             settled.extend(rows)  # ambiguous — show both rather than pick wrong
             continue
         # The same trade. The book's row survives; the account's money wins once
-        # the broker has actually booked the charges.
-        corrections[key[1]] = corrections.get(key[1], 0.0) + _settle_against_account(mine, key[1], rows)
+        # the broker has actually booked the charges — and the correction goes
+        # to THE book that matched, never to every book on that side.
+        run, trade = mine[0]
+        moved = _settle_against_account([trade], key[1], rows)
+        if moved:
+            # `booked_pnl` comes from the WHOLE closed list, of which `recent` is
+            # the tail, so it is nudged by what changed rather than re-added.
+            run["booked_pnl"] = round(float(run.get("booked_pnl", 0) or 0) + moved, 2)
 
-    # The book's booked total is computed from its WHOLE closed list, of which
-    # `recent` is the tail, so it is nudged by what changed rather than added up
-    # again from the rows that happen to be visible.
-    for run in runs:
-        delta = corrections.get(str(run.get("side") or "").upper(), 0.0)
-        if delta:
-            run["booked_pnl"] = round(float(run.get("booked_pnl", 0) or 0) + delta, 2)
     settled.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
     return settled
 
