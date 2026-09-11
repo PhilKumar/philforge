@@ -19021,7 +19021,10 @@ async def live_runs(request: Request):
                     "recent": [
                         {
                             "id": t.get("id"),
-                            "symbol": t.get("trading_symbol") or t.get("display_symbol"),
+                            # A live trade names its contract `trading_symbol`,
+                            # a paper trade names it `symbol` — so every paper
+                            # row on the desk read "—" in the Contract column.
+                            "symbol": t.get("trading_symbol") or t.get("display_symbol") or t.get("symbol"),
                             "entry_time": str(t.get("entry_time") or ""),
                             "exit_time": str(t.get("exit_time") or ""),
                             "entry_premium": t.get("entry_premium"),

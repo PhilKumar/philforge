@@ -9648,6 +9648,34 @@ body :is(
 .cepe-row-old{ opacity:.72; }
 .cepe-row-old:hover{ opacity:1; }
 
+/* ── The CE + PE ledger's columns, set deliberately ──────────────────────
+   `.ocp-table` right-aligns every column after the second, which suits a
+   table of figures and not this one: the Exit time sat flush right under a
+   left-aligned Entry, the contract name floated to the far edge, and the Chart
+   buttons were pushed off the right of the card by a reason that would not
+   wrap. Words read from the left, money and counts from the right, the
+   button in the middle — and the header follows its column. */
+.cepe-ledger th:nth-child(-n+4),
+.cepe-ledger td:nth-child(-n+4),
+.cepe-ledger th:nth-child(8),
+.cepe-ledger td:nth-child(8) { text-align:left; }
+.cepe-ledger th:nth-child(n+5):nth-child(-n+7),
+.cepe-ledger td:nth-child(n+5):nth-child(-n+7),
+.cepe-ledger th:nth-child(9),
+.cepe-ledger td:nth-child(9) { text-align:right; font-variant-numeric:tabular-nums; }
+.cepe-ledger th:nth-child(10),
+.cepe-ledger td:nth-child(10) { text-align:center; width:1%; }
+.cepe-ledger td { vertical-align:top; }
+.cepe-book-name { margin-top:4px; color:var(--muted); font:500 9.5px 'JetBrains Mono',monospace; white-space:nowrap; }
+
+/* The reason cell: a short label and the house ⓘ. The full rule that fired
+   opens beneath it and WRAPS — the one cell in this table allowed to. */
+.cepe-ledger td.cepe-why { white-space:normal; min-width:130px; max-width:260px; }
+.cepe-why-label { white-space:nowrap; }
+.cepe-why-btn { margin-left:6px; width:17px; height:17px; font-size:10px; }
+.cepe-why-pop { margin:6px 0 0; padding:7px 10px; font-size:10.5px; line-height:1.5;
+  white-space:normal; overflow-wrap:anywhere; font-family:'JetBrains Mono',monospace; }
+
 /* A closed-trade stamp is a date over a time, so a row can be placed in the
    year as well as the session. When the broker recorded no time the slot says
    so rather than showing a bare date that looks like a missing value. */

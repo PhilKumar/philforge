@@ -21689,7 +21689,7 @@ function _cepeNetNote(t) {
 // A live book adds a row a day and the table would grow without end. 25 keeps
 // it to one screen; the page survives a refresh so a poll cannot yank you back
 // to the top while you are reading page three.
-const _CEPE_PAGE_SIZE = 25;
+const _CEPE_PAGE_SIZE = 10;   // Phil, 2026-09-11: "paginate for 10"
 let _cepeClosedPage = 1;
 
 function setCePeClosedPage(event, el) {
@@ -21804,7 +21804,11 @@ function renderCePe(data) {
   // the book's (Phil, 2026-09-09).
   const rows = [];
   runs.forEach(r => (r.recent || []).forEach(t => rows.push({ run: r, t })));
-  ((data && data.history) || [])
+  // The broker's record belongs on the LIVE page only. It holds real fills, and
+  // a paper book's trades never reached the broker -- so on the paper page
+  // those rows were real-money trades sitting among simulated ones, tagged
+  // "old closed" as though they were the paper books' own history.
+  (_cepeMode === 'live' ? ((data && data.history) || []) : [])
     .filter(h => _cepeFilter === 'all' || String(h.side).toUpperCase() === _cepeFilter)
     .forEach(h => rows.push({
       run: { side: h.side },
@@ -21820,6 +21824,9 @@ function renderCePe(data) {
   rows.sort((a, b) => String(b.t.exit_time).localeCompare(String(a.t.exit_time)));
   const body = document.getElementById('oc-cepe-closed-rows');
   const count = document.getElementById('oc-cepe-closed-count');
+  // The note explains the broker's rows, which only the live page carries.
+  const note = document.getElementById('oc-cepe-closed-note');
+  if (note) note.hidden = _cepeMode !== 'live';
   const net = rows.reduce((n, r) => n + (Number(r.t.pnl) || 0), 0);
   // The count and the net describe EVERY row, not the page being shown -- a
   // total that changed as you paged would be worse than no total.
@@ -21834,15 +21841,17 @@ function renderCePe(data) {
     body.innerHTML = shown.length ? shown.map(({ run, t, old }) => `
       <tr class="${old ? 'cepe-row-old' : ''}" style="box-shadow:inset 3px 0 0 ${_cepeSide(run.side).tint};">
         <td><span class="cepe-tattoo" style="background:${_cepeSide(run.side).wash};color:${_cepeSide(run.side).tint};border-color:${_cepeSide(run.side).tint};">${escapeHtml(_cepeSide(run.side).label)}</span>${
-          old ? '<span class="cepe-old-tag" title="Closed before this deploy. From the broker account, which records no strategy, so it may belong to another book.">old closed</span>' : ''}</td>
+          old ? '<span class="cepe-old-tag" title="Closed before this deploy. From the broker account, which records no strategy, so it may belong to another book.">old closed</span>' : ''}${
+          // WHICH book. Two paper PE books trade the same morning, so without a
+          // name their rows read as the same trade twice.
+          !old && run.name ? `<div class="cepe-book-name">${escapeHtml(String(run.name))}</div>` : ''}</td>
         <td>${_cepeTime(t.entry_time)}</td>
         <td>${_cepeTime(t.exit_time)}</td>
         <td>${escapeHtml(String(t.symbol || '—'))}</td>
         <td class="n">${escapeHtml(String(t.quantity ?? '—'))}</td>
         <td class="n">${t.entry_premium == null ? '—' : Number(t.entry_premium).toFixed(2)}</td>
         <td class="n">${t.exit_premium == null ? '—' : Number(t.exit_premium).toFixed(2)}</td>
-        <td class="ocp-muted" title="${escapeHtml((t.why || []).join('; '))}">${escapeHtml(String(t.exit_reason || '—').replaceAll('_', ' '))}${
-          (t.why || []).length ? `<div style="font-size:10px;opacity:.75;">${escapeHtml(t.why[0])}</div>` : ''}</td>
+        <td class="ocp-muted cepe-why">${_cepeWhyCell(run, t)}</td>
         <td class="n" style="color:${_cepeTone(t.pnl)};" title="${escapeHtml(_cepeNetNote(t))}">${_cepeMoney(t.pnl)}${
           old && t.costs_known === false ? '<sup class="cepe-nocost" title="The broker had not booked this day\u2019s charges when it was recorded, so nothing is deducted here.">*</sup>' : ''}</td>
         <td>${t.id == null ? '<span class="ocp-muted">—</span>' : `<button type="button" class="cascade-options-control"
@@ -21850,8 +21859,53 @@ function renderCePe(data) {
               title="Draw this trade on its own frozen chart, with the reasons it opened and closed">↗ Chart</button>`}</td>
       </tr>`).join('')
       : '<tr><td colspan="10" class="ocp-empty">No closed trade yet.</td></tr>';
+    // The desk repaints every few seconds. Without this, an ⓘ opened to read a
+    // reason snapped shut on the next poll, before it could be read.
+    _cepeWhyOpen.forEach((id) => {
+      const pop = document.getElementById(id);
+      if (!pop) return;
+      pop.classList.add('is-open');
+      body.querySelectorAll(`.pf-info-btn[data-pf-info="${id}"]`).forEach(b => b.setAttribute('aria-expanded', 'true'));
+    });
   }
 }
+
+// ⓘ "why it closed": the short reason stays in the cell; the full rule that
+// fired sits behind the house ⓘ, revealed in place (Phil, 2026-09-11). Written
+// out inline it ran to a whole condition --
+//   "current_close crosses_above CPR_S3 (23,707.9000 vs 23,700.4500)"
+// -- which, in a table that never wraps, stretched the column until the Chart
+// buttons were pushed off the right-hand edge.
+const _cepeWhyOpen = new Set();
+
+function _cepeWhyKey(run, t) {
+  // Stable across repaints, so an open ⓘ can be found again after the poll.
+  const raw = `${run.run_id || run.side || 'acct'}-${t.id ?? ''}-${t.entry_time || ''}-${t.symbol || ''}`;
+  return 'cepe-why-' + raw.replace(/[^A-Za-z0-9_-]+/g, '_');
+}
+
+function _cepeWhyCell(run, t) {
+  const reason = escapeHtml(String(t.exit_reason || '—').replaceAll('_', ' '));
+  const why = (t.why || []).filter(Boolean);
+  if (!why.length) return `<span class="cepe-why-label">${reason}</span>`;
+  const id = _cepeWhyKey(run, t);
+  return `<span class="cepe-why-label">${reason}</span>`
+    + `<button type="button" class="pf-info-btn cepe-why-btn" data-pf-info="${id}" aria-expanded="false"`
+    + ` aria-label="Why this trade closed" title="Why this trade closed">i</button>`
+    + `<div id="${id}" class="pf-info-pop cepe-why-pop">${why.map(w => `<div>${escapeHtml(w)}</div>`).join('')}</div>`;
+}
+
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('.cepe-why-btn');
+  if (!btn) return;
+  // Runs after the shared ⓘ toggle, so this only records what it decided.
+  const id = btn.getAttribute('data-pf-info') || '';
+  queueMicrotask(() => {
+    const pop = document.getElementById(id);
+    if (pop && pop.classList.contains('is-open')) _cepeWhyOpen.add(id);
+    else _cepeWhyOpen.delete(id);
+  });
+});
 
 async function refreshCePeStatus() {
   try {

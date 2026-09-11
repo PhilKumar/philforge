@@ -220,8 +220,9 @@ class OnlyWhatBelongsToTheseBooks(unittest.TestCase):
 class TheLedgerPages(unittest.TestCase):
     """Phil: "Also put pagination on the pages". A live book adds a row a day."""
 
-    def test_a_page_is_a_screenful(self):
-        self.assertIn("const _CEPE_PAGE_SIZE = 25", JS)
+    def test_a_page_is_ten_rows(self):
+        """Phil, 2026-09-11: "paginate for 10"."""
+        self.assertIn("const _CEPE_PAGE_SIZE = 10", JS)
 
     def test_the_total_describes_every_row_not_the_page(self):
         """A net that changed as you paged would be worse than none."""
