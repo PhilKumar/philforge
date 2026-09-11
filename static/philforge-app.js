@@ -4307,27 +4307,80 @@ function _renderGapCarryStatus(campaign, running) {
     }
   }
 
-  const notes = Array.isArray(campaign.notes) ? campaign.notes.slice().reverse() : [];
-  const events = _cascadeOptionsEl('oc-gap-events');
-  const count = _cascadeOptionsEl('oc-gap-event-count');
-  if (count) count.textContent = `${notes.length} update${notes.length === 1 ? '' : 's'}`;
-  if (events) {
-    events.innerHTML = notes.length
-      ? notes.map((note) => {
-          const text = String(note);
-          const split = text.indexOf(': ');
-          const when = split > 0 ? text.slice(0, split) : '';
-          const what = split > 0 ? text.slice(split + 2) : text;
-          return `<tr><td>${escapeHtml(when)}</td><td>${escapeHtml(what)}</td></tr>`;
-        }).join('')
-      : '<tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr>';
-  }
+  // Events are drawn by _renderGapCarryEvents from the server's permanent log,
+  // not from `campaign.notes` — see there for why.
 
   const chartBtn = _cascadeOptionsEl('oc-gap-chart-btn');
   if (chartBtn) chartBtn.style.display = (isRunning || pos) ? '' : 'none';
   const stamp = _cascadeOptionsEl('oc-gap-monitor-updated');
   if (stamp) stamp.textContent = campaign.mark ? String(campaign.mark.at || '').slice(11, 16) : '';
 }
+
+// ── Gap Carry's events: the whole history, not the running campaign's ──────
+// `campaign.notes` held only the campaign that happens to be running — capped,
+// and empty again after every paper→live flip — so the panel showed one row
+// where ten sessions of readings existed (Phil, 2026-09-11: "Where are the
+// other old events?"). The server now keeps every event for good and sends it
+// as `event_log`, newest first, whether or not a campaign is running.
+const _GC_EVENTS_PAGE = 10;
+let _gcEventsPage = 1;
+let _lastGapCarryStatus = null;   // the last poll, so paging redraws without a fetch
+
+function _renderGapCarryEvents(data) {
+  const events = _cascadeOptionsEl('oc-gap-events');
+  const count = _cascadeOptionsEl('oc-gap-event-count');
+  const log = Array.isArray(data && data.event_log) ? data.event_log
+    : (Array.isArray(data && data.campaign && data.campaign.notes) ? data.campaign.notes.slice().reverse() : []);
+  const total = Number((data && data.event_total) || log.length);
+  if (count) count.textContent = `${total} update${total === 1 ? '' : 's'}`;
+  if (!events) return;
+  const pages = Math.max(1, Math.ceil(log.length / _GC_EVENTS_PAGE));
+  if (_gcEventsPage > pages) _gcEventsPage = pages;
+  if (_gcEventsPage < 1) _gcEventsPage = 1;
+  const from = (_gcEventsPage - 1) * _GC_EVENTS_PAGE;
+  const shown = log.slice(from, from + _GC_EVENTS_PAGE);
+  events.innerHTML = shown.length
+    ? shown.map((note) => {
+        const text = String(note);
+        const split = text.indexOf(': ');
+        const when = split > 0 ? text.slice(0, split) : '';
+        const what = split > 0 ? text.slice(split + 2) : text;
+        return `<tr><td>${escapeHtml(when)}</td><td>${escapeHtml(what)}</td></tr>`;
+      }).join('')
+    : '<tr><td colspan="2" class="ocp-empty">No campaign updates yet.</td></tr>';
+  const pager = _gcEventsPager(events);
+  if (!pager) return;
+  pager.hidden = log.length <= _GC_EVENTS_PAGE;
+  pager.innerHTML = log.length <= _GC_EVENTS_PAGE ? '' : `
+    <span class="ocp-muted">${from + 1}–${from + shown.length} of ${log.length}</span>
+    <span style="display:inline-flex;gap:6px;align-items:center;">
+      <button type="button" class="cascade-options-control" data-gc-events-page="${_gcEventsPage - 1}" ${_gcEventsPage <= 1 ? 'disabled' : ''}>← Newer</button>
+      <span class="ocp-muted">${_gcEventsPage} / ${pages}</span>
+      <button type="button" class="cascade-options-control" data-gc-events-page="${_gcEventsPage + 1}" ${_gcEventsPage >= pages ? 'disabled' : ''}>Older →</button>
+    </span>`;
+}
+
+function _gcEventsPager(eventsBody) {
+  // Made once, beside the table the events sit in, so the markup needs no edit.
+  const wrap = eventsBody.closest('.ocp-table-wrap') || eventsBody.closest('table');
+  if (!wrap) return null;
+  let pager = document.getElementById('oc-gap-events-pager');
+  if (!pager) {
+    pager = document.createElement('div');
+    pager.id = 'oc-gap-events-pager';
+    pager.className = 'cepe-pager';
+    pager.setAttribute('aria-live', 'polite');
+    wrap.insertAdjacentElement('afterend', pager);
+  }
+  return pager;
+}
+
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-gc-events-page]');
+  if (!btn || btn.disabled) return;
+  _gcEventsPage = Number(btn.getAttribute('data-gc-events-page')) || 1;
+  if (_lastGapCarryStatus) _renderGapCarryEvents(_lastGapCarryStatus);
+});
 
 function _renderGapCarryBacktest(data) {
   const panel = _cascadeOptionsEl('oc-gap-backtest');
@@ -4492,6 +4545,10 @@ async function refreshGapCarryStatus() {
     _renderGapCarryAuto(data.auto || {});
     if (Array.isArray(data.timeframes) && data.timeframes.length) _lastGapCarryTimeframes = data.timeframes;
     _renderGapCarryStatus(data.campaign || null, Boolean(data.campaign && data.campaign.running));
+    // After the status, and outside it: the status returns early when no
+    // campaign is running, and the history must show regardless.
+    _lastGapCarryStatus = data;
+    _renderGapCarryEvents(data);
     _syncGapCarryRecipe();
   } catch (_error) {
     const summary = _cascadeOptionsEl('oc-gap-summary');

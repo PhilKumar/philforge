@@ -2241,6 +2241,124 @@ async def _archive_recovery_campaigns(user_id: int, snapshot: Mapping[str, Any])
             await _write_paper_campaign_row(int(user_id), "candle_recovery", row)
 
 
+# ── Gap Carry's campaign events, kept for good ────────────────────────────
+#
+# The nights Gap Carry settles have always been archived (above, into
+# paper_campaigns), which is why "Closed paper nights" survived a flip from
+# paper to live. Its EVENTS never were: they lived only on the running campaign
+# as `notes`, capped at 20 in the saved state and 8 on the page, and a fresh
+# campaign starts with none. Phil flipped from paper to live on 2026-09-09 and
+# the panel went from ten sessions of readings to one (2026-09-11: "Where are the
+# other old events? ... Even though I ran it on paper I want these old events").
+#
+# So every event now also lands in a per-user, append-only list. Deduplicated
+# on its text, so saving the same campaign every tick costs nothing and adds
+# nothing twice.
+_GAP_CARRY_EVENTS_KEEP = 2000
+_SESSION_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}: ")
+
+
+def _gap_carry_events_key(user_id: int) -> str:
+    return f"gap_carry_events:{int(user_id)}"
+
+
+def _merge_gap_carry_events(kept: list, notes: list, today: str) -> list:
+    """Kept events plus any new ones, oldest first, each dated.
+
+    A campaign note usually starts "YYYY-MM-DD: ". The few that do not — a
+    broker refusing an exit, the bracket leg closing the position — are dated
+    with the day they were archived, so every row the page shows has a session
+    and the list can be put in order.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in list(kept or []) + list(notes or []):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if not _SESSION_PREFIX.match(text):
+            text = f"{today}: {text}"
+        if text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    # Stable on the date, so events from one session keep their own order.
+    out.sort(key=lambda s: s[:10])
+    return out[-_GAP_CARRY_EVENTS_KEEP:]
+
+
+async def _archive_gap_carry_events(user_id: int, notes: list) -> list:
+    key = _gap_carry_events_key(user_id)
+    try:
+        raw = await _db_mod.get_app_state(key)
+        kept = json.loads(raw) if raw else []
+    except Exception:
+        kept = []
+    merged = _merge_gap_carry_events(kept, notes, _ist_date_str())
+    if merged != kept:
+        try:
+            await _db_mod.set_app_state(key, json.dumps(merged))
+        except Exception as exc:
+            _logger.warning("[GAP CARRY] could not archive events: %s", exc)
+    return merged
+
+
+async def _gap_carry_event_log(user_id: int) -> list:
+    """Everything Gap Carry has ever noted for this user, newest first."""
+    runtime = _gap_carry_engines.get(int(user_id))
+    live_notes = list(getattr(runtime.engine, "notes", None) or []) if runtime is not None else []
+    return list(reversed(await _archive_gap_carry_events(user_id, live_notes)))
+
+
+def _recover_gap_carry_events_from_backups(user_id: int) -> list:
+    """Events a raw database backup still holds, read-only.
+
+    The readings from before the paper-to-live flip were never lost from disk —
+    they were never carried forward. A backup taken that morning
+    (philforge-backup-before-ladder-20260909-080248.db) still has ten of them,
+    26 Aug to 8 Sep. Only uncompressed `.db` files beside the live database are
+    read: opening a gigabyte tarball on the same one-gigabyte box that runs the
+    live books is not a price worth paying for a history table.
+    """
+    folder = os.path.dirname(os.path.abspath(config.DB_PATH))
+    live = os.path.abspath(config.DB_PATH)
+    found: list[str] = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return found
+    for name in names:
+        path = os.path.join(folder, name)
+        if path == live or not name.endswith(".db") or not os.path.isfile(path):
+            continue
+        found.extend(_gap_carry_notes_in_backup(path, user_id))
+    return found
+
+
+def _gap_carry_notes_in_backup(path: str, user_id: int) -> list:
+    """One backup's Gap Carry notes, or none — and a note in the log saying why."""
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "select value from app_state where key = ?", (_gap_carry_open_state_key(user_id),)
+            ).fetchone()
+        finally:
+            con.close()
+        if not row:
+            return []
+        engine = (json.loads(row[0]) or {}).get("engine") or {}
+        return [str(n) for n in engine.get("notes") or []]
+    except Exception as exc:
+        # An old schema, a locked file, something that is not a database at
+        # all. Skipped — but said, because a silent catch here would make "no
+        # events recovered" indistinguishable from "no events to recover".
+        _logger.info("[GAP CARRY] backup %s not read for events: %s", os.path.basename(path), exc)
+        return []
+
+
 async def _archive_gap_carry_nights(user_id: int, status: Mapping[str, Any]) -> None:
     """Gap Carry settles a NIGHT, not a campaign, so each closed one is a row.
 
@@ -3670,6 +3788,14 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
                 restored["candle_entry"] += 1
             if await _restore_gap_carry_open_state(user_id, broker_client, activate=True) is not None:
                 restored["gap_carry"] += 1
+            # Bring back what a raw backup still remembers. Idempotent: the
+            # archive deduplicates, so every later start adds nothing.
+            try:
+                recovered = await asyncio.to_thread(_recover_gap_carry_events_from_backups, user_id)
+                if recovered:
+                    await _archive_gap_carry_events(user_id, recovered)
+            except Exception as exc:
+                _logger.warning("[GAP CARRY] event recovery skipped: %s", exc)
             if await _restore_supertrend_open_state(user_id, broker_client, activate=True) is not None:
                 restored["supertrend"] += 1
             fib_ladders = await _restore_fib_boundary_open_state(user_id, broker_client, activate=True)
@@ -13644,6 +13770,9 @@ async def _save_gap_carry_open_state(user_id: int, *, force: bool = False) -> No
     runtime = _gap_carry_engines.get(int(user_id))
     if runtime is not None:
         await _archive_gap_carry_nights(int(user_id), runtime.engine.get_status())
+        # The whole note list, not the 8 the status shows: this is the moment a
+        # note stops being only in memory.
+        await _archive_gap_carry_events(int(user_id), list(runtime.engine.notes or []))
 
 
 async def _restore_gap_carry_open_state(
@@ -13990,6 +14119,13 @@ async def gap_carry_paper_status(request: Request):
         "auto": auto,
         "timeframes": list(_GAP_CARRY_TIMEFRAMES),
     }
+    # Every event Gap Carry has noted, paper and live, newest first — sent
+    # whether or not a campaign is running, because the history does not stop
+    # existing when the book is idle. This rides a 3-second poll, so it ships a
+    # year of sessions, not the whole archive.
+    event_log = await _gap_carry_event_log(user_id)
+    body["event_log"] = event_log[:250]
+    body["event_total"] = len(event_log)
     if runtime is not None:
         body["campaign"] = {**runtime.engine.get_status(), "running": runtime.running}
     return body
