@@ -123,3 +123,30 @@ was not expanded to make a UI test pass.
 - A green mocked browser suite does not prove market-data completeness, fills,
   profitability, or live trading safety. Review and an authorized release gate remain
   necessary before these changes reach production.
+
+## Sanctuary follow-up (11 September 2026)
+
+- Re-ran the dedicated Sanctuary Python modules: 348 tests and 23 subtests passed.
+- Added an opt-in browser regression in `e2e-tests/tests/12-sanctuary.spec.ts`:
+  one end-to-end scenario passed against localhost port 8876, a disposable SQLite
+  database and dummy credentials, with startup jobs and engine restoration disabled.
+  External browser resources are blocked and the daily verse/quote is a fixture;
+  journal and finance requests use the real isolated application backend.
+- Verified journal creation, expense creation, six-month spending-chart SVG geometry,
+  light/dark themes at 1440px and 390px without horizontal document overflow,
+  locking (finance API returns 423), unlocking, and no uncaught browser exceptions.
+  Initial test-authoring failures were corrected: category buttons use `.qc`, and
+  the balance chart intentionally stays hidden without debts or statement flows.
+- This is not a complete button or visual-contrast audit. Journal edit/delete,
+  uploads/imports, vault/family sharing, loans, holdings, EPF, populated balance-chart
+  behavior, and all modal/keyboard flows still need dedicated browser scenarios.
+- Production SSH login was visible in the user's embedded terminal, but available
+  terminal tools cannot send input there. Independent SSH still failed on key access;
+  independent production verification remains blocked. The user subsequently reported
+  checkout `04b4d21`, active port 8000, `philforge@8000` active,
+  `philforge@8001` inactive and Nginx active from the requested read-only commands.
+  These service states do not verify individual engines, persisted rules or recovery.
+- No production write, deployment, restart, order action or engine-state save/restore
+  was performed. User-redeployed S4/S5 exit rules must be reconciled with the running
+  configuration before any promotion. Old backtest numbers do not establish the
+  performance of those changed exit rules.
