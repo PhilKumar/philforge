@@ -124,6 +124,8 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/strategies') await route.fulfill({ json: [] });
     else if (path === '/api/strategies/folders') await route.fulfill({ json: [] });
     else if (path === '/api/runs') await route.fulfill({ json: [] });
+    else if (path === '/api/published-runs') await route.fulfill({ json: [] });
+    else if (path.startsWith('/api/published-runs/')) await route.fulfill({ json: { status: 'error', message: 'E2E offline published run mock' } });
     else if (path === '/api/engines/all') await route.fulfill({ json: { engines: [] } });
     else if (path === '/api/expiry-dates') await route.fulfill({ json: { status: 'ok', nifty: '2026-05-07', banknifty: '2026-05-28', sensex: '2026-05-01' } });
     else if (path.startsWith('/api/expiry-list/')) await route.fulfill({ json: { status: 'ok', expiries: ['2026-05-07', '2026-05-14'] } });
