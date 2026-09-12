@@ -90,6 +90,29 @@ test('Assets stays private and opens inside the normal application shell', async
   }
 });
 
+test('Assets URL wins over a stale Results browser state', async ({ page }) => {
+  await login(page);
+  await page.goto('/app#assets/overview');
+
+  // This can happen when a user follows an Assets link in a tab whose browser
+  // entry still retains state from a previously opened result.  The URL is the
+  // user's explicit request and must never leave the Results workspace visible.
+  await page.evaluate(() => {
+    history.replaceState({ page: 'results-page', runId: 1 }, '', '#assets/overview');
+  });
+  await page.reload();
+
+  await expect(page.locator('#nav-assets')).toHaveClass(/active/);
+  await expect(page.locator('#nav-assets')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('#assets-page')).toHaveClass(/active-page/);
+  await expect(page.locator('#assets-page')).toBeVisible();
+  await expect(page.locator('#results-page')).not.toHaveClass(/active-page/);
+  await expect(page.locator('#results-page')).toBeHidden();
+  await expect(page.locator('.page-section.active-page')).toHaveCount(1);
+  await expect(page.locator('.page-section.active-page')).toHaveAttribute('id', 'assets-page');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#assets/overview');
+});
+
 test('each blueprint chapter reveals only its own collapsed topic list', async ({ page }) => {
   await login(page);
 

@@ -7525,9 +7525,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Restore active tab from URL or previous session and seed browser history.
   try {
     const savedTab = _getLocalState(PF_VIEW_STATE.activePage);
+    // A URL is an explicit navigation request; a browser's persisted history
+    // state is only a fallback.  Preferring the latter could resurrect the
+    // previous Results view after opening /app#assets/overview in the same
+    // tab, leaving the selected navigation label and rendered workspace out
+    // of sync.
     const initialState =
-      history.state ||
       navStateFromLocation() ||
+      history.state ||
       (savedTab && document.getElementById(savedTab) ? buildNavState(savedTab) : buildNavState('dashboard-page'));
     history.replaceState(initialState, '', navHashForState(initialState));
     applyNavState(initialState);
