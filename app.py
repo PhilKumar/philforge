@@ -22427,10 +22427,14 @@ _PUBLISHED_RUNS = {
     "ce-sl15-nomontue": ("ce", "CE_SL15_NoMonTue"),
     "pe-notarget": ("pe", "PE_NoTarget"),
 }
+_PUBLISHED_RUNS_LEDGER_PATHS = {
+    "ce": os.path.join(_HERE, "tools", "tearsheet", "published_ce_snapshot_ledger.json"),
+    "pe": os.path.join(_HERE, "tools", "tearsheet", "published_pe_snapshot_ledger.json"),
+}
 
 
 def _published_historical_run(slug: str) -> dict:
-    """Build one immutable Results-page record from the canonical tearsheet."""
+    """Build one immutable Results-page record from its checked-in full ledger."""
     try:
         book, run_name = _PUBLISHED_RUNS[slug]
     except KeyError as exc:
@@ -22440,9 +22444,12 @@ def _published_historical_run(slug: str) -> dict:
             report = json.load(handle)
         headline = report["headline"][book]
         best_worst = report["best_worst"][book]
-        curve = report["curve"][book]
+        ledger_path = _PUBLISHED_RUNS_LEDGER_PATHS[book]
+        with open(ledger_path, encoding="utf-8") as handle:
+            ledger = json.load(handle)
+        raw_trades = ledger["trades_full"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        _logger.exception("[PUBLISHED RUNS] cannot read %s", _PUBLISHED_RUNS_PATH)
+        _logger.exception("[PUBLISHED RUNS] cannot read published ledger for %s", book)
         raise HTTPException(status_code=503, detail="Published tearsheet data is unavailable") from exc
 
     dd_days = 0
@@ -22450,14 +22457,12 @@ def _published_historical_run(slug: str) -> dict:
         dd_days = max(0, (date.fromisoformat(headline["dd_to"]) - date.fromisoformat(headline["dd_from"])).days)
     except (KeyError, TypeError, ValueError):
         pass
-    # The canonical curve has one dated point per recorded trade (353 CE / 578
-    # PE).  Reconstruct the normal Results-page datasets from that ledger so a
-    # published book has the same analytics, monthly view, heatmap, and rows as
-    # every other completed run.  Premium/quantity fields are deliberately
-    # left blank: the published record retains the dated net outcomes but not
-    # the original fill-price columns.
-    if len(curve) != int(headline["trades"]):
-        raise HTTPException(status_code=503, detail="Published tearsheet curve is incomplete")
+    # These immutable ledgers were replayed on the archived September 9 engine
+    # revision from the checked-in Dhan archive.  Validate their accounting at
+    # read time: a Results row must never silently degrade to a made-up dated
+    # curve if a ledger is partial, malformed, or from the wrong snapshot.
+    if not isinstance(raw_trades, list) or len(raw_trades) != int(headline["trades"]):
+        raise HTTPException(status_code=503, detail="Published trade ledger is incomplete")
     trades = []
     monthly_totals: dict[str, float] = defaultdict(float)
     yearly_totals: dict[str, dict[str, float | int]] = defaultdict(
@@ -22466,13 +22471,63 @@ def _published_historical_run(slug: str) -> dict:
     weekday_totals: dict[str, dict[str, float | int]] = defaultdict(
         lambda: {"hits": 0, "miss": 0, "profit": 0.0, "loss": 0.0}
     )
+    parsed_rows = []
+    for row in raw_trades:
+        try:
+            entry_time = str(row["entry_time"])
+            exit_time = str(row["exit_time"])
+            datetime.fromisoformat(entry_time)
+            datetime.fromisoformat(exit_time)
+            entry_price = float(row["entry_price"])
+            exit_price = float(row["exit_price"])
+            pnl = round(float(row["pnl"]), 2)
+            fees = round(float(row["fees"]), 2)
+            qty = int(row["qty"])
+            strike = str(row["strike"])
+            option_type = str(row["option_type"]).upper()
+            exit_reason = str(row["exit_reason"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Published trade ledger is malformed") from exc
+        if (
+            option_type != book.upper()
+            or not strike
+            or not exit_reason
+            or qty <= 0
+            or not all(math.isfinite(value) for value in (entry_price, exit_price, pnl, fees))
+        ):
+            raise HTTPException(status_code=503, detail="Published trade ledger failed validation")
+        parsed_rows.append(
+            {
+                "entry_time": entry_time,
+                "exit_time": exit_time,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "pnl": pnl,
+                "fees": fees,
+                "qty": qty,
+                "strike": strike,
+                "option_type": option_type,
+                "exit_reason": exit_reason,
+            }
+        )
+
+    parsed_rows.sort(key=lambda row: (row["exit_time"], row["entry_time"], row["strike"]))
+    ledger_net = round(sum(row["pnl"] for row in parsed_rows), 2)
+    wins = sum(row["pnl"] > 0 for row in parsed_rows)
+    if (
+        abs(ledger_net - float(headline["net"])) > 0.01
+        or wins != int(headline["wins"])
+        or len(parsed_rows) - wins != int(headline["losses"])
+    ):
+        raise HTTPException(status_code=503, detail="Published trade ledger does not reconcile")
+
     cumulative = 0.0
-    for index, point in enumerate(curve, start=1):
-        day, curve_total = point
-        day = str(day)
-        curve_total = float(curve_total)
-        pnl = round(curve_total - cumulative, 2)
-        cumulative = curve_total
+    for index, row in enumerate(parsed_rows, start=1):
+        entry_time = row["entry_time"]
+        exit_time = row["exit_time"]
+        pnl = row["pnl"]
+        cumulative = round(cumulative + pnl, 2)
+        day = exit_time[:10]
         year = day[:4]
         month = day[:7]
         weekday = date.fromisoformat(day).strftime("%A")
@@ -22484,18 +22539,18 @@ def _published_historical_run(slug: str) -> dict:
         trades.append(
             {
                 "id": index,
-                "entry_time": day,
-                "exit_time": day,
-                "entry_price": None,
-                "exit_price": None,
-                "strike": f"NIFTY {book.upper()}",
-                "option_type": book.upper(),
-                "qty": None,
+                "entry_time": entry_time,
+                "exit_time": exit_time,
+                "entry_price": row["entry_price"],
+                "exit_price": row["exit_price"],
+                "strike": row["strike"],
+                "option_type": row["option_type"],
+                "qty": row["qty"],
                 "txn_type": "BUY",
                 "pnl": pnl,
-                "cumulative": curve_total,
-                "exit_reason": "Published curve",
-                "published_curve_only": True,
+                "fees": row["fees"],
+                "cumulative": cumulative,
+                "exit_reason": row["exit_reason"],
             }
         )
     monthly = [{"month": month, "pnl": round(pnl, 2)} for month, pnl in sorted(monthly_totals.items())]
@@ -22519,7 +22574,7 @@ def _published_historical_run(slug: str) -> dict:
         }
         for year, values in sorted(yearly_totals.items())
     ]
-    equity = [{"time": f"{day} 15:30:00", "equity": float(value)} for day, value in curve]
+    equity = [{"time": row["exit_time"], "equity": float(row["cumulative"])} for row in trades]
     return {
         "id": f"published:{slug}",
         "published_historical": True,
@@ -22536,9 +22591,8 @@ def _published_historical_run(slug: str) -> dict:
         "created_at": report.get("generated") or headline["last"],
         "source_url": "/assets/tearsheet?doc=options",
         "source_note": (
-            "Published five-year 4-lot ladder record. Prices use Dhan through "
-            "30 Sep 2024 and Upstox from 1 Oct 2024, with recorded costs. "
-            "It predates the newer S4/S5 exit-rule deployment."
+            "Published five-year 4-lot ladder record, replayed from the checked-in "
+            "Dhan archive with recorded costs. It predates the newer S4/S5 exit-rule deployment."
         ),
         "stats": {
             "total_pnl": float(headline["net"]),

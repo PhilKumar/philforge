@@ -1,0 +1,43 @@
+{
+  "run_name": "CE_SL15_NoMonTue",
+  "segment": "indices",
+  "instrument": "26000",
+  "market_open": "09:15",
+  "market_close": "15:25",
+  "max_trades_per_day": 1,
+  "skip_days_after_profit": 2,
+  "skip_profit_threshold_rupees": 20000,
+  "signal_cutoff_time": "15:15",
+  "execution_mode": "next_minute",
+  "execution_profile": "auto",
+  "spread_bps": 18,
+  "entry_slippage_bps": 10,
+  "exit_slippage_bps": 14,
+  "entry_delay_candles": 0,
+  "signal_exit_delay_candles": 0,
+  "enforce_capital": true,
+  "capital_buffer_pct": 5,
+  "initial_capital": 200000,
+  "compound_step_pct": 25,
+  "compound_base_capital": 200000,
+  "compound_max_lots": 20,
+  "entry_conditions": [
+    {"logic": "IF", "left": "current_close", "operator": "is_above", "right": "EMA_17_5m"},
+    {"logic": "AND", "left": "RSI_14_5m", "operator": "is_above", "right": "number", "right_number_value": "60"},
+    {"logic": "AND", "left": "CPR_is_wide", "operator": "is_false", "right": "false"},
+    {"logic": "AND", "left": "current_close", "operator": "is_above", "right": "Yesterday_High"},
+    {"logic": "AND", "left": "Time_Of_Day", "operator": "is_below", "right": "time", "right_time": "10:00"},
+    {"logic": "OR", "left": "Time_Of_Day", "operator": "is_above", "right": "time", "right_time": "13:00"},
+    {"logic": "AND", "left": "current_close", "operator": "is_above", "right": "EMA_17_5m"},
+    {"logic": "AND", "left": "RSI_14_5m", "operator": "is_above", "right": "number", "right_number_value": "60"},
+    {"logic": "AND", "left": "CPR_is_wide", "operator": "is_false", "right": "false"},
+    {"logic": "AND", "left": "current_close", "operator": "is_above", "right": "Yesterday_High"},
+    {"logic": "AND", "left": "Day_Of_Week", "operator": "contains", "right": "days", "right_days": ["Wednesday", "Thursday", "Friday"]}
+  ],
+  "exit_conditions": [
+    {"logic": "IF", "left": "current_close", "operator": "is_below", "right": "Supertrend_10_2.7_3m"}
+  ],
+  "legs": [
+    {"transaction_type": "BUY", "option_type": "CE", "expiry": "current_week", "strike_type": "premium_above", "strike_value": 250, "lots": 4, "expiry_day_lots": 5, "sl_pct": 15, "target_pct": 0, "sl_points": 0, "target_points": 0, "sl_rupees": 0, "target_rupees": 0, "trail_pct": 0, "sqoff_time": "15:25"}
+  ]
+}

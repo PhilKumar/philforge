@@ -22,6 +22,10 @@ import unittest
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
 _DATA = _REPO / "tools" / "tearsheet" / "report_data.json"
+_LEDGERS = {
+    "ce": _REPO / "tools" / "tearsheet" / "published_ce_snapshot_ledger.json",
+    "pe": _REPO / "tools" / "tearsheet" / "published_pe_snapshot_ledger.json",
+}
 
 
 def _inr(value: float) -> str:
@@ -105,7 +109,7 @@ class PublishedFiguresMatchTheBook(unittest.TestCase):
         )
 
     def test_results_page_uses_read_only_runs_instead_of_a_standalone_panel(self):
-        """The two books belong in the run ledger, backed by report_data.json."""
+        """The two books belong in the run ledger, backed by full trade records."""
         page = (_REPO / "strategy.html").read_text(encoding="utf-8")
         backend = (_REPO / "app.py").read_text(encoding="utf-8")
         self.assertNotIn("pf-tearsheet-evidence", page)
@@ -113,22 +117,32 @@ class PublishedFiguresMatchTheBook(unittest.TestCase):
         for _, label in (("ce", "CE_SL15_NoMonTue"), ("pe", "PE_NoTarget")):
             self.assertIn(label, backend)
         self.assertIn('headline = report["headline"][book]', backend)
-        self.assertIn('curve = report["curve"][book]', backend)
-        self.assertIn('len(curve) != int(headline["trades"])', backend)
-        self.assertIn('"published_curve_only": True', backend)
+        self.assertIn("_PUBLISHED_RUNS_LEDGER_PATHS", backend)
+        self.assertIn('raw_trades = ledger["trades_full"]', backend)
+        self.assertIn('"entry_price": row["entry_price"]', backend)
+        self.assertIn('"exit_price": row["exit_price"]', backend)
+        self.assertIn('"qty": row["qty"]', backend)
         self.assertIn('"day_of_week": day_of_week', backend)
         self.assertIn('"yearly": yearly', backend)
         self.assertIn("published_historical", backend)
         self.assertIn("predates the newer S4/S5 exit-rule deployment", backend)
 
-    def test_published_curves_can_fill_every_result_section(self):
-        """Each CE/PE curve is a complete dated trade ledger, not a sample."""
+    def test_published_ledgers_reconcile_and_carry_real_fills(self):
+        """Each Results row has the fills, timestamps, quantity and net it claims."""
         for book in ("ce", "pe"):
-            curve = self.data["curve"][book]
             headline = self.data["headline"][book]
-            self.assertEqual(len(curve), headline["trades"])
-            self.assertEqual(len({day for day, _ in curve}), headline["trades"])
-            self.assertEqual(curve[-1][1], round(headline["net"]))
+            ledger = json.loads(_LEDGERS[book].read_text())
+            rows = ledger["trades_full"]
+            self.assertEqual(len(rows), headline["trades"])
+            self.assertEqual(round(sum(float(row["pnl"]) for row in rows), 2), headline["net"])
+            self.assertEqual(sum(float(row["pnl"]) > 0 for row in rows), headline["wins"])
+            for row in rows:
+                self.assertTrue(row["entry_time"] and row["exit_time"])
+                self.assertGreater(float(row["entry_price"]), 0)
+                self.assertGreater(float(row["exit_price"]), 0)
+                self.assertGreater(int(row["qty"]), 0)
+                self.assertTrue(row["strike"])
+                self.assertTrue(row["exit_reason"])
 
 
 if __name__ == "__main__":

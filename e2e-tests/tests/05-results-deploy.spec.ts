@@ -178,7 +178,16 @@ test('published historical books open as immutable Results runs', async ({ page 
   await expect(page.locator('#results-trade-log-card')).toBeVisible();
   await expect(page.locator('#monthly-pnl-grid')).toContainText('2021');
   await expect(page.locator('#trade-count-display')).toHaveText('353 Transactions');
-  await expect(page.locator('#trade-log-body')).toContainText('Published curve');
+  const ledger = page.locator('#trade-log-body');
+  // The normal Results table shows latest trades first, so assert the newest
+  // archived CE fill rather than a synthetic date-only curve point.
+  await expect(ledger).toContainText('NIFTY 24500 CE');
+  await expect(ledger).toContainText('₹256.99');
+  await expect(ledger).toContainText('₹237.45');
+  await expect(ledger).toContainText('09:50 → 09:55');
+  await expect(ledger).toContainText('1300');
+  await expect(ledger).toContainText('Signal');
+  await expect(ledger).not.toContainText('Published curve');
 });
 
 test('Results analytics use the restrained Cascade contrast', async ({ page }) => {

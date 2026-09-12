@@ -16108,7 +16108,6 @@ function _tradeLogCardHtml(t) {
 
 function _resultTradePrice(trade, field) {
   const value = trade?.[field];
-  if (trade?.published_curve_only && (value === null || value === undefined || value === '')) return '—';
   return `₹${Number(value || 0).toFixed(2)}`;
 }
 
