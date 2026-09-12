@@ -797,8 +797,12 @@ html[data-theme="dark"] .tile .val.pos{color:var(--moss)}
   backdrop-filter:blur(12px) saturate(1.25);-webkit-backdrop-filter:blur(12px) saturate(1.25);
   line-height:1.25;transition:all .15s ease}
 .qc em{font-style:normal;font-size:17px}
+.qc-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:10px;color:var(--moss-deep);background:var(--moss-wash);box-shadow:inset 0 1px 0 var(--glass-edge)}
+.qc-icon svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.85;stroke-linecap:round;stroke-linejoin:round}
+.qc.on .qc-icon{color:var(--moss);background:rgba(23,126,140,.18)}
 .qc:hover{transform:translateY(-2px);border-color:var(--moss)}
 .qc.on{background:var(--moss-wash);border-color:var(--moss);color:var(--moss)}
+th.sanct-sort{cursor:pointer;user-select:none} th.sanct-sort::after{content:"↕";margin-left:5px;color:var(--soft);font-size:.8em} th.sanct-sort[data-dir="asc"]::after{content:"↑";color:var(--moss)} th.sanct-sort[data-dir="desc"]::after{content:"↓";color:var(--moss)}
 .quick .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .quick .row .field{width:150px}
 /* The two halves sit at the top of their row rather than stretching to
@@ -3361,11 +3365,25 @@ function renderFinance(){
       <div class="sub">${f.bank_in_od ? `in the account, ${inr(f.bank_balance)} less the ${inr(f.bank_in_od)} swept aside`
         : f.bank_balance != null ? `in the account, ${niceDate(f.bank_as_of)}` : "to spend − spent − saved"}</div></div>`;
   renderOd(f.od, f.month);
-  /* quick cats */
+  /* quick cats — fixed inline marks keep the fast row calm and legible without
+     changing the category's stored emoji (which remains available elsewhere). */
+  const quickIcon = (name) => {
+    const paths = {
+      "Milk": '<path d="M8 3h8l1 4v13H7V7z"/><path d="M8 7h9M10 3v4"/>',
+      "EB Bill": '<path d="m13 2-8 12h6l-1 8 9-13h-6z"/>',
+      "Groceries": '<path d="M4 8h16l-2 11H6zM8 8l2-4h4l2 4"/>',
+      "Fuel — Car": '<path d="M5 21V5h9v16M8 8h3M14 9h3l2 3v7a2 2 0 0 0 2 2"/>',
+      "Fuel — Bike": '<circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="m6 17 4-8h4l4 8M9 11h5M12 9 10 5h4"/>',
+      "To Beulah": '<path d="M20.8 4.7a5.5 5.5 0 0 0-7.8 0L12 5.8l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.5a5.5 5.5 0 0 0 0-7.8z"/>',
+      "Mobile recharge": '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 5h4M11 18h2"/>',
+      "__more": '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>'
+    };
+    return `<span class="qc-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${paths[name] || paths.__more}</svg></span>`;
+  };
   const quick = f.categories.filter((c) => c.quick && c.kind === "expense");
   $("quick-cats").innerHTML = quick.map((c) =>
-    `<button class="qc" data-cat="${esc(c.name)}"><em>${esc(c.emoji)}</em>${esc(c.name)}</button>`).join("")
-    + `<button class="qc" data-cat="__more"><em>🌿</em>More…</button>`;
+    `<button class="qc" data-cat="${esc(c.name)}" aria-label="Add ${esc(c.name)}">${quickIcon(c.name)}${esc(c.name)}</button>`).join("")
+    + `<button class="qc" data-cat="__more" aria-label="More categories">${quickIcon("__more")}More…</button>`;
   /* bars */
   const cats = Object.entries(f.by_category);
   const max = Math.max(1, ...cats.map(([, v]) => v));
@@ -5511,6 +5529,31 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "od-held-edit") odHeldForm();
   if (e.target.id === "salary-edit") salaryModal();
 });
+
+/* The ledger tables are rebuilt after every edit.  Keep their sort control
+   small and identical rather than making each renderer invent one. */
+function sanctuarySortTables(root=document){
+  (root.querySelectorAll ? root.querySelectorAll("table") : []).forEach(table => {
+    if (table.dataset.sortReady || !table.tBodies.length) return;
+    [...table.querySelectorAll("thead th")].forEach((th, col) => {
+      if (!th.textContent.trim() || th.querySelector("button,a,input,select") || th.hasAttribute("onclick")) return;
+      th.classList.add("sanct-sort"); th.dataset.col=col; th.tabIndex=0; th.setAttribute("role","button"); th.setAttribute("aria-sort","none");
+    });
+    table.dataset.sortReady="1";
+  });
+}
+function sanctuarySort(th){
+  const table=th.closest("table"), body=table && table.tBodies[0], col=Number(th.dataset.col), dir=th.dataset.dir==="asc"?"desc":"asc";
+  if(!body) return;
+  const rows=[...body.rows].filter(row=>row.cells.length>col&&!row.querySelector("[colspan]"));
+  const val=cell=>{const text=(cell.textContent||"").trim().replace(/−/g,"-");const n=text.replace(/[₹,%\s,]/g,"");return /^-?\d+(\.\d+)?$/.test(n)?Number(n):text;};
+  rows.sort((a,b)=>{const av=val(a.cells[col]),bv=val(b.cells[col]);const order=typeof av==="number"&&typeof bv==="number"?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:"base"});return dir==="asc"?order:-order;});
+  rows.forEach(row=>body.appendChild(row)); table.querySelectorAll("th.sanct-sort").forEach(h=>{h.dataset.dir=h===th?dir:"";h.setAttribute("aria-sort",h===th?(dir==="asc"?"ascending":"descending"):"none");});
+}
+document.addEventListener("click",e=>{const th=e.target.closest("th.sanct-sort");if(th&&!e.target.closest("button,a,input,select")) sanctuarySort(th);});
+document.addEventListener("keydown",e=>{const th=e.target.closest("th.sanct-sort");if(th&&(e.key==="Enter"||e.key===" ")){e.preventDefault();sanctuarySort(th);}});
+new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)sanctuarySortTables(node)}))).observe(document.documentElement,{childList:true,subtree:true});
+sanctuarySortTables();
 
 /* ═══════════ boot ═══════════ */
 /* Paint, never stamp: applyTheme here would record a hand-made choice at

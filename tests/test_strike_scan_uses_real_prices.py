@@ -119,6 +119,21 @@ class TheShelfIsShared(unittest.TestCase):
         self.assertNotIn(42629, prices, "absent is how the caller knows a price is missing")
         self.assertIn(42631, prices)
 
+    def test_single_option_quote_reuses_the_same_shelf(self):
+        client = CountingClient()
+        original = dhan_mod.ScripMaster.lookup
+        dhan_mod.ScripMaster.lookup = staticmethod(lambda *_args: "42631")
+        try:
+
+            async def go():
+                await client.async_get_ltp_prices([42631], "NSE_FNO")
+                return await client.async_get_option_ltp("NIFTY", 23800, "2026-09-08", "CE", ttl=3.0)
+
+            self.assertEqual(asyncio.run(go()), 252.60)
+            self.assertEqual(client.calls, 1, "selection and capital preview must share one Dhan quote")
+        finally:
+            dhan_mod.ScripMaster.lookup = original
+
 
 class PaperStocksTheShelfLiveReadsFrom(unittest.TestCase):
     """The sequence that actually happened, in the order it happened.

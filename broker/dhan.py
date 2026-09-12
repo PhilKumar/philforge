@@ -2853,23 +2853,22 @@ class DhanClient:
                 flight.set_result((raw, failure))
         return prices
 
-    async def async_get_option_ltp(self, underlying: str, strike: int, expiry: str, option_type: str) -> float:
-        """Get single option LTP via httpx (true async)."""
+    async def async_get_option_ltp(
+        self, underlying: str, strike: int, expiry: str, option_type: str, *, ttl: float = 0.0
+    ) -> float:
+        """Get one option LTP through the shared per-contract quote shelf.
+
+        Hot position monitoring deliberately keeps ``ttl=0``.  Entry
+        preparation opts into the short shelf only to reuse the quote that
+        selected the strike moments earlier.
+        """
         security_id = ScripMaster.lookup(underlying, strike, expiry, option_type)
         if not security_id:
             return 0.0
         exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
         try:
-            data = await self.async_get_ltp([security_id], exchange_segment=exchange_seg)
-            if isinstance(data, dict):
-                seg_data = data.get(exchange_seg, {})
-                if isinstance(seg_data, dict):
-                    sid_data = seg_data.get(str(security_id), seg_data.get(int(security_id), {}))
-                    if isinstance(sid_data, dict):
-                        return float(sid_data.get("last_price", sid_data.get("ltp", 0)))
-                    elif isinstance(sid_data, (int, float)):
-                        return float(sid_data)
-            return 0.0
+            prices = await self.async_get_ltp_prices([security_id], exchange_segment=exchange_seg, ttl=ttl)
+            return float(prices.get(int(security_id), 0.0) or 0.0)
         except Exception:
             return 0.0
 

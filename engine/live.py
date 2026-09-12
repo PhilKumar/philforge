@@ -3095,15 +3095,23 @@ class LiveEngine:
         self._entry_phase_s["strike"] = _perf() - _phase_t0
         _phase_t0 = _perf()
 
+        # Price all non-premium-selected legs together.  The broker quote shelf
+        # de-duplicates this against a just-finished premium-strike scan.
+        quote_tasks = [
+            self.dhan.async_get_option_ltp(underlying, plan[2], plan[8], plan[5], ttl=3.0) if plan[3] <= 0 else None
+            for plan in leg_plans
+        ]
+        quote_results = await asyncio.gather(
+            *(task for task in quote_tasks if task is not None), return_exceptions=True
+        )
+        quote_iter = iter(quote_results)
         capital_plans = []  # what each leg will cost, so the balance can be checked once
-        for plan in leg_plans:
+        for plan, quote_task in zip(leg_plans, quote_tasks):
             i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size = plan
             preview_premium = scanned_premium if scanned_premium > 0 else 0.0
             if preview_premium <= 0:
-                try:
-                    preview_premium = await self.dhan.async_get_option_ltp(underlying, strike, expiry, opt_type)
-                except Exception:
-                    preview_premium = 0.0
+                quote = next(quote_iter) if quote_task is not None else 0.0
+                preview_premium = float(quote) if not isinstance(quote, BaseException) else 0.0
             if preview_premium <= 0:
                 preview_premium = self._estimate_premium(strike, entry_spot, opt_type, strike_step)
             capital_plans.append(

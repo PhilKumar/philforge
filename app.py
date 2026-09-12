@@ -18000,6 +18000,10 @@ async def recovery_paper_status(request: Request):
     runtime = _recovery_engines.get(user_id)
     if runtime is None:
         return {"status": "not_started", "mode": "paper"}
+    # State is saved before an archive write.  Reconcile terminal campaigns on
+    # this read path too, so a restart in that narrow window cannot erase a
+    # completed paper campaign. Ledger fingerprints make repeated polls safe.
+    await _archive_recovery_campaigns(user_id, runtime.host.snapshot())
     return _recovery_status_payload(runtime)
 
 

@@ -51,6 +51,27 @@
   /* Both panels' actions are anchors, and the panels' own sheets underline
      anchors. Wearing the app's .btn should look like a button, not a link. */
   #insights-page a.btn, #insights-page a.btn:hover { text-decoration: none; }
+  /* Insights is inside PhilForge now: use the shell's compact cards and
+     typography rather than the older standalone-page visual language. */
+  #insights-heatmap { --bg:transparent; --panel:var(--card); --text:var(--text); --muted:var(--muted); --accent:var(--accent); --border:var(--border); --shadow:none; }
+  #insights-heatmap .movers-shell { gap:14px; }
+  #insights-heatmap .hero-ribbon, #insights-heatmap .content-grid { gap:14px; }
+  #insights-heatmap .surface-card { border-radius:12px; background:var(--card); box-shadow:var(--shadow-sm, 0 8px 24px rgba(15,23,42,.08)); }
+  #insights-heatmap .surface-card::before { opacity:.45; }
+  #insights-heatmap .pulse-card, #insights-heatmap .hero-card, #insights-heatmap .rail-card, #insights-heatmap .heatmap-panel { padding:16px; }
+  #insights-heatmap .card-heading h1, #insights-heatmap .card-heading h2, #insights-heatmap .rail-heading h3, #insights-heatmap .hero-symbol { font-family:var(--font-display, 'Syne', sans-serif); letter-spacing:-.02em; }
+  [data-theme="light"] #insights-heatmap .surface-card { background:rgba(255,255,255,.86); box-shadow:0 8px 22px rgba(15,23,42,.06); }
+  /* Light mode needs a real surface, not the dark universal monthly-tile wash. */
+  [data-theme="light"] #portfolio-page #portfolio-monthly-summary { background:rgba(255,255,255,.82) !important; border-color:rgba(15,23,42,.10) !important; }
+  [data-theme="light"] #portfolio-page .portfolio-monthly-day { background:rgba(255,255,255,.80) !important; border-color:rgba(15,23,42,.10) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.9) !important; }
+  [data-theme="light"] #portfolio-page .portfolio-monthly-day:not(.portfolio-paper-day) { border-top:2px solid color-mix(in srgb, var(--accent) 40%, transparent) !important; }
+  [data-theme="light"] #stock-regular-extra { background:linear-gradient(135deg, rgba(15,118,110,.055), rgba(14,165,233,.035)) !important; border-color:rgba(15,118,110,.18) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
+  .pf-tearsheet-evidence { margin:0 0 20px; padding:18px; border-color:rgba(var(--pf-tint-primary-rgb, 6,182,212),.24); }
+  .pf-tearsheet-evidence h3 { margin:3px 0 6px; font-size:16px; } .pf-tearsheet-evidence > p { margin:0 0 13px; color:var(--muted); font-size:12px; line-height:1.55; }
+  .pf-tearsheet-evidence-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
+  .pf-tearsheet-evidence-grid > div { padding:12px; border:1px solid var(--border); border-radius:9px; background:rgba(var(--pf-tint-primary-rgb,6,182,212),.045); }
+  .pf-tearsheet-evidence-grid span, .pf-tearsheet-evidence-grid small { display:block; color:var(--muted); font-size:10px; line-height:1.45; } .pf-tearsheet-evidence-grid strong { display:block; margin:4px 0; font:800 18px var(--font-mono, 'JetBrains Mono', monospace); color:var(--success); }
+  .pf-tearsheet-evidence-note { font-size:10.5px !important; } @media(max-width:700px){ .pf-tearsheet-evidence-grid{grid-template-columns:1fr;} }
 </style>
 <script src="/static/error-handler.js" defer></script>
 <script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
@@ -135,9 +156,8 @@
           <a class="topbar-icon-btn" id="sanctuary-btn" href="/sanctuary" title="Sanctuary" aria-label="Sanctuary" style="display:none;text-decoration:none;"></a>
           <button class="topbar-icon-btn" id="admin-btn" data-pf-action="openAdminModal" title="Admin Console" aria-label="Admin Console" style="display:none;"></button>
           </div>
-          <button class="topbar-icon-btn topbar-install-btn" id="install-app-btn" data-install-app hidden title="Install App" aria-label="Install App">
+          <button class="topbar-icon-btn topbar-install-btn icon-only" id="install-app-btn" data-install-app hidden title="Install App" aria-label="Install App">
             <span class="ico" aria-hidden="true"></span>
-            <span class="topbar-install-label">Install App</span>
           </button>
           <button class="topbar-icon-btn topbar-appearance-btn" id="appearance-btn" data-pf-action="openAppearanceModal" title="Appearance" aria-label="Appearance">
             <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="M6.7 6.7l10.6 10.6"></path></svg></span>
@@ -898,6 +918,17 @@
   <div id="results-empty" class="card pf-page-empty" style="margin: 0 0 20px; text-align: center; padding: 50px;">
     <h2 style="color: var(--muted);">Run a backtest to see your equity curve and stats here.</h2>
   </div>
+  <section class="card pf-tearsheet-evidence" aria-labelledby="published-results-title">
+    <div><div class="ocp-kicker">Published historical tearsheet</div><h3 id="published-results-title">CE_SL15_NoMonTue and PE_NoTarget</h3></div>
+    <p>Exact figures from the checked-in five-year report. This is a historical 4-lot ladder comparison, not a live return or a re-run of today’s settings.</p>
+    <div class="pf-tearsheet-evidence-grid">
+      <div><span>CE_SL15_NoMonTue</span><strong>₹14,41,436</strong><small>353 trades · 42.5% won · PF 1.65 · max drawdown −₹3,90,432</small></div>
+      <div><span>PE_NoTarget</span><strong>₹4,70,275</strong><small>578 trades · 46.9% won · PF 1.19 · max drawdown −₹1,60,899</small></div>
+      <div><span>Combined</span><strong>₹19,11,711</strong><small>931 trades · fees ₹2,22,885 · 5 Jan 2021–18 Aug 2026</small></div>
+    </div>
+    <p class="pf-tearsheet-evidence-note">The report prices Dhan through 30 Sep 2024 and Upstox from 1 Oct 2024, with costs charged throughout. It predates the newer S4/S5 exit-rule deployment, so it is evidence for the recorded rule snapshot only.</p>
+    <a class="ocp-confirmed-link" href="/assets/tearsheet?doc=options" data-pf-action="openCePeTearsheet">Open full tearsheet →</a>
+  </section>
   <div id="results-content" style="display: none;">
     <!-- Run Summary Header — Glossy -->
     <div class="card pf-results-command" style="padding: 18px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
@@ -3776,9 +3807,9 @@
         </div>
       </details>
       <div class="ocp-monitor" id="oc-high-closed">
-        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed paper campaigns</h4></div></div>
+        <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Closed Campaigns</h4></div></div>
         <div class="ocp-monitor-section">
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed paper campaigns <span id="oc-high-closed-count"></span></div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.65px;margin:14px 2px 7px;">Closed Campaigns <span id="oc-high-closed-count"></span></div>
           <div class="ocp-table-wrap"><table class="ocp-table"><thead><tr><th>Opened</th><th>Closed</th><th>Contract</th><th>Buys</th><th>Deployed</th><th>Exit</th><th>Net P&amp;L</th><th>Chart</th></tr></thead><tbody id="oc-high-closed-rows"></tbody></table></div>
         </div>
       </div>
@@ -4267,6 +4298,7 @@
       </div>
       <div style="display: flex; gap: 8px;">
         <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(96,165,250,0.28), rgba(30,64,175,0.46)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,0.48); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
+        <button type="button" class="btn btn-sm" data-pf-action="openCePeIndexChart" data-cepe-tf="5m" title="Open NIFTY 5-minute chart with CPR, S1-S5, R1-R4 and 20 EMA" style="padding:5px 12px;font-size:11px;">↗ NIFTY 5m</button>
         <button class="btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
       </div>
       </div>

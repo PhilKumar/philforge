@@ -104,6 +104,16 @@ class PublishedFiguresMatchTheBook(unittest.TestCase):
             "dojima.js's equity curve does not end on the published net",
         )
 
+    def test_results_page_labels_the_two_books_with_their_reported_values(self):
+        """The dashboard must not silently substitute a live or S4/S5 result."""
+        page = (_REPO / "strategy.html").read_text(encoding="utf-8")
+        for key, label in (("ce", "CE_SL15_NoMonTue"), ("pe", "PE_NoTarget")):
+            book = self.data["headline"][key]
+            self.assertIn(label, page)
+            self.assertIn(f"₹{_inr(book['net'])}", page)
+            self.assertIn(f"{book['trades']} trades", page)
+        self.assertIn("predates the newer S4/S5 exit-rule deployment", page)
+
 
 if __name__ == "__main__":
     unittest.main()

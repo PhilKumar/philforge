@@ -3051,11 +3051,12 @@
     color: var(--muted);
   }
   .topbar-install-btn {
-    width: auto;
+    width: 32px;
     min-width: 0;
-    padding: 0 12px;
-    gap: 8px;
-    border-radius: 999px;
+    padding: 0;
+    gap: 0;
+    border-radius: 7px;
+    justify-content: center;
   }
   .topbar-install-btn .ico {
     display: inline-flex;
@@ -9711,3 +9712,10 @@ html[data-theme="light"] .ocp-eyebrow[style*="#fbbf24"] { color:#92400e !importa
 .cepe-pager-at{ margin-right:auto; }
 .cepe-pager-n{ min-width:52px; text-align:center; }
 .cepe-pager button[disabled]{ opacity:.4; cursor:default; }
+
+/* One sortable-table language, shared by every desk and results ledger. */
+th.pf-table-sortable { cursor:pointer; user-select:none; }
+th.pf-table-sortable::after { content:'↕'; display:inline-block; margin-left:5px; color:var(--muted); font-size:.8em; line-height:1; }
+th.pf-table-sortable[data-pf-sort-direction="asc"]::after { content:'↑'; color:var(--accent); }
+th.pf-table-sortable[data-pf-sort-direction="desc"]::after { content:'↓'; color:var(--accent); }
+th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; border-radius:3px; }

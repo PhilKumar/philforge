@@ -365,6 +365,68 @@ const ICO = {
   document.addEventListener('DOMContentLoaded', () => document.querySelectorAll(TARGET).forEach(setup));
 })();
 
+// ── Tables: a quiet, common sort affordance ──────────────────────────────
+// Tables are rebuilt by polls throughout the app.  Decorating headers rather
+// than baking a different sorter into every renderer gives every data column
+// the same arrow, keyboard behaviour and ascending/descending semantics.
+(() => {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const sortableHeaders = root => {
+    const scope = root instanceof Element ? root : document;
+    scope.querySelectorAll('table').forEach(table => {
+      if (table.dataset.pfSortReady || table.matches('[data-pf-disable-sort]')) return;
+      const headers = [...table.querySelectorAll('thead th')];
+      if (!headers.length || !table.querySelector('tbody')) return;
+      headers.forEach((th, index) => {
+        if (!th.textContent.trim() || th.querySelector('button,a,input,select') || th.hasAttribute('onclick')) return;
+        th.classList.add('pf-table-sortable');
+        th.dataset.pfSortColumn = String(index);
+        th.tabIndex = 0;
+        th.setAttribute('role', 'button');
+        th.setAttribute('aria-sort', 'none');
+      });
+      table.dataset.pfSortReady = '1';
+    });
+  };
+  const valueOf = cell => {
+    const text = (cell?.dataset.sortValue || cell?.textContent || '').trim().replace(/−/g, '-');
+    const numeric = text.replace(/[₹,%\s]/g, '').replace(/,/g, '');
+    return /^-?\d+(?:\.\d+)?$/.test(numeric) ? { numeric: Number(numeric), text } : { numeric: null, text };
+  };
+  const sort = th => {
+    const table = th.closest('table'); const body = table?.tBodies?.[0];
+    if (!table || !body) return;
+    const column = Number(th.dataset.pfSortColumn);
+    const direction = th.dataset.pfSortDirection === 'asc' ? 'desc' : 'asc';
+    const rows = [...body.rows].filter(row => row.cells.length > column && !row.querySelector('[colspan]'));
+    rows.sort((a, b) => {
+      const av = valueOf(a.cells[column]); const bv = valueOf(b.cells[column]);
+      const result = av.numeric !== null && bv.numeric !== null ? av.numeric - bv.numeric : collator.compare(av.text, bv.text);
+      return direction === 'asc' ? result : -result;
+    });
+    rows.forEach(row => body.appendChild(row));
+    table.querySelectorAll('th.pf-table-sortable').forEach(header => {
+      const active = header === th;
+      header.dataset.pfSortDirection = active ? direction : '';
+      header.setAttribute('aria-sort', active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
+    });
+  };
+  document.addEventListener('click', event => {
+    const th = event.target.closest('th.pf-table-sortable');
+    if (th && !event.target.closest('button,a,input,select')) sort(th);
+  });
+  document.addEventListener('keydown', event => {
+    const th = event.target.closest('th.pf-table-sortable');
+    if (th && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); sort(th); }
+  });
+  document.addEventListener('DOMContentLoaded', () => {
+    sortableHeaders(document);
+    new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => {
+      if (node.nodeType === Node.ELEMENT_NODE) sortableHeaders(node);
+    }))).observe(document.body, { childList: true, subtree: true });
+  });
+})();
+
 (function initShellIcons() {
   const iconMap = {
     'sanctuary-btn': ICO.sanctuary(16),
@@ -18329,7 +18391,7 @@ function renderMonthlyDailyGrid() {
       const tileFill = isReadOnlyAccount() ? 'rgba(148,163,184,0.06)' : (isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)');
       const tileEdge = isReadOnlyAccount() ? 'rgba(148,163,184,0.18)' : (isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)');
       html += `
-        <div style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ${pfMoney(e.grossReal)}${details} (${e.displayTradeCount} trades)">
+        <div class="portfolio-monthly-day" style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ${pfMoney(e.grossReal)}${details} (${e.displayTradeCount} trades)">
           <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
           <div style="font-size: 13px; font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.grossReal, 0)}</div>
           <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T${e.charges > 0 ? ' · ' + pfMoney(e.charges, 0) + ' chg' : ''}</div>
@@ -18406,7 +18468,7 @@ function renderMonthlyDailyGrid() {
         const dl = String(e.day).padStart(2,'0') + ' ' + MONTH_NAMES_SHORT[month-1];
         const paperFill = isReadOnlyAccount() ? 'rgba(148,163,184,0.06)' : (win?'rgba(34,197,94,0.08)':'rgba(239,68,68,0.08)');
         const paperEdge = isReadOnlyAccount() ? 'rgba(148,163,184,0.18)' : (win?'rgba(34,197,94,0.2)':'rgba(239,68,68,0.2)');
-        ph += `<div style="padding:6px 4px;background:${paperFill};border:1px solid ${paperEdge};border-radius:5px;text-align:center;">
+        ph += `<div class="portfolio-monthly-day portfolio-paper-day" style="padding:6px 4px;background:${paperFill};border:1px solid ${paperEdge};border-radius:5px;text-align:center;">
           <div style="font-size:9px;color:var(--muted);margin-bottom:2px;">${dl}</div>
           <div style="font-size:12px;font-weight:700;color:${pfMoneyTone(win?'var(--success)':'var(--danger)')};font-family:'JetBrains Mono',monospace;">${pfMoney(e.paper, 0)}</div>
           <div style="font-size:8px;color:var(--muted);margin-top:1px;">${e.paperTrades}T</div>

@@ -138,6 +138,12 @@ class TheArchiveIsWrittenBeforeItCanBeLost(unittest.TestCase):
         loop = APP_PY.split("async def _run_recovery_loop(")[1].split("\n\n\n")[0]
         self.assertIn("_archive_recovery_campaigns", loop)
 
+    def test_status_reconciles_a_saved_terminal_campaign_after_restart(self):
+        """A snapshot can survive a restart between save and the loop's write."""
+        handler = APP_PY.split('@app.get("/api/recovery/paper/status")')[1].split("@app.post")[0]
+        self.assertIn("_archive_recovery_campaigns", handler)
+        self.assertLess(handler.index("_archive_recovery_campaigns"), handler.index("_recovery_status_payload"))
+
     def test_a_bad_campaign_cannot_stop_the_rest(self):
         fn = APP_PY.split("async def _archive_recovery_campaigns(")[1].split("\n\n\n")[0]
         self.assertIn("except Exception", fn)
