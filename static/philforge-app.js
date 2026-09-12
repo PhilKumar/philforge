@@ -382,7 +382,6 @@ const ICO = {
         th.classList.add('pf-table-sortable');
         th.dataset.pfSortColumn = String(index);
         th.tabIndex = 0;
-        th.setAttribute('role', 'button');
         th.setAttribute('aria-sort', 'none');
       });
       table.dataset.pfSortReady = '1';

@@ -5537,7 +5537,7 @@ function sanctuarySortTables(root=document){
     if (table.dataset.sortReady || !table.tBodies.length) return;
     [...table.querySelectorAll("thead th")].forEach((th, col) => {
       if (!th.textContent.trim() || th.querySelector("button,a,input,select") || th.hasAttribute("onclick")) return;
-      th.classList.add("sanct-sort"); th.dataset.col=col; th.tabIndex=0; th.setAttribute("role","button"); th.setAttribute("aria-sort","none");
+      th.classList.add("sanct-sort"); th.dataset.col=col; th.tabIndex=0; th.setAttribute("aria-sort","none");
     });
     table.dataset.sortReady="1";
   });
