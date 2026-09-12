@@ -108,6 +108,8 @@ test('Assets URL wins over a stale Results browser state', async ({ page }) => {
   await expect(page.locator('#assets-page')).toBeVisible();
   await expect(page.locator('#results-page')).not.toHaveClass(/active-page/);
   await expect(page.locator('#results-page')).toBeHidden();
+  await expect(page.locator('#results-page #runs-list-results')).toHaveCount(1);
+  await expect(page.locator('#runs-list-results')).toBeHidden();
   await expect(page.locator('.page-section.active-page')).toHaveCount(1);
   await expect(page.locator('.page-section.active-page')).toHaveAttribute('id', 'assets-page');
   await expect.poll(() => page.evaluate(() => window.location.hash)).toBe('#assets/overview');
