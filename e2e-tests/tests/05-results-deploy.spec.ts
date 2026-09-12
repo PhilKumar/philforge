@@ -172,9 +172,13 @@ test('published historical books open as immutable Results runs', async ({ page 
   await expect(page.locator('#equity-chart')).toBeVisible();
   await expect(page.locator('#results-action-row')).toContainText('Open Tearsheet');
   await expect(page.locator('#results-action-row .deploy-cta-btn')).toHaveCount(0);
-  await expect(page.locator('#results-analytics-card')).toBeHidden();
-  await expect(page.locator('#results-pnl-heatmap-card')).toBeHidden();
-  await expect(page.locator('#results-trade-log-card')).toBeHidden();
+  await expect(page.locator('#results-analytics-card')).toBeVisible();
+  await expect(page.locator('#results-heatmap-card')).toBeVisible();
+  await expect(page.locator('#results-pnl-heatmap-card')).toBeVisible();
+  await expect(page.locator('#results-trade-log-card')).toBeVisible();
+  await expect(page.locator('#monthly-pnl-grid')).toContainText('2021');
+  await expect(page.locator('#trade-count-display')).toHaveText('353 Transactions');
+  await expect(page.locator('#trade-log-body')).toContainText('Published curve');
 });
 
 test('Results analytics use the restrained Cascade contrast', async ({ page }) => {

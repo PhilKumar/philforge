@@ -114,9 +114,21 @@ class PublishedFiguresMatchTheBook(unittest.TestCase):
             self.assertIn(label, backend)
         self.assertIn('headline = report["headline"][book]', backend)
         self.assertIn('curve = report["curve"][book]', backend)
-        self.assertIn('monthly_source = report["by_month"]', backend)
+        self.assertIn('len(curve) != int(headline["trades"])', backend)
+        self.assertIn('"published_curve_only": True', backend)
+        self.assertIn('"day_of_week": day_of_week', backend)
+        self.assertIn('"yearly": yearly', backend)
         self.assertIn("published_historical", backend)
         self.assertIn("predates the newer S4/S5 exit-rule deployment", backend)
+
+    def test_published_curves_can_fill_every_result_section(self):
+        """Each CE/PE curve is a complete dated trade ledger, not a sample."""
+        for book in ("ce", "pe"):
+            curve = self.data["curve"][book]
+            headline = self.data["headline"][book]
+            self.assertEqual(len(curve), headline["trades"])
+            self.assertEqual(len({day for day, _ in curve}), headline["trades"])
+            self.assertEqual(curve[-1][1], round(headline["net"]))
 
 
 if __name__ == "__main__":

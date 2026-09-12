@@ -15970,7 +15970,7 @@ function renderResults(data, payload) {
   }
   ['results-analytics-card', 'results-heatmap-card', 'results-pnl-heatmap-card', 'results-trade-log-card'].forEach(id => {
     const card = document.getElementById(id);
-    if (card) card.style.display = published ? 'none' : '';
+    if (card) card.style.display = '';
   });
 
   document.getElementById('res-header-pnl').textContent = fmt(s.total_pnl);
@@ -16084,6 +16084,9 @@ function _tradeLogCardHtml(t) {
   const exitDate = t.exit_time ? String(t.exit_time).substring(0, 10) : '';
   const dirColor = txn === 'BUY' ? 'var(--success)' : 'var(--danger)';
   const reasonText = String(t.exit_reason || '').replace(/_/g, ' ') || '—';
+  const entryPrice = _resultTradePrice(t, 'entry_price');
+  const exitPrice = _resultTradePrice(t, 'exit_price');
+  const timeRange = entryTime || exitTime ? `${entryTime || '—'} → ${exitTime || '—'}` : '—';
   return `<article class="mobile-data-card">
     <div class="mobile-data-card-head">
       <div>
@@ -16093,14 +16096,20 @@ function _tradeLogCardHtml(t) {
       <div class="mobile-data-card-value" style="color:${isWin ? 'var(--success)' : 'var(--danger)'}">${isWin ? '+' : ''}${fmt(t.pnl)}</div>
     </div>
     <div class="mobile-data-card-grid">
-      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Entry</span><span class="mobile-data-card-text">${escapeHtml(entryDate)} ${escapeHtml(entryTime)} · ₹${Number(t.entry_price || 0).toFixed(2)}</span></div>
-      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Exit</span><span class="mobile-data-card-text">${escapeHtml(exitDate)} ${escapeHtml(exitTime)} · ₹${Number(t.exit_price || 0).toFixed(2)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Entry</span><span class="mobile-data-card-text">${escapeHtml(entryDate)} ${escapeHtml(entryTime)} · ${entryPrice}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Exit</span><span class="mobile-data-card-text">${escapeHtml(exitDate)} ${escapeHtml(exitTime)} · ${exitPrice}</span></div>
       <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Qty</span><span class="mobile-data-card-text">${escapeHtml(qty)}</span></div>
       <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Reason</span><span class="mobile-data-card-text">${escapeHtml(reasonText)}</span></div>
       <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Cumulative</span><span class="mobile-data-card-text" style="color:${(t.cumulative || 0) >= 0 ? 'var(--success)' : 'var(--danger)'}">${fmt(t.cumulative)}</span></div>
-      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Time</span><span class="mobile-data-card-text">${escapeHtml(entryTime)} → ${escapeHtml(exitTime)}</span></div>
+      <div class="mobile-data-card-metric"><span class="mobile-data-card-label">Time</span><span class="mobile-data-card-text">${escapeHtml(timeRange)}</span></div>
     </div>
   </article>`;
+}
+
+function _resultTradePrice(trade, field) {
+  const value = trade?.[field];
+  if (trade?.published_curve_only && (value === null || value === undefined || value === '')) return '—';
+  return `₹${Number(value || 0).toFixed(2)}`;
 }
 
 function renderTradePage() {
@@ -16132,13 +16141,16 @@ function renderTradePage() {
       const reasonBg = t.exit_reason === 'StopLoss' ? 'rgba(239,68,68,0.15)' : (t.exit_reason === 'Target' ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)');
       const reasonColor = t.exit_reason === 'StopLoss' ? 'rgb(248,113,113)' : (t.exit_reason === 'Target' ? 'rgb(74,222,128)' : 'rgb(147,197,253)');
       const reasonText = String(t.exit_reason || '').replace(/_/g,' ');
+      const entryPrice = _resultTradePrice(t, 'entry_price');
+      const exitPrice = _resultTradePrice(t, 'exit_price');
+      const timeRange = entryTime || exitTime ? `${entryTime || '—'} → ${exitTime || '—'}` : '—';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.03)'" onmouseout="this.style.background='transparent'">
         <td style="padding:7px 10px;color:var(--muted);font-size:11px;">${escapeHtml(t.id)}</td>
         <td style="padding:7px 10px;font-size:12px;font-weight:600;">${escapeHtml(sk)}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${dirColor};">${escapeHtml(txn)}</span></td>
-        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${Number(t.entry_price || 0).toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${escapeHtml(entryDate)} ${escapeHtml(entryTime)}</span></td>
-        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${Number(t.exit_price || 0).toFixed(2)}<br><span style="font-size:9px;color:var(--muted);">${escapeHtml(exitDate)} ${escapeHtml(exitTime)}</span></td>
-        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;">${escapeHtml(entryTime)} → ${escapeHtml(exitTime)}</td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">${entryPrice}<br><span style="font-size:9px;color:var(--muted);">${escapeHtml(entryDate)} ${escapeHtml(entryTime)}</span></td>
+        <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">${exitPrice}<br><span style="font-size:9px;color:var(--muted);">${escapeHtml(exitDate)} ${escapeHtml(exitTime)}</span></td>
+        <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;">${escapeHtml(timeRange)}</td>
         <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${escapeHtml(qty)}</td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${w?'var(--success)':'var(--danger)'};">${w?'+':''}${fmt(t.pnl)}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:9px;padding:1px 6px;border-radius:3px;background:${reasonBg};color:${reasonColor};">${escapeHtml(reasonText)}</span></td>
@@ -16246,7 +16258,7 @@ function downloadCSV() {
   if (!lastBacktestData || !lastBacktestData.trades) { toast('No data to download', 'warn'); return; }
   let csv = '#,Entry Time,Exit Time,Entry Price,Exit Price,P&L,Reason,Cumulative,Option Type,Strike,Qty,Txn Type\n';
   lastBacktestData.trades.forEach(t => {
-    csv += `${t.id},${t.entry_time},${t.exit_time},${t.entry_price},${t.exit_price},${t.pnl},${t.exit_reason},${t.cumulative},${t.option_type||''},${t.strike||''},${t.qty||''},${t.txn_type||''}\n`;
+    csv += `${t.id},${t.entry_time},${t.exit_time},${t.entry_price ?? ''},${t.exit_price ?? ''},${t.pnl},${t.exit_reason},${t.cumulative},${t.option_type||''},${t.strike||''},${t.qty||''},${t.txn_type||''}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);

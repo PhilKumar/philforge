@@ -22441,7 +22441,6 @@ def _published_historical_run(slug: str) -> dict:
         headline = report["headline"][book]
         best_worst = report["best_worst"][book]
         curve = report["curve"][book]
-        monthly_source = report["by_month"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         _logger.exception("[PUBLISHED RUNS] cannot read %s", _PUBLISHED_RUNS_PATH)
         raise HTTPException(status_code=503, detail="Published tearsheet data is unavailable") from exc
@@ -22451,10 +22450,74 @@ def _published_historical_run(slug: str) -> dict:
         dd_days = max(0, (date.fromisoformat(headline["dd_to"]) - date.fromisoformat(headline["dd_from"])).days)
     except (KeyError, TypeError, ValueError):
         pass
-    monthly = [
-        {"month": month, "pnl": float(values.get(book, 0) or 0)}
-        for month, values in sorted(monthly_source.items())
-        if isinstance(values, dict) and book in values
+    # The canonical curve has one dated point per recorded trade (353 CE / 578
+    # PE).  Reconstruct the normal Results-page datasets from that ledger so a
+    # published book has the same analytics, monthly view, heatmap, and rows as
+    # every other completed run.  Premium/quantity fields are deliberately
+    # left blank: the published record retains the dated net outcomes but not
+    # the original fill-price columns.
+    if len(curve) != int(headline["trades"]):
+        raise HTTPException(status_code=503, detail="Published tearsheet curve is incomplete")
+    trades = []
+    monthly_totals: dict[str, float] = defaultdict(float)
+    yearly_totals: dict[str, dict[str, float | int]] = defaultdict(
+        lambda: {"hits": 0, "miss": 0, "profit": 0.0, "loss": 0.0}
+    )
+    weekday_totals: dict[str, dict[str, float | int]] = defaultdict(
+        lambda: {"hits": 0, "miss": 0, "profit": 0.0, "loss": 0.0}
+    )
+    cumulative = 0.0
+    for index, point in enumerate(curve, start=1):
+        day, curve_total = point
+        day = str(day)
+        curve_total = float(curve_total)
+        pnl = round(curve_total - cumulative, 2)
+        cumulative = curve_total
+        year = day[:4]
+        month = day[:7]
+        weekday = date.fromisoformat(day).strftime("%A")
+        is_win = pnl > 0
+        for bucket in (yearly_totals[year], weekday_totals[weekday]):
+            bucket["hits" if is_win else "miss"] += 1
+            bucket["profit" if is_win else "loss"] += pnl
+        monthly_totals[month] += pnl
+        trades.append(
+            {
+                "id": index,
+                "entry_time": day,
+                "exit_time": day,
+                "entry_price": None,
+                "exit_price": None,
+                "strike": f"NIFTY {book.upper()}",
+                "option_type": book.upper(),
+                "qty": None,
+                "txn_type": "BUY",
+                "pnl": pnl,
+                "cumulative": curve_total,
+                "exit_reason": "Published curve",
+                "published_curve_only": True,
+            }
+        )
+    monthly = [{"month": month, "pnl": round(pnl, 2)} for month, pnl in sorted(monthly_totals.items())]
+    day_of_week = [
+        {
+            "day": weekday,
+            "hits": int(values["hits"]),
+            "miss": int(values["miss"]),
+            "profit": float(values["profit"]),
+            "loss": float(values["loss"]),
+        }
+        for weekday, values in weekday_totals.items()
+    ]
+    yearly = [
+        {
+            "year": year,
+            "hits": int(values["hits"]),
+            "miss": int(values["miss"]),
+            "profit": float(values["profit"]),
+            "loss": float(values["loss"]),
+        }
+        for year, values in sorted(yearly_totals.items())
     ]
     equity = [{"time": f"{day} 15:30:00", "equity": float(value)} for day, value in curve]
     return {
@@ -22497,11 +22560,9 @@ def _published_historical_run(slug: str) -> dict:
         },
         "equity": equity,
         "monthly": monthly,
-        # The source has no individual trade ledger for this two-book snapshot;
-        # returning empty lists is more honest than reconstructing fake fills.
-        "trades": [],
-        "day_of_week": [],
-        "yearly": [],
+        "trades": trades,
+        "day_of_week": day_of_week,
+        "yearly": yearly,
     }
 
 
