@@ -2042,6 +2042,9 @@ function navHashForState(state) {
     const view = ARCHITECTURE_VIEWS.has(state?.architectureView) ? state.architectureView : 'overview';
     return `#assets/${view}`;
   }
+  if (page === 'results-page' && typeof state?.publishedRun === 'string' && state.publishedRun) {
+    return `#results-page/published-${encodeURIComponent(state.publishedRun)}`;
+  }
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0) {
     return `#results-page/${Number(state.runId)}`;
   }
@@ -2060,6 +2063,10 @@ function navStateFromLocation() {
   }
   if (!page || !document.getElementById(page)) return null;
   const state = { page };
+  if (page === 'results-page' && runIdRaw && runIdRaw.startsWith('published-')) {
+    state.publishedRun = decodeURIComponent(runIdRaw.slice('published-'.length));
+    return state;
+  }
   const runId = Number(runIdRaw);
   if (page === 'results-page' && Number.isFinite(runId) && runId > 0) state.runId = runId;
   return state;
@@ -2283,6 +2290,9 @@ async function applyNavState(state) {
   if (page === 'scalp-page') initScalpPage();
   if (page === 'options-cascade-page') initOptionsCascadePage();
   if (page === 'charts-page') initChartsPage();
+  if (page === 'results-page' && typeof state?.publishedRun === 'string' && state.publishedRun) {
+    await viewPublishedRun(state.publishedRun, { pushHistory: false });
+  }
   if (page === 'results-page' && Number.isFinite(Number(state?.runId)) && Number(state.runId) > 0 && currentViewingRunId !== Number(state.runId)) {
     await viewRun(Number(state.runId), { pushHistory: false });
   }
@@ -7673,6 +7683,7 @@ function loadTemplate(key) {
 //  FETCH & DISPLAY ALL RUNS (Backtest / Paper / Live)
 // ══════════════════════════════════════════════════════════════
 let _allRunsCache = [];
+let _publishedRunsCache = [];
 let _dashboardTransactionsCache = [];
 let _dashboardTxnByKey = new Map();
 let _currentRunFilter = 'all';
@@ -7816,21 +7827,33 @@ function _truncName(name, max) {
   return name.length > max ? name.substring(0, max) + '...' : name;
 }
 
+function _isPublishedHistoricalRun(run) {
+  return Boolean(run && run.published_historical && run.published_key);
+}
+
+function _publishedRunViewCall(run) {
+  return `viewPublishedRun('${escapeJsSingleQuoted(String(run.published_key))}')`;
+}
+
 function _buildRunCards(runs, opts = {}) {
   if (!runs.length) return '<div class="mobile-data-card mobile-data-card-empty">No runs yet.</div>';
   const showCheck = opts.checkboxes !== false;
   return runs.map(r => {
+    const published = _isPublishedHistoricalRun(r);
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
     const instName = escapeHtml(getInstrumentName(r.instrument) || '-');
-    const folderText = r.folder ? escapeHtml(r.folder) : '—';
+    const folderText = published ? 'Published record' : (r.folder ? escapeHtml(r.folder) : '—');
     const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
-    const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="font-size:11px;color:var(--muted);">No folder</span>';
-    const selectHtml = showCheck ? `<label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}> Select</label>` : '';
+    const folderBadge = published ? '<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;background:rgba(59,130,246,0.12);color:#93c5fd;border:1px solid rgba(59,130,246,0.25);">Published</span>' : (r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="font-size:11px;color:var(--muted);">No folder</span>');
+    const selectHtml = showCheck && !published ? `<label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);"><input type="checkbox" class="tbl-chk run-chk" data-id="${r.id}" onchange="toggleRunCheck(this)"${chk}> Select</label>` : '';
+    const actions = published
+      ? `<button class="btn btn-sm" onclick="${_publishedRunViewCall(r)}" style="font-size:11px;padding:6px 12px;">View</button><a class="btn btn-secondary btn-sm" href="${escapeAttr(r.source_url || '/assets/tearsheet?doc=options')}" style="font-size:11px;padding:6px 12px;">Tearsheet</a>`
+      : `<button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size:11px;padding:6px 12px;">View</button><button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size:11px;padding:6px 12px;">Copy&amp;Edit</button><button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">Rename</button><button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(245,158,11,0.15); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">Folder</button><button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size:11px;padding:6px 12px;">Del</button>`;
     return `<article class="mobile-data-card">
       <div class="mobile-data-card-head">
         <div>
           <div class="mobile-data-card-title">${escapeHtml(r.run_name || 'Unnamed')}</div>
-          <div class="mobile-data-card-sub">${_getModeBadge(r.mode)} <span style="margin-left:6px;">${instName}</span></div>
+          <div class="mobile-data-card-sub">${published ? '<span class="mode-badge backtest">PUBLISHED</span>' : _getModeBadge(r.mode)} <span style="margin-left:6px;">${instName}</span></div>
         </div>
         <div class="mobile-data-card-value" style="color:${pnlColor};">${fmt(r.total_pnl || 0)}</div>
       </div>
@@ -7845,11 +7868,7 @@ function _buildRunCards(runs, opts = {}) {
         ${folderBadge}
       </div>
       <div class="mobile-card-actions">
-        <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size:11px;padding:6px 12px;">View</button>
-        <button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size:11px;padding:6px 12px;">Copy&amp;Edit</button>
-        <button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">Rename</button>
-        <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size:11px;padding:6px 10px; --btn-bg: rgba(245,158,11,0.15); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">Folder</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size:11px;padding:6px 12px;">Del</button>
+        ${actions}
       </div>
     </article>`;
   }).join('');
@@ -7873,16 +7892,21 @@ function _buildRunsTable(runs, opts = {}) {
     </tr></thead><tbody>`;
 
   runs.forEach(r => {
+    const published = _isPublishedHistoricalRun(r);
     const pnlColor = (r.total_pnl || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
     const instName = escapeHtml(getInstrumentName(r.instrument) || '-');
     const chk = _selectedRunIds.has(r.id) ? ' checked' : '';
     const safeRunName = escapeHtml(r.run_name || 'Unnamed');
     const safeRunTitle = escapeAttr(r.run_name || 'Unnamed');
-    const folderBadge = r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>';
+    const folderBadge = published ? '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(59,130,246,0.12);color:#93c5fd;border:1px solid rgba(59,130,246,0.25);">Published</span>' : (r.folder ? `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(99,102,241,0.12);color:rgb(165,148,249);border:1px solid rgba(99,102,241,0.25);">${escapeHtml(r.folder)}</span>` : '<span style="color:var(--muted);font-size:11px;">—</span>');
+    const viewCall = published ? _publishedRunViewCall(r) : `viewRun(${r.id})`;
+    const actionHtml = published
+      ? `<button class="btn btn-sm" onclick="${_publishedRunViewCall(r)}" style="font-size: 11px; padding: 5px 10px;">View</button><a class="btn btn-secondary btn-sm" href="${escapeAttr(r.source_url || '/assets/tearsheet?doc=options')}" style="font-size: 11px; padding: 5px 10px;">Tearsheet</a>`
+      : `<button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size: 11px; padding: 5px 10px;">View</button><button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Copy&amp;Edit</button><button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">✏️</button><button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(245,158,11,0.15); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">📁</button><button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>`;
     html += `<tr style="border-bottom: 1px solid var(--border);" data-run-mode="${_normalizeMode(r.mode)}" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.03)'" onmouseout="this.style.background='transparent'">
-      ${showCheck ? '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" aria-label="Select run ' + escapeAttr(r.run_name || r.id) + '" onchange="toggleRunCheck(this)"' + chk + '></td>' : ''}
-      <td style="padding: 10px;">${_getModeBadge(r.mode)}</td>
-      <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="viewRun(${r.id})" title="${safeRunTitle}">${escapeHtml(_truncName(r.run_name, 18))}</td>
+      ${showCheck ? (published ? '<td style="padding: 10px;"></td>' : '<td style="padding: 10px;"><input type="checkbox" class="tbl-chk run-chk" data-id="' + r.id + '" aria-label="Select run ' + escapeAttr(r.run_name || r.id) + '" onchange="toggleRunCheck(this)"' + chk + '></td>') : ''}
+      <td style="padding: 10px;">${published ? '<span class="mode-badge backtest">PUBLISHED</span>' : _getModeBadge(r.mode)}</td>
+      <td style="padding: 10px; font-weight: 600; color: var(--accent); cursor: pointer; max-width: 180px;" onclick="${viewCall}" title="${safeRunTitle}">${escapeHtml(_truncName(r.run_name, 18))}</td>
       <td style="padding: 10px;">${instName}</td>
       <td style="padding: 10px; font-size: 12px;">${escapeHtml(r.from_date || '')} → ${escapeHtml(r.to_date || '')}</td>
       <td style="padding: 10px; font-weight: 600;">${r.trade_count || 0}</td>
@@ -7890,11 +7914,7 @@ function _buildRunsTable(runs, opts = {}) {
       <td style="padding: 10px;">${folderBadge}</td>
       <td style="padding: 10px; width: 240px; min-width: 240px; white-space: nowrap; text-align: center;">
         <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: center;">
-          <button class="btn btn-sm" onclick="viewRunModal(${r.id})" style="font-size: 11px; padding: 5px 10px;">View</button>
-          <button class="btn btn-secondary btn-sm" onclick="copyEditRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Copy&amp;Edit</button>
-          <button class="btn btn-sm" onclick="event.stopPropagation();_showRenameInline(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(99,102,241,0.15); --btn-color: #a594f9; --btn-border: rgba(99,102,241,0.3);" title="Rename">✏️</button>
-          <button class="btn btn-sm" onclick="event.stopPropagation();moveRunToFolder(${r.id})" style="font-size: 11px; padding: 5px 8px; --btn-bg: rgba(245,158,11,0.15); --btn-color: var(--warn); --btn-border: rgba(245,158,11,0.3);" title="Move to Folder">📁</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteRun(${r.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
+          ${actionHtml}
         </div>
       </td>
     </tr>`;
@@ -8061,9 +8081,9 @@ function _renderFilteredRuns() {
     return;
   }
 
-  let filtered = _allRunsCache;
+  let filtered = [..._publishedRunsCache, ..._allRunsCache];
   if (_currentRunFilter !== 'all') {
-    filtered = _allRunsCache.filter(r => _normalizeMode(r.mode) === _currentRunFilter);
+    filtered = filtered.filter(r => _normalizeMode(r.mode) === _currentRunFilter);
   }
   // Apply search + sort
   filtered = _applySortAndSearch(filtered);
@@ -9088,11 +9108,20 @@ function _goPortfolioPaperPage(p) { _portfolioPaperPage = p; _renderPortfolioPap
 
 async function fetchRuns() {
   try {
-    const res = await fetch('/api/runs');
+    const [res, publishedRes] = await Promise.all([
+      fetch('/api/runs'),
+      fetch('/api/published-runs'),
+    ]);
     if (await handleUnauthorizedResponse(res)) return;
     if (!res.ok) throw new Error('Failed to load runs');
     const runs = await res.json();
     _allRunsCache = runs.slice().reverse();
+    if (publishedRes.ok) {
+      const published = await publishedRes.json();
+      _publishedRunsCache = Array.isArray(published) ? published : [];
+    } else {
+      _publishedRunsCache = [];
+    }
     _portfolioRunTradeErrors = Object.create(null);
 
     // Dashboard: paginated
@@ -9135,6 +9164,26 @@ async function viewRun(id, options = {}) {
       Object.assign({}, options, { historyState, scrollToTop: true })
     );
   } catch(e) { toast('Error loading run', 'danger'); }
+}
+
+async function viewPublishedRun(slug, options = {}) {
+  try {
+    const res = await fetch('/api/published-runs/' + encodeURIComponent(slug));
+    if (!res.ok) throw new Error('Published run not found');
+    const data = await res.json();
+    lastBacktestData = data;
+    lastBacktestPayload = null;
+    currentViewingRunId = null;
+    renderResults(data, data);
+    const historyState = Object.assign({}, options.historyState || {}, { publishedRun: slug });
+    showPage(
+      'results-page',
+      document.getElementById('nav-results'),
+      Object.assign({}, options, { historyState, scrollToTop: true })
+    );
+  } catch (e) {
+    toast('Error loading published run', 'danger');
+  }
 }
 
 async function deleteRun(id) {
@@ -15895,6 +15944,7 @@ function getInstrumentName(id) {
 
 function renderResults(data, payload) {
   const s = data.stats;
+  const published = Boolean(data.published_historical);
   document.getElementById('results-empty').style.display = 'none';
   document.getElementById('results-content').style.display = 'block';
 
@@ -15903,6 +15953,25 @@ function renderResults(data, payload) {
 
   const runTitle = (payload && (payload.run_name || payload.strategy_name)) || data.run_name || data.strategy_name || '';
   document.getElementById('results-run-title').textContent = runTitle || 'Backtest Results';
+
+  const actions = document.getElementById('results-action-row');
+  if (actions) {
+    if (published) {
+      actions.innerHTML = `
+        <span id="res-trade-count-badge" style="background:linear-gradient(135deg,var(--accent),rgba(0,200,150,0.7));color:#000;padding:6px 16px;border-radius:6px;font-size:13px;font-weight:700;box-shadow:0 2px 10px rgba(0,200,150,0.3);"></span>
+        <a class="btn btn-secondary" href="${escapeAttr(data.source_url || '/assets/tearsheet?doc=options')}" style="font-size:11px;padding:8px 16px;--btn-bg:rgba(59,130,246,0.15);--btn-border:rgba(59,130,246,0.3);--btn-color:#93c5fd;font-weight:700;" title="Open the source tearsheet for this immutable historical run">Open Tearsheet</a>`;
+    } else {
+      actions.innerHTML = `
+        <span id="res-trade-count-badge" style="background:linear-gradient(135deg,var(--accent),rgba(0,200,150,0.7));color:#000;padding:6px 16px;border-radius:6px;font-size:13px;font-weight:700;box-shadow:0 2px 10px rgba(0,200,150,0.3);"></span>
+        <button class="btn deploy-cta-btn" onclick="openDeployModal()" style="font-size:11px;padding:8px 16px;--btn-bg:linear-gradient(180deg,rgba(139,92,246,0.25) 0%,rgba(100,60,200,0.45) 100%);--btn-border:rgba(139,92,246,0.45);--btn-color:rgb(167,139,250);font-weight:700;" title="Deploy this strategy to live/paper trading">Deploy</button>
+        <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size:11px;padding:6px 14px;--btn-bg:rgba(59,130,246,0.15);--btn-border:rgba(59,130,246,0.3);--btn-color:#93c5fd;" title="Copy this strategy to editor for modification">Copy &amp; Edit</button>
+        <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size:11px;padding:6px 14px;--btn-bg:rgba(139,92,246,0.15);--btn-border:rgba(139,92,246,0.3);--btn-color:#c4b5fd;" title="View strategy details">View Strategy</button>`;
+    }
+  }
+  ['results-analytics-card', 'results-heatmap-card', 'results-pnl-heatmap-card', 'results-trade-log-card'].forEach(id => {
+    const card = document.getElementById(id);
+    if (card) card.style.display = published ? 'none' : '';
+  });
 
   document.getElementById('res-header-pnl').textContent = fmt(s.total_pnl);
   document.getElementById('res-header-pnl').style.color = s.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)';
@@ -15916,7 +15985,7 @@ function renderResults(data, payload) {
   const riskPct = Number.isFinite(Number(s.risk_per_trade_pct))
     ? Number(s.risk_per_trade_pct)
     : (riskCapital > 0 ? ((Number(s.risk_per_trade || 0) / riskCapital) * 100) : 0);
-  document.getElementById('res-risk').textContent = riskPct.toFixed(2) + '%';
+  document.getElementById('res-risk').textContent = published ? 'N/A' : riskPct.toFixed(2) + '%';
   document.getElementById('res-max-dd').textContent = fmtNumber(s.max_drawdown_val||0, 0, true);
   document.getElementById('res-dd-days').textContent = String(s.max_drawdown_days||0);
   document.getElementById('res-avg-profit').textContent = fmtMoneyPrecise(s.avg_profit, 2, false);

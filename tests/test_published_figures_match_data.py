@@ -104,15 +104,19 @@ class PublishedFiguresMatchTheBook(unittest.TestCase):
             "dojima.js's equity curve does not end on the published net",
         )
 
-    def test_results_page_labels_the_two_books_with_their_reported_values(self):
-        """The dashboard must not silently substitute a live or S4/S5 result."""
+    def test_results_page_uses_read_only_runs_instead_of_a_standalone_panel(self):
+        """The two books belong in the run ledger, backed by report_data.json."""
         page = (_REPO / "strategy.html").read_text(encoding="utf-8")
-        for key, label in (("ce", "CE_SL15_NoMonTue"), ("pe", "PE_NoTarget")):
-            book = self.data["headline"][key]
-            self.assertIn(label, page)
-            self.assertIn(f"₹{_inr(book['net'])}", page)
-            self.assertIn(f"{book['trades']} trades", page)
-        self.assertIn("predates the newer S4/S5 exit-rule deployment", page)
+        backend = (_REPO / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn("pf-tearsheet-evidence", page)
+        self.assertIn('id="runs-list-results"', page)
+        for _, label in (("ce", "CE_SL15_NoMonTue"), ("pe", "PE_NoTarget")):
+            self.assertIn(label, backend)
+        self.assertIn('headline = report["headline"][book]', backend)
+        self.assertIn('curve = report["curve"][book]', backend)
+        self.assertIn('monthly_source = report["by_month"]', backend)
+        self.assertIn("published_historical", backend)
+        self.assertIn("predates the newer S4/S5 exit-rule deployment", backend)
 
 
 if __name__ == "__main__":

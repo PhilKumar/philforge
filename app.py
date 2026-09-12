@@ -22414,6 +22414,119 @@ async def update_strategy(sid: int, updates: dict, request: Request):
     return {"updated": sid}
 
 
+# ── Published historical runs ─────────────────────────────────────
+#
+# These are deliberately not rows in a user's `runs` table.  They are the
+# checked-in research record, shared read-only by every signed-in user, and a
+# user must never be able to rename, delete, copy, or deploy one as though it
+# were a current strategy configuration.  The Results page consumes them in
+# exactly the same shape as an ordinary completed run so the real equity curve
+# and metrics live where runs live, rather than in a separate promotional card.
+_PUBLISHED_RUNS_PATH = os.path.join(_HERE, "tools", "tearsheet", "report_data.json")
+_PUBLISHED_RUNS = {
+    "ce-sl15-nomontue": ("ce", "CE_SL15_NoMonTue"),
+    "pe-notarget": ("pe", "PE_NoTarget"),
+}
+
+
+def _published_historical_run(slug: str) -> dict:
+    """Build one immutable Results-page record from the canonical tearsheet."""
+    try:
+        book, run_name = _PUBLISHED_RUNS[slug]
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Published run not found") from exc
+    try:
+        with open(_PUBLISHED_RUNS_PATH, encoding="utf-8") as handle:
+            report = json.load(handle)
+        headline = report["headline"][book]
+        best_worst = report["best_worst"][book]
+        curve = report["curve"][book]
+        monthly_source = report["by_month"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _logger.exception("[PUBLISHED RUNS] cannot read %s", _PUBLISHED_RUNS_PATH)
+        raise HTTPException(status_code=503, detail="Published tearsheet data is unavailable") from exc
+
+    dd_days = 0
+    try:
+        dd_days = max(0, (date.fromisoformat(headline["dd_to"]) - date.fromisoformat(headline["dd_from"])).days)
+    except (KeyError, TypeError, ValueError):
+        pass
+    monthly = [
+        {"month": month, "pnl": float(values.get(book, 0) or 0)}
+        for month, values in sorted(monthly_source.items())
+        if isinstance(values, dict) and book in values
+    ]
+    equity = [{"time": f"{day} 15:30:00", "equity": float(value)} for day, value in curve]
+    return {
+        "id": f"published:{slug}",
+        "published_historical": True,
+        "published_key": slug,
+        "read_only": True,
+        "mode": "backtest",
+        "run_name": run_name,
+        "strategy_name": run_name,
+        "instrument": "NIFTY",
+        "from_date": headline["first"],
+        "to_date": headline["last"],
+        "trade_count": int(headline["trades"]),
+        "total_pnl": float(headline["net"]),
+        "created_at": report.get("generated") or headline["last"],
+        "source_url": "/assets/tearsheet?doc=options",
+        "source_note": (
+            "Published five-year 4-lot ladder record. Prices use Dhan through "
+            "30 Sep 2024 and Upstox from 1 Oct 2024, with recorded costs. "
+            "It predates the newer S4/S5 exit-rule deployment."
+        ),
+        "stats": {
+            "total_pnl": float(headline["net"]),
+            "total_trades": int(headline["trades"]),
+            "winning_trades": int(headline["wins"]),
+            "losing_trades": int(headline["losses"]),
+            "win_rate": float(headline["win_rate"]),
+            "initial_capital": 0.0,
+            "risk_per_trade": 0.0,
+            "risk_per_trade_pct": 0.0,
+            "max_drawdown_val": float(headline["max_dd"]),
+            "max_drawdown_days": dd_days,
+            "avg_profit": float(headline["avg_win"]),
+            "avg_loss": float(headline["avg_loss"]),
+            "win_streak": int(headline["streak_win"]),
+            "loss_streak": int(headline["streak_loss"]),
+            "max_profit": float(best_worst["best"]["net"]),
+            "max_loss": float(best_worst["worst"]["net"]),
+        },
+        "equity": equity,
+        "monthly": monthly,
+        # The source has no individual trade ledger for this two-book snapshot;
+        # returning empty lists is more honest than reconstructing fake fills.
+        "trades": [],
+        "day_of_week": [],
+        "yearly": [],
+    }
+
+
+@app.get("/api/published-runs")
+async def get_published_runs(request: Request):
+    _request_user_id(request)
+    summaries = []
+    for slug in _PUBLISHED_RUNS:
+        run = _published_historical_run(slug)
+        summaries.append(
+            {
+                key: value
+                for key, value in run.items()
+                if key not in {"equity", "monthly", "trades", "day_of_week", "yearly", "stats"}
+            }
+        )
+    return summaries
+
+
+@app.get("/api/published-runs/{slug}")
+async def get_published_run(slug: str, request: Request):
+    _request_user_id(request)
+    return _published_historical_run(slug)
+
+
 # ── Backtest Runs CRUD ────────────────────────────────────────────
 @app.get("/api/runs")
 async def get_runs(request: Request):

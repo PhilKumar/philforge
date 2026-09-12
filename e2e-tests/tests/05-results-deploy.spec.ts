@@ -157,6 +157,26 @@ test('opening a run from the list scrolls its results into view', async ({ page 
   await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 5_000 }).toBe(0);
 });
 
+test('published historical books open as immutable Results runs', async ({ page }) => {
+  await stubRun(page);
+  await login(page);
+
+  await page.click('#nav-results');
+  const row = page.locator('#runs-list-results td[title="CE_SL15_NoMonTue"]');
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+
+  await expect(page.locator('#results-run-title')).toHaveText('CE_SL15_NoMonTue');
+  await expect(page.locator('#res-header-pnl')).toHaveText('₹14,41,436');
+  await expect(page.locator('#res-trade-count-badge')).toHaveText('353 Trades');
+  await expect(page.locator('#equity-chart')).toBeVisible();
+  await expect(page.locator('#results-action-row')).toContainText('Open Tearsheet');
+  await expect(page.locator('#results-action-row .deploy-cta-btn')).toHaveCount(0);
+  await expect(page.locator('#results-analytics-card')).toBeHidden();
+  await expect(page.locator('#results-pnl-heatmap-card')).toBeHidden();
+  await expect(page.locator('#results-trade-log-card')).toBeHidden();
+});
+
 test('Results analytics use the restrained Cascade contrast', async ({ page }) => {
   await stubRun(page);
   await login(page);

@@ -66,12 +66,6 @@
   [data-theme="light"] #portfolio-page .portfolio-monthly-day { background:rgba(255,255,255,.80) !important; border-color:rgba(15,23,42,.10) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.9) !important; }
   [data-theme="light"] #portfolio-page .portfolio-monthly-day:not(.portfolio-paper-day) { border-top:2px solid color-mix(in srgb, var(--accent) 40%, transparent) !important; }
   [data-theme="light"] #stock-regular-extra { background:linear-gradient(135deg, rgba(15,118,110,.055), rgba(14,165,233,.035)) !important; border-color:rgba(15,118,110,.18) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
-  .pf-tearsheet-evidence { margin:0 0 20px; padding:18px; border-color:rgba(var(--pf-tint-primary-rgb, 6,182,212),.24); }
-  .pf-tearsheet-evidence h3 { margin:3px 0 6px; font-size:16px; } .pf-tearsheet-evidence > p { margin:0 0 13px; color:var(--muted); font-size:12px; line-height:1.55; }
-  .pf-tearsheet-evidence-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
-  .pf-tearsheet-evidence-grid > div { padding:12px; border:1px solid var(--border); border-radius:9px; background:rgba(var(--pf-tint-primary-rgb,6,182,212),.045); }
-  .pf-tearsheet-evidence-grid span, .pf-tearsheet-evidence-grid small { display:block; color:var(--muted); font-size:10px; line-height:1.45; } .pf-tearsheet-evidence-grid strong { display:block; margin:4px 0; font:800 18px var(--font-mono, 'JetBrains Mono', monospace); color:var(--success); }
-  .pf-tearsheet-evidence-note { font-size:10.5px !important; } @media(max-width:700px){ .pf-tearsheet-evidence-grid{grid-template-columns:1fr;} }
 </style>
 <script src="/static/error-handler.js" defer></script>
 <script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
@@ -916,19 +910,8 @@
   </div>
 
   <div id="results-empty" class="card pf-page-empty" style="margin: 0 0 20px; text-align: center; padding: 50px;">
-    <h2 style="color: var(--muted);">Run a backtest to see your equity curve and stats here.</h2>
+    <h2 style="color: var(--muted);">Choose a saved or published historical run to see its equity curve and stats here.</h2>
   </div>
-  <section class="card pf-tearsheet-evidence" aria-labelledby="published-results-title">
-    <div><div class="ocp-kicker">Published historical tearsheet</div><h3 id="published-results-title">CE_SL15_NoMonTue and PE_NoTarget</h3></div>
-    <p>Exact figures from the checked-in five-year report. This is a historical 4-lot ladder comparison, not a live return or a re-run of today’s settings.</p>
-    <div class="pf-tearsheet-evidence-grid">
-      <div><span>CE_SL15_NoMonTue</span><strong>₹14,41,436</strong><small>353 trades · 42.5% won · PF 1.65 · max drawdown −₹3,90,432</small></div>
-      <div><span>PE_NoTarget</span><strong>₹4,70,275</strong><small>578 trades · 46.9% won · PF 1.19 · max drawdown −₹1,60,899</small></div>
-      <div><span>Combined</span><strong>₹19,11,711</strong><small>931 trades · fees ₹2,22,885 · 5 Jan 2021–18 Aug 2026</small></div>
-    </div>
-    <p class="pf-tearsheet-evidence-note">The report prices Dhan through 30 Sep 2024 and Upstox from 1 Oct 2024, with costs charged throughout. It predates the newer S4/S5 exit-rule deployment, so it is evidence for the recorded rule snapshot only.</p>
-    <a class="ocp-confirmed-link" href="/assets/tearsheet?doc=options" data-pf-action="openCePeTearsheet">Open full tearsheet →</a>
-  </section>
   <div id="results-content" style="display: none;">
     <!-- Run Summary Header — Glossy -->
     <div class="card pf-results-command" style="padding: 18px 24px; margin-bottom: 16px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
@@ -940,7 +923,7 @@
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">From</span><br><span id="res-from" style="font-weight: 600; font-size: 14px;">-</span></div>
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">To</span><br><span id="res-to" style="font-weight: 600; font-size: 14px;">-</span></div>
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">Status</span><br><span style="color: var(--success); font-weight: 700; font-size: 14px;"><span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span> Completed</span></div>
-      <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
+      <div id="results-action-row" style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
         <span id="res-trade-count-badge" style="background: linear-gradient(135deg, var(--accent), rgba(0,200,150,0.7)); color: #000; padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 10px rgba(0,200,150,0.3);">0 Trades</span>
         <button class="btn deploy-cta-btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-weight: 700;" title="Deploy this strategy to live/paper trading">Deploy</button>
         <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(59,130,246,0.15); --btn-border: rgba(59,130,246,0.3); --btn-color: #93c5fd;" title="Copy this strategy to editor for modification">Copy & Edit</button>
@@ -986,7 +969,7 @@
     </section>
 
     <!-- Transactions Analytics — Glossy -->
-    <div class="card" style="padding: 22px; margin-bottom: 16px;">
+    <div id="results-analytics-card" class="card" style="padding: 22px; margin-bottom: 16px;">
       <h3 style="margin-bottom: 16px; font-size: 15px;">Transactions Analytics</h3>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
         <div class="analytics-inner">
@@ -1001,18 +984,18 @@
     </div>
 
     <!-- Monthly P&L — Full width table -->
-    <div class="card" style="padding: 22px; margin-bottom: 16px;">
+    <div id="results-heatmap-card" class="card" style="padding: 22px; margin-bottom: 16px;">
       <h3 style="margin-bottom: 12px; font-size: 15px;">Monthly P&L</h3>
       <div id="monthly-pnl-grid" style="overflow-x:auto;"></div>
     </div>
     <!-- Profit / Loss Heatmap — Full width -->
-    <div class="card" style="padding: 22px; margin-bottom: 16px;">
+    <div id="results-pnl-heatmap-card" class="card" style="padding: 22px; margin-bottom: 16px;">
       <h3 style="margin-bottom: 12px; font-size: 15px;">Profit / Loss Heatmap</h3>
       <div id="pnl-heatmap" style="font-size: 11px;"></div>
     </div>
 
     <!-- Trade Log — Matching Scalp Trade History style -->
-  <div class="card" style="padding: 22px;">
+  <div id="results-trade-log-card" class="card" style="padding: 22px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
       <h3 style="margin: 0; font-size: 15px;">Transaction Order Details</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
@@ -1066,6 +1049,8 @@
     </div>
   </div>
 
+  </div>
+
   <!-- All Runs Panel -->
   <div class="card" style="margin: 0 0 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
@@ -1085,7 +1070,6 @@
     <div id="runs-pagination-results" class="pagination-bar" style="display:none;"></div>
     <div id="runs-empty-results" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest from Strategy Builder or start paper/live trading.</div>
   </div>
-</div>
 
 <div id="toast">Message here</div>
 
