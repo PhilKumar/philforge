@@ -8728,6 +8728,75 @@ function _portfolioTradeSignature(trade) {
   ].join('|');
 }
 
+function _portfolioTradeReconciliationKey(trade) {
+  // A single exit is first recorded by the engine and can later be reflected by
+  // the durable run history or Dhan's settled account row.  Those copies may
+  // disagree on mutable fields (P&L, reason, symbol spelling, lots vs shares),
+  // so none of those fields belongs in the identity used to collapse them.
+  const rawSymbol = String(trade?.symbol || trade?.trading_symbol || '').toUpperCase();
+  const rawSide = String(trade?.option_type || trade?.side || trade?.transaction_type || '').toUpperCase();
+  const optionSide = /(?:^|[^A-Z])(?:PE|PUT)(?:$|[^A-Z])/.test(rawSide) || /(?:PE|PUT)\b/.test(rawSymbol)
+    ? 'PE'
+    : (/(?:^|[^A-Z])(?:CE|CALL)(?:$|[^A-Z])/.test(rawSide) || /(?:CE|CALL)\b/.test(rawSymbol) ? 'CE' : '');
+  const suppliedStrike = Number(trade?.strike);
+  const strikeMatch = rawSymbol.match(/\b(\d{4,6})\s*(?:CE|PE|CALL|PUT)\b/);
+  const strike = Number.isFinite(suppliedStrike) && suppliedStrike > 0
+    ? String(Math.round(suppliedStrike))
+    : (strikeMatch ? strikeMatch[1] : '');
+  const stamp = (value) => {
+    const text = String(value || '');
+    const dateMatch = text.match(/(\d{4}-\d{2}-\d{2})/);
+    const timeMatch = text.match(/[T\s](\d{2}:\d{2})(?::\d{2})?/);
+    return dateMatch && timeMatch ? `${dateMatch[1]} ${timeMatch[1]}` : '';
+  };
+  const entry = stamp(trade?.entry_time);
+  const exit = stamp(trade?.exit_time);
+  const entryPrice = Number(trade?.entry_premium ?? trade?.entry_price);
+  const exitPrice = Number(trade?.exit_premium ?? trade?.exit_price);
+  if (!optionSide || !strike || !entry || !exit || !Number.isFinite(entryPrice) || !Number.isFinite(exitPrice)) {
+    return `strict:${_portfolioTradeSignature(trade)}`;
+  }
+  return [optionSide, strike, entry, exit, entryPrice.toFixed(2), exitPrice.toFixed(2)].join('|');
+}
+
+function _portfolioTradeDisplayScore(trade) {
+  let score = 0;
+  if (trade?.id !== undefined && trade?.id !== null) score += 20; // keeps its journal chart
+  if (!trade?.from_account) score += 8; // keeps the engine's own exit reason
+  if (trade?.settled_by_broker) score += 4;
+  return score;
+}
+
+function _portfolioMergeReconciliationCopies(trades) {
+  const selected = new Map();
+  (trades || []).forEach(trade => {
+    const key = _portfolioTradeReconciliationKey(trade);
+    const current = selected.get(key);
+    if (!current) {
+      selected.set(key, { ...trade });
+      return;
+    }
+    const incomingWins = _portfolioTradeDisplayScore(trade) > _portfolioTradeDisplayScore(current);
+    const kept = incomingWins ? { ...trade } : current;
+    const other = incomingWins ? current : trade;
+    // Dhan's settled net P&L is authoritative, but it must not replace the
+    // engine identity, exit reason, or journal link that explain the trade.
+    const settled = trade?.settled_by_broker ? trade : (current?.settled_by_broker ? current : null);
+    if (settled) {
+      ['pnl', 'gross_pnl', 'charges', 'settled_by_broker'].forEach(field => {
+        if (settled[field] !== undefined && settled[field] !== null) kept[field] = settled[field];
+      });
+    }
+    ['id', 'exit_reason', 'reason', 'symbol', 'trading_symbol', 'lots'].forEach(field => {
+      if ((kept[field] === undefined || kept[field] === null || kept[field] === '') && other[field] !== undefined) {
+        kept[field] = other[field];
+      }
+    });
+    selected.set(key, kept);
+  });
+  return Array.from(selected.values());
+}
+
 function _portfolioTradeDateLabel(value) {
   if (!value) return '—';
   const d = new Date(value);
@@ -8977,13 +9046,8 @@ async function _ensurePortfolioRunTradesLoaded(groupKey, force = false) {
     const historyTrades = detailRuns
       .filter(Boolean)
       .flatMap(run => Array.isArray(run.trades) ? run.trades : []);
-    const seen = new Set();
-    const deduped = historyTrades.filter(trade => {
-      const signature = _portfolioTradeSignature(trade);
-      if (seen.has(signature)) return false;
-      seen.add(signature);
-      return true;
-    }).sort((a, b) => _portfolioTradeTs(b) - _portfolioTradeTs(a));
+    const deduped = _portfolioMergeReconciliationCopies(historyTrades)
+      .sort((a, b) => _portfolioTradeTs(b) - _portfolioTradeTs(a));
     _portfolioRunTradeCache[key] = deduped;
   } catch (error) {
     _portfolioRunTradeErrors[key] = error?.message || 'Failed to load completed trades.';
@@ -8998,14 +9062,7 @@ function _portfolioRunTradesForGroup(group) {
     .filter(run => run._active)
     .flatMap(run => Array.isArray(run.closed_trades) ? run.closed_trades : []);
   const historyTrades = Array.isArray(_portfolioRunTradeCache[group.key]) ? _portfolioRunTradeCache[group.key] : [];
-  const seen = new Set();
-  return [...activeTrades, ...historyTrades]
-    .filter(trade => {
-      const signature = _portfolioTradeSignature(trade);
-      if (seen.has(signature)) return false;
-      seen.add(signature);
-      return true;
-    })
+  return _portfolioMergeReconciliationCopies([...activeTrades, ...historyTrades])
     .sort((a, b) => _portfolioTradeTs(b) - _portfolioTradeTs(a));
 }
 

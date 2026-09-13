@@ -20084,6 +20084,38 @@ def _history_trade_counter(trades: list[dict]) -> Counter[str]:
     return counter
 
 
+def _history_persistence_trade_signature(trade: dict) -> dict | None:
+    """Stable trade identity for persistence, excluding reconciliation fields.
+
+    An exit is saved immediately so a restart cannot lose it.  When the run is
+    subsequently stopped, the complete closed-trade list is saved too.  P&L and
+    exit text may have changed after broker reconciliation, but that is still
+    the same execution and must not create a second historical record.
+    """
+    if not isinstance(trade, dict):
+        return None
+    return {
+        "symbol": trade.get("symbol") or trade.get("trading_symbol") or "",
+        "transaction_type": trade.get("transaction_type") or trade.get("side") or "",
+        "option_type": trade.get("option_type") or "",
+        "strike": trade.get("strike"),
+        "entry_time": str(trade.get("entry_time") or ""),
+        "exit_time": str(trade.get("exit_time") or ""),
+        "entry_premium": round(float(trade.get("entry_premium") or trade.get("entry_price") or 0), 4),
+        "exit_premium": round(float(trade.get("exit_premium") or trade.get("exit_price") or 0), 4),
+        "quantity": trade.get("quantity") or trade.get("lots") or "",
+    }
+
+
+def _history_persistence_trade_counter(trades: list[dict]) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for trade in trades or []:
+        sig = _history_persistence_trade_signature(trade)
+        if sig:
+            counter[json.dumps(sig, sort_keys=True, default=str)] += 1
+    return counter
+
+
 def _history_run_signature(run: dict) -> tuple:
     mode = str(run.get("mode") or "")
     run_name = str(run.get("run_name") or run.get("strategy_name") or "")
@@ -20164,8 +20196,8 @@ async def _save_paper_run_to_history(status: dict, explicit_user_id: int | None 
             trade_count = int(run.get("trade_count") or len(run.get("trades") or []))
             if run.get("mode") != "paper" or run.get("run_name") != run_name or trade_count != 1:
                 continue
-            existing += _history_trade_counter(run.get("trades") or [])
-        closed_sigs = _history_trade_counter(closed)
+            existing += _history_persistence_trade_counter(run.get("trades") or [])
+        closed_sigs = _history_persistence_trade_counter(closed)
         if closed_sigs and all(existing[key] >= count for key, count in closed_sigs.items()):
             print(f"[PAPER] All {len(closed)} trades already saved individually — skipping bulk save")
             return
@@ -20296,8 +20328,8 @@ async def _save_live_run_to_history(status: dict, explicit_user_id: int | None =
             trade_count = int(run.get("trade_count") or len(run.get("trades") or []))
             if run.get("mode") != "live" or run.get("run_name") != run_name or trade_count != 1:
                 continue
-            existing += _history_trade_counter(run.get("trades") or [])
-        closed_sigs = _history_trade_counter(closed)
+            existing += _history_persistence_trade_counter(run.get("trades") or [])
+        closed_sigs = _history_persistence_trade_counter(closed)
         if closed_sigs and all(existing[key] >= count for key, count in closed_sigs.items()):
             print(f"[LIVE] All {len(closed)} trades already saved individually — skipping bulk save")
             return
