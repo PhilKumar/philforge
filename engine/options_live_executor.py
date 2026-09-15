@@ -493,6 +493,17 @@ def reconcile_live_orders(broker: Any, *, symbol: str, legs: list[dict]) -> dict
         bracket = str(leg.get("bracket_order_id") or "")
         if not bracket or bracket.startswith("paper-"):
             continue
+        if bracket == str(leg.get("order_id") or ""):
+            # A SUPER ORDER: Dhan gives the entry and its target/stop legs ONE
+            # id, and that id's status is the ENTRY's. "TRADED" there means the
+            # buy filled, not that anything sold -- on 2026-09-15 a restart read
+            # the live Gap Carry 23350PE's own entry as its exit, froze the
+            # campaign as "sold while the app was down", and would have skipped
+            # the 09:20 sale of a position still in the account. Whether it sold
+            # is answered by the position book below, which is the check that
+            # can actually see it.
+            notes.append(f"super order {bracket}: entry id, left to the position book")
+            continue
         try:
             status = broker.get_order_status(bracket) or {}
         except Exception as exc:  # a status fetch that dies is not an answer

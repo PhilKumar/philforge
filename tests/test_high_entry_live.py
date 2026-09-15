@@ -609,6 +609,23 @@ class ReconcileTests(unittest.TestCase):
         out = self.reconcile(_ReconcileBroker(bracket_status="TRADED"))
         self.assertEqual(out["settled"], {"O1": 61.0})
 
+    def test_a_super_orders_own_id_traded_is_the_entry_not_an_exit(self):
+        """Dhan gives a Super Order one id; its TRADED status is the BUY.
+        Read as an exit it froze a live Gap Carry that still held its leg
+        (2026-09-15)."""
+        legs = self.legs()
+        legs[0]["bracket_order_id"] = legs[0]["order_id"]
+        out = self.reconcile(_ReconcileBroker(bracket_status="TRADED", held=75), legs)
+        self.assertEqual(out["settled"], {})
+        self.assertEqual(out["short_by"], {})
+
+    def test_a_super_order_whose_position_is_gone_is_still_caught(self):
+        legs = self.legs()
+        legs[0]["bracket_order_id"] = legs[0]["order_id"]
+        out = self.reconcile(_ReconcileBroker(bracket_status="TRADED", held=0), legs)
+        self.assertEqual(out["settled"], {})
+        self.assertTrue(out["short_by"], "the position book must still see a sale")
+
     def test_the_broker_holding_less_is_reported_as_short(self):
         """The dangerous direction: something closed that the engine still
         thinks it owns."""
