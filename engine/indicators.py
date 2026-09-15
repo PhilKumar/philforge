@@ -8,6 +8,9 @@ Fixed:
 
 import re
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import time as _dt_time
 
 import numpy as np
 import pandas as pd
@@ -271,14 +274,101 @@ def _session_bars(df: pd.DataFrame) -> pd.DataFrame:
     return inside if not inside.empty else df
 
 
+class SessionBook:
+    """Every COMPLETE session an engine has seen, pinned once seen whole.
+
+    A live engine computes its indicators on a rolling candle buffer, and a
+    daily bar resampled from that buffer is only as whole as the buffer. On
+    2026-09-15 the buffer had slid past Friday's first hour by 12:30, so
+    Friday's low read 23,314 instead of 23,231 and every CPR level rose by up to
+    55 points: S1 went from 23,270.30 to 23,325.37, and the live PE book was
+    taken out at 12:35 by a close "crossing below S1" fifty points above the
+    real S1. (The 08-Sep fix, `_session_bars`, removed stray out-of-session
+    bars; it could not see a session whose START had scrolled away.)
+
+    A session is learned only when its bars run from the open to the close, and
+    a later view with fewer bars never replaces an earlier one -- so once the
+    engine has seen Friday whole, a buffer that has lost part of Friday cannot
+    move Friday's high, low or close again.
+    """
+
+    _KEEP_DAYS = 40
+    _OPENS_BY = _dt_time(9, 20)
+    _CLOSES_FROM = _dt_time(15, 25)
+
+    def __init__(self) -> None:
+        self._days: dict = {}  # date -> (open, high, low, close, bar_count)
+
+    def learn(self, df: pd.DataFrame) -> None:
+        if not isinstance(df, pd.DataFrame) or df.empty or not _is_intraday(df):
+            return
+        if not {"open", "high", "low", "close"}.issubset(df.columns):
+            return
+        bars = _session_bars(df)
+        for day, rows in bars.groupby(bars.index.date):
+            rows = rows.dropna(subset=["open", "high", "low", "close"])
+            if rows.empty:
+                continue
+            if rows.index.min().time() > self._OPENS_BY or rows.index.max().time() < self._CLOSES_FROM:
+                continue  # a piece of a session, not a session
+            known = self._days.get(day)
+            if known is not None and known[4] > len(rows):
+                continue  # never trade a fuller view for a thinner one
+            self._days[day] = (
+                float(rows["open"].iloc[0]),
+                float(rows["high"].max()),
+                float(rows["low"].min()),
+                float(rows["close"].iloc[-1]),
+                len(rows),
+            )
+        if len(self._days) > self._KEEP_DAYS:
+            for day in sorted(self._days)[: len(self._days) - self._KEEP_DAYS]:
+                del self._days[day]
+
+    def apply(self, daily: pd.DataFrame) -> pd.DataFrame:
+        """Replace or add each pinned session in a resampled daily frame."""
+        if not self._days:
+            return daily
+        daily = daily.copy()
+        tz = getattr(daily.index, "tz", None)
+        for day, (o, h, low, c, _n) in self._days.items():
+            stamp = pd.Timestamp(day)
+            if tz is not None:
+                stamp = stamp.tz_localize(tz)
+            daily.loc[stamp, ["open", "high", "low", "close"]] = [o, h, low, c]
+        return daily.sort_index()
+
+
+# The book of the engine whose indicators are being computed. Set by the engine
+# around its own calls; a backtest sets none, and reads its archive as before.
+_SESSION_BOOK: ContextVar = ContextVar("philforge_session_book", default=None)
+
+
+@contextmanager
+def pinned_sessions(book: "SessionBook | None"):
+    token = _SESSION_BOOK.set(book)
+    try:
+        yield book
+    finally:
+        _SESSION_BOOK.reset(token)
+
+
+def _session_daily(df: pd.DataFrame) -> pd.DataFrame:
+    """The daily bars a pivot or a 'yesterday' is read from."""
+    daily = (
+        _session_bars(df).resample("D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+    )
+    book = _SESSION_BOOK.get()
+    if book is not None:
+        book.learn(df)
+        daily = book.apply(daily)
+    return daily
+
+
 def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wide_pct: float = 0.5) -> pd.DataFrame:
     """Bug 2 fixed: handles both intraday and daily DataFrames."""
     intraday = _is_intraday(df)
-    daily = (
-        _session_bars(df).resample("D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
-        if intraday
-        else df.copy()
-    )
+    daily = _session_daily(df) if intraday else df.copy()
 
     daily["pivot"] = (daily["high"] + daily["low"] + daily["close"]) / 3
     daily["bc"] = (daily["high"] + daily["low"]) / 2
@@ -470,11 +560,7 @@ def yesterday_candle(df: pd.DataFrame) -> pd.DataFrame:
     live CE book enters on `current_close is_above Yesterday_High`.
     """
     intraday = _is_intraday(df)
-    daily = (
-        _session_bars(df).resample("D").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
-        if intraday
-        else df.copy()
-    )
+    daily = _session_daily(df) if intraday else df.copy()
 
     daily["yesterday_high"] = daily["high"].shift(1)
     daily["yesterday_low"] = daily["low"].shift(1)

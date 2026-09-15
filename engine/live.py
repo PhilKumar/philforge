@@ -118,10 +118,12 @@ def statutory_round_charges(*, entry_premium, exit_premium, quantity, lots, opti
 
 
 from engine.indicators import (
+    SessionBook,
     compute_dynamic_indicators,
     infer_execution_timeframe,
     merge_indicator_context,
     normalize_strategy_indicators,
+    pinned_sessions,
 )
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
@@ -299,6 +301,8 @@ class LiveEngine:
         self.candle_buffer = pd.DataFrame()
         self._latest_raw_candles = pd.DataFrame()
         self._indicator_context_raw = pd.DataFrame()
+        # Whole sessions seen, so CPR never reads a day the buffer has half-lost.
+        self._session_book = SessionBook()
         self.current_candle: dict = {}
         self.current_indicators: dict = {}
         self._prev_row = None
@@ -337,6 +341,8 @@ class LiveEngine:
         )
         self.strategy = strategy
         self._indicator_context_raw = pd.DataFrame()
+        # Whole sessions seen, so CPR never reads a day the buffer has half-lost.
+        self._session_book = SessionBook()
         # Rebind the local too: everything below reads `deploy_config`, and a
         # None default made configure() raise on the fill-timeout lookup.
         deploy_config = deploy_config or strategy.get("deploy_config", {}) or {}
@@ -1712,13 +1718,14 @@ class LiveEngine:
         forming strategy candle. Never evaluate entry/exit conditions on that bar.
         """
         candle_df = merge_indicator_context(candle_df, self._indicator_context_raw, max_rows=800)
-        df_with_indicators = compute_dynamic_indicators(
-            candle_df,
-            indicators,
-            default_timeframe_minutes=execution_timeframe,
-            source_timeframe_minutes=fetch_timeframe,
-            execution_timeframe_minutes=execution_timeframe,
-        )
+        with pinned_sessions(self._session_book):
+            df_with_indicators = compute_dynamic_indicators(
+                candle_df,
+                indicators,
+                default_timeframe_minutes=execution_timeframe,
+                source_timeframe_minutes=fetch_timeframe,
+                execution_timeframe_minutes=execution_timeframe,
+            )
         if df_with_indicators.empty:
             return df_with_indicators
         return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
@@ -2029,13 +2036,14 @@ class LiveEngine:
             try:
                 self._remember_indicator_context(history_df)
                 self._latest_raw_candles = history_df.tail(500).copy()
-                df_init = compute_dynamic_indicators(
-                    merge_indicator_context(history_df.copy(), self._indicator_context_raw, max_rows=800),
-                    indicators,
-                    default_timeframe_minutes=execution_timeframe,
-                    source_timeframe_minutes=fetch_timeframe,
-                    execution_timeframe_minutes=execution_timeframe,
-                )
+                with pinned_sessions(self._session_book):
+                    df_init = compute_dynamic_indicators(
+                        merge_indicator_context(history_df.copy(), self._indicator_context_raw, max_rows=800),
+                        indicators,
+                        default_timeframe_minutes=execution_timeframe,
+                        source_timeframe_minutes=fetch_timeframe,
+                        execution_timeframe_minutes=execution_timeframe,
+                    )
                 if not df_init.empty:
                     self.candle_buffer = df_init
                     self.current_spot = float(df_init.iloc[-1].get("close", 0))
@@ -2938,13 +2946,14 @@ class LiveEngine:
         df_raw = self._fetch_raw_history(instrument, tf_spec.fetch, days=7)
 
         indicators = self.strategy.get("indicators", [])
-        df = compute_dynamic_indicators(
-            df_raw,
-            indicators,
-            default_timeframe_minutes=execution_timeframe,
-            source_timeframe_minutes=tf_spec.fetch,
-            execution_timeframe_minutes=execution_timeframe,
-        )
+        with pinned_sessions(self._session_book):
+            df = compute_dynamic_indicators(
+                df_raw,
+                indicators,
+                default_timeframe_minutes=execution_timeframe,
+                source_timeframe_minutes=tf_spec.fetch,
+                execution_timeframe_minutes=execution_timeframe,
+            )
         self._latest_raw_candles = df_raw.tail(500).copy()
 
         # Store current candle + indicators for UI

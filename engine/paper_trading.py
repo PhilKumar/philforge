@@ -88,10 +88,12 @@ def statutory_round_charges(*, entry_premium, exit_premium, quantity, lots, opti
 
 
 from engine.indicators import (
+    SessionBook,
     compute_dynamic_indicators,
     infer_execution_timeframe,
     merge_indicator_context,
     normalize_strategy_indicators,
+    pinned_sessions,
 )
 from engine.strike_utils import round_to_nearest_step
 from engine.timeframes import (
@@ -230,6 +232,8 @@ class PaperTradingEngine:
         self.candle_buffer = pd.DataFrame()
         self._latest_raw_candles = pd.DataFrame()
         self._indicator_context_raw = pd.DataFrame()
+        # Whole sessions seen, so CPR never reads a day the buffer has half-lost.
+        self._session_book = SessionBook()
         self.current_indicators = {}  # Latest indicator values for UI
         self.current_candle = {}  # Latest OHLCV candle for UI
         self._prev_row = None  # Previous candle row for crossover detection
@@ -504,6 +508,8 @@ class PaperTradingEngine:
         )
         self.strategy = strategy
         self._indicator_context_raw = pd.DataFrame()
+        # Whole sessions seen, so CPR never reads a day the buffer has half-lost.
+        self._session_book = SessionBook()
 
         # Pre-compute strategy-level SL/TP values
         sl_pct = float(strategy.get("stoploss_pct", 0) or 0)
@@ -1009,13 +1015,14 @@ class PaperTradingEngine:
     ) -> pd.DataFrame:
         """Drop any still-forming strategy candle before WS signal evaluation."""
         candle_df = merge_indicator_context(candle_df, self._indicator_context_raw, max_rows=800)
-        df_with_indicators = compute_dynamic_indicators(
-            candle_df,
-            indicators,
-            default_timeframe_minutes=execution_timeframe,
-            source_timeframe_minutes=fetch_timeframe,
-            execution_timeframe_minutes=execution_timeframe,
-        )
+        with pinned_sessions(self._session_book):
+            df_with_indicators = compute_dynamic_indicators(
+                candle_df,
+                indicators,
+                default_timeframe_minutes=execution_timeframe,
+                source_timeframe_minutes=fetch_timeframe,
+                execution_timeframe_minutes=execution_timeframe,
+            )
         if df_with_indicators.empty:
             return df_with_indicators
         return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
@@ -1224,13 +1231,14 @@ class PaperTradingEngine:
             try:
                 self._remember_indicator_context(history_df)
                 self._latest_raw_candles = history_df.tail(500).copy()
-                df_init = compute_dynamic_indicators(
-                    merge_indicator_context(history_df.copy(), self._indicator_context_raw, max_rows=800),
-                    indicators,
-                    default_timeframe_minutes=execution_timeframe,
-                    source_timeframe_minutes=fetch_timeframe,
-                    execution_timeframe_minutes=execution_timeframe,
-                )
+                with pinned_sessions(self._session_book):
+                    df_init = compute_dynamic_indicators(
+                        merge_indicator_context(history_df.copy(), self._indicator_context_raw, max_rows=800),
+                        indicators,
+                        default_timeframe_minutes=execution_timeframe,
+                        source_timeframe_minutes=fetch_timeframe,
+                        execution_timeframe_minutes=execution_timeframe,
+                    )
                 if not df_init.empty:
                     self.candle_buffer = df_init
                     self.current_spot = float(df_init.iloc[-1].get("close", 0))
@@ -1903,13 +1911,14 @@ class PaperTradingEngine:
 
         # Apply indicators
         indicators = self.strategy.get("indicators", [])
-        df = compute_dynamic_indicators(
-            df_raw,
-            indicators,
-            default_timeframe_minutes=execution_timeframe,
-            source_timeframe_minutes=tf_spec.fetch,
-            execution_timeframe_minutes=execution_timeframe,
-        )
+        with pinned_sessions(self._session_book):
+            df = compute_dynamic_indicators(
+                df_raw,
+                indicators,
+                default_timeframe_minutes=execution_timeframe,
+                source_timeframe_minutes=tf_spec.fetch,
+                execution_timeframe_minutes=execution_timeframe,
+            )
         self._latest_raw_candles = df_raw.tail(500).copy()
 
         # Store current candle + indicator values for live monitor UI
