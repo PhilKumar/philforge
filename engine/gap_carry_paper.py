@@ -38,6 +38,7 @@ from engine.gap_carry import (
     GapCarryConfig,
     GapCarryPosition,
     SignalReading,
+    bar_minutes,
     laddered_lots,
     read_signal,
     strike_for,
@@ -181,9 +182,12 @@ class GapCarryPaper:
         if session in self._seen_sessions:
             return
         # The decision is only ever taken once a session, on the last candle
-        # closed at or before the entry clock. A poll at 15:12 and a replay of
-        # the whole day must reach the same bar.
-        if rows[-1].timestamp.time() < self.config.entry_time:
+        # CLOSED by the entry clock -- at 15:10 that is the 15:05-15:10 bar. A
+        # poll at 15:12 and a replay of the whole day must reach the same bar,
+        # and the adapter hands over closed bars only, so this fires as soon as
+        # that bar exists.
+        last_close = datetime.combine(session, rows[-1].timestamp.time()) + timedelta(minutes=bar_minutes(self.config))
+        if last_close.time() < self.config.entry_time:
             return
         signal = read_signal(rows, self.config, at=datetime.combine(session, self.config.entry_time))
         if signal is None:

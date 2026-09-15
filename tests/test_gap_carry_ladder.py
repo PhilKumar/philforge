@@ -179,7 +179,7 @@ class TheTearsheetSaysIt(unittest.TestCase):
 
     def test_the_rows_match_what_the_engine_returned(self):
         block = self.BUILD.split("LADDER = [")[1].split("]")[0]
-        for net in ("277173", "680111", "2299104", "3597754"):
+        for net in ("200264", "242307", "639448", "2099980"):
             self.assertIn(net, block, net)
 
     def test_it_reports_capital_efficiency_not_just_the_headline(self):
@@ -190,6 +190,6 @@ class TheTearsheetSaysIt(unittest.TestCase):
             self.skipTest("tearsheet not built here")
         html = open(self.OUT, encoding="utf-8").read()
         self.assertIn("Sizing up as the book earns", html)
-        for net in ("2,77,173", "35,97,754"):
+        for net in ("2,00,264", "20,99,980"):
             self.assertIn(net, html, net)
         self.assertIn("too few trades", html, "the noise caveat must travel with the numbers")

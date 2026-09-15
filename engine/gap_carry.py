@@ -56,7 +56,7 @@ forward. It does not assume it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
@@ -275,8 +275,27 @@ def indicator_series(candles: list, config: GapCarryConfig) -> dict:
     }
 
 
+def bar_minutes(config: "GapCarryConfig") -> int:
+    return int(str(config.timeframe).rstrip("m"))
+
+
+def closes_by(bar_start: datetime, config: "GapCarryConfig") -> bool:
+    """Has the bar that STARTS at `bar_start` closed by the entry time?
+
+    Bars are labelled by their start: the 5m bar stamped 15:10 runs to 15:15.
+    Until 2026-09-15 the rule read the bar STARTING at or before 15:10 -- the
+    15:10-15:15 bar -- while the replay priced the entry at 15:10, five minutes
+    before that bar's close existed. Live could only buy at 15:15. Measured over
+    2021-2026: Rs 2,77,173 as published, Rs 1,69,027 bought when the signal
+    really exists. The rule now reads the bar that has CLOSED by the entry
+    time (15:05-15:10) and buys at 15:10 -- Rs 2,00,264, and no losing year.
+    """
+    start = datetime.combine(date(2000, 1, 3), bar_start.time())
+    return start + timedelta(minutes=bar_minutes(config)) <= datetime.combine(date(2000, 1, 3), config.entry_time)
+
+
 def read_signal(candles: list, config: GapCarryConfig, *, at: Optional[datetime] = None) -> Optional[SignalReading]:
-    """The last candle closed at or before the entry time, and what it asks for.
+    """The last candle CLOSED by the entry time, and what it asks for.
 
     `candles` is any sequence of objects carrying `.timestamp` and `.close` in
     ascending order -- LadderCandle, Candle, or a plain namespace. Bars after
@@ -289,12 +308,12 @@ def read_signal(candles: list, config: GapCarryConfig, *, at: Optional[datetime]
     cutoff = config.entry_time
     day = at.date() if at is not None else candles[-1].timestamp.date()
     usable = [c for c in candles if c.timestamp.date() <= day]
-    same_day = [c for c in usable if c.timestamp.date() == day and c.timestamp.time() <= cutoff]
+    same_day = [c for c in usable if c.timestamp.date() == day and closes_by(c.timestamp, config)]
     if not same_day:
         return None
     closes = [float(c.close) for c in usable]
     idx = len(usable) - 1
-    while idx >= 0 and (usable[idx].timestamp.date() != day or usable[idx].timestamp.time() > cutoff):
+    while idx >= 0 and (usable[idx].timestamp.date() != day or not closes_by(usable[idx].timestamp, config)):
         idx -= 1
     if idx < 0:
         return None

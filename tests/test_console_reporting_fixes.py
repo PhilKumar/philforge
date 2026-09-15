@@ -185,11 +185,13 @@ class ThePageAgreesWithItselfAboutGapCarry(unittest.TestCase):
         self.assertIn("15:10 IN &middot; CUT 09:15 &middot; OUT 09:20", HTML)
 
     def test_the_info_doc_carries_the_measured_set(self):
-        for figure in ("2,77,173", "50.8%", "PF 2.60", "17,965"):
+        # Re-measured 2026-09-15 on the corrected entry: the candle closed by
+        # 15:10, bought at 15:10 (the old book priced it before its signal existed).
+        for figure in ("2,00,264", "45.2%", "PF 2.06", "25,591"):
             self.assertIn(figure, HTML, f"the ⓘ lost {figure}")
 
     def test_the_superseded_figures_are_gone(self):
-        for stale in ("2,11,624", "PF 1.86"):
+        for stale in ("2,11,624", "PF 1.86", "PF 2.60", "50.8%", "17,965"):
             self.assertNotIn(stale, HTML)
 
 

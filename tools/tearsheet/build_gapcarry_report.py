@@ -7,7 +7,7 @@ chrome and bilingual toggle verbatim -- read from build_report.py at run time,
 never copied -- so the four read as one family on the Assets page.
 
 Every figure comes from a replay of the exact rule the Gap Carry tab trades: at
-15:10 read the last closed 5m candle, a close above its EMA20 with RSI(14) at or
+15:10 read the 5m candle that has closed by then (15:05-15:10) and buy at 15:10; a close above its EMA20 with RSI(14) at or
 over 70 buys an ATM+4 ITM call, a close below with RSI at or under 30 buys the
 put; the nearest weekly that survives the night; cut at 09:15 if it opens below
 what it cost, otherwise sold at 09:20.
@@ -39,7 +39,8 @@ _HERE = pathlib.Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
 OUT = _REPO / "docs" / "assets" / "gap-carry-tearsheet.html"
 RUNS = _REPO / "tools" / "gapcarry_offline" / "runs"
-BOOK = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else RUNS / "NIFTY_5m_rsi70_atm4.csv"
+# The book the live tab trades: losers cut at 09:15, the rest sold at 09:20.
+BOOK = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else RUNS / "NIFTY_5m_rsi70_atm4_cut0915.csv"
 
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -462,7 +463,7 @@ def ten(b: dict) -> str:
     return f"""
 <section id="tenten">
   <div class="shead"><div><h2>{t("Best ten, worst ten", "சிறந்த பத்து, மோசமான பத்து")}</h2>
-    <p>{t("The tails, in full. The gap column is the index move from the 15:10 close to the morning sale — the thing the rule is actually buying.", "இரு முனைகளும் முழுமையாக. Gap நெடுவரிசை = 15:10 முதல் காலை விற்பனை வரை index நகர்வு — விதி உண்மையில் வாங்குவது இதுதான்.")}</p></div></div>
+    <p>{t("The tails, in full. The gap column is the index move from the 15:10 entry to the morning sale — the thing the rule is actually buying.", "இரு முனைகளும் முழுமையாக. Gap நெடுவரிசை = 15:10 முதல் காலை விற்பனை வரை index நகர்வு — விதி உண்மையில் வாங்குவது இதுதான்.")}</p></div></div>
   <div class="tblwrap"><table>{head}<tbody>{_night_rows(best)}</tbody></table></div>
   <p class="note">{t("And the ten worst:", "மோசமான பத்து:")}</p>
   <div class="tblwrap"><table>{head}<tbody>{_night_rows(worst)}</tbody></table></div>
@@ -540,11 +541,13 @@ def lots(b: dict) -> str:
 # Measured through the engine, one run per step, not scaled from the one-lot
 # book -- a ladder changes the charges as well as the size, and a per-lot
 # figure recovered by division is wrong whenever a fee does not scale.
+# Ladder capital Rs 1,00,000, at most 20 lots. Re-measured 2026-09-15 on the
+# corrected entry (the candle closed by 15:10, bought at 15:10).
 LADDER = [
-    {"label": "flat, one lot", "step": 0, "net": 277173, "dd": -17965, "peak": 33304},
-    {"label": "+1 lot per +100% banked", "step": 100, "net": 680111, "dd": -116952, "peak": 171717},
-    {"label": "+1 lot per +50% banked", "step": 50, "net": 2299104, "dd": -292168, "peak": 490620},
-    {"label": "+1 lot per +25% banked", "step": 25, "net": 3597754, "dd": -351236, "peak": 666075},
+    {"label": "flat, one lot", "step": 0, "net": 200264, "dd": -25591, "peak": 33304},
+    {"label": "+1 lot per +100% banked", "step": 100, "net": 242307, "dd": -61476, "peak": 73593},
+    {"label": "+1 lot per +50% banked", "step": 50, "net": 639448, "dd": -311292, "peak": 417027},
+    {"label": "+1 lot per +25% banked", "step": 25, "net": 2099980, "dd": -359150, "peak": 490620},
 ]
 
 
@@ -568,8 +571,8 @@ def ladder_section() -> str:
   </table>
   <div class="note" style="margin-top:14px">
     <h2 class="note-h">{t("The last column is the one to read", "கடைசி நெடுவரிசையே படிக்க வேண்டியது")}</h2>
-    <p>{t("Compounding earns thirteen times the money and needs twenty times the capital, so per rupee committed the flat book is the most efficient of the four at 8.32 against 5.40. What the ladder buys is a bigger absolute result from an account that is willing to grow into it, not a better use of the money.", "Compounding பதின்மூன்று மடங்கு பணம் தருகிறது, ஆனால் இருபது மடங்கு மூலதனம் கேட்கிறது; எனவே ஒரு ரூபாய்க்கு நிலையான புத்தகமே சிறந்தது &mdash; 8.32 எதிராக 5.40. Ladder தருவது பெரிய முழுமையான முடிவு, பணத்தின் சிறந்த பயன்பாடு அல்ல.")}</p>
-    <p>{t("The ordering of the steps is not reliable. Across 179 nights +75% measured WORSE per rupee than not compounding at all, which is a middle setting losing to both its neighbours &mdash; a sign these thresholds rest on too few trades to be structure. The engine therefore ships with compounding OFF and the step as a setting, and picks none of them.", "படிகளின் வரிசை நம்பகமானது அல்ல. 179 இரவுகளில் +75%, compounding செய்யாததை விட ஒரு ரூபாய்க்கு மோசமாக அளந்தது &mdash; இரு பக்கத்து அமைப்புகளையும் விட நடுவில் உள்ளது மோசமாக இருப்பது, இந்த வரம்புகள் மிகச் சில வர்த்தகங்களில் நிற்கின்றன என்பதன் அறிகுறி. எனவே என்ஜின் compounding OFF ஆக வருகிறது; படி ஒரு அமைப்பு, தேர்வு அல்ல.")}</p>
+    <p>{t("Compounding at +25% earns ten times the money and needs fifteen times the capital, so per rupee committed the flat book is the most efficient of the four at 6.01 against 4.28. What the ladder buys is a bigger absolute result from an account that is willing to grow into it, not a better use of the money.", "+25% compounding பத்து மடங்கு பணம் தருகிறது, ஆனால் பதினைந்து மடங்கு மூலதனம் கேட்கிறது; எனவே ஒரு ரூபாய்க்கு நிலையான புத்தகமே சிறந்தது &mdash; 6.01 எதிராக 4.28. Ladder தருவது பெரிய முழுமையான முடிவு, பணத்தின் சிறந்த பயன்பாடு அல்ல.")}</p>
+    <p>{t("The ordering of the steps is not reliable. Across 168 nights +50% measured the worst per rupee of the three steps, a middle setting losing to both its neighbours &mdash; a sign these thresholds rest on too few trades to be structure. The engine therefore ships with compounding OFF and the step as a setting, and picks none of them.", "படிகளின் வரிசை நம்பகமானது அல்ல. 168 இரவுகளில் +50%, மூன்று படிகளில் ஒரு ரூபாய்க்கு மிக மோசமாக அளந்தது &mdash; இரு பக்கத்து அமைப்புகளையும் விட நடுவில் உள்ளது மோசமாக இருப்பது, இந்த வரம்புகள் மிகச் சில வர்த்தகங்களில் நிற்கின்றன என்பதன் அறிகுறி. எனவே என்ஜின் compounding OFF ஆக வருகிறது; படி ஒரு அமைப்பு, தேர்வு அல்ல.")}</p>
   </div>
 </section>
 """
@@ -623,16 +626,18 @@ def honesty(b: dict) -> str:
     return f"""
 <section id="honesty">
   <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
+  <p class="note note-warn"><strong>{t("Corrected 15 September 2026.", "15 செப்டம்பர் 2026 அன்று திருத்தப்பட்டது.")}</strong>
+  {t("Earlier editions read the 5m candle stamped 15:10 — which closes at 15:15 — but priced the entry at 15:10, five minutes before that candle existed, and published ₹2,77,173 over 179 nights. Bought when that signal really exists, at 15:15, the same rule made ₹1,69,027. The rule now reads the candle that has closed by 15:10 and buys at 15:10, which is what live does: every figure in this document is that rule.", "முந்தைய பதிப்புகள் 15:10 என்று குறிக்கப்பட்ட 5m candle-ஐ (15:15-இல் மூடுவது) படித்து, entry-ஐ 15:10-இல் விலையிட்டன — அந்த candle உருவாவதற்கு ஐந்து நிமிடம் முன். அவை ₹2,77,173 (179 இரவுகள்) வெளியிட்டன. Signal உண்மையில் இருக்கும் 15:15-இல் வாங்கினால் அதே விதி ₹1,69,027. இப்போது விதி 15:10-க்குள் மூடிய candle-ஐப் படித்து 15:10-இல் வாங்குகிறது — live செய்வதும் இதுவே; இந்த ஆவணத்தின் ஒவ்வொரு எண்ணும் அந்த விதியே.")}</p>
   <p><strong>{b["floored"]} {t("of", "இல்")} {b["trades"]} {t("exits are floored at intrinsic value", "வெளியேற்றங்கள் உள்ளார்ந்த மதிப்பில்")}</strong>
   ({r(b["floored_net"])} {t("of the net", "நிகரத்தில்")}). {t("Those are contracts that gapped far enough to leave what the archives carry — which happens precisely when the night went well, so the floor UNDERSTATES them. A floor is not a price, and they are counted apart everywhere they appear.", "இவை archive வரம்பை விட்டு வெளியேறிய contract-கள் — இரவு நன்றாக சென்றபோதுதான் இது நடக்கும், எனவே தளம் அவற்றைக் குறைத்தே காட்டுகிறது.")}</p>
   <p><strong>{t("The top three nights are", "மேல் மூன்று இரவுகள்")} {r(sum(top3))}</strong>, {sum(top3) / b["net"] * 100:.0f}% {t("of the net; without them the book still makes", "நிகரத்தில். அவை இல்லாமலும் புத்தகம் ஈட்டுவது")} {r(b["net"] - sum(top3))}.</p>
   <p><strong>{t("One month is a third of the book.", "ஒரு மாதம் புத்தகத்தின் மூன்றில் ஒரு பங்கு.")}</strong>
   {top_line} {t("The three best months together are", "மூன்று சிறந்த மாதங்கள் சேர்ந்து")} {top3_pct:.0f}% {t("of the net, and only", "நிகரத்தில், மேலும்")} {b["months_green"]} {t("of", "இல்")} {b["months_total"]} {t("months finished green. Strip the single best month and the book still makes", "மாதங்கள் பச்சையில் முடிந்தன. சிறந்த மாதத்தை நீக்கினாலும் புத்தகம் ஈட்டுவது")} {r(b["net"] - b["top_months"][0][1])} &mdash; {t("so it does not rest on that month alone, but the shape of this book is a few violent gaps and a long quiet middle, not a steady drip.", "எனவே அது அந்த ஒரு மாதத்தை மட்டும் நம்பியில்லை. ஆனால் இந்தப் புத்தகத்தின் வடிவம் சில வலுவான gap-களும் நீண்ட அமைதியான நடுப்பகுதியும்தான்.")}</p>
   <p><strong>{t("RSI 70 is the top of a band, not a plateau.", "RSI 70 ஒரு வரம்பின் உச்சம், சமவெளி அல்ல.")}</strong>
-  {t("Every threshold from 65 to 76 is positive with both halves of the window green, but 70 is the best cell in it. Read the strength as profit factor ~1.35–1.40 rather than the", "65 முதல் 76 வரை ஒவ்வொரு threshold-ம் நேர்மறை, இரு பாதிகளும் பச்சை. ஆனால் 70 சிறந்த கலம். வலிமையை ~1.35–1.40 எனப் படியுங்கள், மேலே உள்ள")} {b["profit_factor"]:.2f} {t("above.", "அல்ல.")}</p>
-  <p><strong>{t("10m looked better and cannot be traded.", "10m சிறப்பாக இருந்தது, ஆனால் வர்த்தகம் செய்ய முடியாது.")}</strong>
-  {t("Dhan serves 1m, 5m, 15m and 1h only, so the live tab offers 5m and 15m. 5m is also the safer of the two on the weekday concentration — 46% Friday against 67% on 10m.", "Dhan 1m, 5m, 15m, 1h மட்டுமே தருகிறது. 5m வாரநாள் குவிப்பிலும் பாதுகாப்பானது — வெள்ளி 46%, 10m-இல் 67%.")}</p>
-  <p class="note">{t("Twelve of twelve combinations of 5m/10m/15m/30m against RSI 68/70/72 were profitable over this window, eleven of them green in both halves — the candle is read once and both ends are clock times, so there is very little for a fit to grip.", "5m/10m/15m/30m × RSI 68/70/72 — பன்னிரண்டில் பன்னிரண்டும் லாபகரம், பதினொன்று இரு பாதிகளிலும் பச்சை. Candle ஒரு முறை படிக்கப்படுகிறது, இரு முனைகளும் கடிகார நேரம்.")}</p>
+  {t("Every threshold from 65 to 76 is positive with both halves of the window green, and 70 sits near the top of it — 69 made more. Read the strength as profit factor ~1.9, the middle of that band, rather than the", "65 முதல் 76 வரை ஒவ்வொரு threshold-ம் நேர்மறை, இரு பாதிகளும் பச்சை; 70 அதன் உச்சத்தருகே — 69 அதிகம் ஈட்டியது. வலிமையை ~1.9 (அந்த வரம்பின் நடு) எனப் படியுங்கள், மேலே உள்ள")} {b["profit_factor"]:.2f} {t("above.", "அல்ல.")}</p>
+  <p><strong>{t("10m cannot be traded, and made less.", "10m வர்த்தகம் செய்ய முடியாது, குறைவாகவும் ஈட்டியது.")}</strong>
+  {t("Dhan serves 1m, 5m, 15m and 1h only, so the live tab offers 5m and 15m. 5m is also the safer of the two on the weekday concentration — 49% Friday against 71% on 10m.", "Dhan 1m, 5m, 15m, 1h மட்டுமே தருகிறது. 5m வாரநாள் குவிப்பிலும் பாதுகாப்பானது — வெள்ளி 49%, 10m-இல் 71%.")}</p>
+  <p class="note">{t("Twelve of twelve combinations of 5m/10m/15m/30m against RSI 68/70/72 were profitable over this window, all twelve green in both halves — the candle is read once and both ends are clock times, so there is very little for a fit to grip.", "5m/10m/15m/30m × RSI 68/70/72 — பன்னிரண்டில் பன்னிரண்டும் லாபகரம், பன்னிரண்டும் இரு பாதிகளிலும் பச்சை. Candle ஒரு முறை படிக்கப்படுகிறது, இரு முனைகளும் கடிகார நேரம்.")}</p>
 </section>"""
 
 
@@ -798,7 +803,7 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
     HELPERS["method_and_limits"](
         t,
         [
-            ('Read the last closed candle at 15:10 and take the close, the EMA20 and the RSI(14). Nothing else on the chart is used.', '15:10-க்கு கடைசி மூடிய candle-இல் close, EMA20, RSI(14) மட்டும் படிக்கப்படுகிறது. chart-இல் வேறெதுவும் பயன்படுத்தப்படவில்லை.'),
+            ('At 15:10 read the candle that has just closed — 15:05 to 15:10 on 5m — and take the close, the EMA20 and the RSI(14). Nothing else on the chart is used, and the contract is bought at 15:10.', '15:10-க்கு கடைசி மூடிய candle-இல் close, EMA20, RSI(14) மட்டும் படிக்கப்படுகிறது. chart-இல் வேறெதுவும் பயன்படுத்தப்படவில்லை.'),
             ('Buy one in-the-money contract four strikes deep and hold it overnight. At 09:15 a contract already worth less than it cost is sold there; one in profit runs to 09:20. Still clock times, with one question asked at the open.', 'நான்கு strike உள்ளே உள்ள ஒரு contract வாங்கி இரவு முழுவதும் வைக்கப்படுகிறது. 09:15-இல் வாங்கிய விலையை விடக் குறைவாக இருந்தால் அங்கேயே விற்கப்படுகிறது; லாபத்தில் இருந்தால் 09:20 வரை. கடிகார நேரங்களே, ஆனால் திறப்பில் ஒரு கேள்வி.'),
             ('Every premium is a recorded minute from the Dhan archive, with Upstox asked when Dhan has lost the strike. An exit neither can quote is valued at intrinsic and counted separately.', 'ஒவ்வொரு பிரீமியமும் Dhan காப்பகத்தின் பதிவான நிமிடம்; Dhan strike-ஐ இழந்தால் Upstox கேட்கப்படுகிறது. இரண்டுமே தர முடியாத வெளியேற்றம் intrinsic-இல் மதிப்பிடப்பட்டு தனியாக எண்ணப்படுகிறது.'),
             ("Charges are the full statutory schedule per round &mdash; brokerage, STT, exchange, GST, SEBI and stamp &mdash; and the lot is the one in force on the contract's own expiry.", 'கட்டணங்கள் முழு சட்டப்பூர்வ பட்டியல் &mdash; brokerage, STT, exchange, GST, SEBI, stamp. lot என்பது contract-இன் expiry-இல் அமலில் இருந்தது.'),

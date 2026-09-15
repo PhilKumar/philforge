@@ -122,7 +122,7 @@ The platform must not replace a missing premium with zero or infer it from the i
 | Options Cascade | Mother-candle and fib campaign using a fixed option contract | Paper first; live gates remain explicit |
 | Cash Cascade | Trade equity/ETF ladders from cash-market geometry | Paper workflow in the current terminal path |
 | Candle Entry | Operate the two-red box ladder from a manual or automatic mother | Backtest and paper; automatic market-session host |
-| Gap Carry | Enter the measured late-session option campaign and exit in the next session | Backtest and paper; manual or automatic host |
+| Gap Carry | Enter the measured late-session option campaign and exit in the next session | Backtest, paper and live (real Dhan orders); manual or automatic host |
 | Fib Boundary | Build and monitor multi-symbol fib touch ladders | Paper by default; live exit safety is separately gated |
 | Fib Space | Monitor structured fib-space campaigns | Paper |
 | Two Red Equity | Find mothers and operate equity campaign ladders | Paper |
@@ -605,7 +605,7 @@ Manual/automatic mode, underlying and contract controls, entry and exit windows,
 
 ### Wiring and data patterns
 
-Gap Carry routes call `engine/gap_carry.py` for both historical and paper lifecycles. Signal candles and exact option premiums stay distinct, the campaign persists restart-safe state, and the chart renders the campaign window and trade evidence from the same result contract.
+Gap Carry routes call `engine/gap_carry.py` for historical, paper and live lifecycles. The signal is the candle that has CLOSED by the entry time (15:05–15:10 on 5m) and the contract is priced and bought at 15:10, identically in the replay and the live loop; the loop polls every two seconds around the entry clock. Signal candles and exact option premiums stay distinct, the campaign persists restart-safe state including whether it is live, and the chart renders the campaign window and trade evidence from the same result contract.
 
 ### Interactive workflow
 

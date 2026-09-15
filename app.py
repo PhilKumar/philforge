@@ -14023,6 +14023,25 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
     return runtime
 
 
+# Around the entry clock the loop looks every two seconds, not every twenty:
+# the bar the rule reads closes AT the entry time, and a 20-second nap after it
+# is 20 seconds of premium drift bought for nothing. Dhan's 8-second chart
+# answer cache still spaces the actual requests.
+_GAP_CARRY_ENTRY_POLL_SEC = 2
+_GAP_CARRY_ENTRY_WINDOW = (timedelta(seconds=-30), timedelta(seconds=90))
+
+
+def _gap_carry_poll_sleep(engine, now: datetime | None = None) -> float:
+    now = now or datetime.now(IST)
+    if engine is None or engine.has_open_position:
+        return _GAP_CARRY_POLL_SEC
+    clock = datetime.combine(now.date(), engine.config.entry_time, tzinfo=IST)
+    early, late = _GAP_CARRY_ENTRY_WINDOW
+    if clock + early <= now <= clock + late:
+        return _GAP_CARRY_ENTRY_POLL_SEC
+    return _GAP_CARRY_POLL_SEC
+
+
 async def _run_gap_carry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
     """Watch one campaign: mark the open leg, take the exit, settle an expiry.
 
@@ -14063,7 +14082,7 @@ async def _run_gap_carry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> N
             raise
         except Exception as exc:
             _logger.warning("[GAP CARRY] poll failed for user %s: %s", user_id, exc)
-        await asyncio.sleep(_terminal_cascade_offsession_sleep_sec() or _GAP_CARRY_POLL_SEC)
+        await asyncio.sleep(_terminal_cascade_offsession_sleep_sec() or _gap_carry_poll_sleep(runtime.engine))
 
 
 # States that mean the scheduler is doing its job, whatever happened before.
