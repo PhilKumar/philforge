@@ -1,48 +1,204 @@
 {
-  "run_name": "PE_NoTarget",
-  "segment": "indices",
-  "instrument": "26000",
-  "market_open": "09:15",
-  "market_close": "15:25",
-  "timeframe_minutes": 1,
-  "fetch_timeframe_minutes": 1,
-  "execution_timeframe_minutes": 1,
-  "entry_evaluation_timeframe_minutes": 5,
-  "max_trades_per_day": 1,
-  "skip_days_after_profit": 0,
-  "skip_profit_threshold_rupees": 20000,
-  "signal_cutoff_time": "15:15",
-  "execution_mode": "next_minute",
-  "execution_profile": "auto",
-  "spread_bps": 18,
-  "entry_slippage_bps": 10,
-  "exit_slippage_bps": 14,
-  "entry_delay_candles": 0,
-  "signal_exit_delay_candles": 0,
-  "signal_exit_next_open": true,
-  "enforce_capital": true,
-  "capital_buffer_pct": 5,
-  "initial_capital": 200000,
-  "compound_step_pct": 75,
-  "compound_base_capital": 200000,
-  "compound_max_lots": 20,
-  "entry_conditions": [
-    {"logic": "IF", "left": "current_close", "operator": "is_below", "right": "EMA_20_5m"},
-    {"logic": "AND", "left": "CPR_is_wide", "operator": "is_false", "right": "false"},
-    {"logic": "AND", "left": "Day_Of_Week", "operator": "contains", "right": "days", "right_days": ["Monday", "Tuesday", "Thursday", "Friday"]},
-    {"logic": "AND", "left": "current_close", "operator": "is_below", "right": "CPR_BC"},
-    {"logic": "AND", "left": "Time_Of_Day", "operator": "is_below", "right": "time", "right_time": "11:00"}
-  ],
-  "exit_conditions": [
-    {"logic": "IF", "left": "current_close", "operator": "crosses_below", "right": "CPR_S1"},
-    {"logic": "OR", "left": "current_close", "operator": "crosses_above", "right": "CPR_S1"},
-    {"logic": "OR", "left": "current_close", "operator": "crosses_above", "right": "CPR_S2"},
-    {"logic": "OR", "left": "current_close", "operator": "crosses_below", "right": "CPR_S2"},
-    {"logic": "OR", "left": "current_close", "operator": "crosses_above", "right": "CPR_S3"},
-    {"logic": "OR", "left": "current_close", "operator": "crosses_below", "right": "CPR_S3"},
-    {"logic": "OR", "left": "current_close", "operator": "crosses_above", "right": "CPR_TC"}
-  ],
-  "legs": [
-    {"transaction_type": "BUY", "option_type": "PE", "expiry": "current_week", "strike_type": "premium_near", "strike_value": 250, "lots": 4, "expiry_day_lots": 5, "sl_pct": 20, "target_pct": 0, "sl_points": 0, "target_points": 0, "sl_rupees": 0, "target_rupees": 0, "trail_pct": 0, "sqoff_time": "15:25"}
-  ]
+ "strategy_id": 49,
+ "run_name": "PE_NoTarget",
+ "folder": "Tuning Lab",
+ "segment": "indices",
+ "instrument": "26000",
+ "from_date": "2024-10-03",
+ "to_date": "2026-08-04",
+ "lots": 1,
+ "lot_size": 0,
+ "stoploss_pct": 0,
+ "stoploss_rupees": 0,
+ "sl_type": "rupees",
+ "target_profit_pct": 0,
+ "target_profit_rupees": 0,
+ "tp_type": "rupees",
+ "market_open": "09:15",
+ "market_close": "15:10",
+ "max_trades_per_day": 1,
+ "max_daily_loss": 0,
+ "skip_days_after_profit": 0,
+ "skip_profit_threshold_rupees": 20000,
+ "signal_cutoff_time": "15:15",
+ "indicators": [
+  "Current_Candle_5m",
+  "Supertrend_10_2_3m",
+  "EMA_20_5m",
+  "CPR_0.2_0.5",
+  "Previous_Day",
+  "RSI_14_5m",
+  "Previous_Candle_5m"
+ ],
+ "entry_conditions": [
+  {
+   "logic": "IF",
+   "left": "current_close",
+   "operator": "is_below",
+   "right": "EMA_20_5m",
+   "right_number_value": ""
+  },
+  {
+   "logic": "AND",
+   "left": "CPR_is_wide",
+   "operator": "is_false",
+   "right": "false",
+   "right_number_value": ""
+  },
+  {
+   "logic": "AND",
+   "left": "Day_Of_Week",
+   "operator": "contains",
+   "right": "days",
+   "right_days": [
+    "Monday",
+    "Tuesday",
+    "Thursday",
+    "Friday"
+   ]
+  },
+  {
+   "logic": "AND",
+   "left": "current_close",
+   "operator": "is_below",
+   "right": "CPR_BC",
+   "right_number_value": ""
+  },
+  {
+   "logic": "AND",
+   "left": "Time_Of_Day",
+   "operator": "is_below",
+   "right": "time",
+   "right_time": "11:00"
+  }
+ ],
+ "exit_conditions": [
+  {
+   "logic": "IF",
+   "left": "current_close",
+   "operator": "crosses_below",
+   "right": "CPR_S1",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_above",
+   "right": "CPR_S1",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_above",
+   "right": "CPR_S2",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_below",
+   "right": "CPR_S2",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_above",
+   "right": "CPR_S3",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_below",
+   "right": "CPR_S3",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_above",
+   "right": "CPR_TC",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_above",
+   "right": "CPR_S4",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_below",
+   "right": "CPR_S4",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_above",
+   "right": "CPR_S5",
+   "right_number_value": ""
+  },
+  {
+   "logic": "OR",
+   "left": "current_close",
+   "operator": "crosses_below",
+   "right": "CPR_S5",
+   "right_number_value": ""
+  }
+ ],
+ "legs": [
+  {
+   "transaction_type": "BUY",
+   "option_type": "PE",
+   "expiry": "current_week",
+   "strike_type": "premium_near",
+   "strike_value": 250,
+   "lots": 4,
+   "expiry_day_lots": 5,
+   "sl_pct": 20,
+   "target_pct": 0,
+   "sl_points": 0,
+   "target_points": 0,
+   "sl_rupees": 0,
+   "target_rupees": 0,
+   "trail_pct": 0,
+   "sqoff_time": "15:10"
+  }
+ ],
+ "combined_sl_rupees": 0,
+ "combined_target_rupees": 0,
+ "combined_sqoff_time": "15:10",
+ "fee_pct": 0,
+ "trailing_sl_pct": 0,
+ "execution_mode": "next_minute",
+ "execution_profile": "auto",
+ "spread_bps": 18,
+ "entry_slippage_bps": 10,
+ "exit_slippage_bps": 14,
+ "entry_delay_candles": 0,
+ "signal_exit_delay_candles": 0,
+ "enforce_capital": true,
+ "capital_buffer_pct": 5,
+ "sell_option_margin_per_lot": 100000,
+ "initial_capital": 200000,
+ "compound_step_pct": 75,
+ "compound_base_capital": 200000,
+ "compound_max_lots": 20,
+ "name": "PE_NoTarget",
+ "deploy_config": {
+  "order_type": "auto",
+  "product_type": "MIS",
+  "entry_order": "MARKET",
+  "exit_order": "MARKET",
+  "sl_limit_diff_pct": 0,
+  "margin_benefit": "sequenced",
+  "sl_tp_based_on": "traded",
+  "place_leg_sl": "yes",
+  "sqoff_on_fail": "no"
+ }
 }

@@ -38,10 +38,15 @@ class ThePublishedFiguresAreUntouched(unittest.TestCase):
         actually runs -- 4 lots, 5 on expiry, both ladders, Dhan prices, every
         charge -- turned it red. The old pin was Rs 12,45,087 over 920 trades on
         the flat-lot spliced book, which is not what is deployed.
+
+        Re-pinned 15-Sep-2026 at Phil's instruction, on the rules deployed then:
+        PE #50 with S4/S5 exits, 15:10 square-off, S4/S5 on the traditional
+        pivot formula, exits checked on each 5-minute close as live checks them.
+        Rs 19,11,711 over 931 trades became Rs 17,92,906 over 923.
         """
-        self.assertEqual(DATA["headline"]["combined"]["net"], 1911711.18)
-        self.assertEqual(DATA["headline"]["combined"]["trades"], 931)
-        self.assertIn("₹19,11,711", DOC)
+        self.assertEqual(DATA["headline"]["combined"]["net"], 1792905.68)
+        self.assertEqual(DATA["headline"]["combined"]["trades"], 923)
+        self.assertIn("₹17,92,906", DOC)
         self.assertNotIn("₹12,45,087", DOC.split("Slippage")[0], "the old basis may survive only in the slippage table")
 
     def test_the_document_still_declares_four_lots(self):
