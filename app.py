@@ -13617,6 +13617,54 @@ def _gap_carry_auto_key(user_id: int) -> str:
     return f"gap_carry_auto:{int(user_id)}"
 
 
+# ── THE LADDER'S BANK ────────────────────────────────────────────────────────
+# Gap Carry's ladder adds a lot per rung of profit BANKED. The engine only knew
+# its own campaign's closed nights, and Auto starts a fresh campaign every
+# night, so it always saw nothing banked and traded one lot for ever -- the +25%
+# setting did nothing live (found 2026-09-15). The book's banked nights live
+# here instead, one bank per MODE: paper profit must never size a real order.
+# Keyed by session, so saving the same night twice banks it once.
+def _gap_carry_bank_key(user_id: int, mode: str) -> str:
+    return f"gap_carry_bank:{int(user_id)}:{'live' if mode == 'live' else 'paper'}"
+
+
+async def _gap_carry_bank(user_id: int, mode: str) -> dict:
+    try:
+        raw = await _db_mod.get_app_state(_gap_carry_bank_key(user_id, mode))
+        data = json.loads(raw) if raw else {}
+    except Exception as exc:
+        _logger.warning("[GAP CARRY] could not read the ladder bank for user %s: %s", user_id, exc)
+        data = {}
+    nights = data.get("nights") if isinstance(data, dict) else None
+    return {"nights": dict(nights) if isinstance(nights, dict) else {}}
+
+
+def _gap_carry_campaign_mode(engine) -> str:
+    return "live" if getattr(engine, "executor", None) is not None else "paper"
+
+
+def _gap_carry_banked_before(bank: Mapping[str, Any], engine) -> float:
+    """Banked by OTHER campaigns: the bank, less nights this campaign already holds."""
+    own = {p.session.isoformat() for p in (engine.history or []) if getattr(p, "session", None)}
+    return round(sum(float(net) for session, net in (bank.get("nights") or {}).items() if session not in own), 2)
+
+
+async def _bank_gap_carry_nights(user_id: int, engine) -> None:
+    mode = _gap_carry_campaign_mode(engine)
+    bank = await _gap_carry_bank(user_id, mode)
+    changed = False
+    for position in engine.history or []:
+        net = getattr(position, "net", None)
+        if net is None or not getattr(position, "session", None):
+            continue
+        session = position.session.isoformat()
+        if bank["nights"].get(session) != round(float(net), 2):
+            bank["nights"][session] = round(float(net), 2)
+            changed = True
+    if changed:
+        await _db_mod.set_app_state(_gap_carry_bank_key(user_id, mode), json.dumps(bank))
+
+
 def _gap_carry_backtest_key(user_id: int) -> str:
     return f"gap_carry_backtest_latest:{int(user_id)}"
 
@@ -13855,6 +13903,10 @@ async def _save_gap_carry_open_state(user_id: int, *, force: bool = False) -> No
         # The whole note list, not the 8 the status shows: this is the moment a
         # note stops being only in memory.
         await _archive_gap_carry_events(int(user_id), list(runtime.engine.notes or []))
+        try:
+            await _bank_gap_carry_nights(int(user_id), runtime.engine)
+        except Exception as exc:  # the next save retries; a bank write must not cost the campaign its save
+            _logger.warning("[GAP CARRY] could not bank closed nights for user %s: %s", user_id, exc)
 
 
 async def _restore_gap_carry_open_state(
@@ -13890,6 +13942,7 @@ async def _restore_gap_carry_open_state(
                 engine.executor = _gap_carry_executor(broker, "live")
             else:
                 live_refused = True
+        engine.banked_before = _gap_carry_banked_before(await _gap_carry_bank(int(user_id), saved_mode), engine)
         last_raw = str(payload.get("last_candle_timestamp") or "")
         try:
             last = datetime.fromisoformat(last_raw.replace("Z", "+00:00"))
@@ -14005,6 +14058,9 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
         lot_size_lookup=_gap_carry_lot_size_lookup(broker_client),
         executor=_gap_carry_executor(broker_client, trade_mode),
     )
+    # Sized on what this book has banked in this mode, BEFORE the first candle
+    # is read -- a start at 15:11 decides the night on that very ingest.
+    engine.banked_before = _gap_carry_banked_before(await _gap_carry_bank(int(user_id), trade_mode), engine)
     await asyncio.to_thread(engine.ingest, {config.timeframe: rows})
     last = rows[-1].timestamp if rows else datetime.now(IST)
     if last.tzinfo is None:

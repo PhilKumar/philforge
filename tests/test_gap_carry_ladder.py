@@ -67,8 +67,12 @@ class BothPathsUseTheOneHelper(unittest.TestCase):
         self.assertIn("banked += float(position.net)", REPLAY)
 
     def test_the_live_engine_sizes_from_closed_carries_only(self):
-        self.assertIn("laddered_lots(self.config", PAPER)
-        block = PAPER.split("laddered_lots(self.config")[1][:200]
+        """From the BOOK's banked nights, not just this campaign's: Auto starts a
+        fresh campaign each night, and history alone always read nothing banked
+        (2026-09-15). Only closed carries count -- history holds nothing else."""
+        self.assertIn("laddered_lots(self.config, self.banked)", PAPER)
+        block = PAPER.split("def banked(self)")[1][:400]
+        self.assertIn("self.banked_before", block)
         self.assertIn("self.history", block, "history holds CLOSED carries")
 
     def test_the_position_records_the_size_it_actually_took(self):

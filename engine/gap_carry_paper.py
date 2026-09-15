@@ -131,6 +131,11 @@ class GapCarryPaper:
     #: that -- not an entry, not an exit -- until a human has looked at the
     #: broker book, because money may be in motion.
     frozen_reason: Optional[str] = None
+    #: Profit this BOOK banked on nights closed by earlier campaigns, in this
+    #: campaign's own mode. Auto starts a fresh campaign every night, so a
+    #: ladder read from `history` alone always saw nothing banked and traded one
+    #: lot for ever (found 2026-09-15). The app keeps the bank and hands it in.
+    banked_before: float = 0.0
 
     position: Optional[GapCarryPosition] = None
     history: list = field(default_factory=list)
@@ -219,7 +224,7 @@ class GapCarryPaper:
         # THE LADDER, on money this book has actually banked. Same helper the
         # replay uses, so a size decided here and a size decided in a backtest
         # cannot drift apart. history holds only CLOSED carries.
-        lots = laddered_lots(self.config, sum(float(p.net or 0.0) for p in self.history))
+        lots = laddered_lots(self.config, self.banked)
         if lots != int(self.config.lots):
             self.notes.append(f"{session}: compounding — {lots} lots instead of {self.config.lots}")
         quantity = int(lot) * lots
@@ -459,6 +464,11 @@ class GapCarryPaper:
             return 0.0
 
     # ── what the page reads ──────────────────────────────────────────────
+    @property
+    def banked(self) -> float:
+        """Everything this book has banked: earlier campaigns plus this one's closed nights."""
+        return float(self.banked_before or 0.0) + sum(float(p.net or 0.0) for p in self.history)
+
     def get_status(self) -> dict:
         pos = self.position or (self.history[-1] if self.history else None)
         realised = sum(float(p.net or 0.0) for p in self.history)
@@ -467,6 +477,11 @@ class GapCarryPaper:
             "strategy": "gap_carry",
             "status": self._status,
             "timeframe": self.config.timeframe,
+            # What the next carry will buy, and on how much banked profit.
+            "ladder": {
+                "banked": round(self.banked, 2),
+                "next_lots": laddered_lots(self.config, self.banked),
+            },
             "rule": {
                 "rsi_threshold": self.config.rsi_threshold,
                 "rsi_for_call": self.config.rsi_floor_for_call,
@@ -475,6 +490,9 @@ class GapCarryPaper:
                 "lots": self.config.lots,
                 "entry_time": self.config.entry_time.strftime("%H:%M"),
                 "exit_time": self.config.exit_time.strftime("%H:%M"),
+                "compound_step_pct": float(self.config.compound_step_pct or 0.0),
+                "compound_base_capital": float(self.config.compound_base_capital or 0.0),
+                "compound_max_lots": int(self.config.compound_max_lots or 20),
                 # So a reader can see WHICH selling rule is live without
                 # opening the config.
                 "cut_losers_at_open": bool(self.config.cut_losers_at_open),
@@ -517,6 +535,11 @@ class GapCarryPaper:
                 "strike_offset_steps": self.config.strike_offset_steps,
                 "strike_step": self.config.strike_step,
                 "lots": self.config.lots,
+                # The ladder is a SETTING someone chose, so unlike the rule below
+                # it is read back: a restart used to drop it and size flat.
+                "compound_step_pct": float(self.config.compound_step_pct or 0.0),
+                "compound_base_capital": float(self.config.compound_base_capital or 0.0),
+                "compound_max_lots": int(self.config.compound_max_lots or 20),
                 "entry_time": self.config.entry_time.strftime("%H:%M"),
                 "exit_time": self.config.exit_time.strftime("%H:%M"),
                 # A RECORD of what was running, not a setting: `from_dict`
@@ -553,6 +576,9 @@ class GapCarryPaper:
             strike_offset_steps=int(raw.get("strike_offset_steps") or 4),
             strike_step=int(raw.get("strike_step") or 50),
             lots=int(raw.get("lots") or 1),
+            compound_step_pct=float(raw.get("compound_step_pct") or 0.0),
+            compound_base_capital=float(raw.get("compound_base_capital") or 0.0),
+            compound_max_lots=int(raw.get("compound_max_lots") or 20),
             entry_time=_as_time(raw.get("entry_time"), time(15, 10)),
             exit_time=_as_time(raw.get("exit_time"), time(9, 20)),
             # TAKEN FROM THE CODE, NOT FROM THE FILE -- deliberately.
