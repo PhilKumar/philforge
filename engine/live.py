@@ -64,6 +64,7 @@ from broker.dhan import UNDERLYING_MAP, AmbiguousOrderSubmission, DhanClient, Sc
 from engine.backtest import (
     decision_why,
     drain_cross_skips,
+    eval_condition,
     eval_condition_group,
     get_lot_size,
     get_sell_option_margin_per_lot,
@@ -465,6 +466,55 @@ class LiveEngine:
             f"{stage}: {len(skips)} cross condition(s) could not be decided and were treated as FALSE — "
             f"{'; '.join(reasons)} [{', '.join(fields)}]",
         )
+
+    # Conditions decided by the calendar alone. A bar's market data cannot make
+    # one of these true, so they are known before the bar is read.
+    _CALENDAR_CONDITION_LEFTS = frozenset({"Time_Of_Day", "Day_Of_Week"})
+
+    def _entry_possible_this_bar(self, latest_row, prev_row, now: datetime) -> bool:
+        """Could an entry happen on this bar, whatever the market did?
+
+        Asked before warming the option chain. On 2026-09-15 the CE book -- which
+        trades Wednesday to Friday only -- scanned 31 strikes on every Tuesday bar,
+        and at 09:25 Dhan answered a 429 and the scan ran on estimated prices.
+
+        Every gate the entry itself applies is checked, and every market condition
+        is assumed TRUE. The AND/OR chain only ever gets truer when an input does,
+        so if it is still false the entry cannot fire, and nothing a warm-up would
+        fetch can be used. When unsure, it says yes: a missed warm-up costs about
+        a second on a real entry, which is the delay this must never add.
+        """
+        try:
+            if self.in_trade:
+                return False
+            if self._pending_order:
+                return True  # an armed entry reads the chain on its way out
+            if self.trades_today >= int(self.strategy.get("max_trades_per_day", 1) or 1):
+                return False
+            if self.max_daily_loss > 0 and self.daily_pnl <= -self.max_daily_loss:
+                return False
+            if self._profit_cooldown_active() or not self._signals_live(now):
+                return False
+            conditions = self.entry_conditions or []
+            if not conditions:
+                return False
+            overall = True
+            for index, cond in enumerate(conditions):
+                if cond.get("left") in self._CALENDAR_CONDITION_LEFTS:
+                    passed = bool(eval_condition(latest_row, cond, prev_row))
+                else:
+                    passed = True
+                if index == 0:
+                    overall = passed
+                    continue
+                logic = str(cond.get("logic", cond.get("connector", "AND")) or "AND").upper()
+                if logic in ("AND", "IF"):
+                    overall = overall and passed
+                elif logic == "OR":
+                    overall = overall or passed
+            return bool(overall)
+        except Exception:  # noqa: BLE001 - a doubt must never cost a real entry its head start
+            return True
 
     def _evaluate_entry_conditions_with_debug(self, latest_row, prev_row, now: datetime):
         if not self._signals_live(now):
@@ -2200,9 +2250,12 @@ class LiveEngine:
                 # in front of the order. On 2026-09-10 they cost 3 of the 16.7
                 # seconds between the bar closing and Dhan accepting the order.
                 #
-                # Fire and forget, and only when flat: a failure here must not
-                # touch the entry, which does its own fetch with its own retry.
-                if not self.in_trade:
+                # Fire and forget, and only when an entry could actually fire on
+                # this bar: a failure here must not touch the entry, which does
+                # its own fetch with its own retry, and a warm-up for a bar that
+                # cannot enter only spends Dhan's rate budget for nothing.
+                warm_prev = df_with_indicators.iloc[-2] if len(df_with_indicators) >= 2 else None
+                if self._entry_possible_this_bar(latest_row, warm_prev, now):
                     self._warm_option_shelf()
 
                 candle_in_session = self._strategy_candle_closes_in_session(strategy_candle_time)

@@ -1622,6 +1622,29 @@ def _closed_trade_fingerprint(trade: Mapping[str, Any]) -> str:
     )
 
 
+def _closed_trade_identity(trade: Mapping[str, Any]) -> str:
+    """Which trade this is, from what cannot change once it has been entered.
+
+    The fingerprint above carries `exit_time`, `exit_reason` and `pnl` -- and all
+    three get CORRECTED after an exit is announced: a broker exit first booked at
+    the entry price is repriced from the trade book, and Dhan's charges replace
+    the engine's estimate next day. Each correction made an old exit look new.
+    On 2026-09-15 at 09:15 the 10-Sep 23700PE exit (+1,763.21) went out again.
+    """
+    return "|".join(str(trade.get(key, "")) for key in ("id", "symbol", "trading_symbol", "entry_time"))
+
+
+def _exit_is_news(trade: Mapping[str, Any], today: str) -> bool:
+    """An exit is announced on the day it happens, never later.
+
+    An exit from a previous day is history however its record is edited, and a
+    restart or a repaired row must not send it to a phone. No exit time at all
+    is let through: a real exit must never be silenced for a missing field.
+    """
+    stamp = str(trade.get("exit_time") or "")[:10]
+    return not stamp or stamp >= today
+
+
 async def _load_alert_state(state_key: str) -> dict:
     """The announced-trade set for a run, read once per process.
 
@@ -1664,7 +1687,7 @@ async def _reset_alert_state_for_start(user_id: int, run_id: str, closed_trades:
     _alert_state.pop(key, None)
     state = await _load_alert_state(key)
     state["in_trade"] = False
-    state["seen"].update(_closed_trade_fingerprint(t) for t in closed_trades or [])
+    state["seen"].update(_closed_trade_identity(t) for t in closed_trades or [])
     await _save_alert_state(key, state)
 
 
@@ -1707,12 +1730,16 @@ async def _check_trade_alerts(run_id: str, mode_label: str, event: dict, user_id
 
     # Detect exit: a closed trade this run has not announced before. Keyed on
     # the trade, never on how many there are -- see the note above the state.
+    # A record written before identities were kept still counts as announced.
+    today = _ist_date_str()
     for t in closed_trades:
-        fingerprint = _closed_trade_fingerprint(t)
-        if fingerprint in seen:
+        identity = _closed_trade_identity(t)
+        if identity in seen or _closed_trade_fingerprint(t) in seen:
             continue
-        seen.add(fingerprint)
+        seen.add(identity)
         changed = True
+        if not _exit_is_news(t, today):
+            continue
         sym = t.get("symbol") or t.get("trading_symbol") or "—"
         pnl = round(t.get("pnl", 0), 2)
         reason = t.get("exit_reason") or t.get("reason") or "—"

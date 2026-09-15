@@ -69,8 +69,12 @@ class AlertHarness(unittest.TestCase):
         app_module._db_mod.get_app_state = _get
         app_module._db_mod.set_app_state = _set
         app_module._alert_state.clear()
+        # The exits below happened on 03-Sep; an exit is only news on its day.
+        self._today = app_module._ist_date_str
+        app_module._ist_date_str = lambda value=None: "2026-09-03"
 
     def tearDown(self):
+        app_module._ist_date_str = self._today
         app_module.alerter.alert = self._alert
         app_module._db_mod.get_app_state = self._get
         app_module._db_mod.set_app_state = self._set
@@ -152,7 +156,7 @@ class WhatIsWrittenDown(AlertHarness):
         stored = json.loads(self.store["trade_alerts:1:PE_NoTarget"])
         self.assertNotIn("closed_count", stored)
         self.assertEqual(len(stored["seen"]), 1)
-        self.assertIn("EXIT_SIGNAL", stored["seen"][0])
+        self.assertIn("NIFTY 23750 CE", stored["seen"][0])
 
     def test_the_set_cannot_grow_without_bound(self):
         cap = app_module._ALERT_SEEN_CAP
@@ -182,3 +186,66 @@ class TheCallersAwaitIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ACorrectedExitIsNotANewExit(AlertHarness):
+    """Phil, 2026-09-15: a Telegram "Trade Exit" at 09:15 for the 10-Sep 23700PE.
+
+    The record had been corrected after it was announced -- a broker exit first
+    booked at the entry price was repriced from the trade book -- and the old
+    fingerprint carried exit_time and pnl, so the corrected row read as new. The
+    11-Sep exit, never announced while alerts were crashing, went out with it.
+    """
+
+    SEP10 = {
+        "id": 1,
+        "trading_symbol": "NIFTY 23700PE 2026-09-15",
+        "entry_time": "2026-09-10 09:25:09",
+        "exit_time": "2026-09-10 15:26:36",
+        "exit_reason": "BROKER_MANUAL_EXIT",
+        "pnl": 1763.21,
+    }
+
+    def test_a_repriced_exit_is_not_sent_again(self):
+        app_module._ist_date_str = lambda value=None: "2026-09-10"
+        booked_at_entry = dict(self.SEP10, exit_time="2026-09-10 09:25:09", pnl=-12.0)
+        self.fire(self.event(booked_at_entry))
+        self.fire(self.event(self.SEP10))
+        self.assertEqual(len(self.exits()), 1)
+
+    def test_charges_settling_next_day_is_not_sent_again(self):
+        app_module._ist_date_str = lambda value=None: "2026-09-10"
+        self.fire(self.event(self.SEP10))
+        app_module._ist_date_str = lambda value=None: "2026-09-11"
+        self.fire(self.event(dict(self.SEP10, pnl=1701.4)), restart=True)
+        self.assertEqual(len(self.exits()), 1)
+
+    def test_an_exit_from_an_earlier_day_is_never_news(self):
+        app_module._ist_date_str = lambda value=None: "2026-09-15"
+        self.fire(self.event(self.SEP10), restart=True)
+        self.assertEqual(self.exits(), [])
+
+    def test_and_it_is_remembered_so_it_stays_quiet(self):
+        app_module._ist_date_str = lambda value=None: "2026-09-15"
+        self.fire(self.event(self.SEP10))
+        self.assertIn(app_module._closed_trade_identity(self.SEP10), self.store["trade_alerts:1:PE_NoTarget"])
+
+    def test_a_record_written_the_old_way_still_counts_as_sent(self):
+        """Prod's saved state holds old fingerprints; a deploy must not replay them."""
+        old = app_module._closed_trade_fingerprint(self.SEP10)
+        self.store["trade_alerts:1:PE_NoTarget"] = json.dumps({"in_trade": False, "seen": [old]})
+        app_module._ist_date_str = lambda value=None: "2026-09-10"
+        self.fire(self.event(self.SEP10), restart=True)
+        self.assertEqual(self.exits(), [])
+
+    def test_todays_exit_still_goes_out(self):
+        """Silence must not be bought by suppressing a real exit."""
+        app_module._ist_date_str = lambda value=None: "2026-09-10"
+        self.fire(self.event(self.SEP10))
+        self.assertEqual(len(self.exits()), 1)
+        self.assertIn("23700PE", self.exits()[0])
+
+    def test_an_exit_with_no_time_is_not_silenced(self):
+        untimed = {k: v for k, v in self.SEP10.items() if k != "exit_time"}
+        self.fire(self.event(untimed))
+        self.assertEqual(len(self.exits()), 1)

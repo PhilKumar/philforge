@@ -157,10 +157,13 @@ class TheShelfIsWarmBeforeTheEntryReadsIt(unittest.TestCase):
     def test_the_shelf_is_warmed_when_a_candle_closes(self):
         self.assertIn("self._warm_option_shelf()", self.SRC)
 
-    def test_only_while_flat(self):
-        """A book already in a trade is not about to enter one."""
+    def test_only_when_an_entry_could_fire(self):
+        """A book in a trade, or on a bar its calendar rules out, is not about to
+        enter. See tests/test_warm_up_only_when_an_entry_can_fire.py."""
         i = self.SRC.index("self._warm_option_shelf()")
-        self.assertIn("if not self.in_trade:", self.SRC[i - 200 : i])
+        self.assertIn("self._entry_possible_this_bar(", self.SRC[i - 200 : i])
+        gate = self.SRC.split("def _entry_possible_this_bar")[1].split("\n    def ")[0]
+        self.assertIn("if self.in_trade:", gate)
 
     def test_it_resolves_the_expiry_the_way_the_entry_does(self):
         """Warming a different expiry's shelf would warm the wrong prices."""
