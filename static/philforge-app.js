@@ -4061,9 +4061,47 @@ function _syncGapCarryRecipe() {
   }
 }
 
-function setGapCarryMode(_event, button) {
-  _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', button?.dataset?.value || 'paper');
-  _syncGapCarryRecipe();
+// WITH AUTO ON, THE MODE SWITCH IS AUTO'S MODE, AND IT IS SAVED. It used to
+// change only this page: Auto kept the mode it was switched on with (paper, on
+// 24-Aug), and the next reload drew Paper again. Phil, 2026-09-15: "the auto
+// live is not persistent... revert back to paper".
+let _gapCarryModeInFlight = false;
+async function setGapCarryMode(_event, button) {
+  const wanted = button?.dataset?.value || 'paper';
+  const previous = document.getElementById('oc-gap-mode')?.value || 'paper';
+  if (!(_lastGapCarryAuto && _lastGapCarryAuto.enabled)) {
+    _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', wanted);
+    _syncGapCarryRecipe();
+    return;
+  }
+  if (wanted === previous || _gapCarryModeInFlight) return;
+  if (wanted === 'live') {
+    const confirmed = await customConfirm(
+      'Auto will buy and sell REAL NIFTY options with your Dhan money every session: 15:10 in, 09:20 out.',
+      { title: 'Switch Auto carry to LIVE', icon: ICO.warn(28), okText: 'Go LIVE', danger: true },
+    );
+    if (!confirmed) return;
+  }
+  _gapCarryModeInFlight = true;
+  _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', wanted);
+  try {
+    const response = await fetch('/api/gap-carry/auto', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, mode: wanted }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The Auto mode could not be changed.'));
+    _renderGapCarryAuto(data.auto || {});
+    _setGapCarryFormStatus(wanted === 'live' ? 'Auto carry is now LIVE.' : 'Auto carry is now on paper.', 'success');
+  } catch (error) {
+    _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', previous);
+    _setGapCarryFormStatus(error.message || 'The Auto mode could not be changed.', 'error');
+  } finally {
+    _gapCarryModeInFlight = false;
+    _syncGapCarryRecipe();
+  }
 }
 function setGapCarryExpiry(_event, button) {
   _ocpSetSwitch('oc-gap-expiry-rule', 'oc-gap-expiry-toggle', button?.dataset?.value || 'weekly');
@@ -4102,6 +4140,13 @@ async function setGapCarryAuto(_event, button) {
   const wanted = button?.dataset?.value || 'off';
   const previous = document.getElementById('oc-gap-auto')?.value || 'off';
   if (wanted === previous) return;
+  if (wanted === 'on' && document.getElementById('oc-gap-mode')?.value === 'live') {
+    const confirmed = await customConfirm(
+      'Auto will buy and sell REAL NIFTY options with your Dhan money every session: 15:10 in, 09:20 out.',
+      { title: 'Turn on LIVE Auto carry', icon: ICO.warn(28), okText: 'Go LIVE', danger: true },
+    );
+    if (!confirmed) return;
+  }
   _gapCarryAutoInFlight = true;
   _ocpSetSwitch('oc-gap-auto', 'oc-gap-auto-toggle', wanted);
   try {
@@ -4229,7 +4274,10 @@ function _renderGapCarryAuto(auto) {
   _ocpSetSwitch('oc-gap-auto', 'oc-gap-auto-toggle', on ? 'on' : 'off');
   if (!on) { card.hidden = true; card.textContent = ''; return; }
   card.hidden = false;
-  const bits = [`<strong>Auto carry is on.</strong> 15:10 in; a carry that opens down is cut at 09:15, otherwise 09:20 out.`];
+  const autoLive = String(auto.mode || '').toLowerCase() === 'live';
+  // The switch shows what the SERVER will trade, not whatever the page loaded with.
+  if (!_gapCarryModeInFlight) _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', autoLive ? 'live' : 'paper');
+  const bits = [`<strong>Auto carry is on · ${autoLive ? 'LIVE' : 'paper'}.</strong> 15:10 in; a carry that opens down is cut at 09:15, otherwise 09:20 out.`];
   if (auto.state) bits.push(`State: <code>${String(auto.state)}</code>`);
   if (auto.entry_day) bits.push(`Last entry checked: ${String(auto.entry_day)}`);
   if (auto.alert) bits.push(`<span style="color:var(--danger);">${String(auto.alert)}</span>`);
@@ -4614,6 +4662,10 @@ async function refreshGapCarryStatus() {
       return;
     }
     _renderGapCarryAuto(data.auto || {});
+    // A running campaign's own mode wins over Auto's: it is what is actually trading.
+    if (data.campaign && data.campaign.running && !_gapCarryModeInFlight) {
+      _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', String(data.mode || '').toLowerCase() === 'live' ? 'live' : 'paper');
+    }
     if (Array.isArray(data.timeframes) && data.timeframes.length) _lastGapCarryTimeframes = data.timeframes;
     _renderGapCarryStatus(data.campaign || null, Boolean(data.campaign && data.campaign.running));
     // After the status, and outside it: the status returns early when no

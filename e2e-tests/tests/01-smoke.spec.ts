@@ -1834,3 +1834,40 @@ test('The chart dialog cannot flicker its own canvas', async ({ page }) => {
   });
   expect(deadBand, 'the resize dead-band is gone — a 1px wobble will repaint again').toBe(true);
 });
+
+// Phil, 2026-09-15: "the auto live is not persistent, it is not surviving the
+// restart and revert back to paper". The Mode switch always loaded as Paper,
+// and changing it while Auto was on never reached the server.
+test('Gap Carry Auto shows the saved LIVE mode and saves a mode change', async ({ page }) => {
+  await login(page);
+  let auto = { enabled: true, mode: 'live', state: 'waiting-for-clock' };
+  const posted: Array<{ enabled: boolean; mode: string }> = [];
+  await page.route('**/api/gap-carry/paper/status', route => route.fulfill({
+    json: { status: 'not_started', mode: 'paper', live_available: true, auto, timeframes: ['5m', '15m'] },
+  }));
+  await page.route('**/api/gap-carry/auto', async route => {
+    const body = route.request().postDataJSON();
+    posted.push(body);
+    auto = { ...auto, enabled: body.enabled, mode: body.mode };
+    await route.fulfill({ json: { status: 'ok', auto } });
+  });
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-gapcarry');
+
+  // After a reload the switch reads what the server saved, not the page default.
+  await expect(page.locator('#oc-gap-mode')).toHaveValue('live');
+  await expect(page.locator('#oc-gap-auto-card')).toContainText('LIVE');
+
+  // To paper: saved at once, no confirm needed to take money OFF the table.
+  await page.click('#oc-gap-mode-toggle [data-value="paper"]');
+  await expect.poll(() => posted.length).toBe(1);
+  expect(posted[0]).toEqual({ enabled: true, mode: 'paper' });
+  await expect(page.locator('#oc-gap-auto-card')).toContainText('paper');
+
+  // Back to live: real money is confirmed first, then saved.
+  await page.click('#oc-gap-mode-toggle [data-value="live"]');
+  await page.click('#confirm-ok-btn');
+  await expect.poll(() => posted.length).toBe(2);
+  expect(posted[1]).toEqual({ enabled: true, mode: 'live' });
+  await expect(page.locator('#oc-gap-mode')).toHaveValue('live');
+});

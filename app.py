@@ -13642,6 +13642,32 @@ def _gap_carry_trade_mode(value: str) -> str:
     return mode
 
 
+def _gap_carry_live_open() -> bool:
+    """Is real money allowed for Gap Carry right now? Asked, never cached."""
+    return bool(_OPTIONS_LIVE_EXECUTION_ENABLED or live_execution_open("PF_GAP_CARRY"))
+
+
+def _gap_carry_executor(broker: DhanClient, mode: str):
+    """The one place a Gap Carry campaign gets its order path, start or restore."""
+    if mode != "live":
+        return None
+    return build_executor(broker, "NIFTY", mode="live", armed=True, product_type="MARGIN", tag="PF_GAP_CARRY")
+
+
+def _gap_carry_saved_mode(saved: Mapping[str, Any]) -> str:
+    """The mode a saved campaign was running in.
+
+    States written before the mode was recorded carry no field; an open leg
+    with a Dhan order id can only have come from the live path, so that is
+    read as live. Anything else falls to paper.
+    """
+    recorded = str(saved.get("mode") or "").strip().lower()
+    if recorded in {"live", "paper"}:
+        return recorded
+    position = saved.get("position") or {}
+    return "live" if isinstance(position, Mapping) and position.get("order_id") else "paper"
+
+
 def _gap_carry_timeframe(value: str) -> str:
     tf = str(value or "5m").strip().lower()
     if tf not in _GAP_CARRY_TIMEFRAMES:
@@ -13855,6 +13881,15 @@ async def _restore_gap_carry_open_state(
             expiry_lookup=_gap_carry_expiry_lookup(broker),
             lot_size_lookup=_gap_carry_lot_size_lookup(broker),
         )
+        # A LIVE campaign comes back LIVE. It used to come back with no
+        # executor at all -- shown as paper, and unable to sell a real leg.
+        saved_mode = _gap_carry_saved_mode(saved)
+        live_refused = False
+        if saved_mode == "live":
+            if _gap_carry_live_open():
+                engine.executor = _gap_carry_executor(broker, "live")
+            else:
+                live_refused = True
         last_raw = str(payload.get("last_candle_timestamp") or "")
         try:
             last = datetime.fromisoformat(last_raw.replace("Z", "+00:00"))
@@ -13890,6 +13925,14 @@ async def _restore_gap_carry_open_state(
         )
         if frozen:
             engine.frozen_reason = frozen
+            running = False
+        if live_refused:
+            # Never quietly continue a live campaign on paper: a paper exit
+            # would book a sale while the real leg stays in the account.
+            engine.frozen_reason = (
+                "This campaign was LIVE, but live trading is switched off on the server; "
+                "it is held, not continued on paper. Check the Dhan position."
+            )
             running = False
         runtime = _CascadeRuntime(
             engine=engine, adapter=adapter, broker=broker, last_candle_timestamp=last, running=running
@@ -13960,18 +14003,7 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
         option_premium_lookup=_gap_carry_premium_lookup(broker_client, await _gap_carry_history_lookup(broker_client)),
         expiry_lookup=_gap_carry_expiry_lookup(broker_client, expiry_rule),
         lot_size_lookup=_gap_carry_lot_size_lookup(broker_client),
-        executor=(
-            build_executor(
-                broker_client,
-                "NIFTY",
-                mode="live",
-                armed=True,
-                product_type="MARGIN",
-                tag="PF_GAP_CARRY",
-            )
-            if trade_mode == "live"
-            else None
-        ),
+        executor=_gap_carry_executor(broker_client, trade_mode),
     )
     await asyncio.to_thread(engine.ingest, {config.timeframe: rows})
     last = rows[-1].timestamp if rows else datetime.now(IST)
@@ -14058,6 +14090,27 @@ async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = No
         return "no-broker"
     runtime = await _restore_gap_carry_open_state(uid, broker_client, activate=True)
 
+    # AUTO SET TO LIVE MUST NOT BE BEATEN TO THE ENTRY BY A PAPER CAMPAIGN.
+    # A paper campaign left waiting runs its own loop and buys at 15:10 on
+    # paper; Auto then meets "already carried" and stands down, so the night
+    # goes on paper whatever Auto says. One holding NOTHING is retired here --
+    # on every tick, not only at the entry clock, so it cannot win that race.
+    # A campaign holding a leg is never touched.
+    if (
+        str(setting.get("mode") or "").lower() == "live"
+        and runtime is not None
+        and getattr(runtime.engine, "executor", None) is None
+        and not runtime.engine.has_open_position
+        and runtime.engine.status not in _GAP_CARRY_TERMINAL
+    ):
+        runtime.running = False
+        if runtime.task is not None:
+            runtime.task.cancel()
+        _gap_carry_engines.pop(uid, None)
+        await _save_gap_carry_open_state(uid, force=True)
+        _logger.info("[GAP AUTO] retired an idle paper campaign for user %s: Auto is set to LIVE", uid)
+        runtime = None
+
     # ── the exit, first and late-tolerant ──
     if runtime is not None and runtime.engine.has_open_position:
         pos = runtime.engine.position
@@ -14096,7 +14149,18 @@ async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = No
         setting["skipped_day"] = today
         await _save_gap_carry_auto(uid)
         return "too-late"
-    payload = SimpleNamespace(**_GAP_CARRY_AUTO_RULE, mode="paper")
+    # The mode Phil chose for Auto. It was hardcoded to "paper", so Auto never
+    # traded live however it was set. Live that the server will no longer
+    # allow is refused out loud, never swapped for paper.
+    auto_mode = "live" if str(setting.get("mode") or "").lower() == "live" else "paper"
+    if auto_mode == "live" and not _gap_carry_live_open():
+        setting["last_error"] = (
+            "Auto is set to LIVE but live trading is switched off on the server; nothing was bought."
+        )
+        setting["entry_day"] = today
+        await _save_gap_carry_auto(uid)
+        return "start-failed"
+    payload = SimpleNamespace(**_GAP_CARRY_AUTO_RULE, mode=auto_mode)
     try:
         await _start_gap_carry_campaign(uid, payload, broker_client=broker_client)
     except HTTPException as exc:
@@ -14170,8 +14234,9 @@ async def gap_carry_paper_status(request: Request):
     auto = _gap_carry_auto_public(await _gap_carry_auto_settings(user_id))
     body = {
         "status": "ok" if runtime is not None else "not_started",
-        "mode": "paper",
-        "live_available": bool(_FIB_TOUCH_LIVE_EXECUTION_ENABLED),
+        # What the running campaign really is -- not a constant.
+        "mode": "live" if runtime is not None and getattr(runtime.engine, "executor", None) is not None else "paper",
+        "live_available": _gap_carry_live_open(),
         "auto": auto,
         "timeframes": list(_GAP_CARRY_TIMEFRAMES),
     }

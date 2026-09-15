@@ -500,6 +500,10 @@ class GapCarryPaper:
         return {
             "version": 1,
             "strategy": "gap_carry",
+            # Whether this campaign sends real orders. The executor itself cannot
+            # be saved, so without this a restart brought a LIVE campaign back
+            # as paper -- and its 09:20 exit would have sold nothing at Dhan.
+            "mode": "live" if self.executor is not None else "paper",
             "status": self._status,
             "config": {
                 "timeframe": self.config.timeframe,
