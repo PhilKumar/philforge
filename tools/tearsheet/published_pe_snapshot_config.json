@@ -121,34 +121,6 @@
    "operator": "crosses_above",
    "right": "CPR_TC",
    "right_number_value": ""
-  },
-  {
-   "logic": "OR",
-   "left": "current_close",
-   "operator": "crosses_above",
-   "right": "CPR_S4",
-   "right_number_value": ""
-  },
-  {
-   "logic": "OR",
-   "left": "current_close",
-   "operator": "crosses_below",
-   "right": "CPR_S4",
-   "right_number_value": ""
-  },
-  {
-   "logic": "OR",
-   "left": "current_close",
-   "operator": "crosses_above",
-   "right": "CPR_S5",
-   "right_number_value": ""
-  },
-  {
-   "logic": "OR",
-   "left": "current_close",
-   "operator": "crosses_below",
-   "right": "CPR_S5",
-   "right_number_value": ""
   }
  ],
  "legs": [

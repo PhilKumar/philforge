@@ -125,7 +125,9 @@ class PublishedFiguresMatchTheBook(unittest.TestCase):
         self.assertIn('"day_of_week": day_of_week', backend)
         self.assertIn('"yearly": yearly', backend)
         self.assertIn("published_historical", backend)
-        self.assertIn("S4/S5 exits, 15:10 square-off, exits checked on each 5-minute close", backend)
+        self.assertIn(
+            "S1-S3 and TC exits (S4/S5 removed), 15:10 square-off, exits checked on each 5-minute close", backend
+        )
 
     def test_published_ledgers_reconcile_and_carry_real_fills(self):
         """Each Results row has the fills, timestamps, quantity and net it claims."""

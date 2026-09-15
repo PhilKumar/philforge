@@ -43,10 +43,14 @@ class ThePublishedFiguresAreUntouched(unittest.TestCase):
         PE #50 with S4/S5 exits, 15:10 square-off, S4/S5 on the traditional
         pivot formula, exits checked on each 5-minute close as live checks them.
         Rs 19,11,711 over 931 trades became Rs 17,92,906 over 923.
+
+        Re-pinned again 15-Sep-2026: Phil removed the S4/S5 exits from PE #50
+        after the exit sweep (at 4 lots they cost the put book about Rs 2.7
+        lakh). Rs 17,92,906 became Rs 20,58,931 over the same 923 trades.
         """
-        self.assertEqual(DATA["headline"]["combined"]["net"], 1792905.68)
+        self.assertEqual(DATA["headline"]["combined"]["net"], 2058931.45)
         self.assertEqual(DATA["headline"]["combined"]["trades"], 923)
-        self.assertIn("₹17,92,906", DOC)
+        self.assertIn("₹20,58,931", DOC)
         self.assertNotIn("₹12,45,087", DOC.split("Slippage")[0], "the old basis may survive only in the slippage table")
 
     def test_the_document_still_declares_four_lots(self):

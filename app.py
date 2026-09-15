@@ -22792,7 +22792,7 @@ def _published_historical_run(slug: str) -> dict:
         "source_note": (
             "Published five-year 4-lot ladder record, replayed from the checked-in "
             "Dhan archive with recorded costs, on the rules deployed in September 2026: "
-            "S4/S5 exits, 15:10 square-off, exits checked on each 5-minute close."
+            "S1-S3 and TC exits (S4/S5 removed), 15:10 square-off, exits checked on each 5-minute close."
         ),
         "stats": {
             "total_pnl": float(headline["net"]),
