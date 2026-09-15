@@ -387,10 +387,15 @@ def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wi
     daily["S2"] = daily["pivot"] - (daily["high"] - daily["low"])
     daily["R3"] = daily["high"] + 2 * (daily["pivot"] - daily["low"])
     daily["S3"] = daily["low"] - 2 * (daily["high"] - daily["pivot"])
-    daily["R4"] = daily["R3"] + (daily["high"] - daily["low"])
-    daily["S4"] = daily["S3"] - (daily["high"] - daily["low"])
-    daily["R5"] = daily["R4"] + (daily["high"] - daily["low"])
-    daily["S5"] = daily["S4"] - (daily["high"] - daily["low"])
+    # Traditional floor pivots past the third level -- the formula TradingView
+    # draws: R4 = 3P + (H - 3L), S4 = 3P - (3H - L), R5 = 4P + (H - 4L),
+    # S5 = 4P - (4H - L). Each step is (P - L) up or (H - P) down. This used to
+    # step by the whole range (H - L), which put S4 128 points and S5 256 points
+    # below the lines on Phil's chart on 2026-09-15 -- and the PE book exits on both.
+    daily["R4"] = daily["pivot"] * 3 + (daily["high"] - 3 * daily["low"])
+    daily["S4"] = daily["pivot"] * 3 - (3 * daily["high"] - daily["low"])
+    daily["R5"] = daily["pivot"] * 4 + (daily["high"] - 4 * daily["low"])
+    daily["S5"] = daily["pivot"] * 4 - (4 * daily["high"] - daily["low"])
 
     # Half-levels (midpoints between consecutive levels)
     daily["R0.5"] = (daily["pivot"] + daily["R1"]) / 2
@@ -491,10 +496,15 @@ def cpr_timeframe(
     bars["S2"] = bars["pivot"] - (bars["high"] - bars["low"])
     bars["R3"] = bars["high"] + 2 * (bars["pivot"] - bars["low"])
     bars["S3"] = bars["low"] - 2 * (bars["high"] - bars["pivot"])
-    bars["R4"] = bars["R3"] + (bars["high"] - bars["low"])
-    bars["S4"] = bars["S3"] - (bars["high"] - bars["low"])
-    bars["R5"] = bars["R4"] + (bars["high"] - bars["low"])
-    bars["S5"] = bars["S4"] - (bars["high"] - bars["low"])
+    # Traditional floor pivots past the third level -- the formula TradingView
+    # draws: R4 = 3P + (H - 3L), S4 = 3P - (3H - L), R5 = 4P + (H - 4L),
+    # S5 = 4P - (4H - L). Each step is (P - L) up or (H - P) down. This used to
+    # step by the whole range (H - L), which put S4 128 points and S5 256 points
+    # below the lines on Phil's chart on 2026-09-15 -- and the PE book exits on both.
+    bars["R4"] = bars["pivot"] * 3 + (bars["high"] - 3 * bars["low"])
+    bars["S4"] = bars["pivot"] * 3 - (3 * bars["high"] - bars["low"])
+    bars["R5"] = bars["pivot"] * 4 + (bars["high"] - 4 * bars["low"])
+    bars["S5"] = bars["pivot"] * 4 - (4 * bars["high"] - bars["low"])
 
     # Half-levels
     bars["R0.5"] = (bars["pivot"] + bars["R1"]) / 2

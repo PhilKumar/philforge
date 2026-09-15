@@ -23212,8 +23212,9 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         r1, s1 = 2 * p - low, 2 * p - high
         r2, s2 = p + rng, p - rng
         r3, s3 = high + 2 * (p - low), low - 2 * (high - p)
-        r4, s4 = r3 + rng, s3 - rng
-        s5 = s4 - rng
+        # Traditional floor pivots, as engine/indicators.py cpr() and TradingView draw them.
+        r4, s4 = 3 * p + (high - 3 * low), 3 * p - (3 * high - low)
+        s5 = 4 * p - (4 * high - low)
         amber, red, green = "#f59e0b", "#f87171", "#4ade80"
         for label, price, color in (
             ("CPR TC", tc, amber),

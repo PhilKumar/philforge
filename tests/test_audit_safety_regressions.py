@@ -106,8 +106,10 @@ def test_support_4_and_5_use_previous_session_without_lookahead(analytics):
     levels = {x["label"]: x["price"] for x in analytics(candles)["lines"]}
     pivot = (120 + 90 + 93) / 3
     s3 = 90 - 2 * (120 - pivot)
-    assert levels["S4"] == pytest.approx(s3 - 30, abs=0.0001)
-    assert levels["S5"] == pytest.approx(s3 - 60, abs=0.0001)
+    # Traditional floor pivots, as TradingView draws them (Phil, 2026-09-15):
+    # each step past S3 is (H - P), not the whole range.
+    assert levels["S4"] == pytest.approx(s3 - (120 - pivot), abs=0.0001)
+    assert levels["S5"] == pytest.approx(s3 - 2 * (120 - pivot), abs=0.0001)
     assert levels["CPR BC"] <= levels["CPR P"] <= levels["CPR TC"]
     candles[-1].update(h=3000, l=0, c=10)
     assert levels == {x["label"]: x["price"] for x in analytics(candles)["lines"]}
