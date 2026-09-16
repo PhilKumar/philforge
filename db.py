@@ -1166,6 +1166,15 @@ async def list_runs(user_id: int) -> list[dict]:
         return [_run_row_to_dict(row) for row in rows]
 
 
+async def list_runs_by_mode(user_id: int, mode: str) -> list[dict]:
+    """Saved runs of one mode, oldest first -- without loading every backtest."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM runs WHERE user_id = ? AND mode = ? ORDER BY id", (user_id, str(mode)))
+        rows = await cursor.fetchall()
+        return [_run_row_to_dict(row) for row in rows]
+
+
 async def get_run(user_id: int, run_id: int) -> dict | None:
     """Fetch one saved run for a user."""
     async with aiosqlite.connect(config.DB_PATH) as db:

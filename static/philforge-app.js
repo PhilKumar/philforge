@@ -22122,9 +22122,9 @@ function renderCePe(data) {
 
   // ── one flat ledger under both books, newest first ──
   // Live rows come from each engine's own list, which a fresh deploy empties.
-  // The OLD rows come from the broker account and outlive every restart -- they
-  // carry no strategy attribution, so they are labelled as the account's, not
-  // the book's (Phil, 2026-09-09).
+  // The OLD rows are the same books' earlier trades, from their own saved
+  // runs -- never the whole broker account, which listed Phil's scalps and the
+  // Gap Carry's overnight legs as though a book had taken them (2026-09-16).
   const rows = [];
   runs.forEach(r => (r.recent || []).forEach(t => rows.push({ run: r, t })));
   // The broker's record belongs on the LIVE page only. It holds real fills, and
@@ -22134,14 +22134,14 @@ function renderCePe(data) {
   (_cepeMode === 'live' ? ((data && data.history) || []) : [])
     .filter(h => _cepeFilter === 'all' || String(h.side).toUpperCase() === _cepeFilter)
     .forEach(h => rows.push({
-      run: { side: h.side },
+      run: { side: h.side, name: h.book || '' },
       old: true,
       t: {
         entry_time: h.entry_time || h.date, exit_time: h.exit_time || h.date, symbol: h.symbol,
         quantity: h.quantity, entry_premium: h.entry_premium,
         exit_premium: h.exit_premium, pnl: h.pnl, gross_pnl: h.gross_pnl,
         charges: h.charges, costs_known: h.costs_known,
-        exit_reason: '', why: [], id: null,
+        exit_reason: h.exit_reason || '', why: [], id: null,
       },
     }));
   rows.sort((a, b) => String(b.t.exit_time).localeCompare(String(a.t.exit_time)));
@@ -22164,10 +22164,10 @@ function renderCePe(data) {
     body.innerHTML = shown.length ? shown.map(({ run, t, old }) => `
       <tr class="${old ? 'cepe-row-old' : ''}" style="box-shadow:inset 3px 0 0 ${_cepeSide(run.side).tint};">
         <td><span class="cepe-tattoo" style="background:${_cepeSide(run.side).wash};color:${_cepeSide(run.side).tint};border-color:${_cepeSide(run.side).tint};">${escapeHtml(_cepeSide(run.side).label)}</span>${
-          old ? '<span class="cepe-old-tag" title="Closed before this deploy. From the broker account, which records no strategy, so it may belong to another book.">old closed</span>' : ''}${
+          old ? '<span class="cepe-old-tag" title="Closed before this book last restarted. From the book\u2019s own saved record, with the broker\u2019s charges once Dhan has booked them.">old closed</span>' : ''}${
           // WHICH book. Two paper PE books trade the same morning, so without a
           // name their rows read as the same trade twice.
-          !old && run.name ? `<div class="cepe-book-name">${escapeHtml(String(run.name))}</div>` : ''}</td>
+          run.name ? `<div class="cepe-book-name">${escapeHtml(String(run.name))}</div>` : ''}</td>
         <td>${_cepeTime(t.entry_time)}</td>
         <td>${_cepeTime(t.exit_time)}</td>
         <td>${escapeHtml(String(t.symbol || '—'))}</td>

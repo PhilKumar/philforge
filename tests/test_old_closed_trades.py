@@ -63,20 +63,24 @@ class TheDeskSaysWhereTheyCameFrom(unittest.TestCase):
         self.assertIn("cepe-old-tag", JS)
         self.assertIn("old closed", JS)
 
-    def test_the_tag_explains_the_attribution_gap(self):
-        """A row that may belong to another book must say so on hover."""
+    def test_the_tag_says_where_the_row_came_from(self):
+        """An old row is the book's own earlier trade, and says so on hover.
+
+        2026-09-16 it used to say "from the broker account ... may belong to
+        another book" -- and it did: Phil's scalps and the Gap Carry's legs.
+        """
         tag = JS.split("cepe-old-tag")[1][:400]
-        self.assertIn("broker account", tag)
-        self.assertIn("another book", tag)
+        self.assertIn("own saved record", tag)
+        self.assertNotIn("another book", tag)
 
     def test_the_table_is_captioned(self):
         caption = HTML.split('id="oc-cepe-closed-count"')[0][-400:]
         self.assertIn("old closed", caption)
-        self.assertIn("records no strategy", caption)
+        self.assertIn("own saved record", caption)
 
     def test_only_the_cepe_table_is_captioned(self):
         """Supertrend has a table with the same heading; it must be untouched."""
-        self.assertEqual(HTML.count("records no strategy"), 1)
+        self.assertEqual(HTML.count("from its own saved record"), 1)
 
     def test_old_rows_are_dimmed_but_readable_on_hover(self):
         self.assertIn(".cepe-row-old", CSS)

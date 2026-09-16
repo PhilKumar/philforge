@@ -19076,96 +19076,92 @@ async def live_status(request: Request, run_id: str = ""):
     }
 
 
-def _one_row_per_trade(runs: list, history: list) -> list:
-    """One trade, one row. The book's row, with Dhan's money once Dhan has it.
+# ── WHICH ROWS BELONG ON A BOOK'S LEDGER ──────────────────────────────────────
+#
+# Only trades the book itself took. 2026-09-16 the CE + PE desk listed every
+# NIFTY option in the broker account as "old closed": Phil's own scalps, both
+# halves of the Gap Carry overnight (as two rows of quantity 0), and the PE
+# book's 15-Sep trade TWICE -- because the account held five PE rows that day,
+# the day-and-side match called it ambiguous and printed both. The broker's
+# record carries no strategy, so it can never say which trades are a book's.
+#
+# The books' own saved runs can. Every LIVE engine saves its closed trades to
+# `runs` (mode "live") with the Dhan order id that opened them, and the Scalp
+# desk saves Phil's hand trades under "scalp". So a book's earlier trades come
+# from its own saved record, and the broker is used for exactly one thing: the
+# charges Dhan books overnight, matched to ONE contract at ONE minute.
 
-    The desk's ledger prints every book's own closed list AND the whole broker
-    record underneath it, and nothing reconciled the two — so a trade the engine
-    had booked appeared twice: once as its own row with the exit reason and the
-    chart, and again tagged "old closed" from the account (Phil, 2026-09-10:
-    "I have said I need one entry but why you are making 2?").
 
-    They are the same trade, and each half knows something the other does not.
-    The engine's row knows WHY it closed and can draw itself. The account's row
-    knows what it really cost, but only after Dhan books the day's charges
-    overnight — until then its P&L is gross, which is why it read ₹1,879 beside
-    the engine's ₹1,763 for one 130-lot PE.
+def _contract_strike(symbol) -> int | None:
+    """The strike inside any of the spellings the engine and Dhan use.
 
-    So: keep the book's row, drop the account's copy, and when the account has
-    settled the charges, take its net for the P&L column ("once the charges
-    updates on Dhan, update the PL column on the next day"). Matched on the day
-    and the option side, and only where each side of the match is unambiguous —
-    a book takes one trade a day, and a day with two of them is left alone
-    rather than guessed at.
+    "NIFTY 23600PE 2026-09-15", "NIFTY 15 SEP 23600 PUT", "NIFTY-Sep2026-23600-PE".
+    A NIFTY strike is five digits; the year is four and a day is two.
     """
-    # ONLY BOOKS WHOSE ORDERS REACHED THE BROKER. The broker's record holds real
-    # fills, and a paper book's trades never got there — so a paper trade can
-    # never be the account row's twin. `real_orders` is the same field the
-    # desk's LIVE/PAPER split and the LIVE badge read. Matching paper books did
-    # three wrong things at once on 2026-09-10: the paper book My_First_Run_CE
-    # had a CE on 09-03 for −₹2,936.31, so the REAL account CE of −₹1,740.25
-    # was paired with it and deleted from the table; the paper trade's own P&L
-    # was overwritten with the broker's; and the difference, +₹1,196, was booked
-    # onto the live CE book. Meanwhile three PE books had traded on 09-10 (one
-    # live, two paper), so the genuine duplicate was waved through as ambiguous.
-    own_by_key: dict[tuple, list] = defaultdict(list)
-    for run in runs:
-        side = str(run.get("side") or "").upper()
-        if not side or not run.get("real_orders"):
-            continue
-        for trade in run.get("recent") or []:
-            own_by_key[(str(trade.get("entry_time") or "")[:10], side)].append((run, trade))
-
-    account_by_key: dict[tuple, list] = defaultdict(list)
-    for row in history or []:
-        account_by_key[(str(row.get("date") or ""), str(row.get("side") or "").upper())].append(row)
-
-    settled = []
-    for key, rows in account_by_key.items():
-        mine = own_by_key.get(key) or []
-        if not mine:
-            settled.extend(rows)  # the account knows of a day no live book does
-            continue
-        if len(mine) != 1 or len(rows) != 1:
-            settled.extend(rows)  # ambiguous — show both rather than pick wrong
-            continue
-        # The same trade. The book's row survives; the account's money wins once
-        # the broker has actually booked the charges — and the correction goes
-        # to THE book that matched, never to every book on that side.
-        run, trade = mine[0]
-        moved = _settle_against_account([trade], key[1], rows)
-        if moved:
-            # `booked_pnl` comes from the WHOLE closed list, of which `recent` is
-            # the tail, so it is nudged by what changed rather than re-added.
-            run["booked_pnl"] = round(float(run.get("booked_pnl", 0) or 0) + moved, 2)
-
-    settled.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
-    return settled
+    match = re.search(r"(?<!\d)(\d{5})(?!\d)", str(symbol or ""))
+    return int(match.group(1)) if match else None
 
 
-def _with_account_history(status: dict, account_rows: list) -> dict:
-    """Fold a live book's earlier trades into the status the Live page reads.
+def _trade_option_side(trade: dict) -> str:
+    """CE or PE from a trade's own fields, when its run did not record legs."""
+    side = str(trade.get("option_type") or "").upper()
+    if side in ("CE", "PE"):
+        return side
+    symbol = str(trade.get("trading_symbol") or trade.get("symbol") or "").upper()
+    match = re.search(r"\d(CE|PE)\b|\b(CALL|PUT)\b|-(CE|PE)$", symbol)
+    if not match:
+        return ""
+    found = next(g for g in match.groups() if g)
+    return {"CALL": "CE", "PUT": "PE"}.get(found, found)
 
-    The panel builds its Completed Trades table from `closed_trades` and its
-    headline from `total_pnl`, so both move together or the page disagrees with
-    itself -- ₹0.00 above a table of real losses is worse than either half.
+
+def _minute(stamp) -> datetime | None:
+    text = str(stamp or "").replace("T", " ")[:16]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+def _same_trade_key(trade: dict) -> str:
+    """One identity for a book trade across its saved copies and its live row."""
+    order_id = str(trade.get("entry_order_id") or "")
+    if order_id:
+        return f"order:{order_id}"
+    symbol = trade.get("trading_symbol") or trade.get("symbol") or trade.get("display_symbol")
+    return f"at:{str(trade.get('entry_time') or '')[:16]}|{_contract_strike(symbol)}"
+
+
+def _account_twin(trade: dict, side: str, account_rows: list) -> dict | None:
+    """The broker's row for THIS trade: same side, strike, quantity, entry minute.
+
+    Exactly one or none. Matching on the day alone paired a book's trade with
+    whichever PE Phil scalped that afternoon, or with the Gap Carry's entry.
     """
-    if not isinstance(status, dict):
-        return status
-    own = list(status.get("closed_trades") or [])
-    side = _book_option_side(status.get("strategy") or {})
-    # The same settlement the CE + PE desk applies, so the two pages cannot
-    # disagree about what one trade made.
-    settled_by = _settle_against_account(own, side, account_rows)
-    borrowed = _account_rows_this_book_is_missing(status.get("strategy") or {}, own, account_rows)
-    if not borrowed and not settled_by:
-        return status
-    borrowed_pnl = sum(float(row.get("pnl", 0) or 0) for row in borrowed)
-    return {
-        **status,
-        "closed_trades": borrowed + own,
-        "total_pnl": round(float(status.get("total_pnl", 0) or 0) + borrowed_pnl + settled_by, 2),
-    }
+    strike = _contract_strike(trade.get("trading_symbol") or trade.get("symbol") or trade.get("display_symbol"))
+    entered = _minute(trade.get("entry_time"))
+    try:
+        quantity = int(float(trade.get("quantity") or 0))
+    except (TypeError, ValueError):
+        quantity = 0
+    if not side or strike is None or entered is None or quantity <= 0:
+        return None
+    twins = []
+    for row in account_rows or []:
+        if str(row.get("side") or "").upper() != side:
+            continue
+        if _contract_strike(row.get("symbol")) != strike:
+            continue
+        try:
+            if int(float(row.get("quantity") or 0)) != quantity:
+                continue
+        except (TypeError, ValueError):
+            continue
+        at = _minute(row.get("entry_time"))
+        if at is None or abs((at - entered).total_seconds()) > 120:
+            continue
+        twins.append(row)
+    return twins[0] if len(twins) == 1 else None
 
 
 def _settle_against_account(own_rows: list, side: str, account_rows: list) -> float:
@@ -19177,74 +19173,159 @@ def _settle_against_account(own_rows: list, side: str, account_rows: list) -> fl
     the broker's is the one that is true (Phil: "once the charges updates on
     Dhan, update the PL column on the next day").
 
+    Only the broker row that IS this trade may do it (`_account_twin`).
+
     Mutates the rows in place and returns how much the total moved by, so a
     caller can nudge a headline it computed from a longer list.
     """
     if not side or not own_rows:
         return 0.0
-    mine_by_day: dict[str, list] = defaultdict(list)
-    for trade in own_rows:
-        mine_by_day[str(trade.get("entry_time") or "")[:10]].append(trade)
-
     moved = 0.0
-    for row in account_rows or []:
-        if str(row.get("side") or "").upper() != side or not row.get("costs_known"):
+    for trade in own_rows:
+        twin = _account_twin(trade, side, account_rows)
+        if twin is None or not twin.get("costs_known"):
             continue
-        mine = mine_by_day.get(str(row.get("date") or "")) or []
-        if len(mine) != 1:
-            continue  # a day with two trades is left alone rather than guessed at
-        was = float(mine[0].get("pnl", 0) or 0)
-        mine[0]["pnl"] = row.get("pnl")
-        mine[0]["gross_pnl"] = row.get("gross_pnl")
-        mine[0]["charges"] = row.get("charges")
-        mine[0]["settled_by_broker"] = True
-        moved += float(mine[0]["pnl"] or 0) - was
+        was = float(trade.get("pnl", 0) or 0)
+        trade["pnl"] = twin.get("pnl")
+        trade["gross_pnl"] = twin.get("gross_pnl")
+        trade["charges"] = twin.get("charges")
+        trade["settled_by_broker"] = True
+        moved += float(trade["pnl"] or 0) - was
     return round(moved, 2)
 
 
-def _account_rows_this_book_is_missing(strategy: dict, own_closed: list, account_rows: list) -> list:
-    """This book's earlier trades, from the broker's record, as engine trades.
+def _one_row_per_trade(runs: list, book_trades: list, account_rows: list) -> list:
+    """The desk's earlier rows: the live books' own saved trades, once each.
+
+    `runs` are the engines as they stand; their `recent` rows are already on
+    the desk, so a saved copy of one of those is dropped. Every row left is a
+    trade a LIVE book really took -- never a scalp, never a Gap Carry leg --
+    and it carries its book's name and its own exit reason.
+    """
+    shown = set()
+    for run in runs:
+        if not run.get("real_orders"):
+            continue
+        side = str(run.get("side") or "").upper()
+        recent = run.get("recent") or []
+        for trade in recent:
+            shown.add(_same_trade_key(trade))
+            shown.add(f"at:{str(trade.get('entry_time') or '')[:16]}|{_contract_strike(trade.get('symbol'))}")
+        # The correction goes to THE book whose trade matched, never to every
+        # book on that side. `booked_pnl` comes from the WHOLE closed list, of
+        # which `recent` is the tail, so it is nudged by what changed.
+        moved = _settle_against_account(recent, side, account_rows)
+        if moved:
+            run["booked_pnl"] = round(float(run.get("booked_pnl", 0) or 0) + moved, 2)
+
+    rows = []
+    for trade in book_trades or []:
+        key = _same_trade_key(trade)
+        alt = f"at:{str(trade.get('entry_time') or '')[:16]}|{_contract_strike(trade.get('trading_symbol'))}"
+        if key in shown or alt in shown:
+            continue
+        side = trade.get("book_side") or ""
+        row = {
+            "date": str(trade.get("entry_time") or "")[:10],
+            "entry_time": str(trade.get("entry_time") or ""),
+            "exit_time": str(trade.get("exit_time") or ""),
+            "side": side,
+            "book": trade.get("book_name") or "",
+            "symbol": trade.get("trading_symbol") or trade.get("symbol"),
+            "quantity": trade.get("quantity"),
+            "trading_symbol": trade.get("trading_symbol"),
+            "entry_premium": trade.get("entry_premium"),
+            "exit_premium": trade.get("exit_premium"),
+            "pnl": trade.get("pnl"),
+            "gross_pnl": trade.get("gross_pnl"),
+            "charges": trade.get("charges"),
+            "exit_reason": trade.get("exit_reason") or "",
+            # The engine's own P&L is already net of its charge estimate.
+            "costs_known": True,
+            "from_saved_run": True,
+        }
+        _settle_against_account([row], side, account_rows)
+        rows.append(row)
+    rows.sort(key=lambda r: str(r.get("exit_time") or ""), reverse=True)
+    return rows
+
+
+def _with_account_history(status: dict, account_rows: list, book_trades: list | None = None) -> dict:
+    """Fold a live book's earlier trades into the status the Live page reads.
+
+    The panel builds its Completed Trades table from `closed_trades` and its
+    headline from `total_pnl`, so both move together or the page disagrees with
+    itself -- ₹0.00 above a table of real losses is worse than either half.
+    """
+    if not isinstance(status, dict):
+        return status
+    own = list(status.get("closed_trades") or [])
+    strategy = status.get("strategy") or {}
+    side = _book_option_side(strategy)
+    # The same settlement the CE + PE desk applies, so the two pages cannot
+    # disagree about what one trade made.
+    settled_by = _settle_against_account(own, side, account_rows)
+    borrowed = _saved_trades_this_book_is_missing(strategy, own, book_trades or [])
+    for row in borrowed:
+        _settle_against_account([row], side, account_rows)
+    if not borrowed and not settled_by:
+        return status
+    borrowed_pnl = sum(float(row.get("pnl", 0) or 0) for row in borrowed)
+    return {
+        **status,
+        "closed_trades": borrowed + own,
+        "total_pnl": round(float(status.get("total_pnl", 0) or 0) + borrowed_pnl + settled_by, 2),
+    }
+
+
+def _saved_trades_this_book_is_missing(strategy: dict, own_closed: list, book_trades: list) -> list:
+    """This book's earlier trades, from its OWN saved runs, as engine trades.
 
     A book's own list only covers what it has closed since the engine last
     started, so CE_SL15_NoMonTue read "0 trades" and ₹0.00 while its real CE
-    trade of 2026-09-03 sat in the account table lower down the same page.
+    trade of 2026-09-03 was already behind it. The broker's record used to fill
+    that gap and could not tell the book's trades from Phil's scalps or the Gap
+    Carry's -- the book's own saved runs can, by name.
 
-    These rows are NOT proof. The broker records the fill, not the strategy that
-    placed it, and Gap Carry has traded real NIFTY options since 02-Sep-2026 --
-    so a CE row from the account is probably this book and cannot be shown as
-    certainly this book. Hence: the option side must match and be unambiguous, a
-    two-sided book borrows nothing, and a day the engine has its own record for
-    is never touched. Where the book knows, the book wins.
-
-    Shaped like an engine trade rather than an account row, because the count,
-    the booked total and the table are all derived from one list -- so a
-    borrowed row has to look like the thing that list holds. `from_account`
-    marks it, and it carries no `id`, so it offers no journal chart it cannot
-    draw.
+    Shaped like an engine trade, because the count, the booked total and the
+    table are all derived from one list. `from_account` stays the marker the
+    page reads for "earlier than this engine", and there is no `id`, so it
+    offers no journal chart it cannot draw.
     """
     side = _book_option_side(strategy)
-    if not side:
+    name = str((strategy or {}).get("run_name") or "")
+    if not side or not name:
         return []
-    covered = {str(t.get("entry_time") or "")[:10] for t in own_closed or []}
-    borrowed = [
-        {
-            "trading_symbol": row.get("symbol"),
-            "entry_time": row.get("entry_time"),
-            "exit_time": row.get("exit_time"),
-            "transaction_type": "BUY",
-            "option_type": side,
-            "entry_premium": row.get("entry_premium"),
-            "exit_premium": row.get("exit_premium"),
-            "quantity": row.get("quantity"),
-            "pnl": row.get("pnl"),
-            "gross_pnl": row.get("gross_pnl"),
-            "charges": row.get("charges"),
-            "exit_reason": "from the account",
-            "from_account": True,
-        }
-        for row in account_rows or []
-        if row.get("side") == side and row.get("date") not in covered
-    ]
+    seen = {_same_trade_key(t) for t in own_closed or []}
+    seen |= {
+        f"at:{str(t.get('entry_time') or '')[:16]}|{_contract_strike(t.get('trading_symbol') or t.get('symbol'))}"
+        for t in own_closed or []
+    }
+    borrowed = []
+    for trade in book_trades or []:
+        if trade.get("book_name") != name or trade.get("book_side") != side:
+            continue
+        key = _same_trade_key(trade)
+        alt = f"at:{str(trade.get('entry_time') or '')[:16]}|{_contract_strike(trade.get('trading_symbol'))}"
+        if key in seen or alt in seen:
+            continue
+        borrowed.append(
+            {
+                "trading_symbol": trade.get("trading_symbol"),
+                "entry_time": trade.get("entry_time"),
+                "exit_time": trade.get("exit_time"),
+                "transaction_type": "BUY",
+                "option_type": side,
+                "entry_premium": trade.get("entry_premium"),
+                "exit_premium": trade.get("exit_premium"),
+                "quantity": trade.get("quantity"),
+                "pnl": trade.get("pnl"),
+                "gross_pnl": trade.get("gross_pnl"),
+                "charges": trade.get("charges"),
+                "exit_reason": trade.get("exit_reason") or "earlier",
+                "from_account": True,
+            }
+        )
     # Oldest first, matching the engine's own list, which the desk reverses.
     borrowed.sort(key=lambda r: str(r.get("entry_time") or ""))
     return borrowed
@@ -19323,6 +19404,50 @@ async def _account_option_history(user_id: int, limit: int = 60) -> list[dict]:
             )
     rows.sort(key=lambda r: r["date"], reverse=True)
     return rows[:limit]
+
+
+_LIVE_BOOK_TRADES_TTL = 15.0
+_live_book_trades_cache: dict[int, tuple[float, list]] = {}
+
+
+async def _live_book_trades(user_id: int) -> list[dict]:
+    """Every trade a LIVE strategy-builder book closed, from its saved runs.
+
+    Each live engine saves its whole closed list again on every stop, so one
+    trade sits in several rows -- and an early save can hold a stale version
+    (10-Sep's PE was once saved at ₹-112.94 with a 19:32 exit, then correctly at
+    ₹1,763.21). Rows are read oldest first, so the LATEST save of each trade
+    wins. The desk polls every few seconds; the read is cached briefly.
+    """
+    uid = int(user_id)
+    now = time.monotonic()
+    cached = _live_book_trades_cache.get(uid)
+    if cached and now - cached[0] < _LIVE_BOOK_TRADES_TTL:
+        return cached[1]
+    try:
+        saved = await _db_mod.list_runs_by_mode(uid, "live")
+    except Exception:
+        return cached[1] if cached else []
+    latest: dict[str, dict] = {}
+    for run in saved or []:
+        name = str(run.get("run_name") or "")
+        if not name:
+            continue
+        # Early saves (03-Sep CE, 07/08-Sep PE) were written with an EMPTY legs
+        # list, so the side falls back to the trade's own contract.
+        run_side = _book_option_side(run)
+        for trade in run.get("trades") or []:
+            if not isinstance(trade, dict) or not trade.get("exit_time"):
+                continue
+            if str(trade.get("entry_time") or "")[:10] < _CEPE_LIVE_FROM:
+                continue
+            side = run_side or _trade_option_side(trade)
+            if not side:
+                continue
+            latest[_same_trade_key(trade)] = {**trade, "book_name": name, "book_side": side}
+    trades = sorted(latest.values(), key=lambda t: str(t.get("entry_time") or ""))
+    _live_book_trades_cache[uid] = (now, trades)
+    return trades
 
 
 @app.get("/api/live/runs")
@@ -19453,14 +19578,14 @@ async def live_runs(request: Request):
                 }
             )
     runs.sort(key=lambda r: (r.get("side") != "CE", r.get("name", "")))
-    history = _one_row_per_trade(runs, await _account_option_history(user_id))
+    history = _one_row_per_trade(runs, await _live_book_trades(user_id), await _account_option_history(user_id))
     return {
         "status": "ok",
         "runs": runs,
         "count": len(runs),
         "booked_total": round(sum(float(r.get("booked_pnl", 0) or 0) for r in runs), 2),
         "day_total": round(sum(float(r.get("daily_pnl", 0) or 0) for r in runs), 2),
-        # Everything the account closed that a book has no record of. A fresh
+        # The live books' earlier trades, from their own saved runs. A fresh
         # deploy wipes each engine's own list; this one outlives it.
         "history": history,
     }
@@ -20735,13 +20860,15 @@ async def engines_all(request: Request):
     # account fills the gap here, and ONLY here: the CE + PE desk
     # (/api/live/runs) already prints that record in a table of its own, and
     # doing it in both places showed every trade twice.
-    account_rows = await _account_option_history(user_id) if _registry_bucket(live_engines, user_id) else []
+    has_live = bool(_registry_bucket(live_engines, user_id))
+    account_rows = await _account_option_history(user_id) if has_live else []
+    book_trades = await _live_book_trades(user_id) if has_live else []
     for run_id, engine in _registry_bucket(live_engines, user_id).items():
         if engine.running:
             st = _attach_strategy_folder(engine.get_status())
             st["run_id"] = run_id
             st["mode"] = "auto"
-            engines.append(_with_account_history(st, account_rows))
+            engines.append(_with_account_history(st, account_rows, book_trades))
 
     # Add stopped engine snapshots (persisted panels)
     active_ids = {_engine_status_key(e) for e in engines}

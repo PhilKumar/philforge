@@ -45,7 +45,9 @@ class EveryRowSaysWhatItIs(unittest.TestCase):
     def test_a_book_row_names_its_book(self):
         """Two paper PE books on one morning read as a duplicate without it."""
         self.assertIn('class="cepe-book-name"', RENDER)
-        self.assertIn("!old && run.name", RENDER)
+        # Old rows name their book too, now that they are the book's own.
+        self.assertIn('run.name ? `<div class="cepe-book-name">', RENDER)
+        self.assertIn("name: h.book", RENDER)
 
 
 class WhyItClosedIsAnInfoButton(unittest.TestCase):
