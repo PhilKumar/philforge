@@ -14087,15 +14087,48 @@ _GAP_CARRY_ENTRY_POLL_SEC = 2
 _GAP_CARRY_ENTRY_WINDOW = (timedelta(seconds=-30), timedelta(seconds=90))
 
 
+# The same applies to the morning exit, and it costs real money: on 16-Sep-2026
+# the cut at the open was decided 39 seconds after 09:15, because a held
+# position slept the full twenty seconds between looks and the first look after
+# the bell came back without a quote. Both morning clocks now get the two-second
+# cadence while the carry is still open.
+_GAP_CARRY_EXIT_POLL_SEC = 2
+_GAP_CARRY_EXIT_WINDOW = (timedelta(seconds=-60), timedelta(seconds=180))
+
+
+def _gap_carry_near(clock_time, window, now: datetime) -> bool:
+    """Is `now` inside `window` around today's `clock_time`?"""
+    clock = datetime.combine(now.date(), clock_time, tzinfo=IST)
+    early, late = window
+    return clock + early <= now <= clock + late
+
+
 def _gap_carry_poll_sleep(engine, now: datetime | None = None) -> float:
     now = now or datetime.now(IST)
-    if engine is None or engine.has_open_position:
+    if engine is None:
         return _GAP_CARRY_POLL_SEC
-    clock = datetime.combine(now.date(), engine.config.entry_time, tzinfo=IST)
-    early, late = _GAP_CARRY_ENTRY_WINDOW
-    if clock + early <= now <= clock + late:
+    if engine.has_open_position:
+        config = engine.config
+        clocks = [config.exit_time]
+        if getattr(config, "cut_losers_at_open", False):
+            clocks.append(config.early_exit_time)
+        if any(_gap_carry_near(clock, _GAP_CARRY_EXIT_WINDOW, now) for clock in clocks):
+            return _GAP_CARRY_EXIT_POLL_SEC
+        return _GAP_CARRY_POLL_SEC
+    if _gap_carry_near(engine.config.entry_time, _GAP_CARRY_ENTRY_WINDOW, now):
         return _GAP_CARRY_ENTRY_POLL_SEC
     return _GAP_CARRY_POLL_SEC
+
+
+def _gap_carry_exit_is_near(engine, now: datetime) -> bool:
+    """True inside the window around either morning clock of an open carry."""
+    if engine is None or not engine.has_open_position:
+        return False
+    config = engine.config
+    clocks = [config.exit_time]
+    if getattr(config, "cut_losers_at_open", False):
+        clocks.append(config.early_exit_time)
+    return any(_gap_carry_near(clock, _GAP_CARRY_EXIT_WINDOW, now) for clock in clocks)
 
 
 async def _run_gap_carry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
@@ -14123,6 +14156,21 @@ async def _run_gap_carry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> N
                         )
                     except Exception as exc:
                         _logger.debug("[GAP CARRY] quote failed for user %s: %s", user_id, exc)
+                    if not premium and _gap_carry_exit_is_near(engine, now):
+                        # The open is exactly when Dhan answers 429, and the cut
+                        # cannot be judged without a price. One quick retry here
+                        # beats waiting for the next tick.
+                        await asyncio.sleep(1)
+                        try:
+                            premium = await asyncio.to_thread(
+                                runtime.broker.get_option_ltp,
+                                "NIFTY",
+                                int(pos.strike),
+                                pos.expiry.isoformat(),
+                                str(pos.side),
+                            )
+                        except Exception as exc:
+                            _logger.debug("[GAP CARRY] quote retry failed for user %s: %s", user_id, exc)
                 engine.mark(now, premium=float(premium) if premium else None)
                 engine.settle_past_expiry(now)
             else:

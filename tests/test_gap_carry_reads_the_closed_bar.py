@@ -13,11 +13,16 @@ Phil chose the last. These pin it so the replay and the live loop cannot drift
 back apart.
 """
 
+import os
 import unittest
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
-from engine import gap_carry
+os.environ.setdefault("PHILFORGE_SKIP_STARTUP_JOBS", "1")
+os.environ.setdefault("PHILFORGE_STARTUP_ENGINE_RESTORE", "0")
+
+import app  # noqa: E402
+from engine import gap_carry  # noqa: E402
 from engine.gap_carry import PE, GapCarryConfig, closes_by, read_signal
 from engine.gap_carry_paper import HOLDING, WAITING, GapCarryPaper
 
@@ -138,3 +143,62 @@ class ThePollTightensAroundTheClock(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheMorningExitIsWatchedJustAsClosely(unittest.TestCase):
+    """16-Sep-2026: the cut at the open was taken 39 seconds late.
+
+    A held carry slept the full twenty seconds between looks, so the exit could
+    only be decided on the next tick after 09:15 -- and the first look after the
+    bell came back without a quote, which cost another whole cycle.
+    """
+
+    def _engine(self, holding: bool):
+        config = GapCarryConfig(cut_losers_at_open=True)
+
+        class _E:
+            has_open_position = holding
+
+        e = _E()
+        e.config = config
+        return e
+
+    def test_a_held_carry_looks_every_two_seconds_at_the_cut(self):
+        e = self._engine(True)
+        at = datetime(2026, 9, 16, 9, 15, 3, tzinfo=app.IST)
+        self.assertEqual(app._gap_carry_poll_sleep(e, at), app._GAP_CARRY_EXIT_POLL_SEC)
+
+    def test_and_at_the_normal_exit(self):
+        e = self._engine(True)
+        at = datetime(2026, 9, 16, 9, 20, 1, tzinfo=app.IST)
+        self.assertEqual(app._gap_carry_poll_sleep(e, at), app._GAP_CARRY_EXIT_POLL_SEC)
+
+    def test_it_is_already_looking_before_the_bell(self):
+        e = self._engine(True)
+        at = datetime(2026, 9, 16, 9, 14, 30, tzinfo=app.IST)
+        self.assertEqual(app._gap_carry_poll_sleep(e, at), app._GAP_CARRY_EXIT_POLL_SEC)
+
+    def test_the_rest_of_the_night_is_still_the_slow_cadence(self):
+        e = self._engine(True)
+        at = datetime(2026, 9, 16, 11, 30, tzinfo=app.IST)
+        self.assertEqual(app._gap_carry_poll_sleep(e, at), app._GAP_CARRY_POLL_SEC)
+
+    def test_a_carry_without_the_cut_rule_still_watches_its_own_exit(self):
+        class _E:
+            has_open_position = True
+
+        e = _E()
+        e.config = GapCarryConfig(cut_losers_at_open=False)
+        self.assertEqual(
+            app._gap_carry_poll_sleep(e, datetime(2026, 9, 16, 9, 15, 3, tzinfo=app.IST)), app._GAP_CARRY_POLL_SEC
+        )
+        self.assertEqual(
+            app._gap_carry_poll_sleep(e, datetime(2026, 9, 16, 9, 20, 3, tzinfo=app.IST)), app._GAP_CARRY_EXIT_POLL_SEC
+        )
+
+    def test_a_missing_quote_at_the_open_is_retried_in_the_same_tick(self):
+        import inspect
+
+        src = inspect.getsource(app._run_gap_carry_paper_loop)
+        self.assertIn("_gap_carry_exit_is_near(engine, now)", src)
+        self.assertLess(src.index("_gap_carry_exit_is_near"), src.index("engine.mark(now"))
