@@ -31,14 +31,38 @@ if ! grep -q "^MATCHES" /tmp/pf_refresh_check.log; then
 fi
 
 step "2/5  Rebuild the book"
-python3 rebuild_data.py --write
+# report_data.json moved, 2026-09-15, from the legacy splice book to a ladder/
+# configuration report built off the saved strategies (#48 CE, #50 PE) in
+# philforge.db: 34 separate replay runs through philforge_strategy_on_dhan.py
+# stitched together by a rebase script that only ever lived in a session
+# scratchpad. rebuild_data.py is the OLD builder and refuses to touch a report
+# in the new shape (see _guard_current_report) rather than overwrite it with
+# different numbers. Reproducing that pipeline as a real weekly job is real
+# engineering, not something this script attempts on its own — when
+# report_data.json is in the new shape, skip the rebuild and fall through to
+# step 5, which still catches the surfaces drifting apart from each other even
+# though nothing here re-derives the book from source data.
+if python3 -c "
+import json, sys
+d = json.load(open('report_data.json'))
+sys.exit(0 if (d.get('deployed') or d.get('live_config')) else 1)
+"; then
+  SKIP_REBUILD=1
+  echo "SKIPPED — report_data.json is the newer ladder/configuration report."
+  echo "Rebuilding it is a manual/Claude-assisted job (saved-strategy replays + rebase),"
+  echo "not something weekly_refresh.sh does. Falling through to step 5 to at least"
+  echo "confirm the checked-in surfaces still agree with each other."
+else
+  SKIP_REBUILD=0
+  python3 rebuild_data.py --write
 
-step "3/5  Re-render the served document   <- the step that was missed"
-python3 build_report.py
-echo "wrote docs/assets/backtest-tearsheet-5yr.html"
+  step "3/5  Re-render the served document   <- the step that was missed"
+  python3 build_report.py
+  echo "wrote docs/assets/backtest-tearsheet-5yr.html"
 
-step "4/5  Regenerate the landing from the book"
-python3 update_landing.py --write
+  step "4/5  Regenerate the landing from the book"
+  python3 update_landing.py --write
+fi
 
 step "5/5  Prove every published surface agrees"
 cd "$REPO"
@@ -79,12 +103,23 @@ CHANGED=$(git -C "$REPO" status --porcelain -- \
 
 if [ -z "$CHANGED" ]; then
   echo
-  echo "NO CHANGE — every published surface already matches the book. Nothing to commit."
+  if [ "$SKIP_REBUILD" = "1" ]; then
+    echo "NO CHANGE — the rebuild was skipped (new-format report), but step 5 confirms"
+    echo "report_data.json, the served document and the landing still agree with each other."
+    echo "This does NOT confirm the book itself is still current — see step 2 above."
+  else
+    echo "NO CHANGE — every published surface already matches the book. Nothing to commit."
+  fi
   exit 0
 fi
 
 echo "$CHANGED"
 echo
+if [ "$SKIP_REBUILD" = "1" ]; then
+  echo "Surfaces disagree, but the rebuild step was skipped (new-format report) so nothing"
+  echo "was regenerated to fix it. This needs the manual rebuild process, not this script."
+  exit 1
+fi
 echo "THE BOOK MOVED. Nothing has been committed or pushed."
 echo "Review, then commit exactly these paths:"
 echo "  git commit -- tools/tearsheet/report_data.json docs/assets/backtest-tearsheet-5yr.html static/landing/forge.html static/landing/dojima.js"
