@@ -1503,6 +1503,35 @@ def _save_stopped_engines(user_id: int):
         pass
 
 
+# A saved book is only resumable if it was still running recently. A manual
+# Stop deletes the state file, so a file that exists means "was running" --
+# but a file weeks old is an abandoned leftover, not a book to start trading.
+# Five days carries a book over a weekend and a market holiday.
+_RESUME_WINDOW_DAYS = 5
+
+
+def _state_is_resumable(state: dict, today) -> bool:
+    """Should a saved engine come back on startup?
+
+    17-Sep-2026 00:01 IST the server was restarted, and both live books --
+    flat, saved at 23:30 the night before -- were skipped as "stale" because
+    their session_date was 16-Sep. Nothing started them again before the
+    09:15 open. A book that was running last night is running this morning.
+    """
+    if _state_has_open_positions(state):
+        return True
+    try:
+        saved = date.fromisoformat(str((state or {}).get("session_date") or ""))
+    except ValueError:
+        return False
+    if isinstance(today, str):
+        try:
+            today = date.fromisoformat(today)
+        except ValueError:
+            return False
+    return 0 <= (today - saved).days <= _RESUME_WINDOW_DAYS
+
+
 def _state_has_open_positions(state: dict) -> bool:
     if not isinstance(state, dict):
         return False
@@ -24973,7 +25002,7 @@ async def _restore_live_engines():
             # morning entirely. Ask the broker before believing the flag.
             needs_reconcile = bool(state.get("manual_intervention_required"))
 
-            if state.get("session_date") != today and not _state_has_open_positions(state):
+            if not _state_is_resumable(state, today):
                 print(f"🔄 [Restore] Skipping stale state: {fname} (date={state.get('session_date')})")
                 continue
 
@@ -25064,7 +25093,7 @@ async def _restore_paper_engines():
             with open(fpath, "r") as f:
                 state = _json.load(f)
 
-            if state.get("session_date") != today and not _state_has_open_positions(state):
+            if not _state_is_resumable(state, today):
                 print(f"🔄 [Restore] Skipping stale paper state: {fname} (date={state.get('session_date')})")
                 continue
 
