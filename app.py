@@ -19041,6 +19041,43 @@ async def api_run_backtest(payload: StrategyPayload, request: Request):
         return {"status": "error", "message": error_msg, "details": str(e)}
 
 
+def _live_book_running_same_strategy(user_id: int, strategy_id, run_name: str) -> str:
+    """The run name of another RUNNING live book deployed from this saved
+    strategy, or "".
+
+    Phil, 2026-09-18, running one strategy on Dhan and Zerodha at once: a live
+    start writes its run name and broker back into the saved strategy, so a
+    second deploy of #48 under another name would rename #48 and move it to the
+    other broker -- and its first book's history is found by that name. Two
+    books from one strategy means a copy of the strategy. Redeploying the SAME
+    run name is a replacement, not a second book, and stays allowed.
+    """
+    try:
+        sid = int(strategy_id or 0)
+    except (TypeError, ValueError):
+        return ""
+    if sid <= 0:
+        return ""
+    for other_run, engine in _registry_bucket(live_engines, user_id).items():
+        if other_run == run_name or not getattr(engine, "running", False):
+            continue
+        try:
+            other_sid = int((getattr(engine, "strategy", None) or {}).get("strategy_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if other_sid == sid:
+            return str(other_run)
+    return ""
+
+
+def _same_strategy_refusal(strategy_id, twin: str) -> str:
+    return (
+        f"Saved strategy #{strategy_id} is already running live as '{twin}'. "
+        "To run it again (for example on the other broker), make a copy of the strategy "
+        "and deploy the copy under its own name."
+    )
+
+
 # ── Live Engine ───────────────────────────────────────────────────
 @app.post("/api/live/start")
 async def live_start(req: LiveStartRequest, request: Request):
@@ -19114,6 +19151,14 @@ async def live_start(req: LiveStartRequest, request: Request):
     strategy_dict["timeframe_minutes"] = tf_spec.requested
     strategy_dict["_user_id"] = user_id
     strategy_dict["fetch_timeframe_minutes"] = tf_spec.fetch
+
+    # Checked BEFORE the sync below, which writes this deploy's run name and
+    # broker back into the saved strategy.
+    twin = _live_book_running_same_strategy(
+        user_id, strategy_dict["strategy_id"], strategy_dict.get("run_name") or req.run_name or "live"
+    )
+    if twin:
+        return {"status": "error", "message": _same_strategy_refusal(strategy_dict["strategy_id"], twin)}
 
     await _sync_saved_strategy_from_runtime(
         user_id,

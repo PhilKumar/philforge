@@ -444,3 +444,48 @@ class TheMorningReminder(unittest.TestCase):
         finally:
             for key in ("Z_OLD", "Z_NEW", "D_BOOK"):
                 bucket.pop(key, None)
+
+
+class OneSavedStrategyIsOneLiveBook(unittest.TestCase):
+    """Deploying #48 again under another name would rename #48 and move it to
+    the other broker; two books from one strategy means a copy."""
+
+    USER = 99903
+
+    def _book(self, run, sid, running=True):
+        engine = LiveEngine(object(), run_id=run, state_dir="/tmp")
+        engine.strategy = {"strategy_id": sid, "run_name": run}
+        engine.running = running
+        app._registry_bucket(app.live_engines, self.USER)[run] = engine
+
+    def tearDown(self):
+        app._registry_bucket(app.live_engines, self.USER).clear()
+
+    def test_a_second_name_for_the_same_strategy_is_refused(self):
+        self._book("CE_SL15_NoMonTue", 48)
+        twin = app._live_book_running_same_strategy(self.USER, 48, "CE_SL15_NoMonTue_Z")
+        self.assertEqual(twin, "CE_SL15_NoMonTue")
+        self.assertIn("make a copy", app._same_strategy_refusal(48, twin))
+
+    def test_redeploying_the_same_book_is_allowed(self):
+        self._book("CE_SL15_NoMonTue", 48)
+        self.assertEqual(app._live_book_running_same_strategy(self.USER, 48, "CE_SL15_NoMonTue"), "")
+
+    def test_a_copy_is_allowed(self):
+        self._book("CE_SL15_NoMonTue", 48)
+        self.assertEqual(app._live_book_running_same_strategy(self.USER, 51, "CE_SL15_NoMonTue_Z"), "")
+
+    def test_a_stopped_book_does_not_block(self):
+        self._book("CE_SL15_NoMonTue", 48, running=False)
+        self.assertEqual(app._live_book_running_same_strategy(self.USER, 48, "CE_SL15_NoMonTue_Z"), "")
+
+    def test_an_unsaved_strategy_is_not_checked(self):
+        self._book("Adhoc", 0)
+        self.assertEqual(app._live_book_running_same_strategy(self.USER, 0, "Adhoc2"), "")
+
+    def test_the_check_runs_before_the_saved_strategy_is_rewritten(self):
+        start = SRC.split("async def live_start(")[1].split("\nasync def ")[0]
+        self.assertLess(
+            start.index("_live_book_running_same_strategy("),
+            start.index("await _sync_saved_strategy_from_runtime("),
+        )
