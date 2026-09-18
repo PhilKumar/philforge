@@ -876,6 +876,7 @@ async function loadUserProfile(silent = true) {
       hint.textContent = 'Save your own Dhan Client ID and Access Token here. Add Dhan PIN + TOTP Secret too if you want this user to auto-refresh expired tokens. Leave any secret field blank to keep the currently saved value.';
     }
 
+    renderZerodhaProfile(broker);
     const locked = !!broker.manage_locked || !broker.encryption_ready;
     document.getElementById('account-broker-save-btn').disabled = locked;
     document.getElementById('account-broker-clear-btn').disabled = locked || (!broker.client_id && !broker.access_token_saved && !broker.pin_saved && !broker.totp_saved);
@@ -1168,6 +1169,124 @@ async function saveBrokerSettings() {
     toast(e.message || 'Failed to save broker credentials', 'danger');
   }
 }
+
+// ── Zerodha (Kite Connect) ─────────────────────────────────
+// Kite's session ends every morning at 6 AM and the exchange wants a person to
+// log in once a day, so the page shows whether TODAY's login has happened.
+function renderZerodhaProfile(broker) {
+  const z = (broker && broker.zerodha) || {};
+  const chip = document.getElementById('account-zerodha-status-chip');
+  const line = document.getElementById('account-zerodha-status-line');
+  if (!chip || !line) return;
+  document.getElementById('account-zerodha-api-key').value = '';
+  document.getElementById('account-zerodha-api-secret').value = '';
+  const redirect = document.getElementById('account-zerodha-redirect');
+  if (redirect) redirect.textContent = `${location.origin}${z.redirect_path || '/api/zerodha/callback'}`;
+  if (!z.configured) {
+    applyStatusChip(chip, 'Not Set Up', 'warn');
+    line.textContent = 'Save your Kite Connect API key and secret first.';
+  } else if (z.logged_in_today) {
+    applyStatusChip(chip, 'Logged In Today', 'success');
+    line.textContent = `Key ${z.api_key_masked || ''}${z.user_id ? ` • ${z.user_id}` : ''} • logged in ${formatDateTimeLabel(z.token_at)}`;
+  } else {
+    applyStatusChip(chip, 'Login Needed', 'danger');
+    line.textContent = `Key ${z.api_key_masked || ''} saved. Log in to Zerodha before 09:15 — Zerodha books cannot trade until you do.`;
+  }
+  const locked = !!(broker && (broker.manage_locked || !broker.encryption_ready));
+  document.getElementById('account-zerodha-save-btn').disabled = locked;
+  document.getElementById('account-zerodha-clear-btn').disabled = locked;
+  document.getElementById('account-zerodha-login-btn').disabled = !z.configured;
+}
+
+async function saveZerodhaSettings() {
+  const apiKey = document.getElementById('account-zerodha-api-key').value.trim();
+  const apiSecret = document.getElementById('account-zerodha-api-secret').value.trim();
+  const z = (_userProfile && _userProfile.broker && _userProfile.broker.zerodha) || {};
+  if (!apiKey && !apiSecret) {
+    toast('Enter the Kite API key and secret.', 'warn');
+    return;
+  }
+  if (!z.configured && !(apiKey && apiSecret)) {
+    toast('Enter both the Kite API key and the API secret.', 'warn');
+    return;
+  }
+  const body = {};
+  if (apiKey) body.api_key = apiKey;
+  if (apiSecret) body.api_secret = apiSecret;
+  try {
+    const res = await fetch('/api/user/zerodha', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Could not save the Zerodha app'));
+    toast(data.message || 'Zerodha app saved', 'success');
+    await loadUserProfile(true);
+  } catch (e) {
+    toast(e.message || 'Could not save the Zerodha app', 'danger');
+  }
+}
+
+function loginZerodha() {
+  window.location.href = '/api/zerodha/login';
+}
+
+async function checkZerodhaStatus(silent = true) {
+  try {
+    const res = await fetch('/api/zerodha/status');
+    const data = await res.json();
+    if (!res.ok) throw new Error(_apiErrorMessage(data, 'Could not reach Zerodha'));
+    if (data.connected) {
+      if (!silent) toast(`Zerodha connected${data.name ? ` — ${data.name}` : ''}. Available ₹${Number(data.available || 0).toLocaleString('en-IN')}`, 'success');
+    } else if (!silent) {
+      toast(data.reason || 'Zerodha is not connected', 'warn');
+    }
+    return !!data.connected;
+  } catch (e) {
+    if (!silent) toast(e.message || 'Could not reach Zerodha', 'danger');
+    return false;
+  }
+}
+
+async function clearZerodhaSettings() {
+  const ok = await customConfirm(
+    'Clear the saved Zerodha app and today’s login?<br><span style="font-size:11px;">Books deployed on Zerodha will not be able to trade.</span>',
+    { title: 'Clear Zerodha', icon: ICO.trash(28), okText: 'Clear', danger: true }
+  );
+  if (!ok) return;
+  try {
+    const res = await fetch('/api/user/zerodha', { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'Could not clear Zerodha'));
+    toast(data.message || 'Zerodha cleared', 'warn');
+    await loadUserProfile(true);
+  } catch (e) {
+    toast(e.message || 'Could not clear Zerodha', 'danger');
+  }
+}
+
+// Kite sends the browser back to /app?zerodha=<outcome> after the login.
+function _handleZerodhaReturn() {
+  let outcome = '';
+  try { outcome = new URLSearchParams(location.search).get('zerodha') || ''; } catch (e) { return; }
+  if (!outcome) return;
+  try {
+    const url = new URL(location.href);
+    url.searchParams.delete('zerodha');
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+  } catch (e) { /* the message still shows */ }
+  const messages = {
+    ok: ['Logged in to Zerodha for today', 'success'],
+    cancelled: ['Zerodha login was cancelled', 'warn'],
+    missing: ['Save your Kite API key and secret first', 'warn'],
+    failed: ['Zerodha login failed — check the API secret and try again', 'danger'],
+  };
+  const [text, tone] = messages[outcome] || ['Zerodha login finished', 'warn'];
+  toast(text, tone);
+  openAccountModal();
+}
+document.addEventListener('DOMContentLoaded', _handleZerodhaReturn);
 
 async function clearBrokerSettings() {
   const ok = await customConfirm(
@@ -17064,6 +17183,7 @@ async function deployStrategy() {
   const deployConfig = {
     order_type: isPaper ? 'paper' : 'auto',
     product_type: document.querySelector('input[name="deploy-product"]:checked').value,
+    broker: document.querySelector('input[name="deploy-broker"]:checked')?.value || 'dhan',
     entry_order: document.getElementById('deploy-entry-order').value,
     exit_order: document.getElementById('deploy-exit-order').value,
     sl_limit_diff_pct: parseFloat(document.getElementById('deploy-sl-limit-diff').value) || 0,
@@ -17745,6 +17865,10 @@ function renderLivePanel(d, idx) {
     <div class="live-stat">
       <div class="live-stat-label">Order type</div>
       <div class="live-stat-value is-text">${escapeHtml((strat.deploy_config || {}).product_type || (d.deploy_config || {}).product_type || 'MIS')}</div>
+    </div>
+    <div class="live-stat">
+      <div class="live-stat-label">Broker</div>
+      <div class="live-stat-value is-text">${((strat.deploy_config || {}).broker || (d.deploy_config || {}).broker) === 'zerodha' ? 'Zerodha' : 'Dhan'}</div>
     </div>
     <div class="live-stat">
       <div class="live-stat-label">Status</div>

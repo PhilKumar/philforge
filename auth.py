@@ -236,6 +236,8 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # password + TOTP challenge on every entry, exit, stop, or target change.
     ("PUT", re.compile(r"^/api/user/broker$"), "broker_credentials"),
     ("DELETE", re.compile(r"^/api/user/broker$"), "broker_credentials"),
+    ("PUT", re.compile(r"^/api/user/zerodha$"), "broker_credentials"),
+    ("DELETE", re.compile(r"^/api/user/zerodha$"), "broker_credentials"),
     ("POST", re.compile(r"^/api/refresh-token$"), "broker_credentials"),
     ("POST", re.compile(r"^/api/broker/connect$"), "broker_credentials"),
     ("PUT", re.compile(r"^/api/user/password$"), "account_security"),

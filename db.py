@@ -38,6 +38,11 @@ _SCHEMA_STATEMENTS = [
         mfa_enabled     INTEGER NOT NULL DEFAULT 0,
         mfa_enrolled_at TEXT,
         mfa_last_counter INTEGER NOT NULL DEFAULT -1,
+        zerodha_api_key TEXT    DEFAULT '',
+        zerodha_api_secret TEXT DEFAULT '',
+        zerodha_access_token TEXT DEFAULT '',
+        zerodha_user_id TEXT    DEFAULT '',
+        zerodha_token_at TEXT   DEFAULT '',
         created_at      TEXT    NOT NULL,
         last_login      TEXT
     )""",
@@ -387,6 +392,13 @@ def _init_db_sync():
         "mfa_enabled": "INTEGER NOT NULL DEFAULT 0",
         "mfa_enrolled_at": "TEXT",
         "mfa_last_counter": "INTEGER NOT NULL DEFAULT -1",
+        # Zerodha (Kite Connect) as a second broker. The access token lapses
+        # every morning at 06:00 IST, so the moment it was minted is kept too.
+        "zerodha_api_key": "TEXT DEFAULT ''",
+        "zerodha_api_secret": "TEXT DEFAULT ''",
+        "zerodha_access_token": "TEXT DEFAULT ''",
+        "zerodha_user_id": "TEXT DEFAULT ''",
+        "zerodha_token_at": "TEXT DEFAULT ''",
     }
     for column, definition in user_column_migrations.items():
         if column not in existing_user_columns:
@@ -488,6 +500,9 @@ _SENSITIVE_USER_FIELDS = frozenset(
         "dhan_totp_secret",
         "mfa_totp_secret",
         "mfa_pending_secret",
+        "zerodha_api_key",
+        "zerodha_api_secret",
+        "zerodha_access_token",
     }
 )
 
@@ -655,6 +670,11 @@ _ALLOWED_USER_FIELDS = frozenset(
         "mfa_enrolled_at",
         "mfa_last_counter",
         "last_login",
+        "zerodha_api_key",
+        "zerodha_api_secret",
+        "zerodha_access_token",
+        "zerodha_user_id",
+        "zerodha_token_at",
     }
 )
 

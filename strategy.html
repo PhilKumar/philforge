@@ -1198,6 +1198,19 @@
         </div>
       </div>
 
+      <!-- Broker: Dhan / Zerodha (live books only) -->
+      <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 14px;" id="deploy-broker-row">
+        <label style="width: 130px; font-size: 13px; color: var(--muted);">Broker</label>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+            <input type="radio" name="deploy-broker" value="dhan" checked style="accent-color: var(--purple); width: auto;"> Dhan
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+            <input type="radio" name="deploy-broker" value="zerodha" style="accent-color: var(--purple); width: auto;"> Zerodha
+          </label>
+        </div>
+      </div>
+
       <!-- Entry Orders -->
       <div style="display: flex; align-items: flex-start; gap: 20px; margin-bottom: 14px;">
         <label style="width: 130px; font-size: 13px; color: var(--muted); padding-top: 8px;">Entry Orders</label>
@@ -4842,6 +4855,34 @@
           <button class="btn" id="account-broker-check-btn" onclick="checkBrokerFromSettings()" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
           <button class="btn" id="account-broker-clear-btn" onclick="clearBrokerSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Stored Credentials</button>
           <button class="btn" id="account-ip-refresh-btn" onclick="loadExecutionIpStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: #6ee7b7;">Refresh IP Check</button>
+        </div>
+      </div>
+
+      <div class="settings-section" id="account-zerodha-section">
+        <h4>Zerodha (Kite Connect)</h4>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="status-chip warn" id="account-zerodha-status-chip">Not Set Up</span>
+          <span class="settings-status-line" id="account-zerodha-status-line" style="margin-top:0;">Save your Kite Connect app, then log in once each trading day.</span>
+        </div>
+        <div class="settings-hint">
+          A live book deployed with <strong>Broker: Zerodha</strong> trades through this account. Zerodha&apos;s session ends every morning at 6 AM, so log in here before 09:15 on each trading day.
+          On the Kite developer console set the redirect URL to <code id="account-zerodha-redirect">https://philforge.in/api/zerodha/callback</code> and the static IP to 13.205.229.208.
+        </div>
+        <div class="modal-grid" style="margin-top:14px;">
+          <div>
+            <label for="account-zerodha-api-key">Kite API Key</label>
+            <input type="text" id="account-zerodha-api-key" class="mono-field" autocomplete="off" spellcheck="false" placeholder="API key">
+          </div>
+          <div>
+            <label for="account-zerodha-api-secret">Kite API Secret</label>
+            <input type="password" id="account-zerodha-api-secret" class="mono-field" autocomplete="new-password" spellcheck="false" placeholder="API secret">
+          </div>
+        </div>
+        <div class="settings-actions-row">
+          <button class="btn" id="account-zerodha-save-btn" onclick="saveZerodhaSettings()">Save Zerodha App</button>
+          <button class="btn" id="account-zerodha-login-btn" onclick="loginZerodha()" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: #6ee7b7;">Log in to Zerodha</button>
+          <button class="btn" id="account-zerodha-check-btn" onclick="checkZerodhaStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
+          <button class="btn" id="account-zerodha-clear-btn" onclick="clearZerodhaSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Zerodha</button>
         </div>
       </div>
 

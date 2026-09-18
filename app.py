@@ -90,6 +90,7 @@ import engine.gap_carry_paper as _gap_carry_paper
 import engine.supertrend_entry as _supertrend_mod
 import engine.supertrend_paper as _supertrend_paper
 import webauthn_auth as _webauthn_mod
+from broker import zerodha as _zerodha
 from broker.dhan import DhanClient, DhanOrderError, ScripMaster
 from cascade_costs import calculate_nifty_option_round_costs
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
@@ -4352,6 +4353,7 @@ def _broker_profile_payload(user: dict | None) -> dict:
         "encryption_ready": bool(config.ENCRYPTION_KEY),
         "manage_locked": locked,
         "manage_lock_reason": lock_reason,
+        "zerodha": _zerodha_profile_payload(user),
     }
 
 
@@ -4385,6 +4387,95 @@ def _resolve_user_broker_client(
     if allow_admin_fallback and user and user.get("role") == "admin" and dhan._is_configured():
         return dhan, "global"
     return None, "missing"
+
+
+def _user_zerodha_fields(user: dict | None) -> dict:
+    user = user or {}
+    return {
+        key: str(user.get(f"zerodha_{key}", "") or "").strip()
+        for key in ("api_key", "api_secret", "access_token", "user_id", "token_at")
+    }
+
+
+def _user_zerodha_client(user: dict | None, *, require_today: bool = True) -> tuple[_zerodha.ZerodhaClient | None, str]:
+    """Today's Zerodha session for this user, or why there is none.
+
+    Kite's token lapses every morning at 06:00 IST and the exchange wants a
+    person to log in once a day, so a NEW book on yesterday's token is refused
+    here rather than at its first order. A RESTORED book is not: dropping it
+    after a 07:00 deploy is the overnight-restart bug over again. It comes back
+    holding the stale token, and the morning login hands it the new one
+    (`_hand_zerodha_token_to_running_books`).
+    """
+    fields = _user_zerodha_fields(user)
+    if not (fields["api_key"] and fields["api_secret"]):
+        return None, "zerodha_missing"
+    if not fields["access_token"]:
+        return None, "zerodha_login_needed"
+    if require_today and not _zerodha.token_is_current(fields["token_at"]):
+        return None, "zerodha_login_needed"
+    client = _zerodha.ZerodhaClient(
+        fields["api_key"],
+        fields["access_token"],
+        token_saved_at=fields["token_at"],
+        user_id=fields["user_id"],
+    )
+    return client, "zerodha"
+
+
+def _book_broker_name(deploy_config: dict | None) -> str:
+    name = str((deploy_config or {}).get("broker") or "dhan").strip().lower()
+    return "zerodha" if name == "zerodha" else "dhan"
+
+
+def _resolve_book_broker_client(
+    user: dict | None,
+    deploy_config: dict | None,
+    *,
+    allow_admin_fallback: bool = True,
+    require_today: bool = True,
+):
+    """The broker a live CE/PE book trades through. Dhan unless the book was
+    deployed with `broker: zerodha` -- every book saved before Zerodha existed
+    has no such key and stays exactly where it was."""
+    if _book_broker_name(deploy_config) == "zerodha":
+        return _user_zerodha_client(user, require_today=require_today)
+    return _resolve_user_broker_client(user, allow_admin_fallback=allow_admin_fallback)
+
+
+def _hand_zerodha_token_to_running_books(user_id: int, access_token: str, token_at: str) -> int:
+    """After the morning login, every running Zerodha book trades on the new
+    token. Without this a book restored overnight would keep yesterday's dead
+    one until someone restarted it."""
+    handed = 0
+    for engine in _registry_bucket(live_engines, int(user_id)).values():
+        client = getattr(engine, "dhan", None)
+        if isinstance(client, _zerodha.ZerodhaClient):
+            client._access_token = access_token
+            client.token_saved_at = token_at
+            handed += 1
+    return handed
+
+
+def _book_broker_missing_message(user: dict | None, source: str) -> str:
+    if source == "zerodha_missing":
+        return "Zerodha is not set up. Save your Kite Connect API key and secret in Settings first."
+    if source == "zerodha_login_needed":
+        return "Log in to Zerodha from Settings first. Zerodha's session ends every morning at 6 AM."
+    return _broker_not_configured_message(user, source)
+
+
+def _zerodha_profile_payload(user: dict | None) -> dict:
+    fields = _user_zerodha_fields(user)
+    return {
+        "configured": bool(fields["api_key"] and fields["api_secret"]),
+        "api_key_masked": _mask_value(fields["api_key"]),
+        "secret_saved": bool(fields["api_secret"]),
+        "user_id": fields["user_id"],
+        "logged_in_today": bool(fields["access_token"]) and _zerodha.token_is_current(fields["token_at"]),
+        "token_at": fields["token_at"],
+        "redirect_path": "/api/zerodha/callback",
+    }
 
 
 async def _request_broker_context(
@@ -7964,6 +8055,115 @@ async def clear_own_broker_settings(request: Request):
         "status": "ok",
         "message": "Stored broker credentials cleared.",
         "broker": _broker_profile_payload(fresh_user),
+    }
+
+
+@app.put("/api/user/zerodha")
+async def update_own_zerodha_settings(request: Request):
+    """Save the Kite Connect app's API key and secret for the current user."""
+    user = await _auth_mod.get_current_user(request)
+    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    if locked:
+        raise HTTPException(status_code=409, detail=reason)
+    if not _auth_mod.encryption_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Broker credential storage is disabled until ENCRYPTION_KEY is configured on the server.",
+        )
+    body = await request.json()
+    current = _user_zerodha_fields(user)
+    api_key = str(body.get("api_key") or "").strip() or current["api_key"]
+    api_secret = str(body.get("api_secret") or "").strip() or current["api_secret"]
+    if not (api_key and api_secret):
+        raise HTTPException(status_code=400, detail="Both the Kite API key and API secret are needed.")
+    fields = {"zerodha_api_key": api_key, "zerodha_api_secret": api_secret}
+    if api_key != current["api_key"]:
+        # A different app's session is not this one's.
+        fields.update(zerodha_access_token="", zerodha_user_id="", zerodha_token_at="")  # nosec B106 - clearing, not a password
+    await _db_mod.update_user(user["id"], **fields)
+    fresh_user = await _db_mod.get_user_by_id(user["id"])
+    return {
+        "status": "ok",
+        "message": "Zerodha app saved. Now log in to Zerodha.",
+        "broker": _broker_profile_payload(fresh_user),
+    }
+
+
+@app.delete("/api/user/zerodha")
+async def clear_own_zerodha_settings(request: Request):
+    user = await _auth_mod.get_current_user(request)
+    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    if locked:
+        raise HTTPException(status_code=409, detail=reason)
+    cleared = {f"zerodha_{key}": "" for key in ("api_key", "api_secret", "access_token", "user_id", "token_at")}
+    await _db_mod.update_user(user["id"], **cleared)
+    fresh_user = await _db_mod.get_user_by_id(user["id"])
+    return {"status": "ok", "message": "Zerodha details cleared.", "broker": _broker_profile_payload(fresh_user)}
+
+
+@app.get("/api/zerodha/login")
+async def zerodha_login(request: Request):
+    """Send the browser to Kite's login page. Kite sends it back to
+    /api/zerodha/callback, which must be the redirect URL on the Kite app."""
+    user = await _auth_mod.get_current_user(request)
+    fields = _user_zerodha_fields(user)
+    if not fields["api_key"]:
+        return RedirectResponse("/app?zerodha=missing", status_code=303)
+    return RedirectResponse(_zerodha.login_url(fields["api_key"]), status_code=303)
+
+
+@app.get("/api/zerodha/callback")
+async def zerodha_callback(request: Request):
+    """Kite's redirect after the daily login: trade the one-time request_token
+    for today's access token and keep it."""
+    user = await _auth_mod.get_current_user(request)
+    params = request.query_params
+    request_token = str(params.get("request_token") or "").strip()
+    if params.get("status") != "success" or not request_token:
+        return RedirectResponse("/app?zerodha=cancelled", status_code=303)
+    fields = _user_zerodha_fields(user)
+    if not (fields["api_key"] and fields["api_secret"]):
+        return RedirectResponse("/app?zerodha=missing", status_code=303)
+    try:
+        session = await asyncio.to_thread(
+            _zerodha.exchange_request_token, fields["api_key"], fields["api_secret"], request_token
+        )
+    except Exception as exc:
+        print(f"[ZERODHA] login exchange failed: {type(exc).__name__}")
+        return RedirectResponse("/app?zerodha=failed", status_code=303)
+    access_token = str(session.get("access_token") or "").strip()
+    if not access_token:
+        return RedirectResponse("/app?zerodha=failed", status_code=303)
+    token_at = datetime.now(IST).isoformat(timespec="seconds")
+    await _db_mod.update_user(
+        user["id"],
+        zerodha_access_token=access_token,
+        zerodha_user_id=str(session.get("user_id") or ""),
+        zerodha_token_at=token_at,
+    )
+    _hand_zerodha_token_to_running_books(int(user["id"]), access_token, token_at)
+    return RedirectResponse("/app?zerodha=ok", status_code=303)
+
+
+@app.get("/api/zerodha/status")
+async def zerodha_status(request: Request):
+    """Is today's Zerodha session alive? Asks Kite for the profile."""
+    user = await _auth_mod.get_current_user(request)
+    client, source = _user_zerodha_client(user)
+    payload = _zerodha_profile_payload(user)
+    if not client:
+        return {"status": "ok", "connected": False, "reason": _book_broker_missing_message(user, source), **payload}
+    try:
+        profile = await asyncio.to_thread(client._get_data, "/user/profile")
+        funds = await asyncio.to_thread(client.get_funds)
+    except Exception as exc:
+        return {"status": "ok", "connected": False, "reason": str(exc)[:200], **payload}
+    return {
+        "status": "ok",
+        "connected": True,
+        "name": (profile or {}).get("user_name", ""),
+        "available": funds.get("availabelBalance", 0.0),
+        **payload,
     }
 
 
@@ -18847,9 +19047,10 @@ async def live_start(req: LiveStartRequest, request: Request):
     """Start live auto-trading with full strategy configuration."""
     user_id = _request_user_id(request)
     user = getattr(request.state, "current_user", None) or await _auth_mod.get_current_user(request)
-    broker_client, broker_source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+    requested_deploy = req.deploy_config or (req.strategy_config or {}).get("deploy_config") or {}
+    broker_client, broker_source = _resolve_book_broker_client(user, requested_deploy, allow_admin_fallback=True)
     if not broker_client:
-        return {"status": "error", "message": _broker_not_configured_message(user, broker_source)}
+        return {"status": "error", "message": _book_broker_missing_message(user, broker_source)}
     live_bucket = _registry_bucket(live_engines, user_id)
     live_task_bucket = _registry_bucket(_live_tasks, user_id)
     stopped_engines = _load_stopped_engines(user_id)
@@ -24860,6 +25061,52 @@ def _wake_journal_chart_loop() -> bool:
     return True
 
 
+# ── Zerodha's morning login ────────────────────────────────────
+# Kite's session ends at 06:00 IST and the exchange wants a person to log in
+# once a day. A Zerodha book with no login cannot place its 09:20 entry, and
+# nothing on the page rings -- so the phone does, once, before the open.
+_ZERODHA_REMINDER_WINDOW = (dt_time(8, 30), dt_time(9, 12))
+_zerodha_reminded_on: set[date] = set()
+
+
+def _zerodha_books_waiting_for_login(now: datetime | None = None) -> list[str]:
+    waiting: list[str] = []
+    for bucket in list(live_engines.values()):
+        for run_id, engine in list(bucket.items()):
+            client = getattr(engine, "dhan", None)
+            if not isinstance(client, _zerodha.ZerodhaClient) or not getattr(engine, "running", False):
+                continue
+            if not client.token_is_current(now):
+                waiting.append(str(run_id))
+    return sorted(waiting)
+
+
+def _zerodha_reminder_due(now: datetime) -> bool:
+    start, end = _ZERODHA_REMINDER_WINDOW
+    return now.weekday() < 5 and start <= now.time() <= end and now.date() not in _zerodha_reminded_on
+
+
+async def _run_zerodha_login_reminder_loop() -> None:
+    while True:
+        try:
+            now = datetime.now(IST)
+            if _zerodha_reminder_due(now):
+                waiting = _zerodha_books_waiting_for_login(now)
+                if waiting:
+                    alerter.alert(
+                        "Log in to Zerodha",
+                        f"Today's Zerodha login has not happened, so these live books cannot trade: "
+                        f"{', '.join(waiting)}. Open Settings and press Log in to Zerodha before 09:15.",
+                        level="warn",
+                    )
+                    _zerodha_reminded_on.add(now.date())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[ZERODHA] login reminder recovered from: %s", exc)
+        await asyncio.sleep(60)
+
+
 # ── Prometheus instrumentation (must run before app starts) ────
 if _PROMETHEUS_ENABLED:
     _PFI(app).instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
@@ -24935,6 +25182,8 @@ async def _start_token_renewal():
     else:
         _journal_chart_state.update({"status": "disabled", "message": "Daily Journal charts are disabled."})
         print("📈 [JOURNAL CHARTS] Scheduler disabled (PHILFORGE_JOURNAL_CHARTS=0)")
+
+    asyncio.create_task(_run_zerodha_login_reminder_loop())
 
     if _STARTUP_ENGINE_RESTORE_ENABLED and _engine_restore_owner_is_active_instance():
         asyncio.create_task(_restore_live_engines())
@@ -25021,11 +25270,13 @@ async def _restore_live_engines():
 
             # Reconstruct engine with full config
             user = await _db_mod.get_user_by_id(user_id)
-            broker_client, broker_source = _resolve_user_broker_client(user, allow_admin_fallback=True)
+            broker_client, broker_source = _resolve_book_broker_client(
+                user, deploy_config, allow_admin_fallback=True, require_today=False
+            )
             if not broker_client:
                 print(
                     f"🔄 [Restore] Skipping live restore for user {user_id} / {fname}: "
-                    f"{_broker_not_configured_message(user, broker_source)}"
+                    f"{_book_broker_missing_message(user, broker_source)}"
                 )
                 continue
 
