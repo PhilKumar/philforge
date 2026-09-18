@@ -20136,10 +20136,16 @@ def _rolling_contract_candles(
     """The traded contract's bars, recovered from Dhan's rolling-option archive.
 
     The archive has no expiry field, so contract identity comes from the
-    calendar: inside [expiry-6, expiry] the nearest weekly (code 0) IS this
-    contract; the week before that it was the next weekly (code 1). Weeklies
-    are 7 days apart, so neither window reaches another contract's week. The
-    per-bar strike array then picks this strike out of the aliases around it.
+    calendar: inside [expiry-6, expiry] the nearest weekly IS this contract;
+    the week before that it was the next weekly. Weeklies are 7 days apart, so
+    neither window reaches another contract's week. The per-bar strike array
+    then picks this strike out of the aliases around it.
+
+    THIS API COUNTS FROM 1: nearest = 1, next = 2. Dhan's annexure lists 0 as
+    "current", but rollingoption answers 0 with DH-905 "expiryCode is required"
+    (Phil's first chart after the deploy, 2026-09-18), and the archive tools in
+    options/dhan_premiums.py have always pulled the nearest weekly as 1. Code 2
+    bleeds other underlyings in; the exact-strike filter drops those rows.
     """
     try:
         expiry_day = date.fromisoformat(str(expiry)[:10])
@@ -20152,8 +20158,8 @@ def _rolling_contract_candles(
     segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
     windows = []
     for code, start, end in (
-        (1, expiry_day - timedelta(days=13), expiry_day - timedelta(days=7)),
-        (0, expiry_day - timedelta(days=6), expiry_day),
+        (2, expiry_day - timedelta(days=13), expiry_day - timedelta(days=7)),
+        (1, expiry_day - timedelta(days=6), expiry_day),
     ):
         lo, hi = max(start, from_date), min(end, to_date)
         if lo <= hi:

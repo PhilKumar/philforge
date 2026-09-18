@@ -106,7 +106,7 @@ class TheTradesOwnIdComesFirst(unittest.TestCase):
 
 
 class TheArchiveIsTheFallback(unittest.TestCase):
-    """Expiry 15-Sep: the week 09-Sep..15-Sep is code 0, the week before code 1."""
+    """Expiry 15-Sep: the week 09-Sep..15-Sep is code 1 (nearest), the week before code 2."""
 
     def setUp(self):
         patcher = mock.patch.object(app.ScripMaster, "lookup", return_value="")
@@ -117,11 +117,11 @@ class TheArchiveIsTheFallback(unittest.TestCase):
         # ATM is 23650 on the 10th, so 23700 is ATM+1; ATM+2 is 23750.
         stamps = ["2026-09-10 09:25", "2026-09-10 09:30", "2026-09-10 09:35"]
         return {
-            (0, "ATM"): _frame(stamps, [300.0, 301.0, 302.0], [23650.0, 23650.0, 23650.0]),
+            (1, "ATM"): _frame(stamps, [300.0, 301.0, 302.0], [23650.0, 23650.0, 23650.0]),
             # The market moved: at 09:35 ATM+1 is a different strike.
-            (0, "ATM+1"): _frame(stamps, [265.0, 270.0, 999.0], [23700.0, 23700.0, 23750.0]),
-            (0, "ATM+2"): _frame(stamps, [230.0, 231.0, 272.0], [23750.0, 23750.0, 23800.0]),
-            (0, "ATM-1"): _frame(stamps, [340.0, 341.0, 275.0], [23600.0, 23600.0, 23700.0]),
+            (1, "ATM+1"): _frame(stamps, [265.0, 270.0, 999.0], [23700.0, 23700.0, 23750.0]),
+            (1, "ATM+2"): _frame(stamps, [230.0, 231.0, 272.0], [23750.0, 23750.0, 23800.0]),
+            (1, "ATM-1"): _frame(stamps, [340.0, 341.0, 275.0], [23600.0, 23600.0, 23700.0]),
         }
 
     def test_only_the_traded_strike_is_kept_from_every_alias(self):
@@ -134,8 +134,10 @@ class TheArchiveIsTheFallback(unittest.TestCase):
         _run(client)
         calls = {(c["expiry_code"], c["from_date"], c["to_date"]) for c in client.rolling_calls}
         # 06-Sep..08-Sep belongs to the week this contract was the NEXT weekly.
-        self.assertIn((1, "2026-09-06", "2026-09-09"), calls)
-        self.assertIn((0, "2026-09-09", "2026-09-11"), calls)
+        self.assertIn((2, "2026-09-06", "2026-09-09"), calls)
+        self.assertIn((1, "2026-09-09", "2026-09-11"), calls)
+        # Dhan refuses 0 on this API ("expiryCode is required").
+        self.assertNotIn(0, {c["expiry_code"] for c in client.rolling_calls})
         self.assertTrue(all(c["security_id"] == "13" and c["strike"] for c in client.rolling_calls))
 
     def test_nothing_anywhere_says_so_plainly(self):
