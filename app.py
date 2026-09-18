@@ -19991,10 +19991,6 @@ async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = 
     if strike <= 0 or option_type not in {"CE", "PE"}:
         raise HTTPException(status_code=422, detail="The entered contract is incomplete on this engine")
 
-    security_id = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
-    if not security_id:
-        raise HTTPException(status_code=404, detail="Entered contract is unavailable in the current Scrip Master")
-
     broker_client = getattr(engine, "dhan", None)
     if broker_client is None:
         _, broker_client, _ = await _request_broker_context(request)
@@ -20005,37 +20001,42 @@ async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = 
     candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
     tf = {"5": "5m", "15": "15m", "60": "1h"}[candle_type]
     today = datetime.now(IST).date()
-    from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
-    exchange_segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
-    try:
-        frame = await asyncio.to_thread(
-            broker_client.get_historical_data,
-            security_id=str(security_id),
-            exchange_segment=exchange_segment,
-            instrument_type="OPTIDX",
-            from_date=from_date,
-            to_date=today.isoformat(),
-            candle_type=candle_type,
+    # An open position is charted up to now; a closed one over its own days,
+    # which for last week's trade is a contract that has since expired.
+    window_end = today
+    if not is_open:
+        closed_at = _scalp_option_chart_timestamp(position.get("exit_time")) or _scalp_option_chart_timestamp(
+            position.get("entry_time")
         )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Entry-chart candle request failed: {exc}") from exc
-    if frame is None or frame.empty:
-        raise HTTPException(status_code=404, detail="No intraday candles returned for the entered contract")
-
-    candles = []
-    for timestamp, row in frame.iterrows():
-        stamp = _scalp_option_chart_timestamp(timestamp)
-        if stamp is None:
-            continue
-        candles.append(
-            {
-                "t": stamp,
-                "o": round(float(row["open"]), 4),
-                "h": round(float(row["high"]), 4),
-                "l": round(float(row["low"]), 4),
-                "c": round(float(row["close"]), 4),
-            }
+        if closed_at:
+            window_end = min(today, datetime.fromtimestamp(closed_at, IST).date())
+    window_start = window_end - timedelta(days=4 if candle_type != "60" else 10)
+    security_id = str(position.get("security_id") or "")
+    # This chart polls. A finished trade from an earlier day is fetched once
+    # and kept, or every poll would walk the rolling archive again.
+    entered_at = _scalp_option_chart_timestamp(position.get("entry_time"))
+    cache_path = (
+        _trade_chart_cache_path(
+            user_id,
+            getattr(engine, "run_id", "") or run_id,
+            f"{position.get('id') or ''}_{int(entered_at)}",
+            candle_type,
         )
+        if not is_open and entered_at and window_end < today
+        else ""
+    )
+    candles = await _contract_chart_candles(
+        broker_client,
+        position,
+        underlying=underlying,
+        strike=strike,
+        expiry=expiry,
+        option_type=option_type,
+        from_date=window_start,
+        to_date=window_end,
+        candle_type=candle_type,
+        cache_path=cache_path,
+    )
     if not candles:
         raise HTTPException(status_code=404, detail="Entry-chart candles contained no usable timestamps")
 
@@ -20080,7 +20081,224 @@ async def live_entry_chart(request: Request, run_id: str = "", timeframe: str = 
     }
 
 
-def _live_run_history_trades(run_id: str) -> list[dict]:
+# ── Candles for a contract that may have expired ─────────────────────
+# Phil, 2026-09-18: "Why I am getting this on the Live frozen old complete trade
+# charts??" -- "This trade's contract is no longer in the Scrip Master
+# (expired?)". Both chart endpoints looked the contract up in TODAY's scrip
+# master, which lists only live contracts, so every trade on a weekly that had
+# expired lost its chart. The trade already carries the security id it was
+# bought under; that goes first. Dhan's intraday candles may not serve an
+# expired id, so its rolling-option archive -- keyed by distance from the
+# money, not by contract -- is the fallback, keeping only the bars whose
+# strike IS the traded strike inside the traded expiry's own week. A closed
+# trade's candles are then kept on disk: a frozen chart should not have to be
+# fetched twice, least of all from an archive that can only approximate it.
+_ROLLING_STRIKE_STEP = {"NIFTY": 50, "BANKNIFTY": 100, "SENSEX": 100, "FINNIFTY": 50, "MIDCPNIFTY": 25}
+_ROLLING_INDEX_ID = {"NIFTY": "13", "BANKNIFTY": "25", "SENSEX": "51", "FINNIFTY": "27", "MIDCPNIFTY": "442"}
+
+
+def _frame_to_chart_candles(frame) -> list[dict]:
+    candles = []
+    if frame is None or getattr(frame, "empty", True):
+        return candles
+    for timestamp, row in frame.iterrows():
+        stamp = _scalp_option_chart_timestamp(timestamp)
+        if stamp is None:
+            continue
+        try:
+            values = [float(row[k]) for k in ("open", "high", "low", "close")]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if any(v != v for v in values):  # NaN: a bar the archive left blank
+            continue
+        candles.append(
+            {
+                "t": stamp,
+                "o": round(values[0], 4),
+                "h": round(values[1], 4),
+                "l": round(values[2], 4),
+                "c": round(values[3], 4),
+            }
+        )
+    return candles
+
+
+def _rolling_contract_candles(
+    client,
+    underlying: str,
+    strike: int,
+    expiry: str,
+    option_type: str,
+    from_date: date,
+    to_date: date,
+    candle_type: str,
+) -> list[dict]:
+    """The traded contract's bars, recovered from Dhan's rolling-option archive.
+
+    The archive has no expiry field, so contract identity comes from the
+    calendar: inside [expiry-6, expiry] the nearest weekly (code 0) IS this
+    contract; the week before that it was the next weekly (code 1). Weeklies
+    are 7 days apart, so neither window reaches another contract's week. The
+    per-bar strike array then picks this strike out of the aliases around it.
+    """
+    try:
+        expiry_day = date.fromisoformat(str(expiry)[:10])
+    except ValueError:
+        return []
+    index_id = _ROLLING_INDEX_ID.get(underlying)
+    step = _ROLLING_STRIKE_STEP.get(underlying)
+    if not index_id or not step or candle_type not in ("5", "15", "60"):
+        return []
+    segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+    windows = []
+    for code, start, end in (
+        (1, expiry_day - timedelta(days=13), expiry_day - timedelta(days=7)),
+        (0, expiry_day - timedelta(days=6), expiry_day),
+    ):
+        lo, hi = max(start, from_date), min(end, to_date)
+        if lo <= hi:
+            windows.append((code, lo, hi))
+
+    def _fetch(code, lo, hi, alias):
+        return client.get_rolling_option_data(
+            security_id=index_id,
+            exchange_segment=segment,
+            instrument_type="OPTIDX",
+            expiry_flag="WEEK",
+            expiry_code=code,
+            strike=alias,
+            option_type=option_type,
+            from_date=lo.isoformat(),
+            to_date=(hi + timedelta(days=1)).isoformat(),
+            interval=candle_type,
+        )
+
+    rows: dict[int, dict] = {}
+    for code, lo, hi in windows:
+        probe = _fetch(code, lo, hi, "ATM")
+        if probe is None or probe.empty or "strike" not in probe:
+            continue
+        atm = probe["strike"].dropna()
+        if atm.empty:
+            continue
+        centre = int(round((float(strike) - float(atm.median())) / step))
+        for offset in range(centre - 2, centre + 3):
+            if abs(offset) > 10:
+                continue
+            frame = probe if offset == 0 else _fetch(code, lo, hi, _format_rolling_strike(offset))
+            if frame is None or frame.empty or "strike" not in frame:
+                continue
+            mine = frame[(frame["strike"] - float(strike)).abs() < 0.01]
+            for candle in _frame_to_chart_candles(mine):
+                rows[candle["t"]] = candle
+    return [rows[t] for t in sorted(rows)]
+
+
+def _trade_chart_cache_path(user_id: int, run_id: str, trade_id: str, candle_type: str) -> str:
+    safe = lambda v: "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(v or ""))  # noqa: E731
+    folder = os.path.join(_engine_state_dir(user_id), "trade_charts")
+    return os.path.join(folder, f"{safe(run_id)}__{safe(trade_id)}__{candle_type}.json")
+
+
+def _read_trade_chart_cache(path: str) -> list[dict]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            rows = json.load(handle)
+        return rows if isinstance(rows, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _write_trade_chart_cache(path: str, candles: list[dict]) -> None:
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(candles, handle)
+        os.replace(tmp, path)
+    except OSError as exc:
+        _logger.warning("[TRADE CHART] could not keep candles at %s: %s", path, exc)
+
+
+async def _contract_chart_candles(
+    broker_client,
+    trade: dict,
+    *,
+    underlying: str,
+    strike: int,
+    expiry: str,
+    option_type: str,
+    from_date: date,
+    to_date: date,
+    candle_type: str,
+    cache_path: str = "",
+) -> list[dict]:
+    """Candles for the contract a trade held: disk, then its own id, then the
+    scrip master, then the rolling archive. Raises HTTPException when none can."""
+    if cache_path:
+        cached = _read_trade_chart_cache(cache_path)
+        if cached:
+            return cached
+
+    segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+    ids: list[str] = []
+    for candidate in (trade.get("security_id"), trade.get("securityId")):
+        if str(candidate or "").strip():
+            ids.append(str(candidate).strip())
+    looked_up = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
+    if looked_up and str(looked_up) not in ids:
+        ids.append(str(looked_up))
+
+    candles: list[dict] = []
+    last_error = ""
+    for security_id in ids:
+        try:
+            frame = await asyncio.to_thread(
+                broker_client.get_historical_data,
+                security_id=security_id,
+                exchange_segment=segment,
+                instrument_type="OPTIDX",
+                from_date=from_date.isoformat(),
+                to_date=to_date.isoformat(),
+                candle_type=candle_type,
+            )
+            candles = _frame_to_chart_candles(frame)
+        except Exception as exc:  # noqa: BLE001 - an expired id is expected to fail here
+            last_error = str(exc)
+        if candles:
+            break
+
+    if not candles:
+        # The archive is Dhan's; a Zerodha book still reads it through Dhan.
+        rolling_client = broker_client if hasattr(broker_client, "get_rolling_option_data") else dhan
+        if rolling_client is not None and getattr(rolling_client, "_is_configured", lambda: False)():
+            try:
+                candles = await asyncio.to_thread(
+                    _rolling_contract_candles,
+                    rolling_client,
+                    underlying,
+                    strike,
+                    expiry,
+                    option_type,
+                    from_date,
+                    to_date,
+                    candle_type,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_error = str(exc)
+
+    if not candles:
+        detail = f"Dhan has no candles left for {underlying} {strike}{option_type} (expiry {expiry or 'unknown'})."
+        if last_error:
+            detail += f" Last answer: {last_error[:160]}"
+        raise HTTPException(status_code=404, detail=detail)
+
+    if cache_path:
+        _write_trade_chart_cache(cache_path, candles)
+    return candles
+
+
+def _live_run_history_trades(run_id: str, user_id: int | None = None) -> list[dict]:
     """Every trade a run has ever closed, from its persistent history file.
 
     Both engines write `paper_history_<run>.json` / `live_history_<run>.json`
@@ -20090,10 +20308,17 @@ def _live_run_history_trades(run_id: str) -> list[dict]:
     """
     safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in str(run_id or ""))
     out: list[dict] = []
-    for prefix in ("paper_history_", "live_history_"):
-        path = (
-            os.path.join(_HERE, f"{prefix}{safe}.json") if safe else os.path.join(_HERE, f"{prefix.rstrip('_')}.json")
-        )
+    # The engines write beside their state, in the user's engine_state folder;
+    # the app folder is where they lived before per-user state.
+    folders = [_HERE]
+    if user_id is not None:
+        folders.insert(0, _engine_state_dir(int(user_id), create=False))
+    paths = [
+        os.path.join(folder, f"{prefix}{safe}.json" if safe else f"{prefix.rstrip('_')}.json")
+        for folder in folders
+        for prefix in ("paper_history_", "live_history_")
+    ]
+    for path in paths:
         try:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as handle:
@@ -20131,7 +20356,7 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     if engine is not None:
         candidates.extend(getattr(engine, "closed_trades", []) or [])
         candidates.extend(p for p in (getattr(engine, "positions", []) or []) if p.get("status") == "closed")
-    candidates.extend(_live_run_history_trades(run_id))
+    candidates.extend(_live_run_history_trades(run_id, user_id))
     trade = None
     if trade_id:
         for row in candidates:
@@ -20163,10 +20388,7 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     if not entry_ts:
         raise HTTPException(status_code=422, detail="This trade record has no entry time")
 
-    security_id = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
-    if not security_id:
-        raise HTTPException(status_code=404, detail="This trade's contract is no longer in the Scrip Master (expired?)")
-
+    security_id = str(trade.get("security_id") or trade.get("securityId") or "")
     broker_client = getattr(engine, "dhan", None) if engine is not None else None
     if broker_client is None:
         _, broker_client, _ = await _request_broker_context(request)
@@ -20181,40 +20403,29 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     # prior day and the EMA has warm-up) to the EXIT day -- never "today".
     end_day = datetime.fromtimestamp(exit_ts, IST).date() if exit_ts else entry_day
     from_date = (entry_day - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
-    exchange_segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
-    try:
-        frame = await asyncio.to_thread(
-            broker_client.get_historical_data,
-            security_id=str(security_id),
-            exchange_segment=exchange_segment,
-            instrument_type="OPTIDX",
-            from_date=from_date,
-            to_date=end_day.isoformat(),
-            candle_type=candle_type,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Trade-chart candle request failed: {exc}") from exc
-    if frame is None or frame.empty:
-        raise HTTPException(status_code=404, detail="No candles returned for this trade's contract")
+    # A trade that ended before today is complete: its candles are kept.
+    cache_path = (
+        _trade_chart_cache_path(user_id, run_id, f"{trade.get('id') or ''}_{int(entry_ts)}", candle_type)
+        if exit_ts and end_day < datetime.now(IST).date()
+        else ""
+    )
+    frozen = await _contract_chart_candles(
+        broker_client,
+        trade,
+        underlying=underlying,
+        strike=strike,
+        expiry=expiry,
+        option_type=option_type,
+        from_date=date.fromisoformat(from_date),
+        to_date=end_day,
+        candle_type=candle_type,
+        cache_path=cache_path,
+    )
 
-    candles = []
-    for timestamp, row in frame.iterrows():
-        stamp = _scalp_option_chart_timestamp(timestamp)
-        if stamp is None:
-            continue
-        # The freeze: nothing after the exit bar. A little runway past the exit
-        # is kept so the exit mark is not the last pixel on the canvas.
-        if exit_ts and stamp > exit_ts + 6 * {"5": 300, "15": 900, "60": 3600}[candle_type]:
-            continue
-        candles.append(
-            {
-                "t": stamp,
-                "o": round(float(row["open"]), 4),
-                "h": round(float(row["high"]), 4),
-                "l": round(float(row["low"]), 4),
-                "c": round(float(row["close"]), 4),
-            }
-        )
+    # The freeze: nothing after the exit bar. A little runway past the exit is
+    # kept so the exit mark is not the last pixel on the canvas.
+    runway = 6 * {"5": 300, "15": 900, "60": 3600}[candle_type]
+    candles = [c for c in frozen if not exit_ts or c["t"] <= exit_ts + runway]
     if not candles:
         raise HTTPException(status_code=404, detail="Trade-chart candles contained no usable timestamps")
 
