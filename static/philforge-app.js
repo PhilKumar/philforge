@@ -13526,9 +13526,8 @@ async function openCePeIndexChart(event, el) {
       meta.textContent = `${String(data.timeframe || tf).toUpperCase()} candles`
         + `${last > 0 ? ` · last ${last.toFixed(2)}` : ''}`
         + ` · CPR, R1-R4, S1-S5, 20-EMA, ${
-            _cepeFilter === 'CE' ? 'Supertrend 10,2.7 (CE)'
-            : _cepeFilter === 'PE' ? 'Supertrend 10,2 (PE)'
-            : 'Supertrend 10,2 (PE) and 10,2.7 (CE, dashed)'} · drag to pan, wheel to zoom`;
+            data.supertrend_book === 'PE' ? 'PE book\'s Supertrend 10,2 on 3m' : 'CE book\'s Supertrend 10,2.7 on 3m'
+          } · drag to pan, wheel to zoom`;
     }
     let host = document.getElementById('live-entry-chart-canvas');
     if (!host && body) {

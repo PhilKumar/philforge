@@ -5,8 +5,10 @@ The header reads "CPR, R1-R4, S1-S5, 20-EMA", but /api/live/index-chart took
 only analytics["overlays"] and threw analytics["lines"] away, so the chart
 carried the 20-EMA and nothing else.
 
-Both live books also read a Supertrend (PE_NoTarget on Supertrend_10_2_3m,
-CE_SL15_NoMonTue on Supertrend_10_2), so the index chart draws that too.
+Both live books also read a Supertrend on 3-minute bars (PE_NoTarget 10,2,
+CE_SL15_NoMonTue 10,2.7). Phil, 2026-09-18: "put only one supertrend line...
+this is completely confusing" -- the chart draws ONE, computed on the 3m bars
+the rule reads, not on the chart's own candles.
 """
 
 import ast
@@ -22,14 +24,6 @@ APP_JS = open(os.path.join(ROOT, "static", "philforge-app.js"), encoding="utf-8"
 
 def _route_body() -> str:
     return APP_PY.split('@app.get("/api/live/index-chart")')[1].split("@app.get(")[0]
-
-
-def _helpers():
-    start = APP_PY.index("def _supertrend_overlay(")
-    end = APP_PY.index("def _chart_session_analytics(")
-    ns: dict = {}
-    exec(APP_PY[start:end], ns)  # noqa: S102 - reading our own source under test
-    return ns
 
 
 def _fake_candles(n: int = 400) -> list[dict]:
@@ -58,65 +52,136 @@ class TheChartKeepsItsPivots(unittest.TestCase):
         self.assertIn('analytics["lines"]', body)
         self.assertIn('"LAST"', body, "LAST is drawn on top of the pivots, not instead of them")
 
-    def test_the_header_and_the_payload_agree(self):
-        """A header promising CPR must not sit above an EMA-only chart."""
+    def test_the_header_names_the_one_line_drawn(self):
         fn = APP_JS.split("async function openCePeIndexChart(")[1][:3000]
         self.assertIn("CPR, R1-R4, S1-S5, 20-EMA", fn)
-        self.assertIn("Supertrend 10,2.7 (CE)", fn)
-        self.assertIn("Supertrend 10,2 (PE)", fn)
-        self.assertIn('analytics["lines"]', _route_body())
-        self.assertIn("_supertrend_overlay_lines(candles, book)", _route_body())
+        self.assertIn("data.supertrend_book", fn)
+        self.assertNotIn("dashed", fn)
 
     def test_the_pivot_builder_really_emits_them(self):
-        """_chart_session_analytics is the source; prove it labels the pivots."""
         block = APP_PY.split("def _chart_session_analytics(")[1].split("\ndef ")[0]
         for label in ("CPR TC", "CPR P", "CPR BC", "R1", "R4", "S1", "S4"):
             self.assertIn(f'"{label}"', block, label)
 
 
-class TheChartDrawsTheSupertrend(unittest.TestCase):
-    def test_it_reuses_the_one_implementation(self):
-        """A second supertrend in app.py would be a second set of numbers."""
-        block = APP_PY.split("def _supertrend_overlay(")[1].split("\ndef _supertrend_overlay_lines")[0]
-        self.assertIn("from engine.indicators import supertrend", block)
-        self.assertNotIn("Wilder", block, "the maths belongs in engine/indicators.py")
+def _minute_frame(days: int = 2):
+    import pandas as pd
 
-    def test_it_produces_coloured_segments(self):
-        ns = _helpers()
-        overlays = ns["_supertrend_overlay_lines"](_fake_candles())
-        self.assertTrue(overlays, "supertrend produced no overlay")
-        self.assertEqual(sorted({o["color"] for o in overlays}), ["#4ade80", "#f87171"])
-        for o in overlays:
-            self.assertGreaterEqual(len(o["points"]), 2)
+    random.seed(11)
+    stamps, rows, price = [], [], 23300.0
+    for d in range(days):
+        start = pd.Timestamp("2026-09-17 09:15") + pd.Timedelta(days=d)
+        for m in range(375):
+            price += random.gauss(-0.4 if (d == days - 1 and m > 200) else 0.3, 3)
+            stamps.append(start + pd.Timedelta(minutes=m))
+            rows.append((price, price + abs(random.gauss(0, 2)), price - abs(random.gauss(0, 2)), price))
+    return pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=pd.DatetimeIndex(stamps))
 
-    def test_the_legend_names_each_line_once(self):
-        """One entry per Supertrend drawn, not one per flip."""
-        ns = _helpers()
-        for book, expected in (("PE", ["PE ST 10,2"]), ("CE", ["CE ST 10,2.7"])):
-            labelled = [o["label"] for o in ns["_supertrend_overlay_lines"](_fake_candles(), book) if o["label"]]
-            self.assertEqual(labelled, expected, book)
 
-    def test_each_book_gets_the_supertrend_it_actually_trades(self):
-        """PE_NoTarget exits on Supertrend_10_2_3m and CE_SL15_NoMonTue on
-        Supertrend_10_2.7_3m. One line for both is wrong for one of them."""
-        ns = _helpers()
-        pe = ns["_supertrend_overlay_lines"](_fake_candles(), "PE")
-        ce = ns["_supertrend_overlay_lines"](_fake_candles(), "CE")
-        self.assertNotEqual(pe[0]["points"], ce[0]["points"])
+def _five_minute_candles(frame):
+    from zoneinfo import ZoneInfo
 
-    def test_showing_both_tells_them_apart(self):
-        ns = _helpers()
-        both = ns["_supertrend_overlay_lines"](_fake_candles(), "all")
-        labels = sorted(o["label"] for o in both if o["label"])
-        self.assertEqual(labels, ["CE ST 10,2.7", "PE ST 10,2"])
-        self.assertTrue(any(o.get("dash") for o in both), "the two lines must be distinguishable")
+    bars = (
+        frame.resample("5min", label="left", closed="left", origin="start_day", offset="15min")
+        .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
+        .dropna()
+    )
+    ist = ZoneInfo("Asia/Kolkata")
+    return [
+        {"t": int(i.tz_localize(ist).timestamp()), "o": r.open, "h": r.high, "l": r.low, "c": r.close}
+        for i, r in bars.iterrows()
+    ]
 
-    def test_a_short_series_is_declined_rather_than_faked(self):
-        ns = _helpers()
-        self.assertEqual(ns["_supertrend_overlay_lines"](_fake_candles(10)), [])
 
-    def test_the_route_asks_for_it(self):
-        self.assertIn("_supertrend_overlay_lines(candles, book)", _route_body())
+class OneSupertrendOnTheRulesBars(unittest.TestCase):
+    def test_the_route_draws_exactly_one(self):
+        body = _route_body()
+        self.assertIn("_supertrend_book_for_chart(", body)
+        self.assertIn("_rule_supertrend_on_chart_bars(", body)
+        self.assertNotIn("_supertrend_overlay_lines", APP_PY)
+        self.assertIn('candle_type="1"', body, "the 3m line is built from 1m, as the engine builds it")
+
+    def test_the_line_is_the_3m_rule_not_the_chart_candles(self):
+        import app
+
+        frame = _minute_frame()
+        candles = _five_minute_candles(frame)
+        segments = app._rule_supertrend_on_chart_bars(frame, candles, 5, multiplier=2.7)
+        self.assertTrue(segments)
+        drawn = {p["t"]: p["price"] for seg in segments for p in seg["points"]}
+
+        bars = app.resample_ohlcv(frame, 3, source_timeframe_minutes=1)
+        rule = app.supertrend(bars, period=10, multiplier=2.7)["supertrend"]
+        # 5m bar 10:00-10:05 closes at 10:05: the last 3m bar closed by then is 10:00-10:03.
+        from zoneinfo import ZoneInfo
+
+        import pandas as pd
+
+        ist = ZoneInfo("Asia/Kolkata")
+        t = int(pd.Timestamp("2026-09-18 10:00").tz_localize(ist).timestamp())
+        self.assertAlmostEqual(drawn[t], round(float(rule[pd.Timestamp("2026-09-18 10:00")]), 2))
+
+    def test_a_flip_starts_a_new_segment_and_colours_it(self):
+        import app
+
+        frame = _minute_frame()
+        segments = app._rule_supertrend_on_chart_bars(frame, _five_minute_candles(frame), 5, multiplier=2.0)
+        self.assertGreaterEqual(len(segments), 2)
+        self.assertEqual({s["dir"] for s in segments}, {1, -1})
+
+    def test_no_minutes_no_line(self):
+        import app
+
+        self.assertEqual(app._rule_supertrend_on_chart_bars(None, [{"t": 1}], 5, multiplier=2.7), [])
+
+
+class WhichBooksLine(unittest.TestCase):
+    USER = 99904
+
+    def _book(self, side, positions=(), trades=()):
+        import app
+        from engine.live import LiveEngine
+
+        engine = LiveEngine(object(), run_id=f"B_{side}", state_dir="/tmp")
+        engine.strategy = {"legs": [{"option_type": side}]}
+        engine.positions = list(positions)
+        engine.closed_trades = list(trades)
+        app._registry_bucket(app.live_engines, self.USER)[f"B_{side}"] = engine
+
+    def tearDown(self):
+        import app
+
+        app._registry_bucket(app.live_engines, self.USER).clear()
+
+    def test_a_filtered_desk_draws_its_own_book(self):
+        import app
+
+        self.assertEqual(app._supertrend_book_for_chart(self.USER, "PE"), "PE")
+        self.assertEqual(app._supertrend_book_for_chart(self.USER, "ce"), "CE")
+
+    def test_the_book_holding_a_position_wins(self):
+        import app
+
+        self._book("CE")
+        self._book("PE", positions=[{"status": "open"}])
+        self.assertEqual(app._supertrend_book_for_chart(self.USER, "all"), "PE")
+
+    def test_otherwise_the_book_that_traded_last_today(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        import app
+
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        self._book("CE", trades=[{"entry_time": f"{today} 09:20:00"}])
+        self._book("PE", trades=[{"entry_time": f"{today} 14:30:00"}])
+        self.assertEqual(app._supertrend_book_for_chart(self.USER, "all"), "PE")
+
+    def test_a_quiet_day_draws_the_ce_line(self):
+        import app
+
+        self._book("PE", trades=[{"entry_time": "2020-01-01 09:20:00"}])
+        self.assertEqual(app._supertrend_book_for_chart(self.USER, "all"), "CE")
 
 
 class TheRouteStillResolves(unittest.TestCase):
@@ -134,7 +199,7 @@ class TheRouteStillResolves(unittest.TestCase):
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 for a in node.names:
                     module_names.add(a.asname or a.name.split(".")[0])
-        for name in ("_supertrend_overlay", "_supertrend_overlay_lines", "_chart_session_analytics"):
+        for name in ("_rule_supertrend_on_chart_bars", "_supertrend_book_for_chart", "_chart_session_analytics"):
             self.assertIn(name, module_names, f"{name} is not defined at module level")
 
 
