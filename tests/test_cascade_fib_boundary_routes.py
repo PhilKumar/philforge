@@ -1349,6 +1349,13 @@ class FibBoundaryAutoMotherTests(unittest.IsolatedAsyncioTestCase):
         app_module._fib_boundary_engines.clear()
         app_module._fib_boundary_auto.clear()
         app_module._fib_boundary_auto_loaded.clear()
+        # These tests are pinned to August 2026, and the auto log keeps 30 days
+        # counted from the REAL clock. On 19-Sep-2026 the 19-Aug entry aged out
+        # and the chaining test read an empty log -- the rule still worked,
+        # the fixture had expired. Keep the window wide enough to hold it.
+        retention = patch.object(app_module, "_FIB_AUTO_LOG_DAYS", 36500)
+        retention.start()
+        self.addCleanup(retention.stop)
         await app_module._db_mod.init_db()
 
     async def asyncTearDown(self):
