@@ -20221,8 +20221,13 @@ def _rolling_contract_candles(
         atm = probe["strike"].dropna()
         if atm.empty:
             continue
-        centre = int(round((float(strike) - float(atm.median())) / step))
-        for offset in range(centre - 2, centre + 3):
+        # WHERE THE STRIKE SAT, BAR BY BAR -- not around the week's median ATM.
+        # Five aliases around the median missed the morning of 11-Sep-2026:
+        # NIFTY opened far from the week's middle, 23450PE was more than two
+        # strikes off it, and the chart began at 11:10 on a trade that closed
+        # at 10:08. Every alias the strike actually occupied is asked for.
+        offsets = sorted({int(round((float(strike) - float(level)) / step)) for level in atm})
+        for offset in offsets:
             if abs(offset) > 10:
                 continue
             frame = probe if offset == 0 else _fetch(code, lo, hi, _format_rolling_strike(offset))

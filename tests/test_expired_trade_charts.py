@@ -114,13 +114,13 @@ class TheArchiveIsTheFallback(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def _archive(self):
-        # ATM is 23650 on the 10th, so 23700 is ATM+1; ATM+2 is 23750.
+        # ATM is 23650 at first, so 23700 is ATM+1. At 09:35 the market jumps
+        # two strikes to 23750 and 23700 becomes ATM-1.
         stamps = ["2026-09-10 09:25", "2026-09-10 09:30", "2026-09-10 09:35"]
         return {
-            (1, "ATM"): _frame(stamps, [300.0, 301.0, 302.0], [23650.0, 23650.0, 23650.0]),
-            # The market moved: at 09:35 ATM+1 is a different strike.
-            (1, "ATM+1"): _frame(stamps, [265.0, 270.0, 999.0], [23700.0, 23700.0, 23750.0]),
-            (1, "ATM+2"): _frame(stamps, [230.0, 231.0, 272.0], [23750.0, 23750.0, 23800.0]),
+            (1, "ATM"): _frame(stamps, [300.0, 301.0, 302.0], [23650.0, 23650.0, 23750.0]),
+            (1, "ATM+1"): _frame(stamps, [265.0, 270.0, 999.0], [23700.0, 23700.0, 23800.0]),
+            (1, "ATM+2"): _frame(stamps, [230.0, 231.0, 272.0], [23750.0, 23750.0, 23850.0]),
             (1, "ATM-1"): _frame(stamps, [340.0, 341.0, 275.0], [23600.0, 23600.0, 23700.0]),
         }
 
@@ -128,6 +128,21 @@ class TheArchiveIsTheFallback(unittest.TestCase):
         client = FakeDhan(history_error=RuntimeError("DH-905 no data"), rolling=self._archive())
         candles = _run(client)
         self.assertEqual([c["c"] for c in candles], [265.0, 270.0, 275.0])
+
+    def test_a_strike_far_from_the_weeks_middle_is_still_found(self):
+        """11-Sep-2026: 23450PE was five strikes off the week's median ATM that
+        morning, and the chart began at 11:10 on a trade closed at 10:08."""
+        stamps = ["2026-09-10 09:25", "2026-09-10 09:30", "2026-09-10 09:35", "2026-09-10 09:40"]
+        atm = [23700.0, 23950.0, 23950.0, 23950.0]  # median 23950, so 23700 is ATM-5 there
+        archive = {
+            (1, "ATM"): _frame(stamps, [300.0, 90.0, 91.0, 92.0], atm),
+            (1, "ATM-5"): _frame(stamps, [30.0, 150.0, 151.0, 152.0], [23450.0, 23700.0, 23700.0, 23700.0]),
+        }
+        client = FakeDhan(history=pd.DataFrame(), rolling=archive)
+        candles = _run(client)
+        self.assertEqual([c["c"] for c in candles], [300.0, 150.0, 151.0, 152.0])
+        asked = {c["strike"] for c in client.rolling_calls}
+        self.assertEqual(asked, {"ATM", "ATM-5"}, "only the aliases the strike actually sat in")
 
     def test_the_contract_is_pinned_by_its_expiry_week(self):
         client = FakeDhan(history=pd.DataFrame(), rolling=self._archive())
