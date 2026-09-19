@@ -47,29 +47,6 @@ html.pf-glass .app-topbar {
   box-shadow:inset 0 1px 0 var(--fg-shine),var(--fg-shadow); border-radius:20px;
   backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
 }
-/* Desktop left rail — matches the approved preview: quiet glass base, generous
-   vertical rhythm, and one clearly outlined active destination. */
-html.pf-glass .nav-bar {
-  background:var(--fg-surface) !important;
-  border-color:var(--fg-edge) !important;
-  box-shadow:inset 0 1px 0 var(--fg-shine),var(--fg-shadow);
-  backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
-}
-html.pf-glass .nav-tabs { gap:6px; }
-html.pf-glass .nav-tab {
-  border:1px solid transparent;
-  border-radius:12px;
-  margin:7px 0;
-  color:var(--fg-muted);
-  transition:background .18s,border-color .18s,color .18s;
-}
-html.pf-glass .nav-tab.active {
-  color:var(--fg-accent);
-  background:linear-gradient(160deg,var(--fg-shine),transparent 60%),color-mix(in srgb,var(--fg-accent) 13%,transparent) !important;
-  border-color:color-mix(in srgb,var(--fg-accent) 40%,transparent);
-  box-shadow:inset 0 1px 0 var(--fg-shine),0 5px 14px #00000012;
-}
-html.pf-glass .nav-tab::after { display:none; }
 html.pf-glass .topbar-brand-text { background:none; -webkit-text-fill-color:var(--fg-ink); color:var(--fg-ink); letter-spacing:-.8px; }
 html.pf-glass .topbar-brand-sub { color:var(--fg-muted); }
 html.pf-glass .header-brand-panel { background:transparent; border:0; box-shadow:none; }
@@ -177,7 +154,27 @@ html.pf-glass[data-art-motion='off'] .pf-glass-atmosphere::before { animation-pl
 html.pf-glass[data-art-motion='off'] .pf-art-orbit::after { animation-play-state:paused !important; }
 /* Desktop uses a fixed left rail; narrow screens retain the compact, scrollable
    top navigation so every destination remains reachable. */
-@media(min-width:1200px) {
+@media(min-width:1400px) {
+  /* Desktop left rail — matches the approved preview: quiet glass base,
+     generous vertical rhythm, and one clearly outlined active destination. */
+  html.pf-glass .nav-bar {
+    background:var(--fg-surface) !important;
+    border-color:var(--fg-edge) !important;
+    box-shadow:inset 0 1px 0 var(--fg-shine),var(--fg-shadow);
+    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+  }
+  html.pf-glass .nav-tabs { gap:6px; }
+  html.pf-glass .nav-tab {
+    border:1px solid transparent; border-radius:12px; margin:0;
+    color:var(--fg-muted); transition:background .18s,border-color .18s,color .18s;
+  }
+  html.pf-glass .nav-tab.active {
+    color:var(--fg-accent);
+    background:linear-gradient(160deg,var(--fg-shine),transparent 60%),color-mix(in srgb,var(--fg-accent) 13%,transparent) !important;
+    border-color:color-mix(in srgb,var(--fg-accent) 40%,transparent);
+    box-shadow:inset 0 1px 0 var(--fg-shine),0 5px 14px #00000012;
+  }
+  html.pf-glass .nav-tab::after { display:none; }
   html.pf-glass .header-shell { padding-left:238px; }
   html.pf-glass .header-brand-panel {
     position:fixed; top:25px; bottom:auto; left:23px; width:170px; height:70px;
@@ -201,6 +198,7 @@ html.pf-glass[data-art-motion='off'] .pf-art-orbit::after { animation-play-state
      cards instead of pushing the document wider than the viewport. */
   html.pf-glass #options-cascade-page .oc-tabs { flex-wrap:wrap; }
   html.pf-glass #options-cascade-page .oc-tab { flex:1 1 250px; min-width:0; }
+  html.pf-glass #options-cascade-page .pf-info-doc { columns:26em auto; }
 }
 @media(max-width:800px) {
   html.pf-glass .pf-art-hero { min-height:224px; padding:22px 205px 22px 22px !important; gap:16px; }
