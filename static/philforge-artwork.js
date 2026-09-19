@@ -25,7 +25,7 @@
       figure.setAttribute('aria-hidden', 'true');
       figure.dataset.artwork = name;
       const img = document.createElement('img');
-      img.src = `/static/artwork/${name}.png?v=20260920-artwork-11`;
+      img.src = `/static/artwork/${name}.png?v=20260920-artwork-12`;
       img.alt = ''; img.width = 1280; img.height = 1280;
       img.decoding = 'async'; img.loading = 'lazy';
       const orbit = document.createElement('span'); orbit.className = 'pf-art-orbit';
