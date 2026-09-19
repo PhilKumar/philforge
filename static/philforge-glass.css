@@ -63,7 +63,7 @@ html.pf-glass :is(.pf-workspace-hero,.trading-workspace-head,.oc-hero)::after { 
 html.pf-glass .pf-hero-rail { display:none; }
 html.pf-glass .pf-art-hero {
   position:relative; display:flex; flex-direction:column; align-items:flex-start; justify-content:center;
-  min-height:180px; gap:12px; padding:18px 230px 18px 28px !important; overflow:hidden;
+  min-height:180px; gap:12px; padding:18px 230px 18px 28px !important; overflow:clip;
 }
 html.pf-glass .pf-art-hero :is(h1,h2) { font-family:var(--font-body,'Outfit',system-ui,sans-serif); font-size:clamp(27px,2.8vw,40px); line-height:1.13; letter-spacing:-1.2px; color:var(--fg-ink); }
 html.pf-glass .pf-art-hero p { font-size:14px; line-height:1.65; color:var(--fg-muted); max-width:650px; }
