@@ -196,6 +196,70 @@ class AStoppedRunsTradesAreFound(unittest.TestCase):
         self.assertEqual([r["security_id"] for r in rows], ["47306"])
 
 
+class DhansUnevenArrays(unittest.TestCase):
+    """Phil, 2026-09-19: "Last answer: All arrays must be of the same length"."""
+
+    def _read(self, series):
+        from broker import dhan as dhan_module
+
+        class Offline(dhan_module.DhanClient):
+            headers = {}
+
+        client = Offline.__new__(Offline)
+        client.base_url = "https://api.dhan.co"
+        client._allow_token_refresh, client._is_configured = False, lambda: True
+        reply = mock.Mock(status_code=200)
+        reply.json.return_value = {"data": {"pe": series, "ce": None}}
+        with (
+            mock.patch.object(dhan_module, "_request_with_retry", return_value=reply),
+            mock.patch.object(dhan_module, "_throttle_charts"),
+        ):
+            return client.get_rolling_option_data(
+                security_id="13",
+                exchange_segment="NSE_FNO",
+                instrument_type="OPTIDX",
+                expiry_flag="WEEK",
+                expiry_code=1,
+                strike="ATM",
+                option_type="PE",
+                from_date="2026-09-11",
+                to_date="2026-09-16",
+                interval="5",
+            )
+
+    def _series(self, **extra):
+        stamps = [1789530300, 1789530600, 1789530900]  # 2026-09-11 09:15.. IST
+        base = {
+            "timestamp": stamps,
+            "open": [100.0, 101.0, 102.0],
+            "high": [101.0, 102.0, 103.0],
+            "low": [99.0, 100.0, 101.0],
+            "close": [100.5, 101.5, 102.5],
+            "volume": [10, 20, 30],
+            "strike": [23600.0, 23600.0, 23650.0],
+            "spot": [23610.0, 23605.0, 23660.0],
+        }
+        base.update(extra)
+        return base
+
+    def test_fields_nobody_asked_for_come_back_empty_and_are_left_out(self):
+        frame = self._read(self._series(oi=[], iv=[]))
+        self.assertEqual(len(frame), 3)
+        self.assertNotIn("oi", frame)
+        self.assertEqual(list(frame["strike"]), [23600.0, 23600.0, 23650.0])
+
+    def test_a_short_field_is_padded_blank_and_a_long_one_cut(self):
+        frame = self._read(self._series(spot=[23610.0], oi=[1, 2, 3, 4]))
+        self.assertEqual(len(frame), 3)
+        self.assertEqual(frame["spot"].isna().tolist(), [False, True, True])
+        self.assertEqual(list(frame["oi"]), [1, 2, 3])
+
+    def test_the_traded_strike_survives_to_the_chart(self):
+        frame = self._read(self._series(oi=[], iv=[]))
+        mine = frame[(frame["strike"] - 23600.0).abs() < 0.01]
+        self.assertEqual([c["c"] for c in app._frame_to_chart_candles(mine)], [100.5, 101.5])
+
+
 class CandleRows(unittest.TestCase):
     def test_a_blank_archive_bar_is_skipped(self):
         frame = _frame(["2026-09-10 09:25", "2026-09-10 09:30"], [265.0, float("nan")])

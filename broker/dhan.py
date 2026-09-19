@@ -1560,14 +1560,34 @@ class DhanClient:
         frame = {
             "timestamp": pd.to_datetime(timestamps, unit=unit) + pd.Timedelta(hours=5, minutes=30),
         }
-        for field in ("open", "high", "low", "close", "iv", "spot"):
-            if field in series:
-                frame[field] = [float(x) if x is not None else float("nan") for x in series[field]]
+        # THE ARRAYS DO NOT ALL COME BACK THE SAME LENGTH. Dhan answers fields
+        # nobody asked for (oi, iv) as [] next to 375 timestamps, and a table
+        # built from both raised "All arrays must be of the same length" -- on
+        # every closed-trade chart, 2026-09-19. A field is read by position
+        # against the timestamps, as options/dhan_premiums.py always has: an
+        # empty one is left out, a short one is padded blank, a long one cut.
+        count = len(timestamps)
+        uneven = {}
+
+        def _aligned(field, cast, blank):
+            values = series.get(field)
+            if not isinstance(values, list) or not values:
+                return None
+            if len(values) != count:
+                uneven[field] = len(values)
+                values = (values + [None] * count)[:count]
+            return [cast(x) if x is not None else blank for x in values]
+
+        for field in ("open", "high", "low", "close", "iv", "spot", "strike"):
+            column = _aligned(field, float, float("nan"))
+            if column is not None:
+                frame[field] = column
         for field in ("volume", "oi"):
-            if field in series:
-                frame[field] = [int(x) if x is not None else 0 for x in series[field]]
-        if "strike" in series:
-            frame["strike"] = [float(x) if x is not None else float("nan") for x in series["strike"]]
+            column = _aligned(field, int, 0)
+            if column is not None:
+                frame[field] = column
+        if uneven:
+            print(f"[DHAN] RollingOption: {count} timestamps, uneven fields read by position: {uneven}")
 
         df = pd.DataFrame(frame)
         df.set_index("timestamp", inplace=True)
