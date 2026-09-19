@@ -673,13 +673,25 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
 // empty, and every Python test still passes. So this asserts the semantic paint
 // record — real candles, real geometry, real labels — not just that a canvas
 // element exists.
-test('Desktop nav is one row that scrolls, never two', async ({ page }) => {
-  // The nav positions tabs with per-id CSS order rules and used to wrap to a
-  // second row when they stopped fitting — which is how the Test Bench tab
-  // once landed on top of the brand panel. One row is now the invariant at
-  // every width; overflow scrolls sideways instead.
+test('Desktop navigation uses the left rail while narrower screens keep one reachable top row', async ({ page }) => {
+  // The approved workspace has a left rail on a desktop.  Smaller screens keep
+  // the compact horizontal navigation: no wrapped second row and no hidden
+  // destinations.
   await page.setViewportSize({ width: 1600, height: 900 });
   await login(page);
+
+  const desktopRail = await page.evaluate(() => {
+    const bar = document.querySelector('.nav-bar') as HTMLElement;
+    const tabs = Array.from(document.querySelectorAll('.nav-tabs > *')) as HTMLElement[];
+    return {
+      position: getComputedStyle(bar).position,
+      width: Math.round(bar.getBoundingClientRect().width),
+      rows: new Set(tabs.filter((el) => el.offsetParent !== null).map((el) => Math.round(el.getBoundingClientRect().top))).size,
+    };
+  });
+  expect(desktopRail.position).toBe('fixed');
+  expect(desktopRail.width).toBeGreaterThanOrEqual(200);
+  expect(desktopRail.rows).toBeGreaterThan(1);
 
   const rowsAt = async (width: number) => {
     await page.setViewportSize({ width, height: 900 });
@@ -691,8 +703,6 @@ test('Desktop nav is one row that scrolls, never two', async ({ page }) => {
     });
   };
 
-  expect(await rowsAt(1600)).toBe(1);
-  expect(await rowsAt(1280)).toBe(1);
   expect(await rowsAt(1024)).toBe(1);
 
   // And the row is genuinely scrollable rather than clipping tabs away.

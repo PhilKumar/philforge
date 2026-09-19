@@ -18707,7 +18707,7 @@ function renderMonthlyDailyGrid() {
       const tileFill = isReadOnlyAccount() ? 'rgba(148,163,184,0.06)' : (isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)');
       const tileEdge = isReadOnlyAccount() ? 'rgba(148,163,184,0.18)' : (isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)');
       html += `
-        <div class="portfolio-monthly-day" style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ${pfMoney(e.grossReal)}${details} (${e.displayTradeCount} trades)">
+        <div class="portfolio-monthly-day ${isWin ? 'is-profit' : 'is-loss'}" style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ${pfMoney(e.grossReal)}${details} (${e.displayTradeCount} trades)">
           <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
           <div style="font-size: 13px; font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.grossReal, 0)}</div>
           <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T${e.charges > 0 ? ' · ' + pfMoney(e.charges, 0) + ' chg' : ''}</div>
