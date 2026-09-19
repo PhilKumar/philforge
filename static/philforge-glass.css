@@ -146,6 +146,16 @@ html.pf-glass[data-theme='light'] #portfolio-page #portfolio-paper-monthly .port
   background:linear-gradient(145deg,#ffffff,#f1f5f9) !important;
   border-color:rgba(71,85,105,.14) !important;
 }
+/* The monthly ledger is a financial table, not a stack of broken numeric
+   fragments. Keep a stable column width and let its own scroll lane handle a
+   narrow screen. */
+#portfolio-page .portfolio-monthly-trades-table {
+  min-width:720px;
+  table-layout:auto;
+}
+#portfolio-page .portfolio-monthly-trades-table :is(th,td) {
+  white-space:nowrap;
+}
 @keyframes pf-art-float { 0%,100% { transform:translateY(0) rotate(-1deg); } 50% { transform:translateY(-7px) rotate(1deg); } }
 @keyframes pf-art-ball-orbit { from { offset-distance:0%; } to { offset-distance:100%; } }
 @keyframes pf-light-drift { from { transform:translate3d(-2%,0,0); } to { transform:translate3d(3%,2%,0); } }

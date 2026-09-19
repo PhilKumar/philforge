@@ -66,3 +66,30 @@ test('Portfolio uses the compact Cascade-style capital ledger', async ({ page })
 
   expect(mobile).toEqual({ columns: 2, bookColumns: 1, ledgerFits: true });
 });
+
+test('Monthly real-trades ledger keeps every financial value on one line', async ({ page }) => {
+  await login(page);
+  await page.click('#nav-portfolio');
+  await page.evaluate(() => {
+    (window as any)._portfolioDaily = {
+      '2026-09-01': {
+        real_pnl: -1605.5, real_net_pnl: -1740.25, real_charges: 94.75,
+        real_brokerage: 40, real_trades: 2, real_trade_legs: 2,
+      },
+    };
+    (window as any)._currentMonthlyView = '2026-09';
+    (window as any).renderMonthlyDailyGrid();
+    (window as any).togglePortfolioMonthlyTrades();
+  });
+  await expect(page.locator('.portfolio-monthly-trades-table')).toBeVisible();
+  const layout = await page.evaluate(() => {
+    const table = document.querySelector<HTMLElement>('.portfolio-monthly-trades-table')!;
+    const scroll = table.closest<HTMLElement>('.trade-table-scroll')!;
+    const cells = [...table.querySelectorAll<HTMLElement>('th, td')];
+    return {
+      scrolls: table.scrollWidth > scroll.clientWidth,
+      unbroken: cells.every(cell => getComputedStyle(cell).whiteSpace === 'nowrap'),
+    };
+  });
+  expect(layout).toEqual({ scrolls: true, unbroken: true });
+});
