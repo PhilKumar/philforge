@@ -25,10 +25,10 @@ html.pf-glass body::before,html.pf-glass body::after { display:none !important; 
   animation:pf-light-drift 28s ease-in-out infinite alternate;
 }
 html.pf-glass #main-content { position:relative; z-index:1; }
-html.pf-glass .header-shell { padding:18px 28px 0; margin-bottom:20px; }
-/* The blueprint's sticky wrapper must not paint a square black slab. */
+/* Keep the application-owned header geometry intact.  In particular the
+   blueprint reader pins its tools precisely to this header's lower edge. */
 html.pf-glass body.pf-blueprint-open .header-shell {
-  position:sticky; top:0; background:transparent; box-shadow:none;
+  background:var(--fg-surface); box-shadow:0 10px 24px #02091628;
 }
 html.pf-glass .expiry-bar {
   margin-top:8px; padding:9px 14px; border-radius:16px;
@@ -40,7 +40,6 @@ html.pf-glass .expiry-bar {
 html.pf-glass #results-page > :is(.card,.card-glass),
 html.pf-glass #results-page #results-content > :is(.card,.card-glass),
 html.pf-glass #results-page #results-empty { margin:0 0 20px !important; }
-html.pf-glass #main-content { margin:0 28px 40px; }
 html.pf-glass #main-content,html.pf-glass .page-section { min-width:0; max-width:100%; }
 html.pf-glass #builder-page .flex-row { flex-wrap:wrap; }
 html.pf-glass .app-topbar {
@@ -128,8 +127,6 @@ html.pf-glass[data-theme='light'] :is(.portfolio-monthly-day,#stock-regular-extr
 html.pf-glass[data-art-motion='off'] :is(.pf-tab-art img,.pf-art-ball),
 html.pf-glass[data-art-motion='off'] .pf-glass-atmosphere::before { animation-play-state:paused !important; }
 @media(max-width:800px) {
-  html.pf-glass .header-shell { padding:12px 12px 0; margin-bottom:12px; }
-  html.pf-glass #main-content { margin:0 12px 24px; }
   html.pf-glass .pf-art-hero { min-height:224px; padding:22px 205px 22px 22px !important; gap:16px; }
   .pf-tab-art { right:0; width:210px; height:210px; }
   html.pf-glass .pf-art-hero h1,html.pf-glass .pf-art-hero h2 { font-size:29px; }
@@ -149,7 +146,6 @@ html.pf-glass[data-art-motion='off'] .pf-glass-atmosphere::before { animation-pl
   html.pf-glass .trading-section-tabs { position:relative; z-index:4; gap:7px; }
   html.pf-glass .trading-section-tab { flex:1 1 80px; flex-direction:column; align-items:flex-start; gap:6px; }
   html.pf-glass .trading-section-tab small { font-size:9px; }
-  html.pf-glass .nav-tab { min-height:44px; padding:8px 10px; margin:3px 0; }
   html.pf-glass :is(.topbar-icon-btn,.pf-motion-button) { min-height:40px; }
   @keyframes pf-art-orbit-small {
     0%,100% { transform:translate(-61px,0); z-index:3; }
