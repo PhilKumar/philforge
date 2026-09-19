@@ -1,16 +1,15 @@
 /* PhilForge glass workspace. Loaded by strategy.html only. */
 html.pf-glass {
-  --fg-surface:rgba(16,27,43,.89); --fg-inner:rgba(20,33,52,.92);
+  --fg-surface:rgba(16,27,43,.96); --fg-inner:rgba(20,33,52,.98);
   --fg-edge:rgba(189,218,235,.21); --fg-shine:rgba(236,252,255,.15);
-  --fg-shadow:0 14px 38px #02091635; --fg-ink:#e6eef9; --fg-muted:#a2b2c9;
+  --fg-shadow:0 14px 38px #02091635; --fg-ink:var(--text); --fg-muted:var(--muted);
   --fg-accent:#66dfcf; --fg-button:rgba(76,103,136,.42);
   --fg-body-overlay:linear-gradient(125deg,#071221e8,#0a1a29b5 65%,#102031cd);
-  --text:var(--fg-ink); --muted:var(--fg-muted);
 }
 html.pf-glass[data-theme="light"] {
-  --fg-surface:rgba(249,253,255,.89); --fg-inner:rgba(243,248,252,.94);
+  --fg-surface:rgba(249,253,255,.96); --fg-inner:rgba(243,248,252,.98);
   --fg-edge:rgba(64,104,137,.24); --fg-shine:rgba(255,255,255,.95);
-  --fg-shadow:0 14px 38px #25456314; --fg-ink:#172c45; --fg-muted:#4c637d;
+  --fg-shadow:0 14px 38px #25456314; --fg-ink:var(--text); --fg-muted:var(--muted);
   --fg-accent:#00796e; --fg-button:rgba(181,208,229,.36);
   --fg-body-overlay:linear-gradient(125deg,#edf5fbe6,#edf4f9ad 65%,#ebf2f8cc);
 }
@@ -25,11 +24,11 @@ html.pf-glass body::before,html.pf-glass body::after { display:none !important; 
   background:radial-gradient(ellipse at 20% 20%,#80f7e216,transparent 45%),radial-gradient(ellipse at 80% 60%,#ffc98114,transparent 40%);
   animation:pf-light-drift 28s ease-in-out infinite alternate;
 }
-html.pf-glass :is(.header-shell,#main-content) { position:relative; z-index:1; }
+html.pf-glass #main-content { position:relative; z-index:1; }
 html.pf-glass .header-shell { padding:18px 28px 0; margin-bottom:20px; }
 /* The blueprint's sticky wrapper must not paint a square black slab. */
 html.pf-glass body.pf-blueprint-open .header-shell {
-  background:transparent; box-shadow:none;
+  position:sticky; top:0; background:transparent; box-shadow:none;
 }
 html.pf-glass .expiry-bar {
   margin-top:8px; padding:9px 14px; border-radius:16px;
@@ -44,7 +43,7 @@ html.pf-glass #results-page #results-empty { margin:0 0 20px !important; }
 html.pf-glass #main-content { margin:0 28px 40px; }
 html.pf-glass #main-content,html.pf-glass .page-section { min-width:0; max-width:100%; }
 html.pf-glass #builder-page .flex-row { flex-wrap:wrap; }
-html.pf-glass :is(.app-topbar,.nav-bar) {
+html.pf-glass .app-topbar {
   background:var(--fg-surface) !important; border:1px solid var(--fg-edge);
   box-shadow:inset 0 1px 0 var(--fg-shine),var(--fg-shadow); border-radius:20px;
   backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
@@ -52,22 +51,15 @@ html.pf-glass :is(.app-topbar,.nav-bar) {
 html.pf-glass .topbar-brand-text { background:none; -webkit-text-fill-color:var(--fg-ink); color:var(--fg-ink); letter-spacing:-.8px; }
 html.pf-glass .topbar-brand-sub { color:var(--fg-muted); }
 html.pf-glass .header-brand-panel { background:transparent; border:0; box-shadow:none; }
-html.pf-glass .nav-tabs { gap:6px; }
-html.pf-glass .nav-tab { border:1px solid transparent; border-radius:12px; margin:7px 0; color:var(--fg-muted); transition:background .18s,border-color .18s,color .18s; }
-html.pf-glass .nav-tab.active {
-  color:var(--fg-accent); background:linear-gradient(160deg,var(--fg-shine),transparent 60%),color-mix(in srgb,var(--fg-accent) 13%,transparent) !important;
-  border-color:color-mix(in srgb,var(--fg-accent) 40%,transparent); box-shadow:inset 0 1px 0 var(--fg-shine),0 5px 14px #00000012;
-}
-html.pf-glass .nav-tab::after { display:none; }
 html.pf-glass .tab-icon svg { width:20px; height:20px; }
-html.pf-glass :is(.card,.card-glass,.stat-box,.surface-card,.ocp-monitor,.portfolio-run-group,.pf-architecture-shell,.pf-workspace-hero,.trading-workspace-head) {
-  background:linear-gradient(135deg,var(--fg-shine),transparent 32%),var(--fg-surface) !important;
+html.pf-glass :is(.pf-workspace-hero,.trading-workspace-head,.oc-hero) {
+  background:var(--fg-surface) !important;
   border:1px solid var(--fg-edge) !important; border-radius:20px !important;
   box-shadow:inset 0 1px 0 var(--fg-shine),inset 0 -1px 0 #ffffff05,var(--fg-shadow) !important;
   backdrop-filter:blur(14px) saturate(115%); -webkit-backdrop-filter:blur(14px) saturate(115%);
 }
-html.pf-glass :is(.card,.card-glass,.stat-box,.pf-workspace-hero,.trading-workspace-head)::before,
-html.pf-glass :is(.card,.card-glass,.stat-box,.pf-workspace-hero,.trading-workspace-head)::after { display:none !important; }
+html.pf-glass :is(.pf-workspace-hero,.trading-workspace-head,.oc-hero)::before,
+html.pf-glass :is(.pf-workspace-hero,.trading-workspace-head,.oc-hero)::after { display:none !important; }
 html.pf-glass .pf-hero-rail { display:none; }
 html.pf-glass .pf-art-hero {
   position:relative; display:flex; flex-direction:column; align-items:flex-start; justify-content:center;
@@ -94,22 +86,18 @@ html.pf-glass .pf-workspace-hero-meta strong { font-size:12px; color:var(--fg-in
 .pf-tab-art:not(.pf-art-visible) :is(img,.pf-art-ball) { animation-play-state:paused; }
 html.pf-glass .trading-section-tabs { display:flex; flex-wrap:wrap; gap:10px; width:100%; }
 html.pf-glass .trading-section-tab { flex:1 1 140px; min-height:57px; margin:0; }
-html.pf-glass :is(.trading-section-tab,.oc-tab,.topbar-icon-btn,.topbar-user-chip,.pf-motion-button,.scalp-toggle-btn) {
+html.pf-glass :is(.trading-section-tab,.oc-tab,.topbar-icon-btn,.topbar-user-chip,.pf-motion-button) {
   background:linear-gradient(165deg,var(--fg-shine),transparent 60%),var(--fg-inner) !important;
   border:1px solid var(--fg-edge); border-radius:13px !important;
   box-shadow:inset 0 1px 0 var(--fg-shine),0 4px 10px #00000012; color:var(--fg-ink);
 }
-html.pf-glass :is(.trading-section-tab,.oc-tab,.scalp-toggle-btn).is-active,
-html.pf-glass .scalp-toggle-btn.active {
+html.pf-glass :is(.trading-section-tab,.oc-tab).is-active {
   border-color:var(--fg-accent) !important; color:var(--fg-accent) !important;
   background:linear-gradient(165deg,var(--fg-shine),transparent 60%),color-mix(in srgb,var(--fg-accent) 12%,var(--fg-inner)) !important;
 }
 html.pf-glass :is(.trading-section-tab small,.oc-tab-sub) { color:var(--fg-muted); }
 html.pf-glass .trading-section-icon { box-shadow:none; border:1px solid var(--fg-edge); background:color-mix(in srgb,var(--fg-accent) 8%,transparent); }
-html.pf-glass :is(.ocp-pane,.ocp-pane-form,.analytics-inner,.combined-pnl-bar,.exit-section,.portfolio-monthly-trades-panel) {
-  background:var(--fg-inner) !important; border:1px solid var(--fg-edge) !important; border-radius:14px !important; box-shadow:inset 0 1px 0 var(--fg-shine);
-}
-html.pf-glass :is(.btn,.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control,.modal-close) {
+html.pf-glass :is(.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control) {
   background:linear-gradient(180deg,#ffffff52 0%,#ffffff10 44%,#ffffff00 48%,#ffffff09 100%),
     radial-gradient(ellipse at 28% -20%,#ffffff55,transparent 65%),var(--btn-bg,var(--fg-button)) !important;
   border:1px solid var(--btn-border,var(--fg-edge)) !important;
@@ -118,14 +106,10 @@ html.pf-glass :is(.btn,.add-leg-btn,.cascade-options-control,.cascade-options-pr
   backdrop-filter:blur(10px) saturate(125%); -webkit-backdrop-filter:blur(10px) saturate(125%);
   transition:filter .18s,box-shadow .18s; min-height:36px;
 }
-html.pf-glass :is(.btn,.add-leg-btn)::before,html.pf-glass .btn::after { display:none !important; }
-html.pf-glass :is(.btn-submit,.cascade-options-primary-btn) { --btn-bg:#40c8aa; --btn-color:#073e34; --btn-border:#76ebd0; }
-html.pf-glass :is(.btn-danger,.is-danger) { --btn-bg:#d64f70; --btn-color:#fff; --btn-border:#ff9cb1; }
-html.pf-glass :is(.btn,.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control):hover:not(:disabled) { filter:brightness(1.1); box-shadow:inset 0 1px 0 #ffffffb0,inset 0 -1px 0 #ffffff44,0 8px 20px #00000025 !important; }
-html.pf-glass :is(.btn,.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control):active:not(:disabled) { filter:brightness(.95); box-shadow:inset 0 2px 5px #00000022,0 2px 4px #00000018 !important; }
-html.pf-glass :is(.btn,.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control):disabled { opacity:.45; filter:saturate(.35); box-shadow:inset 0 1px 0 #ffffff20 !important; cursor:not-allowed; }
+html.pf-glass :is(.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control):hover:not(:disabled) { filter:brightness(1.1); box-shadow:inset 0 1px 0 #ffffffb0,inset 0 -1px 0 #ffffff44,0 8px 20px #00000025 !important; }
+html.pf-glass :is(.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control):active:not(:disabled) { filter:brightness(.95); box-shadow:inset 0 2px 5px #00000022,0 2px 4px #00000018 !important; }
+html.pf-glass :is(.add-leg-btn,.cascade-options-control,.cascade-options-primary-btn,.terminal-cascade-chart-control,.terminal-cascade-card-control):disabled { opacity:.45; filter:saturate(.35); box-shadow:inset 0 1px 0 #ffffff20 !important; cursor:not-allowed; }
 html.pf-glass :is(button,a,input,select,textarea):focus-visible { outline:2px solid var(--fg-accent); outline-offset:3px; }
-html.pf-glass :is(input:not([type='checkbox']):not([type='radio']),select,textarea) { background:var(--fg-inner) !important; border:1px solid var(--fg-edge); border-radius:10px; color:var(--fg-ink); box-shadow:inset 0 2px 4px #00000010; }
 html.pf-glass #builder-page #legs-empty {
   background:var(--fg-inner); border-color:var(--fg-edge); color:var(--fg-muted) !important;
 }
@@ -143,20 +127,6 @@ html.pf-glass[data-theme='light'] :is(.portfolio-monthly-day,#stock-regular-extr
 @keyframes pf-light-drift { from { transform:translate3d(-2%,0,0); } to { transform:translate3d(3%,2%,0); } }
 html.pf-glass[data-art-motion='off'] :is(.pf-tab-art img,.pf-art-ball),
 html.pf-glass[data-art-motion='off'] .pf-glass-atmosphere::before { animation-play-state:paused !important; }
-@media(min-width:1200px) {
-  html.pf-glass .header-shell { padding-left:238px; }
-  html.pf-glass .header-brand-panel { position:fixed; top:25px; bottom:auto; left:23px; width:170px; height:70px; min-height:0; z-index:51; padding:0; }
-  html.pf-glass .header-brand-mark { width:38px; height:38px; flex:0 0 38px; }
-  html.pf-glass .header-brand-logo { width:36px; height:36px; }
-  html.pf-glass .header-brand-copy { text-align:left; }
-  html.pf-glass .topbar-brand-text { font-size:23px; }
-  html.pf-glass .topbar-brand-sub { font-size:8px; letter-spacing:.04em; }
-  html.pf-glass .nav-bar { position:fixed; inset:0 auto 0 0; width:210px; padding:112px 14px 20px; align-items:flex-start; border-radius:0; border-width:0 1px 0 0; z-index:50; overflow-y:auto; }
-  html.pf-glass .nav-tabs { display:flex; flex-direction:column; width:100%; gap:6px; overflow:visible; }
-  html.pf-glass .nav-tab { width:100%; min-height:46px; margin:0; justify-content:flex-start; padding:12px 15px; font-size:13px; }
-  html.pf-glass .nav-tab .tab-label { display:inline; }
-  html.pf-glass #main-content { margin-left:238px; }
-}
 @media(max-width:800px) {
   html.pf-glass .header-shell { padding:12px 12px 0; margin-bottom:12px; }
   html.pf-glass #main-content { margin:0 12px 24px; }
