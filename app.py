@@ -18682,6 +18682,11 @@ async def _run_backtest_job(job_id: str, payload: StrategyPayload, request: Requ
         owner_id = int(job["user_id"])
         if _backtest_active_by_user.get(owner_id) == job_id:
             _backtest_active_by_user.pop(owner_id, None)
+        # A replay's frames are freed by now, but glibc keeps the arenas, so
+        # the ONE website process would stay a few hundred MB fatter after
+        # every backtest -- and the next one starts that much nearer the
+        # MemoryHigh line that froze the site on 21-Sep-2026. Hand it back.
+        _sanctuary._hand_the_memory_back()
 
 
 @app.post("/api/backtest/jobs")

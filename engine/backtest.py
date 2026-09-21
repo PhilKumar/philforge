@@ -857,6 +857,22 @@ def _group_trade_records(trades):
 
 
 # ── Backtest Runner ────────────────────────────────────────────────
+# Rows handed to the replay loop per slice. DataFrame.iterrows() first turns
+# the WHOLE frame into one object array -- on a 1-minute replay that is
+# ~172,000 rows x ~89 columns, fifteen million boxed Python values, ~300 MB
+# alive for the entire loop. That spike, on top of the website process, froze
+# the site and the live books for 35 minutes on 21-Sep-2026. Slicing yields the
+# very same (timestamp, row) pairs -- dtypes are per column, so each slice boxes
+# its values exactly as the whole frame did -- while only one slice is boxed at
+# a time. The loop never writes into df, so no row can differ.
+_ITERROWS_CHUNK = 5000
+
+
+def _iterrows_in_chunks(frame: pd.DataFrame, size: int = _ITERROWS_CHUNK):
+    for start in range(0, len(frame), size):
+        yield from frame.iloc[start : start + size].iterrows()
+
+
 def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_config=None):
     if entry_conditions is None:
         entry_conditions = DEFAULT_ENTRY_CONDITIONS
@@ -927,7 +943,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     sell_option_margin_per_lot = get_sell_option_margin_per_lot(instrument, sc.get("sell_option_margin_per_lot", 0))
 
     df = compute_dynamic_indicators(
-        df_raw.copy(),
+        df_raw,  # it never writes into its input; see the note there
         indicators,
         default_timeframe_minutes=execution_timeframe,
         source_timeframe_minutes=int(sc.get("fetch_timeframe_minutes", 0) or 0) or None,
@@ -1409,7 +1425,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
 
     prev_row = None
     prev_prev_row = None
-    for ts, row in df.iterrows():
+    for ts, row in _iterrows_in_chunks(df):
         ct = ts.time()
         cd = ts.date()
         exited_this_candle = False

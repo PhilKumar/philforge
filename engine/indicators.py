@@ -353,6 +353,23 @@ def pinned_sessions(book: "SessionBook | None"):
         _SESSION_BOOK.reset(token)
 
 
+def _attach_columns(result: pd.DataFrame, extra: pd.DataFrame) -> None:
+    """Add `extra`'s columns to `result` in place, row for row.
+
+    `result.join(extra)` gave the same values but rebuilt the WHOLE table to
+    add three or four once-a-day columns -- and on a 172,000-row 1-minute
+    replay it did so three times (yesterday, the daily averages, CPR). Those
+    rebuilds were most of the 627 MB peak that pushed the website process
+    past its memory limit and froze the site for 35 minutes (21-Sep-2026).
+    `extra` is always `something.reindex(result.index, ...)`, so its rows are
+    result's rows in result's order and plain column assignment is exact.
+    """
+    if not extra.index.equals(result.index):
+        raise ValueError("extra columns must be reindexed onto the result first")
+    for column in extra.columns:
+        result[column] = extra[column].to_numpy()
+
+
 def _session_daily(df: pd.DataFrame) -> pd.DataFrame:
     """The daily bars a pivot or a 'yesterday' is read from."""
     daily = (
@@ -444,7 +461,7 @@ def cpr(df: pd.DataFrame, narrow_pct: float = 0.2, moderate_pct: float = 0.5, wi
 
     result = df.copy()
     if intraday:
-        result = result.join(shifted.reindex(result.index, method="ffill"))
+        _attach_columns(result, shifted.reindex(result.index, method="ffill"))
     else:
         for col in pivot_cols:
             result[col] = shifted[col].reindex(result.index, method="ffill")
@@ -580,7 +597,7 @@ def yesterday_candle(df: pd.DataFrame) -> pd.DataFrame:
     yest_cols = ["yesterday_high", "yesterday_low", "yesterday_close", "yesterday_open"]
     result = df.copy()
     if intraday:
-        result = result.join(daily[yest_cols].reindex(result.index, method="ffill"))
+        _attach_columns(result, daily[yest_cols].reindex(result.index, method="ffill"))
     else:
         for col in yest_cols:
             result[col] = daily[col].reindex(result.index, method="ffill")
@@ -979,7 +996,9 @@ def _attach_daily_averages(result: pd.DataFrame) -> pd.DataFrame:
             result[col] = closes.rolling(period, min_periods=period).mean().shift(1)
         return result
 
-    daily_close = _session_bars(result).resample("D").agg({"close": "last"}).dropna()
+    # Only the close is read, so only the close is filtered -- filtering the
+    # whole wide 1-minute table copied every column to aggregate one.
+    daily_close = _session_bars(result[["close"]]).resample("D").agg({"close": "last"}).dropna()
     if daily_close.empty:
         for col in columns:
             result[col] = np.nan
@@ -987,7 +1006,8 @@ def _attach_daily_averages(result: pd.DataFrame) -> pd.DataFrame:
     frame = pd.DataFrame(index=daily_close.index)
     for period, col in zip(DAILY_AVERAGE_PERIODS, columns):
         frame[col] = daily_close["close"].rolling(period, min_periods=period).mean().shift(1)
-    return result.join(frame.reindex(result.index, method="ffill"))
+    _attach_columns(result, frame.reindex(result.index, method="ffill"))
+    return result
 
 
 def _align_to_execution_index(
@@ -1204,7 +1224,15 @@ def compute_dynamic_indicators(
     if df is None or df.empty:
         return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
 
-    raw_df = df.copy().sort_index()
+    # NO DEFENSIVE COPIES OF THE WHOLE TABLE. A 1-minute replay is ~172,000
+    # rows, and this function used to copy it five times over (here, the
+    # execution frame, into and out of _compute_indicator_columns) with several
+    # copies alive at once -- a 627 MB peak for a 161 MB result. On the 2 GB
+    # server that pushed the ONE website process past MemoryHigh, and the
+    # throttled process froze the site and the live books for 35 minutes
+    # (Phil, 21-Sep-2026). Nothing below writes into its input: sort_index
+    # returns a new frame, and every helper copies what it changes.
+    raw_df = df.sort_index()
     source_tf = source_timeframe_minutes or _infer_timeframe_minutes(raw_df) or default_timeframe_minutes
     execution_hint = int(execution_timeframe_minutes or 0) or None
     tf_spec = resolve_strategy_timeframe(
@@ -1220,9 +1248,10 @@ def compute_dynamic_indicators(
             drop_incomplete=True,
         )
     else:
-        execution_df = raw_df.copy()
+        execution_df = raw_df
 
     result = _attach_execution_context(execution_df)
+    del execution_df
 
     grouped_indicators: dict[int | None, list[str]] = defaultdict(list)
     for ind_string in ui_indicators or []:
@@ -1231,8 +1260,8 @@ def compute_dynamic_indicators(
     execution_group = grouped_indicators.pop(execution_tf, [])
     execution_group.extend(grouped_indicators.pop(None, []))
     if execution_group:
-        execution_with_indicators = _compute_indicator_columns(result.copy(), execution_group, assign_generic=True)
-        result = execution_with_indicators.copy()
+        # _compute_indicator_columns copies its input first thing.
+        result = _compute_indicator_columns(result, execution_group, assign_generic=True)
 
     for frame_tf, indicators in grouped_indicators.items():
         if frame_tf is None:
@@ -1245,7 +1274,7 @@ def compute_dynamic_indicators(
                 drop_incomplete=True,
             )
         else:
-            frame_df = raw_df.copy()
+            frame_df = raw_df  # _compute_indicator_columns copies it
 
         if frame_df.empty:
             continue
@@ -1262,9 +1291,12 @@ def compute_dynamic_indicators(
             result.index,
             execution_tf,
         )
-        overwrite_cols = [column for column in aligned.columns if column in result.columns]
-        if overwrite_cols:
-            result = result.drop(columns=overwrite_cols)
-        result = pd.concat([result, aligned], axis=1)
+        # In place, as concat would lay them out: a re-computed column is
+        # removed and appended again at the end. drop() and concat() each
+        # rebuilt the whole 1-minute table for every timeframe in the strategy.
+        for column in aligned.columns:
+            if column in result.columns:
+                del result[column]
+        _attach_columns(result, aligned)
 
     return result
