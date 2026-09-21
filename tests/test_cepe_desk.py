@@ -153,7 +153,11 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         paper page. The tiles must sum the books actually on screen."""
         body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
         self.assertIn("const dayTotal = runs.reduce(", body)
-        self.assertIn("const bookedTotal = runs.reduce(", body)
+        # Booked is the all-time net of THIS page's ledger rows (its books'
+        # trades, plus the broker record only on the live page), not each
+        # engine's closed list, which every deploy empties (22-Sep-2026).
+        self.assertIn("paintTiles(net);", body)
+        self.assertIn("_ocpTile('Booked · all time', _cepeMoney(booked)", body)
         tiles = body.split("tiles.innerHTML = [")[1][:400]
         self.assertNotIn("data.day_total", tiles)
         self.assertNotIn("data.booked_total", tiles)

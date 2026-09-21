@@ -1790,6 +1790,31 @@ async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50, *, 
         await db.close()
 
 
+async def paper_campaign_totals(user_id: int, strategy: str) -> dict:
+    """What a strategy has booked over its WHOLE archive, not the latest page.
+
+    `list_paper_campaigns` is capped for display, so a total summed from it
+    stops counting once the archive outgrows the cap. Same filter: a campaign
+    that never bought is not a result.
+    """
+    db = await get_db()
+    try:
+        async with db.execute(
+            """SELECT COUNT(*), SUM(net_pnl), SUM(CASE WHEN net_pnl IS NULL THEN 1 ELSE 0 END)
+               FROM paper_campaigns
+               WHERE user_id = ? AND strategy = ? AND buys > 0""",
+            (int(user_id), str(strategy)),
+        ) as cursor:
+            count, net, unpriced = await cursor.fetchone()
+        return {
+            "count": int(count or 0),
+            "net": None if net is None else round(float(net), 2),
+            "unpriced": int(unpriced or 0),
+        }
+    finally:
+        await db.close()
+
+
 async def list_fib_backtest_runs(user_id: int, limit: int = 50) -> list[dict]:
     db = await get_db()
     try:

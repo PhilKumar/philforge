@@ -2831,6 +2831,7 @@ function _renderCandleEntryStatus(payload) {
     // describing the opposite of the state. Gap Carry already relabels.
     const live = (document.getElementById('oc-candle-mode')?.value || 'paper') === 'live';
     start.disabled = running;
+    _pfMarkRunning(start, running, live);
     start.textContent = running
       ? (live ? '● Running · LIVE' : '● Running · paper')
       : (live ? '▶ Start LIVE campaign' : '▶ Start paper campaign');
@@ -3255,6 +3256,45 @@ async function openFrozenCampaignChart(event, el) {
   }
 }
 
+// EVERY STRATEGY SAYS WHAT IT HAS BOOKED, in its header beside the state
+// badge (Phil, 22-Sep-2026: "I need a field to tell me the total booked P&L so
+// far"). It is the whole closed-campaign archive -- the same rows as the table
+// at the bottom of the tab, summed on the server so a long history is not cut
+// off at the table's page size.
+const _BOOKED_PILL_BADGE = {
+  supertrend: 'oc-st-badge',
+  fib_boundary: 'oc-fib-badge',
+  candle_entry: 'oc-candle-badge',
+  gap_carry: 'oc-gap-badge',
+  candle_recovery: 'oc-high-badge',
+};
+
+function _paintBookedPill(strategy, totals) {
+  const badge = document.getElementById(_BOOKED_PILL_BADGE[strategy] || '');
+  if (!badge || !badge.parentElement) return;
+  const id = `${badge.id}-booked`;
+  let pill = document.getElementById(id);
+  if (!pill) {
+    pill = document.createElement('span');
+    pill.id = id;
+    pill.className = 'ocp-booked-pill';
+    badge.parentElement.insertBefore(pill, badge);
+  }
+  const count = Number(totals?.count || 0);
+  const net = totals?.net == null ? null : Number(totals.net);
+  if (!count || net === null) {
+    pill.textContent = 'Booked · none yet';
+    pill.dataset.tone = 'flat';
+    pill.title = 'No closed campaign has booked a result yet.';
+    return;
+  }
+  pill.textContent = `Booked · ${_candleEntrySigned(net)}`;
+  pill.dataset.tone = net > 0 ? 'up' : net < 0 ? 'down' : 'flat';
+  const unpriced = Number(totals?.unpriced || 0);
+  pill.title = `All ${count} closed campaign${count === 1 ? '' : 's'}, net of costs`
+    + (unpriced ? ` · ${unpriced} still unpriced and not counted` : '');
+}
+
 async function _refreshPaperLedger(strategy) {
   const ids = _PAPER_LEDGER_UI[strategy];
   if (!ids) return;
@@ -3268,6 +3308,7 @@ async function _refreshPaperLedger(strategy) {
     const data = await res.json();
     rows = Array.isArray(data.campaigns) ? data.campaigns : [];
     total = data.net_total;
+    _paintBookedPill(strategy, data.booked_all_time);
   } catch (err) {
     return;
   }
@@ -3776,13 +3817,19 @@ async function loadCandleEntryChart() {
   const meta = el('oc-candle-chart-meta');
   const overlay = el('oc-candle-chart-overlay');
   const title = el('oc-candle-chart-title');
-  if (!campaign) { _setCandleEntryFormStatus('Start a campaign first — the chart draws what it is watching.', 'error'); return; }
-  const stages = Array.isArray(campaign.stages) && campaign.stages.length ? campaign.stages : [campaign.timeframe];
+  // No campaign still opens the chart: plain NIFTY, where a mother would be named.
+  const stages = campaign
+    ? (Array.isArray(campaign.stages) && campaign.stages.length ? campaign.stages : [campaign.timeframe])
+    : ['5m', '15m', '1h'];
   const timeframe = stages.includes(_candleEntryChartTf) ? _candleEntryChartTf : stages[0];
   _candleEntryChartTf = timeframe;
   _candleEntryCollapseBacktestChart();
   pfSetCascadeChartOverlayOpen(overlay, true);
-  if (title) title.textContent = `NIFTY two-red ladder · ${String(campaign.timeframe).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`;
+  if (title) {
+    title.textContent = campaign
+      ? `NIFTY two-red ladder · ${String(campaign.timeframe).toUpperCase()} mother · ${String(timeframe).toUpperCase()} chart`
+      : `NIFTY · ${String(timeframe).toUpperCase()} chart · no campaign yet`;
+  }
   const stripHost = el('oc-candle-chart-strip');
   if (stripHost && !stripHost.childElementCount && typeof pfChartStrip === 'function') {
     pfChartStrip(stripHost, {
@@ -4425,6 +4472,7 @@ function _renderGapCarryStatus(campaign, running) {
   const setStart = (busy) => {
     if (!startBtn) return;
     startBtn.disabled = busy;
+    _pfMarkRunning(startBtn, busy, live);
     if (busy) {
       startBtn.dataset.running = '1';
       startBtn.textContent = live ? '● Carrying · LIVE' : '● Carrying · paper';
@@ -4997,6 +5045,17 @@ function _renderSupertrendAuto(auto) {
     + `<div class="ocp-muted">Pinned to the measured rule: 1h ×1.5, ATM CE on next week's expiry, roll 6, trail 100/80.</div>${error}`;
 }
 
+// A RUNNING STRATEGY'S START BUTTON SAYS WHICH MONEY IT IS ON. The button is
+// disabled while a campaign runs, and a disabled button was painted faded grey
+// -- so "● Carrying · LIVE", the one control that says real money is out
+// overnight, looked switched off (Phil, 22-Sep-2026). The state is carried as
+// data-run-state and the stylesheet colours it: red for live, green for paper.
+function _pfMarkRunning(button, running, live) {
+  if (!button) return;
+  if (running) button.dataset.runState = live ? 'live' : 'paper';
+  else delete button.dataset.runState;
+}
+
 const _supertrendTile = (label, value, tone) => _ocpTile(label, value, tone);
 
 function _renderSupertrendStatus(campaign, running) {
@@ -5010,6 +5069,7 @@ function _renderSupertrendStatus(campaign, running) {
   const setStart = (busy) => {
     if (!startBtn) return;
     const mode = document.getElementById('oc-st-mode')?.value || 'paper';
+    _pfMarkRunning(startBtn, busy, mode === 'live');
     if (busy) {
       startBtn.dataset.running = '1';
       startBtn.textContent = mode === 'live' ? '● Running · LIVE' : '● Running · paper';
@@ -5029,7 +5089,8 @@ function _renderSupertrendStatus(campaign, running) {
     if (summary) summary.textContent = 'No active Supertrend campaign.';
     setStart(false);
     if (stopBtn) stopBtn.style.display = 'none';
-    if (chartBtn) chartBtn.style.display = 'none';
+    // Kept: with no campaign the chart is NIFTY under the rule's own line.
+    if (chartBtn) chartBtn.style.display = '';
     _ocpIdleMonitor(
       { monitor: 'oc-st-monitor', title: 'oc-st-monitor-title', tiles: 'oc-st-tiles', rows: 'oc-st-rows' },
       'Waiting for an hourly close above the line', 8);
@@ -5824,6 +5885,7 @@ function _renderFibBoundaryRunningTable(campaigns) {
       // as an instruction ("Kill the NIFTY ladder first") where the others
       // report state, so the one control everyone checks did not answer the
       // question everyone asks it (Phil, 2026-08-26: "Start button status").
+      _pfMarkRunning(startBtn, clash, selectedMode === 'live');
       startBtn.textContent = clash
         ? `● Running · ${picked}`
         : selectedMode === 'live'
@@ -18647,7 +18709,7 @@ function renderMonthlyDailyGrid() {
         totalBrokerage += brokerage;
         totalTrades += displayTradeCount;
         tradingDays++;
-        if (grossRealPnl > 0) profitDays++;
+        if (netRealPnl > 0) profitDays++;
       }
       totalPaperPnl += paperPnl;
     }
@@ -18661,12 +18723,12 @@ function renderMonthlyDailyGrid() {
   summaryEl.innerHTML = tradingDays > 0 ? `
     <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
       <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Overall P&L</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone(isGrossProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalGrossRealPnl, 2, ' ')}</div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net realised P&amp;L · after charges</div>
+        <div style="font-size: 19px; font-weight: 800; color: ${pfMoneyTone(isNetProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalNetRealPnl, 2, ' ')}</div>
       </div>
       <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net Realised P&L</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone(isNetProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalNetRealPnl, 2, ' ')}</div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Gross P&amp;L · before charges</div>
+        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone(isGrossProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalGrossRealPnl, 2, ' ')}</div>
       </div>
       <div>
         <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Total Trades</div>
@@ -18694,7 +18756,11 @@ function renderMonthlyDailyGrid() {
   } else {
     let html = '';
     realDayEntries.forEach(e => {
-      const isWin = e.grossReal >= 0;
+      // NET IS THE DAY'S RESULT, gross is the detail. The tile used to print
+      // and colour the gross, so a day whose charges turned it into a loss
+      // still read as a green win (Phil, 22-Sep-2026: "put the net real result
+      // on the Monthly profit and loss").
+      const isWin = e.netReal >= 0;
       const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
       const detailLines = [`Gross: ${pfMoney(e.grossReal)}`, `Net: ${pfMoney(e.netReal)}`];
       if (e.charges > 0) detailLines.push(`Charges: ${pfMoney(e.charges)}`);
@@ -18707,10 +18773,10 @@ function renderMonthlyDailyGrid() {
       const tileFill = isReadOnlyAccount() ? 'rgba(148,163,184,0.06)' : (isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)');
       const tileEdge = isReadOnlyAccount() ? 'rgba(148,163,184,0.18)' : (isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)');
       html += `
-        <div class="portfolio-monthly-day ${isWin ? 'is-profit' : 'is-loss'}" style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Gross ${pfMoney(e.grossReal)}${details} (${e.displayTradeCount} trades)">
+        <div class="portfolio-monthly-day ${isWin ? 'is-profit' : 'is-loss'}" style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Net ${pfMoney(e.netReal)}${details} (${e.displayTradeCount} trades)">
           <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
-          <div style="font-size: 13px; font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.grossReal, 0)}</div>
-          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T${e.charges > 0 ? ' · ' + pfMoney(e.charges, 0) + ' chg' : ''}</div>
+          <div style="font-size: 13px; font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';" title="Net, after charges">${pfMoney(e.netReal, 0)}</div>
+          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T · gross ${pfMoney(e.grossReal, 0)}</div>
         </div>
       `;
     });
@@ -21831,7 +21897,11 @@ async function loadRecoveryChart(_event, el) {
     _recoveryChartCampaign = data.campaign_id || wanted;
     _recoveryChartTf = data.timeframe;
     if (title) title.textContent = `High Entry · ${String(data.side || 'CE')} · ${String(data.timeframe).toUpperCase()} chart`;
-    if (meta) meta.textContent = `Mother ${_recTime(data.mother_timestamp)} IST · ${String(data.campaign_status || '').toUpperCase()}`;
+    if (meta) {
+      meta.textContent = data.mother_timestamp
+        ? `Mother ${_recTime(data.mother_timestamp)} IST · ${String(data.campaign_status || '').toUpperCase()}`
+        : 'NIFTY · no campaign yet — name a mother and it is drawn here';
+    }
     const strip = byId('oc-high-chart-strip');
     // ONCE, like every other chart on the site. `pfChartStrip` builds a fresh
     // div and APPENDS it -- it never clears the host -- so calling it on each
@@ -21891,6 +21961,7 @@ function renderRecovery(data) {
     const live = (document.getElementById('oc-high-run-mode')?.value || 'paper') === 'live';
     startBtn.style.display = '';
     startBtn.disabled = !!running;
+    _pfMarkRunning(startBtn, !!running, live);
     startBtn.textContent = running
       ? (live ? '● Running · LIVE' : '● Running · paper')
       : (live ? '▶ Start LIVE run' : '▶ Start paper run');
@@ -22248,13 +22319,19 @@ function renderCePe(data) {
   // Totals are summed from the books on this page. data.day_total covers the
   // whole desk, so it would show live money on the paper page.
   const dayTotal = runs.reduce((n, r) => n + (Number(r.daily_pnl) || 0), 0);
-  const bookedTotal = runs.reduce((n, r) => n + (Number(r.booked_pnl) || 0), 0);
-  tiles.innerHTML = [
-    _ocpTile('Today', _cepeMoney(dayTotal), _cepeTone(dayTotal)),
-    _ocpTile('Booked', _cepeMoney(bookedTotal), _cepeTone(bookedTotal)),
-    _ocpTile('Open legs', String(open), open ? '#38bdf8' : 'var(--text)'),
-    _ocpTile('Unprotected', String(unprotected), unprotected ? 'var(--danger)' : 'var(--text)'),
-  ].join('');
+  // BOOKED IS THE ALL-TIME NET, painted below once the ledger is built. It was
+  // the sum of each engine's own closed list, which every deploy and restart
+  // empties -- so the tile sat on whatever the books had closed since the last
+  // deploy and looked frozen (Phil, 22-Sep-2026: "shows some wrong or static
+  // value"). The ALL TIME table under it already held the real figure.
+  const paintTiles = (booked) => {
+    tiles.innerHTML = [
+      _ocpTile('Today', _cepeMoney(dayTotal), _cepeTone(dayTotal)),
+      _ocpTile('Booked · all time', _cepeMoney(booked), _cepeTone(booked)),
+      _ocpTile('Open legs', String(open), open ? '#38bdf8' : 'var(--text)'),
+      _ocpTile('Unprotected', String(unprotected), unprotected ? 'var(--danger)' : 'var(--text)'),
+    ].join('');
+  };
 
   books.innerHTML = runs.map(_cepeBookCard).join('');
 
@@ -22289,6 +22366,7 @@ function renderCePe(data) {
   const note = document.getElementById('oc-cepe-closed-note');
   if (note) note.hidden = _cepeMode !== 'live';
   const net = rows.reduce((n, r) => n + (Number(r.t.pnl) || 0), 0);
+  paintTiles(net);
   // The count and the net describe EVERY row, not the page being shown -- a
   // total that changed as you paged would be worse than no total.
   if (count) count.textContent = rows.length ? `${rows.length} · net ${_cepeMoney(net)}` : '0';

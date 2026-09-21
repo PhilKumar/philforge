@@ -12429,12 +12429,16 @@ async def paper_campaigns_closed(strategy: str, request: Request):
     user_id = _request_user_id(request)
     rows = await _db_mod.list_paper_campaigns(user_id, key, limit=100)
     booked = [r for r in rows if r.get("net_pnl") is not None]
+    # The header's "Booked" pill reads the WHOLE archive; the table and its
+    # net above stay the page of rows actually shown.
+    totals = await _db_mod.paper_campaign_totals(user_id, key)
     return {
         "status": "ok",
         "strategy": key,
         "campaigns": rows,
         "count": len(rows),
         "net_total": round(sum(float(r["net_pnl"]) for r in booked), 2) if booked else None,
+        "booked_all_time": totals,
     }
 
 
@@ -13082,6 +13086,9 @@ async def export_candle_entry_backtest_csv(request: Request):
     )
 
 
+_CANDLE_ENTRY_IDLE_CHARTS = ("5m", "15m", "1h")
+
+
 @app.get("/api/candle-entry/paper/chart")
 async def candle_entry_paper_chart(request: Request, timeframe: str = ""):
     """The running (or just-ended) campaign drawn on one of its ladder's charts.
@@ -13092,7 +13099,29 @@ async def candle_entry_paper_chart(request: Request, timeframe: str = ""):
     """
     runtime = _candle_entry_engines.get(_request_user_id(request))
     if runtime is None:
-        raise HTTPException(status_code=404, detail="No Candle Entry campaign to draw. Start one, or run a backtest.")
+        # NO CAMPAIGN STILL HAS A CHART: plain NIFTY over the last few
+        # sessions, where the next mother will be named. It used to 404 and
+        # the page refused to open the chart at all (Phil, 22-Sep-2026).
+        key = str(timeframe or "5m").strip().lower()
+        if key not in _CANDLE_ENTRY_IDLE_CHARTS:
+            raise HTTPException(status_code=400, detail=f"Charts are {', '.join(_CANDLE_ENTRY_IDLE_CHARTS)}.")
+        _user, broker_client, _source = await _request_broker_context(request)
+        if broker_client is None:
+            raise HTTPException(status_code=400, detail="Connect a Dhan account to draw the chart.")
+        adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+        today = datetime.now(IST).date()
+        try:
+            rows = await adapter.async_get_candles("NIFTY", key, from_date=today - timedelta(days=6), to_date=today)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Unable to load NIFTY {key} candles: {exc}") from exc
+        return {
+            "status": "ok",
+            "timeframe": key,
+            "stages": list(_CANDLE_ENTRY_IDLE_CHARTS),
+            "mother_timestamp": None,
+            "campaign_status": "no campaign",
+            "chart": _recovery_chart({"mother": {"timestamp": ""}, "trades": []}, rows, key),
+        }
     engine = runtime.engine
     key = str(timeframe or engine.timeframe).strip().lower()
     if key not in engine.stages:
@@ -15855,7 +15884,17 @@ async def supertrend_paper_chart(request: Request, timeframe: str = ""):
         _user, broker_client, _source = await _request_broker_context(request)
         runtime = await _restore_supertrend_open_state(int(user_id), broker_client)
     if runtime is None:
-        raise HTTPException(status_code=404, detail="No Supertrend campaign to chart.")
+        # NO CAMPAIGN STILL HAS A CHART: NIFTY under the measured rule's line,
+        # with nothing bought on it. The button used to vanish and the route to
+        # 404 until a campaign existed, so Supertrend was the one tab whose
+        # chart could not be opened (Phil, 22-Sep-2026).
+        _user, broker_client, _source = await _request_broker_context(request)
+        if broker_client is None:
+            raise HTTPException(status_code=400, detail="Connect a Dhan account to draw the chart.")
+        config = _supertrend_mod.SupertrendConfig(timeframe=_supertrend_timeframe(timeframe or "1h"))
+        adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+        rows = await _supertrend_load_candles(adapter, config.timeframe, days=_SUPERTREND_CHART_DAYS)
+        return _supertrend_chart_payload(config, rows, trades=[])
     engine = runtime.engine
     wanted = _supertrend_timeframe(timeframe or engine.config.timeframe)
     rows = await _supertrend_load_candles(runtime.adapter, wanted, days=_SUPERTREND_CHART_DAYS)
@@ -18405,13 +18444,39 @@ def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
 async def recovery_paper_chart(request: Request, campaign_id: str = "", timeframe: str = ""):
     """A named campaign drawn on its own chart, from the engine's own state."""
     runtime = _recovery_engines.get(_request_user_id(request))
-    if runtime is None:
-        raise HTTPException(status_code=404, detail="No High Entry run to draw. Start one and name a mother.")
-    host = runtime.host
-    snap = host.snapshot()
-    rows = snap.get("campaigns") or []
+    rows = (runtime.host.snapshot().get("campaigns") or []) if runtime is not None else []
     if not rows:
-        raise HTTPException(status_code=404, detail="No campaign yet. Name a mother candle first.")
+        # NO CAMPAIGN STILL HAS A CHART -- NIFTY over the last few sessions,
+        # the market a mother would be named on. This used to answer 404, so
+        # the Chart button on an idle tab opened a box saying it could not be
+        # drawn (Phil, 22-Sep-2026: "make it work in all strategies").
+        key = str(timeframe or (runtime.host.config.timeframe if runtime is not None else "5m")).strip().lower()
+        if key not in RECOVERY_TIMEFRAMES:
+            raise HTTPException(status_code=400, detail=f"Charts are {', '.join(RECOVERY_TIMEFRAMES)}.")
+        if runtime is not None:
+            adapter, symbol = runtime.adapter, runtime.host.dhan_symbol
+        else:
+            _user, broker_client, _source = await _request_broker_context(request)
+            if broker_client is None:
+                raise HTTPException(status_code=400, detail="Connect a Dhan account to draw the chart.")
+            adapter, symbol = CascadeOptionsAdapter(broker_client, paper_only=True), "NIFTY"
+        today = datetime.now(IST).date()
+        try:
+            candles = await adapter.async_get_candles(symbol, key, from_date=today - timedelta(days=6), to_date=today)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Unable to load {symbol} {key} candles: {exc}") from exc
+        return {
+            "status": "ok",
+            "timeframe": key,
+            "stages": list(RECOVERY_TIMEFRAMES),
+            "campaign_id": "",
+            "campaigns": [],
+            "mother_timestamp": None,
+            "campaign_status": "no campaign",
+            "side": "CE",
+            "chart": _recovery_chart({"mother": {"timestamp": ""}, "trades": []}, candles, key),
+        }
+    host = runtime.host
     wanted = str(campaign_id or "").strip()
     row = next((r for r in rows if r["campaign_id"] == wanted), rows[0])
     key = str(timeframe or host.config.timeframe).strip().lower()
@@ -22028,6 +22093,35 @@ async def _cascade_scan_history(broker: DhanClient, stock: dict, semaphore: asyn
     )
 
 
+# ONE DOWNLOAD OF THE UNIVERSE PER TRADING DAY, whatever the settings. A scan
+# is ~220 Dhan history calls and ~90 s, and the Equity page asks for TWO at
+# once -- the Cash Cascade at Rs 1L and the two-red ladder at Rs 2L -- while
+# the result cache is keyed by those settings. So both scans downloaded the
+# same 220 histories side by side, and any change of capital or pullback band
+# downloaded them all again (Phil, 22-Sep-2026: "the scan results on the
+# equity page taking more time"). The histories do not depend on the
+# settings; only the ranking does. The lock makes the second scan wait for
+# the first download instead of repeating it.
+_CASCADE_SCAN_ROWS: Dict[str, tuple] = {}
+_CASCADE_SCAN_ROWS_LOCK = asyncio.Lock()
+
+
+async def _cascade_scan_rows(broker: DhanClient, *, refresh: bool = False) -> tuple[list, int]:
+    """Today's daily histories for the whole scan universe, and its size."""
+    day = datetime.now(IST).date().isoformat()
+    async with _CASCADE_SCAN_ROWS_LOCK:
+        hit = _CASCADE_SCAN_ROWS.get(day)
+        if hit is not None and not refresh:
+            return hit[0], hit[1]
+        semaphore = asyncio.Semaphore(_CASCADE_SCAN_CONCURRENCY)
+        stocks = [_resolve_terminal_stock(row["symbol"]) for row in TERMINAL_STOCKS]
+        loaded = await asyncio.gather(*(_cascade_scan_history(broker, row, semaphore) for row in stocks))
+        rows = [row for row in loaded if row is not None]
+        _CASCADE_SCAN_ROWS.clear()  # only today is ever kept
+        _CASCADE_SCAN_ROWS[day] = (rows, len(stocks))
+        return rows, len(stocks)
+
+
 @app.get("/api/terminal/cascade/scan")
 async def terminal_cascade_scan(
     request: Request,
@@ -22074,10 +22168,8 @@ async def terminal_cascade_scan(
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to run the Cascade scanner.")
 
-    semaphore = asyncio.Semaphore(_CASCADE_SCAN_CONCURRENCY)
-    stocks = [_resolve_terminal_stock(row["symbol"]) for row in TERMINAL_STOCKS]
-    loaded = await asyncio.gather(*(_cascade_scan_history(broker_client, row, semaphore) for row in stocks))
-    rows = [row for row in loaded if row is not None]
+    rows, universe = await _cascade_scan_rows(broker_client, refresh=refresh)
+    stocks = range(universe)
 
     candidates, rejected = cascade_scan(
         rows,
