@@ -20410,6 +20410,19 @@ fetchRuns = async function() {
     };
   }
 
+  // The journal is rendered inside #main-content, which intentionally creates
+  // its own stacking context for the workspace skin. A fixed child of that
+  // context can still sit below the persistent header/nav regardless of its
+  // numeric z-index. Promote the viewer itself to the document root on first
+  // use so a chart always opens as a true full-screen surface.
+  function _chPromoteLightbox() {
+    const overlay = document.getElementById('ch-lightbox');
+    if (overlay && overlay.parentElement !== document.body) {
+      document.body.appendChild(overlay);
+    }
+    return overlay;
+  }
+
   function _chMeasureLBBase() {
     const { wrap, img } = _chGetLBRefs();
     if (!wrap || !img) return null;
@@ -20497,7 +20510,9 @@ fetchRuns = async function() {
 
   window._chOpenLB = function(idx) {
     _chLBIdx = idx;
-    document.getElementById('ch-lightbox').classList.add('open');
+    const overlay = _chPromoteLightbox();
+    if (!overlay) return;
+    overlay.classList.add('open');
     document.body.style.overflow = 'hidden';
     _chUpdateLB();
   };

@@ -5234,7 +5234,7 @@
   .cj-entry-del { opacity: 0; width: 20px; height: 20px; border-radius: 50%; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: var(--red); font-size: 11px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
   .cj-entry-item:hover .cj-entry-del { opacity: 1; }
   .cj-entry-del:hover { background: rgba(239,68,68,0.3); transform: scale(1.1); }
-  .ch-lightbox { display: none; position: fixed; inset: 0; z-index: 2000; background: rgba(4,8,16,0.94); backdrop-filter: blur(20px); align-items: center; justify-content: center; flex-direction: column; }
+  .ch-lightbox { display: none; position: fixed; inset: 0; z-index: 5000; background: rgba(4,8,16,0.94); backdrop-filter: blur(20px); align-items: center; justify-content: center; flex-direction: column; }
   .ch-lightbox.open { display: flex; }
   .ch-lb-close { position: absolute; top: 16px; right: 20px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); font-size: 20px; transition: all 0.2s; z-index: 10; }
   .ch-lb-close:hover { background: rgba(248,113,113,0.2); border-color: var(--red); color: var(--red); }
