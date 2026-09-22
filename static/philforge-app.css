@@ -9734,3 +9734,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 .ocp-booked-pill[data-tone="down"] { color: #f87171; border-color: rgba(248,113,113,.45); }
 [data-theme="light"] .ocp-booked-pill[data-tone="up"] { color: #047857; }
 [data-theme="light"] .ocp-booked-pill[data-tone="down"] { color: #b91c1c; }
+
+/* "AF prev close 23,414.30" beside the desk's NIFTY chart buttons -- see _cepePaintPrevClose. */
+.cepe-prevclose { font: 700 10.5px 'JetBrains Mono', monospace; color: var(--muted); background: transparent; border: 1px dashed var(--border); border-radius: 7px; padding: 5px 9px; cursor: copy; white-space: nowrap; }
+.cepe-prevclose:hover { color: var(--text); border-color: var(--accent); }

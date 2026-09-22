@@ -25488,6 +25488,131 @@ def _zerodha_reminder_due(now: datetime) -> bool:
     return now.weekday() < 5 and start <= now.time() <= end and now.date() not in _zerodha_reminded_on
 
 
+# ── NIFTY's official previous close, for Phil's TradingView "AF" indicator ──
+#
+# TradingView's feed stops on the last trade before NSE's closing session and
+# never receives the official close (21-Sep-2026: 23,428.90 on TradingView,
+# 23,414.30 official), so its CPR and S/R sit a few -- since Aug-2026 often
+# 10-30 -- points off the levels the books trade. The AF indicator takes the
+# official close as a typed number; this puts that number where Phil looks: a
+# Telegram message before the open, and a line on the CE/PE desk (22-Sep-2026:
+# "Where can I get that number easily").
+#
+# It is the SAME close the desk chart builds its CPR from (_chart_session_
+# analytics: the previous session's last intraday bar), read the same way.
+
+_OFFICIAL_CLOSE_CACHE: Dict[str, dict] = {}
+_OFFICIAL_CLOSE_SENT_KEY = "official_prev_close_telegram_sent"
+_OFFICIAL_CLOSE_TELEGRAM_WINDOW = (dt_time(9, 0), dt_time(9, 12))
+
+
+def _nse_session_closed(day: date) -> bool:
+    from engine.live import _NSE_CAPITAL_MARKET_HOLIDAYS
+
+    return day.weekday() >= 5 or day.isoformat() in _NSE_CAPITAL_MARKET_HOLIDAYS
+
+
+def _prev_session_close_from_frame(frame, before: date) -> Optional[dict]:
+    """The last in-session bar's close of the latest session BEFORE `before`."""
+    if frame is None or getattr(frame, "empty", True):
+        return None
+    best = None
+    for stamp, row in frame.iterrows():
+        moment = stamp.to_pydatetime() if hasattr(stamp, "to_pydatetime") else stamp
+        if getattr(moment, "tzinfo", None) is not None:
+            moment = moment.astimezone(IST).replace(tzinfo=None)
+        if moment.date() >= before or not (dt_time(9, 15) <= moment.time() <= dt_time(15, 29)):
+            continue  # a stray out-of-session bar is not the close
+        if best is None or moment > best[0]:
+            best = (moment, float(row["close"]))
+    if best is None:
+        return None
+    return {"session": best[0].date().isoformat(), "close": round(best[1], 2), "for_session": before.isoformat()}
+
+
+async def _nifty_official_prev_close(before: date) -> Optional[dict]:
+    """NIFTY's official close of the session before `before`, cached per day."""
+    key = before.isoformat()
+    if key in _OFFICIAL_CLOSE_CACHE:
+        return _OFFICIAL_CLOSE_CACHE[key]
+    if not dhan._is_configured():
+        return None
+    frame = await asyncio.to_thread(
+        dhan.get_historical_data,
+        security_id="13",
+        exchange_segment="IDX_I",
+        instrument_type="INDEX",
+        from_date=(before - timedelta(days=10)).isoformat(),
+        to_date=before.isoformat(),
+        candle_type="5",
+    )
+    found = _prev_session_close_from_frame(frame, before)
+    if found is not None:
+        _OFFICIAL_CLOSE_CACHE.clear()  # one day at a time is all anyone asks for
+        _OFFICIAL_CLOSE_CACHE[key] = found
+    return found
+
+
+@app.get("/api/market/official-prev-close")
+async def market_official_prev_close(request: Request):
+    """The number for AF's "Official previous close" box, and after 16:00 tomorrow's."""
+    _request_user_id(request)
+    now = datetime.now(IST)
+    today = now.date()
+    try:
+        current = await _nifty_official_prev_close(today)
+        upcoming = None
+        if now.time() >= dt_time(16, 0) and not _nse_session_closed(today):
+            # The official close settles after the closing session; by 16:00 it
+            # is on the day's last bar, and it is what TOMORROW's AF needs.
+            upcoming = _prev_session_close_from_frame(
+                await asyncio.to_thread(
+                    dhan.get_historical_data,
+                    security_id="13",
+                    exchange_segment="IDX_I",
+                    instrument_type="INDEX",
+                    from_date=today.isoformat(),
+                    to_date=today.isoformat(),
+                    candle_type="5",
+                ),
+                today + timedelta(days=1),
+            )
+    except Exception as exc:
+        # Answered, not raised: the desk simply hides the number, and a 5xx on
+        # every desk poll would be console noise for something optional.
+        return {"status": "unavailable", "detail": f"Could not read NIFTY's close from Dhan: {exc}"}
+    if current is None:
+        return {"status": "unavailable", "detail": "No previous NIFTY session found in Dhan's candles."}
+    return {"status": "ok", "symbol": "NIFTY", "today": current, "tomorrow": upcoming}
+
+
+def _official_close_telegram_due(now: datetime, sent_on: str) -> bool:
+    start, end = _OFFICIAL_CLOSE_TELEGRAM_WINDOW
+    trading_day = not _nse_session_closed(now.date())
+    in_window = start <= now.time() <= end
+    return trading_day and in_window and sent_on != now.date().isoformat()
+
+
+async def _run_official_close_telegram_loop() -> None:
+    """09:00 IST on trading days: NIFTY's official previous close, once."""
+    while True:
+        try:
+            now = datetime.now(IST)
+            sent_on = (await _db_mod.get_app_state(_OFFICIAL_CLOSE_SENT_KEY)) or ""
+            if _official_close_telegram_due(now, sent_on):
+                found = await _nifty_official_prev_close(now.date())
+                if found is not None:
+                    session = datetime.fromisoformat(found["session"]).strftime("%d-%b")
+                    body = f"{found['close']:,.2f} (close of {session}). Type it into AF -> Official previous close."
+                    alerter.alert("NIFTY official previous close", body, level="info")
+                    await _db_mod.set_app_state(_OFFICIAL_CLOSE_SENT_KEY, now.date().isoformat())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[AF CLOSE] morning message recovered from: %s", exc)
+        await asyncio.sleep(60)
+
+
 async def _run_zerodha_login_reminder_loop() -> None:
     while True:
         try:
@@ -25586,6 +25711,8 @@ async def _start_token_renewal():
         print("📈 [JOURNAL CHARTS] Scheduler disabled (PHILFORGE_JOURNAL_CHARTS=0)")
 
     asyncio.create_task(_run_zerodha_login_reminder_loop())
+    if _engine_restore_owner_is_active_instance():
+        asyncio.create_task(_run_official_close_telegram_loop())
 
     if _STARTUP_ENGINE_RESTORE_ENABLED and _engine_restore_owner_is_active_instance():
         asyncio.create_task(_restore_live_engines())

@@ -2294,6 +2294,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'cepeStop',
   'cepeExit',
   'openCePeIndexChart',
+  'copyCePePrevClose',
   'setCePeFilter',
   'setCePeMode',
   'setCePeClosedPage',
@@ -22245,7 +22246,48 @@ function _cepeRenderPager(total, pages, from, on) {
             data-cepe-page="next" ${_cepeClosedPage >= pages ? 'disabled' : ''}>Older &rarr;</button>`;
 }
 
+// NIFTY'S OFFICIAL PREVIOUS CLOSE, beside the chart buttons: the number Phil
+// types into TradingView's AF indicator each morning, because TradingView never
+// receives NSE's official close (22-Sep-2026). Fetched at most every 10 minutes;
+// after 16:00 it also shows today's close, which is tomorrow's number.
+let _cepePrevClose = null;
+let _cepePrevCloseAt = 0;
+
+async function _cepePaintPrevClose() {
+  const btn = document.getElementById('oc-cepe-prevclose');
+  if (!btn) return;
+  if (Date.now() - _cepePrevCloseAt > 10 * 60 * 1000) {
+    _cepePrevCloseAt = Date.now();
+    try {
+      const res = await fetch('/api/market/official-prev-close', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.today) _cepePrevClose = data;
+    } catch (_error) { /* the desk works without it */ }
+  }
+  if (!_cepePrevClose || !_cepePrevClose.today) { btn.hidden = true; return; }
+  const money = (v) => Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const day = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  const today = _cepePrevClose.today;
+  const next = _cepePrevClose.tomorrow;
+  btn.textContent = `AF prev close ${money(today.close)} · ${day(today.session)}` + (next ? ` · tomorrow ${money(next.close)}` : '');
+  btn.dataset.copy = String((next || today).close);
+  btn.hidden = false;
+}
+
+async function copyCePePrevClose() {
+  const btn = document.getElementById('oc-cepe-prevclose');
+  const value = btn?.dataset.copy;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    const was = btn.textContent;
+    btn.textContent = `Copied ${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    setTimeout(() => { btn.textContent = was; }, 1400);
+  } catch (_error) { /* no clipboard access: the number is on the button */ }
+}
+
 function renderCePe(data) {
+  _cepePaintPrevClose();
   const books = document.getElementById('oc-cepe-books');
   const tiles = document.getElementById('oc-cepe-tiles');
   const badge = document.getElementById('oc-cepe-badge');
