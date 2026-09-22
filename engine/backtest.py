@@ -54,7 +54,10 @@ LOT_SIZES = {
     "BANKNIFTY": [(date(2026, 1, 1), 30), (date(2024, 11, 20), 30), (date(2000, 1, 1), 25)],
     "FINNIFTY": [(date(2026, 1, 1), 65), (date(2024, 11, 20), 65), (date(2000, 1, 1), 40)],
     "MIDCPNIFTY": [(date(2026, 1, 1), 50), (date(2024, 11, 20), 75), (date(2000, 1, 1), 75)],
-    "SENSEX": [(date(2026, 1, 1), 20), (date(2024, 11, 20), 20), (date(2000, 1, 1), 10)],
+    # SENSEX went 10 -> 20 with the contracts expiring from 07-Jan-2025, not on
+    # 20-Nov-2024 (Upstox's contract records, checked 22-Sep-2026: every weekly
+    # to 03-Jan-2025 is 10). Per-contract detail is in get_option_contract_lot_size.
+    "SENSEX": [(date(2026, 1, 1), 20), (date(2025, 1, 4), 20), (date(2000, 1, 1), 10)],
 }
 
 SELL_OPTION_MARGIN_PER_LOT = {
@@ -132,6 +135,24 @@ def _is_monthly_expiry(expiry: date) -> bool:
     return (expiry + timedelta(days=7)).month != expiry.month
 
 
+def _sensex_contract_lot_size(contract_expiry) -> int:
+    """The SENSEX lot on a contract, by its expiry (Upstox's contract records).
+
+    10 on every contract to the 03-Jan-2025 weekly, 20 from the 07-Jan-2025
+    weekly -- except the 28-Jan-2025 MONTHLY, listed before the revision, which
+    kept 10. The flat table said 20 from 20-Nov-2024, which doubled six weeks of
+    SENSEX trades in every backtest (found 22-Sep-2026).
+    """
+    expiry = contract_expiry
+    if isinstance(expiry, datetime):
+        expiry = expiry.date()
+    if not isinstance(expiry, date):
+        expiry = date.fromisoformat(str(expiry))
+    if expiry < date(2025, 1, 4) or expiry == date(2025, 1, 28):
+        return 10
+    return 20
+
+
 def get_option_contract_lot_size(instrument, contract_expiry):
     """Return the exchange lot attached to an option contract's expiry.
 
@@ -140,6 +161,8 @@ def get_option_contract_lot_size(instrument, contract_expiry):
     the old 25-lot while January weekly contracts already used 75.
     """
     name = _instrument_family(instrument)
+    if name == "SENSEX":
+        return _sensex_contract_lot_size(contract_expiry)
     if name != "NIFTY":
         return get_lot_size(instrument, contract_expiry)
 

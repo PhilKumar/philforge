@@ -22,6 +22,17 @@ from engine.strike_utils import round_to_nearest_step
 
 PREMIUM_STRIKE_TYPES = {"premium_near", "premium_above", "premium_below"}
 
+# Which Upstox underlying and strike grid a builder instrument prices on.
+# NIFTY first, and alone, for a year; SENSEX added 22-Sep-2026 when Phil asked
+# for the CE/PE books to be tested on it. Upstox holds SENSEX weekly expiries
+# from 04-Oct-2024, the same span as NIFTY, with the lot on each contract.
+_UNDERLYINGS = {
+    "26000": (NIFTY_INDEX_KEY, 50),
+    "NIFTY": (NIFTY_INDEX_KEY, 50),
+    "1": ("BSE_INDEX|SENSEX", 100),
+    "SENSEX": ("BSE_INDEX|SENSEX", 100),
+}
+
 
 @dataclass(frozen=True)
 class HistoricalOptionSelection:
@@ -33,7 +44,7 @@ class HistoricalOptionSelection:
 
 
 class UpstoxHistoricalPremiumSelector:
-    """Resolve premium-target NIFTY option legs with exact historical OHLC."""
+    """Resolve premium-target NIFTY or SENSEX option legs with exact historical OHLC."""
 
     def __init__(
         self,
@@ -42,10 +53,12 @@ class UpstoxHistoricalPremiumSelector:
         cache_only: bool = False,
         progress: Optional[Callable[[str], None]] = None,
     ) -> None:
-        if str(instrument or "26000") not in {"26000", "NIFTY"}:
-            raise ValueError("Upstox premium-target backtests currently support NIFTY 50 only.")
+        spec = _UNDERLYINGS.get(str(instrument or "26000").upper())
+        if spec is None:
+            raise ValueError("Upstox premium-target backtests support NIFTY 50 and SENSEX only.")
+        underlying_key, self.strike_step = spec
         self.source = UpstoxPremiumSource(
-            underlying_key=NIFTY_INDEX_KEY,
+            underlying_key=underlying_key,
             cache_only=cache_only,
             backfill_missing=not cache_only,
         )
@@ -54,7 +67,10 @@ class UpstoxHistoricalPremiumSelector:
         # cache lets concurrent legs reuse that frame without pinning every
         # contract selected during the current expiry in web-worker RAM.
         self._frames: weakref.WeakValueDictionary[tuple[str, date, int], pd.DataFrame] = weakref.WeakValueDictionary()
-        self._selection_cache_path = self.source._cache_dir / "premium_target_selections_v1.json"
+        # Per underlying, so SENSEX and NIFTY choices never share a file. NIFTY's
+        # folder IS the cache root, so its existing file is the one it reads.
+        meta_dir = getattr(self.source, "_meta_dir", None) or self.source._cache_dir
+        self._selection_cache_path = meta_dir / "premium_target_selections_v1.json"
         self._selection_cache = self._load_selection_cache()
         self.selection_cache_hits = 0
         self.selection_cache_misses = 0
@@ -208,7 +224,7 @@ class UpstoxHistoricalPremiumSelector:
             return None
         self._activate_expiry(expiry)
         contracts = self.source._contract_index(expiry)
-        atm = round_to_nearest_step(entry_spot, 50)
+        atm = round_to_nearest_step(entry_spot, self.strike_step)
         cache_key = self._selection_cache_key(
             entry_time, atm, expiry, option_type, strike_type, target, int(timeframe_minutes)
         )
@@ -241,7 +257,7 @@ class UpstoxHistoricalPremiumSelector:
             offsets = range(-15, 16)
         candidates = []
         for offset in offsets:
-            strike = atm + offset * 50
+            strike = atm + offset * self.strike_step
             instrument_key = contracts.get((strike, option_type))
             if not instrument_key:
                 continue
