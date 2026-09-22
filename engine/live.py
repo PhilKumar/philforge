@@ -118,6 +118,7 @@ def statutory_round_charges(*, entry_premium, exit_premium, quantity, lots, opti
 
 
 from engine.indicators import (
+    DAILY_AVERAGE_PERIODS,
     SessionBook,
     compute_dynamic_indicators,
     infer_execution_timeframe,
@@ -1728,6 +1729,7 @@ class LiveEngine:
             )
         if df_with_indicators.empty:
             return df_with_indicators
+        df_with_indicators = self._apply_daily_averages(df_with_indicators)
         return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
 
     def _remember_indicator_context(self, raw_df: pd.DataFrame, *, max_rows: int = 800) -> None:
@@ -1754,6 +1756,73 @@ class LiveEngine:
         )
         self._remember_indicator_context(df_raw)
         return df_raw
+
+    # ── THE DAILY AVERAGES, LIVE ─────────────────────────────────────────────
+    # `Daily_SMA_10/20/50` are the average of that many COMPLETED daily closes.
+    # The backtest reads years of candles, so it can compute them; the live
+    # engine holds a week of 1-minute bars trimmed to 800 rows -- two sessions --
+    # so from its own candles every daily average is NaN, and a rule like
+    # "close is above Daily_SMA_20" is never true: the book would simply never
+    # enter (found 2026-09-22, when Phil put the 20-day filter on the live CE).
+    # So the live engine asks Dhan for daily candles once a day and fills the
+    # columns itself, from closes strictly BEFORE each row's session -- the same
+    # shift the backtest applies, so paper, live and backtest read one number.
+    _DAILY_AVERAGE_HISTORY_DAYS = 120  # calendar days: > 50 sessions with holidays
+
+    def _uses_daily_averages(self) -> bool:
+        wanted = {f"Daily_SMA_{period}" for period in DAILY_AVERAGE_PERIODS}
+        # configure() keeps the rules on the engine, not inside `strategy`.
+        for group in ("entry_conditions", "exit_conditions"):
+            conditions = getattr(self, group, None) or (getattr(self, "strategy", None) or {}).get(group) or []
+            for cond in conditions:
+                if isinstance(cond, dict) and (cond.get("left") in wanted or cond.get("right") in wanted):
+                    return True
+        return False
+
+    def _daily_closes(self) -> pd.Series:
+        """NIFTY's daily closes, fetched at most once per IST day."""
+        today = _now_ist().date()
+        cached = getattr(self, "_daily_close_cache", None)
+        if cached is not None and cached[0] == today:
+            return cached[1]
+        closes = pd.Series(dtype=float)
+        try:
+            inst_info = _get_instrument_map().get(self.strategy.get("instrument", "26000"), {})
+            daily = self.dhan.get_historical_data(
+                security_id=inst_info.get("dhan_id", "13"),
+                exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
+                instrument_type=inst_info.get("dhan_type", "INDEX"),
+                from_date=(today - timedelta(days=self._DAILY_AVERAGE_HISTORY_DAYS)).strftime("%Y-%m-%d"),
+                to_date=today.strftime("%Y-%m-%d"),
+                candle_type="D",
+            )
+            if daily is not None and not daily.empty and "close" in daily.columns:
+                days = pd.to_datetime(daily.index).date
+                closes = pd.Series(daily["close"].astype(float).values, index=days)
+                closes = closes[~closes.index.duplicated(keep="last")].sort_index()
+        except Exception as exc:
+            self.log_event("warning", f"Daily averages unavailable: {exc}")
+        if closes.empty:
+            # Do not cache a failure for the whole day; try again next candle.
+            return closes
+        self._daily_close_cache = (today, closes)
+        return closes
+
+    def _apply_daily_averages(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Fill Daily_SMA_* on every row from the daily closes before its session."""
+        if df is None or df.empty or not self._uses_daily_averages():
+            return df
+        closes = self._daily_closes()
+        if closes.empty:
+            return df
+        row_days = pd.to_datetime(df.index).date
+        for period in DAILY_AVERAGE_PERIODS:
+            by_day = {}
+            for day in sorted(set(row_days)):
+                before = closes[closes.index < day]
+                by_day[day] = float(before.tail(period).mean()) if len(before) >= period else float("nan")
+            df[f"Daily_SMA_{period}"] = [by_day[d] for d in row_days]
+        return df
 
     def _get_ws_history_seed(self, instrument: str, fetch_timeframe: int, *, days: int = 7) -> pd.DataFrame:
         history_df = self._feed.bootstrap_history(instrument, fetch_timeframe, days=days)
@@ -2044,6 +2113,7 @@ class LiveEngine:
                         source_timeframe_minutes=fetch_timeframe,
                         execution_timeframe_minutes=execution_timeframe,
                     )
+                df_init = self._apply_daily_averages(df_init)
                 if not df_init.empty:
                     self.candle_buffer = df_init
                     self.current_spot = float(df_init.iloc[-1].get("close", 0))
@@ -2954,6 +3024,7 @@ class LiveEngine:
                 source_timeframe_minutes=tf_spec.fetch,
                 execution_timeframe_minutes=execution_timeframe,
             )
+        df = self._apply_daily_averages(df)
         self._latest_raw_candles = df_raw.tail(500).copy()
 
         # Store current candle + indicators for UI

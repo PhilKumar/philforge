@@ -15158,6 +15158,18 @@ const PREV_DAY_COLUMNS = [
   { value: "Yesterday_Low",   label: "Prev Day — Low" },
   { value: "Yesterday_Close", label: "Prev Day — Close" },
 ];
+// The daily trend: the average of that many COMPLETED daily closes. Always
+// available (engine field since 86dc83b); the live engine fills it from Dhan's
+// daily candles. Live CE uses "close is above Daily_SMA_20" (2026-09-22).
+const DAILY_AVG_COLUMNS = [
+  { value: "Daily_SMA_10", label: "Daily Avg — 10 day" },
+  { value: "Daily_SMA_20", label: "Daily Avg — 20 day" },
+  { value: "Daily_SMA_50", label: "Daily Avg — 50 day" },
+];
+const _dailyAvgOptionsHtml = () =>
+  `<optgroup label="\u2500\u2500 Daily Trend \u2500\u2500">` +
+  DAILY_AVG_COLUMNS.map(c => `<option value="${c.value}">${c.label}</option>`).join('') +
+  `</optgroup>`;
 const ORB_COLUMNS = [
   { value: "ORB_High",             label: "ORB — High" },
   { value: "ORB_Low",              label: "ORB — Low" },
@@ -15325,6 +15337,7 @@ function buildLHSOptions() {
   CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
   html += `</optgroup>`;
   if (hasPrevDay) { html += `<optgroup label="\u2500\u2500 Previous Day \u2500\u2500">`; PREV_DAY_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
+  html += _dailyAvgOptionsHtml();
   if (hasORB) { html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`; ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasCPR) { const _cc = _buildCPRColumns(); html += `<optgroup label="\u2500\u2500 CPR \u2500\u2500">`; _cc.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
   if (hasSignalCandle) { html += `<optgroup label="\u2500\u2500 Signal Candle \u2500\u2500">`; SIGNAL_CANDLE_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; }); html += `</optgroup>`; }
@@ -15357,6 +15370,7 @@ function buildRHSOptions(lhsValue) {
     PREV_DAY_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });
     html += '</optgroup>';
   }
+  html += _dailyAvgOptionsHtml();
   if (hasORB) {
     html += `<optgroup label="\u2500\u2500 ORB \u2500\u2500">`;
     ORB_COLUMNS.forEach(c => { html += `<option value="${c.value}">${c.label}</option>`; });

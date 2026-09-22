@@ -28,6 +28,12 @@ _ALWAYS_AVAILABLE_FIELDS = {
     "Is_Wednesday",
     "Is_Thursday",
     "Is_Friday",
+    # The daily trend (engine.indicators.DAILY_AVERAGE_PERIODS). The engine has
+    # computed these for every rule since 86dc83b, but this list never learned
+    # them, so saving "close is above Daily_SMA_20" was refused (2026-09-22).
+    "Daily_SMA_10",
+    "Daily_SMA_20",
+    "Daily_SMA_50",
 }
 
 _WEEKDAY_NAMES = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
