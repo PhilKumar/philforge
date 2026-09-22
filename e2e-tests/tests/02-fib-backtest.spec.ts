@@ -156,6 +156,8 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/gap-carry/backtests/latest') await route.fulfill({ json: { status: 'empty' } });
     else if (path === '/api/supertrend/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
     else if (path === '/api/recovery/backtests/latest') await route.fulfill({ json: { status: 'empty' } });
+    // AF's official previous close beside the desk's NIFTY chart buttons.
+    else if (path === '/api/market/official-prev-close') await route.fulfill({ json: { status: 'ok', symbol: 'NIFTY', today: { session: '2026-09-21', close: 23414.3, for_session: '2026-09-22' }, tomorrow: null } });
     // THE PAPER LEDGER. Every strategy tab asks for its finished campaigns on
     // each refresh; an empty archive is the normal answer offline.
     else if (path.startsWith('/api/paper-campaigns/')) await route.fulfill({ json: { status: 'ok', campaigns: [], count: 0, net_total: null } });
