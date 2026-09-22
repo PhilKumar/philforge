@@ -43,7 +43,11 @@ class TheDocumentSaysIt(unittest.TestCase):
         """A 12.92x with no mention that 93% is one year would mislead."""
         block = BUILD.split("Sizing up as the book earns")[1].split("What is running today")[0]
         self.assertIn("top_year_pct", block)
-        self.assertIn("y2026", block)
+        # The 2026 sentence is chosen from the number now (the 20-day filter
+        # turned that year green, and a typed "LOSE" would have outlived it),
+        # so the block carries the clause and the clause carries y2026.
+        self.assertIn("CE_2026_CLAUSE", block)
+        self.assertIn('CP.get("ce", {}).get("y2026"', BUILD)
 
     def test_the_live_size_lines_match_the_live_settings(self):
         """ "What is running today" must describe the engine, not the document."""

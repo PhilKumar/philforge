@@ -47,10 +47,16 @@ class ThePublishedFiguresAreUntouched(unittest.TestCase):
         Re-pinned again 15-Sep-2026: Phil removed the S4/S5 exits from PE #50
         after the exit sweep (at 4 lots they cost the put book about Rs 2.7
         lakh). Rs 17,92,906 became Rs 20,58,931 over the same 923 trades.
+
+        Re-pinned 22-Sep-2026: Phil put the 20-day trend filter on CE #48
+        ("close above its 20-day average"). The call book takes 84 fewer
+        trades, keeps about the same money and falls a little over half as far:
+        Rs 20,58,931 over 923 trades became Rs 19,35,081 over 839, with the
+        worst fall Rs 3,70,639 -> Rs 2,07,535.
         """
-        self.assertEqual(DATA["headline"]["combined"]["net"], 2058931.45)
-        self.assertEqual(DATA["headline"]["combined"]["trades"], 923)
-        self.assertIn("₹20,58,931", DOC)
+        self.assertEqual(DATA["headline"]["combined"]["net"], 1935081.08)
+        self.assertEqual(DATA["headline"]["combined"]["trades"], 839)
+        self.assertIn("₹19,35,081", DOC)
         self.assertNotIn("₹12,45,087", DOC.split("Slippage")[0], "the old basis may survive only in the slippage table")
 
     def test_the_document_still_declares_four_lots(self):

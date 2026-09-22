@@ -379,6 +379,89 @@ KP = D.get("capital_profile") or {}
 # while the config card beside it quotes 10/14/18.
 _SLIP = (LC.get("shared") or {}).get("slippage_bps") or {"entry": 0, "exit": 0, "spread": 0}
 SRC = D.get("source_comparison") or {}
+
+# THE CALL BOOK'S 2026 IS A NUMBER, NOT A SENTENCE. Until 2026-09-22 the call
+# book lost money in 2026 and the prose said so in words; the 20-day trend
+# filter turned that year green, and typed words would have kept saying LOSE.
+# So every clause that depends on its sign is chosen from the data.
+_ce_2026 = CP.get("ce", {}).get("y2026", 0)
+if _ce_2026 < 0:
+    CE_2026_CLAUSE = (
+        t(", and the eight months of 2026 LOSE", "-இல்; 2026-இன் எட்டு மாதங்கள்")
+        + f" {r(abs(_ce_2026))}"
+        + t(
+            " &mdash; at every lot cap tested, while carrying the largest size the ladder had reached. The put book is",
+            " நஷ்டம் &mdash; சோதித்த ஒவ்வொரு lot வரம்பிலும், ladder எட்டிய மிகப்பெரிய அளவை வைத்திருக்கும்போது. PE புத்தகம்",
+        )
+    )
+else:
+    CE_2026_CLAUSE = (
+        t(", and the eight months of 2026 add", "-இல்; 2026-இன் எட்டு மாதங்கள்")
+        + f" {r(_ce_2026)}"
+        + t(
+            " &mdash; the 20-day trend filter keeps the call book out of the falling months that cost it money before the filter. The put book is",
+            " சேர்க்கின்றன &mdash; 20-நாள் போக்கு வடிகட்டி, வடிகட்டிக்கு முன் நஷ்டம் தந்த வீழ்ச்சி மாதங்களில் CE புத்தகத்தை வெளியே வைக்கிறது. PE புத்தகம்",
+        )
+    )
+_cap_2026 = [c.get("y2026", 0) for c in CP.get("ce_caps", [])]
+if _cap_2026 and all(v < 0 for v in _cap_2026):
+    CE_CAP_2026 = t("The cap does not reduce the 2026 loss.", "வரம்பு 2026 நஷ்டத்தைக் குறைக்காது.")
+elif _cap_2026 and all(v > 0 for v in _cap_2026):
+    CE_CAP_2026 = t("2026 is in profit at every cap.", "ஒவ்வொரு வரம்பிலும் 2026 லாபத்தில் உள்ளது.")
+else:
+    CE_CAP_2026 = ""
+FB = D.get("four_books")
+if FB:
+    _fb_rows = [
+        ("CE", t("Call book, 4-lot ladder", "CE புத்தகம், 4-lot ladder"), FB["ce"]),
+        ("PE", t("Put book, 4-lot ladder", "PE புத்தகம், 4-lot ladder"), FB["pe"]),
+        ("Gap Carry", t("overnight, +1 lot per +25%, cap 20", "இரவு நிலை, +25%-க்கு +1 lot, வரம்பு 20"), FB["gap"]),
+        ("Fib Boundary", t("&#8377;75,000 a round, no ladder", "ஒரு சுற்றுக்கு &#8377;75,000, ladder இல்லை"), FB["fib"]),
+    ]
+    _fb_body = "".join(
+        f'<tr><td>{name} &mdash; {basis}</td><td class="num">{r(b["net"])}</td><td class="num neg">{r(b["dd"])}</td>'
+        f'<td class="num">{b["red_months"]} / {b["months"]}</td></tr>'
+        for name, basis, b in _fb_rows
+    )
+    _fb_body += (
+        f'<tr><td><strong>{t("CE + PE + Gap Carry", "CE + PE + Gap Carry")}</strong></td><td class="num"><strong>{r(FB["three"]["net"])}</strong></td>'
+        f'<td class="num neg">{r(FB["three"]["dd"])}</td><td class="num">{FB["three"]["red_months"]} / {FB["three"]["months"]}</td></tr>'
+        f'<tr><td><strong>{t("All four", "நான்கும்")}</strong></td><td class="num"><strong>{r(FB["four"]["net"])}</strong></td>'
+        f'<td class="num neg">{r(FB["four"]["dd"])}</td><td class="num">{FB["four"]["red_months"]} / {FB["four"]["months"]}</td></tr>'
+    )
+    _fb_years = "".join(
+        f"<tr><td>{y}</td>"
+        + "".join(
+            f'<td class="num {cls(FB[k]["by_year"].get(y, 0))}">{r(FB[k]["by_year"].get(y, 0))}</td>'
+            for k in ("ce", "pe", "gap", "fib")
+        )
+        + f'<td class="num {cls(FB["four"]["by_year"][y])}"><strong>{r(FB["four"]["by_year"][y])}</strong></td></tr>'
+        for y in FB["four"]["by_year"]
+    )
+    FOUR_SECTION = f"""<section>
+  <div class="shead"><div><h2>{t("All four books together", "நான்கு புத்தகங்களும் சேர்ந்து")}</h2>
+    <p>{t(f"The call and put books as above, with the Gap Carry overnight book and Fib Boundary on the same calendar, {FB['window'][0]} to {FB['window'][1]}. Each has its own tearsheet; this section is only their sum, booked on the day the money lands.", f"மேலே உள்ள CE, PE புத்தகங்கள், Gap Carry இரவு புத்தகம் மற்றும் Fib Boundary &mdash; ஒரே நாட்காட்டியில், {FB['window'][0]} முதல் {FB['window'][1]} வரை. ஒவ்வொன்றுக்கும் தனி tearsheet உண்டு; இந்தப் பகுதி அவற்றின் கூட்டுத்தொகை மட்டுமே, பணம் வரும் நாளில் பதிவு.")}</p></div></div>
+  <table class="tbl">
+    <thead><tr><th>{t("Book", "புத்தகம்")}</th><th class="num">{t("Net", "நிகரம்")}</th><th class="num">{t("Worst fall", "மோசமான வீழ்ச்சி")}</th><th class="num">{t("Losing months", "நஷ்ட மாதங்கள்")}</th></tr></thead>
+    <tbody>{_fb_body}</tbody>
+  </table>
+  <div class="tblwrap" style="margin-top:14px"><table>
+    <thead><tr><th scope="col">{t("Year", "ஆண்டு")}</th><th scope="col">CE</th><th scope="col">PE</th><th scope="col">Gap Carry</th><th scope="col">Fib</th><th scope="col">{t("All four", "நான்கும்")}</th></tr></thead>
+    <tbody>{_fb_years}</tbody>
+  </table></div>
+  <div class="note" style="margin-top:14px">
+    <p>{t(f"Adding Gap Carry and Fib Boundary to the two option books lifts the total to {r(FB['four']['net'])} and the worst fall is {r(FB['four']['dd'])}, against {r(FB['three']['dd'])} without Fib Boundary: the books lose in different months. Fib Boundary before October 2024 is priced from the Dhan archive, which misses some winning exits, so its early years are a floor.", f"இரு option புத்தகங்களுடன் Gap Carry, Fib Boundary சேர்த்தால் மொத்தம் {r(FB['four']['net'])}; மோசமான வீழ்ச்சி {r(FB['four']['dd'])}, Fib இல்லாமல் {r(FB['three']['dd'])}: புத்தகங்கள் வெவ்வேறு மாதங்களில் நஷ்டமடைகின்றன. அக்டோபர் 2024-க்கு முந்தைய Fib Boundary Dhan archive-இலிருந்து விலையிடப்பட்டது; அது சில லாப வெளியேற்றங்களைத் தவறவிடுவதால் அந்த ஆண்டுகள் குறைந்தபட்ச மதிப்பு.")}</p>
+  </div>
+</section>"""
+else:
+    FOUR_SECTION = ""
+SRC_DATED = t(SRC["dated"], SRC.get("dated_ta", SRC["dated"])) + " " if SRC.get("dated") else ""
+_trend = LC.get("ce", {}).get("trend_filter")
+CE_TREND_ROW = (
+    f"<div><dt>{t('Trend filter', 'போக்கு வடிகட்டி')}</dt><dd>{t(_trend, LC['ce'].get('trend_filter_ta', _trend))}</dd></div>"
+    if _trend
+    else ""
+)
 SZ = D["sizing"]
 SL = D["slip"]
 SLIP_BASIS = D.get("slip_basis") or {}
@@ -1572,14 +1655,16 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
   </table>
   <div class="note" style="margin-top:14px">
     <h2 class="note-h">{t("Read this before believing the multiple", "இந்த பெருக்கத்தை நம்புவதற்கு முன் இதைப் படியுங்கள்")}</h2>
-    <p>{t("The call book's whole result is one year:", "CE புத்தகத்தின் முழு முடிவும் ஒரே ஆண்டு:")} <strong>{CP["ce"]["top_year_pct"]}%</strong> {t("of it lands in", "லாபம்")} {CP["ce"]["top_year"]}{t(", and the eight months of 2026 LOSE", "-இல்; 2026-இன் எட்டு மாதங்கள்")} {r(abs(CP["ce"]["y2026"]))}{t(" &mdash; at every lot cap tested, while carrying the largest size the ladder had reached. The put book is", " நஷ்டம் &mdash; சோதித்த ஒவ்வொரு lot வரம்பிலும், ladder எட்டிய மிகப்பெரிய அளவை வைத்திருக்கும்போது. PE புத்தகம்")} <strong>{CP["pe"]["top_year_pct"]}%</strong> {t("concentrated in", "செறிவு")} {CP["pe"]["top_year"]}. {t("A ladder multiplies whichever year it is standing in, so it enlarges this concentration rather than diluting it. Switched on today it starts from nothing banked, at the configured base size, and grows only with money actually earned.", "Ladder எந்த ஆண்டில் நிற்கிறதோ அதைப் பெருக்குகிறது; எனவே இந்த செறிவைக் குறைக்காமல் பெரிதாக்குகிறது. இன்று இயக்கினால் எதுவும் சேராத நிலையில், அமைக்கப்பட்ட அடிப்படை அளவில் தொடங்கி, உண்மையில் சம்பாதித்த பணத்துடன் மட்டுமே வளரும்.")}</p>
+    <p>{t("The call book's whole result is one year:", "CE புத்தகத்தின் முழு முடிவும் ஒரே ஆண்டு:")} <strong>{CP["ce"]["top_year_pct"]}%</strong> {t("of it lands in", "லாபம்")} {CP["ce"]["top_year"]}{CE_2026_CLAUSE} <strong>{CP["pe"]["top_year_pct"]}%</strong> {t("concentrated in", "செறிவு")} {CP["pe"]["top_year"]}. {t("A ladder multiplies whichever year it is standing in, so it enlarges this concentration rather than diluting it. Switched on today it starts from nothing banked, at the configured base size, and grows only with money actually earned.", "Ladder எந்த ஆண்டில் நிற்கிறதோ அதைப் பெருக்குகிறது; எனவே இந்த செறிவைக் குறைக்காமல் பெரிதாக்குகிறது. இன்று இயக்கினால் எதுவும் சேராத நிலையில், அமைக்கப்பட்ட அடிப்படை அளவில் தொடங்கி, உண்மையில் சம்பாதித்த பணத்துடன் மட்டுமே வளரும்.")}</p>
     <p><strong>{t("How the two are actually traded &mdash; together, on one account.", "இரண்டும் உண்மையில் எப்படி வர்த்தகம் செய்யப்படுகின்றன &mdash; ஒரே கணக்கில், சேர்ந்து.")}</strong> {t("From", "தொடக்கம்")} {r(CP["pair"]["capital"])} {t("across", "&mdash;")} {CP["pair"]["trades"]} {t("trades the pair ends at", "வர்த்தகங்களில் இணை முடிவடைகிறது")} <strong>{r(CP["pair"]["final"])}</strong> ({CP["pair"]["multiple"]}&times;){t(", worst fall", "; மோசமான வீழ்ச்சி")} {r(CP["pair"]["dd_rs"])} ({CP["pair"]["dd_pct"]}%){t(", and the lowest the account ever reached was", "; கணக்கு எட்டிய மிகக் குறைந்த நிலை")} <strong>{r(CP["pair"]["lowest_equity"])}</strong> &mdash; {t(f"{round(100 * (CP['pair']['capital'] - CP['pair']['lowest_equity']) / CP['pair']['capital'])} per cent below where it started, and every large fall in the record gives back profit rather than capital.", f"தொடங்கிய இடத்திற்கு {round(100 * (CP['pair']['capital'] - CP['pair']['lowest_equity']) / CP['pair']['capital'])} சதவீதம் கீழே; பதிவில் உள்ள ஒவ்வொரு பெரிய வீழ்ச்சியும் மூலதனத்தை அல்ல, லாபத்தையே திருப்பித் தருகிறது.")} {CP["pair"]["green_years"]}/{CP["pair"]["years"]} {t("green years.", "பச்சை ஆண்டுகள்.")} {t(CP["pair"]["note"], f"தனித்தனியாக ஒவ்வொரு புத்தகமும் இணையை விட ஆழமாக விழுகிறது: CE {CP['ce']['ladder']['dd_pct']}%, PE {CP['pe']['ladder']['dd_pct']}%, இணை {CP['pair']['dd_pct']}%. அவை வெவ்வேறு மாதங்களில் நஷ்டமடைகின்றன.")}</p>
     <p><strong>{t("What the engine is set to today.", "இன்று என்ஜின் எதற்கு அமைக்கப்பட்டுள்ளது.")}</strong> {CP["running_now"]["lots"]} {t("lots daily and", "lots தினமும்;")} {CP["running_now"]["expiry_day_lots"]} {t("on expiry, the same ladders, capped at", "expiry-இல்; அதே ladder-கள்; வரம்பு")} {CP["running_now"]["max_lots"]}. {t("At that size the pair returns", "அந்த அளவில் இணை தருகிறது")} <strong>{r(CP["running_now"]["pair_final"])}</strong> ({CP["running_now"]["pair_multiple"]}&times;) {t("from", "தொடக்கம்")} {r(CP["running_now"]["pair_capital"])}{t(", worst fall", "; மோசமான வீழ்ச்சி")} {CP["running_now"]["pair_dd_pct"]}%{t(", lowest point", "; மிகக் குறைந்த நிலை")} {r(CP["running_now"]["pair_lowest_equity"])}. {t(CP["running_now"]["note"], "ஆவணப்படுத்தப்பட்ட அளவில் பாதி, முதல் சில மாதங்களுக்கு. விதிகளும் ladder-ம் ஒன்றே; அடிப்படை lot எண்ணிக்கை மட்டுமே வேறு.")}</p>
-    <p><strong>{t("Which archive priced this.", "எந்த archive இதற்கு விலை நிர்ணயித்தது.")}</strong> {t("Over the window where both exist, the same rules at four lots return", "இரண்டும் இருக்கும் காலத்தில், அதே விதிகள் நான்கு lots-இல்")} {r(SRC["ce"]["upstox"])} {t("on Upstox against", "Upstox-இல்;")} {r(SRC["ce"]["dhan"])} {t("on Dhan for the call book &mdash; a difference of", "Dhan-இல் CE புத்தகத்துக்கு &mdash; வித்தியாசம்")} {SRC["ce"]["gap_pct"]}%{t(". The put book differs by", ". PE புத்தகம்")} {SRC["pe"]["gap_pct"]}% ({r(SRC["pe"]["upstox"])} {t("against", "எதிராக")} {r(SRC["pe"]["dhan"])}). {t(SRC["finding"], "இரு archive-களும் CE-இல் இரண்டு ஆண்டுகளில் ரூ 152 வித்தியாசத்துக்குள் ஒத்துப்போகின்றன. வித்தியாசம் PE புத்தகத்தில்; அதில் பெரும்பகுதி 2025. 2026 ரூ 1,195 வித்தியாசத்துக்குள் ஒத்துப்போகிறது.")} {t("Priced the better way for each era &mdash;", "ஒவ்வொரு காலத்துக்கும் சிறந்த முறையில் விலை &mdash;")} {t(SRC["splice"]["rule"], "2024-09-30 வரை Dhan, 2024-10-01 முதல் Upstox, முழுவதும் கட்டணங்களுடன்")} &mdash; {t("the two books return", "இரு புத்தகங்களும்")} <strong>{r(SRC["splice"]["combined"])}</strong> {t("at four lots. Every compounding figure above is priced from Dhan alone, which is the more conservative of the two.", "நான்கு lots-இல். மேலுள்ள ஒவ்வொரு compounding எண்ணும் Dhan-இலிருந்து மட்டுமே &mdash; இரண்டில் பழமைவாத தேர்வு.")}</p>
-    <p>{t("The put book stops climbing on its own at", "PE புத்தகம் தானாகவே நிற்கிறது")} <strong>{CP["pe"]["ceiling_lots"]} {t("lots", "lots")}</strong>{t(" &mdash; caps above that change nothing. For the call book the cap is a real dial: 4 lots returns", " &mdash; அதற்கு மேல் வரம்பு எதையும் மாற்றாது. CE-க்கு வரம்பு உண்மையான dial: 4 lots")} {r(CP["ce_caps"][0]["final"])} {t("at", "&mdash;")} {CP["ce_caps"][0]["dd_pct"]}%{t(", 20 lots returns", "; 20 lots")} {r(CP["ce_caps"][-1]["final"])} {t("at", "&mdash;")} {CP["ce_caps"][-1]["dd_pct"]}%{t(", and the worst single trade grows from", "; மோசமான ஒற்றை வர்த்தகம்")} {r(abs(CP["ce_caps"][0]["worst_trade"]))} {t("to", "இலிருந்து")} {r(abs(CP["ce_caps"][-1]["worst_trade"]))}. {t("The cap does not reduce the 2026 loss.", "வரம்பு 2026 நஷ்டத்தைக் குறைக்காது.")}</p>
+    <p><strong>{t("Which archive priced this.", "எந்த archive இதற்கு விலை நிர்ணயித்தது.")}</strong> {SRC_DATED}{t("Over the window where both exist, the same rules at four lots return", "இரண்டும் இருக்கும் காலத்தில், அதே விதிகள் நான்கு lots-இல்")} {r(SRC["ce"]["upstox"])} {t("on Upstox against", "Upstox-இல்;")} {r(SRC["ce"]["dhan"])} {t("on Dhan for the call book &mdash; a difference of", "Dhan-இல் CE புத்தகத்துக்கு &mdash; வித்தியாசம்")} {SRC["ce"]["gap_pct"]}%{t(". The put book differs by", ". PE புத்தகம்")} {SRC["pe"]["gap_pct"]}% ({r(SRC["pe"]["upstox"])} {t("against", "எதிராக")} {r(SRC["pe"]["dhan"])}). {t(SRC["finding"], "இரு archive-களும் CE-இல் இரண்டு ஆண்டுகளில் ரூ 152 வித்தியாசத்துக்குள் ஒத்துப்போகின்றன. வித்தியாசம் PE புத்தகத்தில்; அதில் பெரும்பகுதி 2025. 2026 ரூ 1,195 வித்தியாசத்துக்குள் ஒத்துப்போகிறது.")} {t("Priced the better way for each era &mdash;", "ஒவ்வொரு காலத்துக்கும் சிறந்த முறையில் விலை &mdash;")} {t(SRC["splice"]["rule"], "2024-09-30 வரை Dhan, 2024-10-01 முதல் Upstox, முழுவதும் கட்டணங்களுடன்")} &mdash; {t("the two books return", "இரு புத்தகங்களும்")} <strong>{r(SRC["splice"]["combined"])}</strong> {t("at four lots. Every compounding figure above is priced from Dhan alone, which is the more conservative of the two.", "நான்கு lots-இல். மேலுள்ள ஒவ்வொரு compounding எண்ணும் Dhan-இலிருந்து மட்டுமே &mdash; இரண்டில் பழமைவாத தேர்வு.")}</p>
+    <p>{t("The put book stops climbing on its own at", "PE புத்தகம் தானாகவே நிற்கிறது")} <strong>{CP["pe"]["ceiling_lots"]} {t("lots", "lots")}</strong>{t(" &mdash; caps above that change nothing. For the call book the cap is a real dial: 4 lots returns", " &mdash; அதற்கு மேல் வரம்பு எதையும் மாற்றாது. CE-க்கு வரம்பு உண்மையான dial: 4 lots")} {r(CP["ce_caps"][0]["final"])} {t("at", "&mdash;")} {CP["ce_caps"][0]["dd_pct"]}%{t(", 20 lots returns", "; 20 lots")} {r(CP["ce_caps"][-1]["final"])} {t("at", "&mdash;")} {CP["ce_caps"][-1]["dd_pct"]}%{t(", and the worst single trade grows from", "; மோசமான ஒற்றை வர்த்தகம்")} {r(abs(CP["ce_caps"][0]["worst_trade"]))} {t("to", "இலிருந்து")} {r(abs(CP["ce_caps"][-1]["worst_trade"]))}. {CE_CAP_2026}</p>
   </div>
 </section>
 
+
+{FOUR_SECTION}
 
 <section>
   <div class="shead"><div><h2>{t("Recorded configuration snapshot", "பதிவுசெய்யப்பட்ட அமைப்பு")}</h2>
@@ -1613,6 +1698,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
         <div><dt>{t("Target / trail", "இலக்கு / டிரெயில்")}</dt><dd>{LC["ce"]["target"]} / {LC["ce"]["trail"]}</dd></div>
         <div><dt>{t("Trades per day", "நாளொன்றுக்கு")}</dt><dd>{LC["shared"]["trades_per_day"]} {t("maximum", "அதிகபட்சம்")}</dd></div>
         <div><dt>{t("Cool-off", "ஓய்வு")}</dt><dd>{LC["ce"]["cool_off"]}</dd></div>
+        {CE_TREND_ROW}
         <div><dt>{t("Signal cutoff", "சிக்னல் கட்-ஆஃப்")}</dt><dd>{LC["shared"]["signal_cutoff"]}</dd></div>
         <div><dt>{t("Square-off", "ஸ்கொயர்-ஆஃப்")}</dt><dd>{LC["shared"]["square_off"]}</dd></div>
         <div><dt>{t("Indicators", "இண்டிகேட்டர்கள்")}</dt><dd class="mono">{" &middot; ".join(LC["ce"]["indicators"])}</dd></div>

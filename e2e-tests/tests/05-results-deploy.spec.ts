@@ -167,8 +167,10 @@ test('published historical books open as immutable Results runs', async ({ page 
   await row.click();
 
   await expect(page.locator('#results-run-title')).toHaveText('CE_SL15_NoMonTue');
-  await expect(page.locator('#res-header-pnl')).toHaveText('₹14,46,784');
-  await expect(page.locator('#res-trade-count-badge')).toHaveText('345 Trades');
+  // Re-pinned 2026-09-22 with the call book's 20-day trend filter: 345 trades
+  // and Rs 14,46,784 became 261 and Rs 13,22,934 (tools/tearsheet/published_ce_snapshot_ledger.json).
+  await expect(page.locator('#res-header-pnl')).toHaveText('₹13,22,934');
+  await expect(page.locator('#res-trade-count-badge')).toHaveText('261 Trades');
   await expect(page.locator('#equity-chart')).toBeVisible();
   await expect(page.locator('#results-action-row')).toContainText('Open Tearsheet');
   await expect(page.locator('#results-action-row .deploy-cta-btn')).toHaveCount(0);
@@ -177,7 +179,7 @@ test('published historical books open as immutable Results runs', async ({ page 
   await expect(page.locator('#results-pnl-heatmap-card')).toBeVisible();
   await expect(page.locator('#results-trade-log-card')).toBeVisible();
   await expect(page.locator('#monthly-pnl-grid')).toContainText('2021');
-  await expect(page.locator('#trade-count-display')).toHaveText('345 Transactions');
+  await expect(page.locator('#trade-count-display')).toHaveText('261 Transactions');
   const ledger = page.locator('#trade-log-body');
   // The normal Results table shows latest trades first, so assert the newest
   // archived CE fill rather than a synthetic date-only curve point.
