@@ -43,6 +43,18 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
+
+# NO SECRETS IN THE JOURNAL. httpx logs every request's FULL URL at INFO, and a
+# Telegram call carries the bot token in its path -- so the production journal
+# held the live token in clear text, once per alert, for anyone who could read
+# the logs (found 2026-09-23 while chasing Phil's missing alerts; the token had
+# to be revoked). Broker URLs can carry query credentials the same way.
+#
+# WARNING keeps the failures, which are what the log is read for, and drops the
+# request lines that carry the secrets.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 _logger = logging.getLogger(__name__)
 
 try:

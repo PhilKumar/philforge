@@ -98,6 +98,10 @@ def _retry_after_seconds(resp) -> float:
 async def _send_telegram(text: str) -> None:
     if not _TELEGRAM_OK:
         return
+    # The token is in the PATH of this URL. Nothing may log it -- httpx logs
+    # whole request URLs at INFO, which is how the live token ended up in the
+    # production journal (2026-09-23). app.py holds httpx at WARNING; this
+    # comment is here so the next person does not turn it back up.
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -117,7 +121,15 @@ async def _send_telegram(text: str) -> None:
                 _log.info("Telegram delivered on attempt %s after %.0fs of throttling", attempt, waited)
             return
         if resp.status_code != 429:
-            _log.warning("Telegram send failed: %s %s", resp.status_code, resp.text[:200])
+            # 401 is the one worth naming: the token is dead, every alert is
+            # being dropped, and the message otherwise reads as a transient.
+            if resp.status_code == 401:
+                _log.error(
+                    "Telegram REJECTED THE BOT TOKEN (401). No alert can be delivered until "
+                    "TELEGRAM_BOT_TOKEN is replaced -- regenerate it in BotFather and restart."
+                )
+            else:
+                _log.warning("Telegram send failed: %s %s", resp.status_code, resp.text[:200])
             return
         delay = _retry_after_seconds(resp)
         if attempt >= _TELEGRAM_MAX_ATTEMPTS or waited + delay > _TELEGRAM_MAX_TOTAL_WAIT:
