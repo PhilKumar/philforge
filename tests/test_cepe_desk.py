@@ -253,7 +253,7 @@ class TheTwoBooksAreToldApart(unittest.TestCase):
         body = APP_JS.split("async function cepeExit(")[1].split("\n}")[0]
         self.assertIn("position_index", body)
         self.assertNotIn("leg_num", body)
-        self.assertIn("confirm(", body, "selling at market must be confirmed")
+        self.assertIn("customConfirm(", body, "selling at market must be confirmed, in the house dialog")
 
     def test_the_chart_button_calls_the_journal_the_way_the_live_page_does(self):
         body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]

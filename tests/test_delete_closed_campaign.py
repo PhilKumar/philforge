@@ -99,7 +99,7 @@ class TheButtonIsReachable(unittest.TestCase):
         from pathlib import Path
 
         js = Path(app_module.__file__).parent.joinpath("static", "philforge-app.js").read_text(encoding="utf-8")
-        self.assertIn("It carries a booked net of ${_candleEntrySigned(Number(raw))}", js)
+        self.assertIn("booked net of <b>${escapeHtml(_candleEntrySigned(Number(raw)))}</b>", js)
 
 
 if __name__ == "__main__":

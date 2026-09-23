@@ -3202,9 +3202,11 @@ async function deleteClosedCampaign(event, el) {
   // decision rather than a reflex; an unpriced row has nothing to name.
   const raw = node.getAttribute('data-net');
   const ask = raw
-    ? `Remove this row? It carries a booked net of ${_candleEntrySigned(Number(raw))}, and this cannot be undone.`
-    : 'Remove this unpriced row from the closed ledger? It carries no P&L, and this cannot be undone.';
-  if (!window.confirm(ask)) return;
+    ? `This row carries a booked net of <b>${escapeHtml(_candleEntrySigned(Number(raw)))}</b>. Removing it cannot be undone.`
+    : 'This row never priced, so it carries no P&amp;L. Removing it cannot be undone.';
+  // customConfirm is the house dialog -- the browser's own says "philforge.in
+  // says" in a system font and belongs to no page (Phil, 2026-09-23).
+  if (!await customConfirm(ask, { title: 'Remove from the ledger', okText: 'Remove', danger: true })) return;
   node.disabled = true;
   let data = null;
   try {
@@ -3465,7 +3467,11 @@ function _renderPaperLedger(strategy) {
           + ` data-fx-id="${escapeHtml(String(row.id || ''))}"`
           + ` title="Draw this finished ladder on its own candles">↗ Chart</button>`;
       }
-      if ((strategy === 'candle_entry' || strategy === 'gap_carry' || strategy === 'supertrend') && row.has_chart) {
+      // candle_recovery draws from its stored mother and trades rather than a
+      // revived engine; the route has served it since 154dce97, but the button
+      // was never added, so every High Entry row still showed a dash.
+      if ((strategy === 'candle_entry' || strategy === 'gap_carry' || strategy === 'supertrend'
+           || strategy === 'candle_recovery') && row.has_chart) {
         return `<button type="button" class="cascade-options-control" data-pf-action="openFrozenCampaignChart"`
           + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
           + ` title="Draw this finished campaign as it stood when it closed">↗ Chart</button>`;
@@ -3479,10 +3485,14 @@ function _renderPaperLedger(strategy) {
     //
     // A row carrying real money still says so before it goes: the confirm
     // names the net, so removing a booked loss cannot be a reflex.
-    const delCell = ` <button type="button" class="cascade-options-control" data-pf-action="deleteClosedCampaign"`
+    // `leg-remove` is the house style for this: a muted glyph that turns red
+    // on hover. A blue pill reading "X Del" shouted at the row it sits beside
+    // and looked like a primary action (Phil, 2026-09-23).
+    const delCell = ` <button type="button" class="leg-remove" data-pf-action="deleteClosedCampaign"`
       + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
       + ` data-net="${net == null ? '' : escapeHtml(String(net))}"`
-      + ` title="Remove this row from the closed ledger">\u2715 Del</button>`;
+      + ` aria-label="Remove this row from the closed ledger"`
+      + ` title="Remove this row from the closed ledger">&times;</button>`;
     return `<tr>`
       + `<td>${when(row.opened_at)}${rebuilt}</td>`
       + `<td>${when(row.closed_at)}</td>`
@@ -22786,7 +22796,8 @@ async function refreshCePeStatus() {
 async function cepeStop(event, el) {
   const runId = el?.dataset?.cepeRun || '';
   if (!runId) return;
-  if (!confirm(`Stop ${runId}? Any open position stays open at the broker.`)) return;
+  if (!await customConfirm(`Stop <b>${escapeHtml(String(runId))}</b>? Any open position stays open at the broker.`,
+      { title: 'Stop this book', okText: 'Stop', danger: true })) return;
   try {
     const res = await fetch('/api/live/stop', {
       method: 'POST', credentials: 'same-origin',
@@ -22805,7 +22816,8 @@ async function cepeExit(event, el) {
   const runId = el?.dataset?.cepeRun || '';
   const leg = el?.dataset?.cepeLeg || '';
   if (!runId) return;
-  if (!confirm(`Sell leg ${leg} of ${runId} now, at market?`)) return;
+  if (!await customConfirm(`Sell leg <b>${escapeHtml(String(leg))}</b> of <b>${escapeHtml(String(runId))}</b> now, at market?`,
+      { title: 'Exit this leg', okText: 'Sell now', danger: true })) return;
   try {
     const res = await fetch('/api/live/exit-position', {
       method: 'POST', credentials: 'same-origin',

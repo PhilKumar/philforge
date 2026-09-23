@@ -1793,12 +1793,19 @@ async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50, *, 
             """SELECT id, campaign_key, symbol, contract, opened_at, closed_at,
                       status, exit_reason, buys, deployed_inr, gross_pnl,
                       costs_total, net_pnl, source,
-                      -- Can this one be drawn? Only if it kept the engine it
-                      -- ended as; the payload itself is far too big to ship
-                      -- with a list that only needs to know yes or no.
+                      -- Can this one be drawn? The payload itself is far too
+                      -- big to ship with a list that only needs yes or no.
+                      --
+                      -- Three shapes qualify: an engine to revive, the handful
+                      -- of fields a ladder recomputes from, or -- High Entry --
+                      -- a stored mother, which is all `_recovery_chart` reads.
+                      -- Without that last one every High Entry row showed a
+                      -- dash even after the route learned to draw them
+                      -- (Phil, 2026-09-23: "where are the charts?").
                       CASE WHEN json_valid(payload)
                                 AND (json_extract(payload, '$.engine') IS NOT NULL
-                                     OR json_extract(payload, '$.chart') IS NOT NULL)
+                                     OR json_extract(payload, '$.chart') IS NOT NULL
+                                     OR json_extract(payload, '$.mother.timestamp') IS NOT NULL)
                            THEN 1 ELSE 0 END AS has_chart,
                       -- The handful of fields a redraw needs, for the ladders
                       -- whose chart is recomputed from the candles rather than
