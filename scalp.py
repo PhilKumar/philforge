@@ -1077,20 +1077,55 @@ class ScalpEngine:
                     exit_order_id_override=trade.super_order_id,
                 )
 
+    async def _release_super_order_exit_legs(self, trade: ScalpTrade):
+        """Cancel the target and stop legs that outlive a traded entry.
+
+        Cancelling ENTRY_LEG takes the whole Super Order only while the entry
+        is still PENDING. Once it has traded, Dhan answers DH-906 and LEAVES
+        the target and stop working (tools/dhan_super_order_probe.py found
+        this; Phil met it on 2026-09-23: "if I exit manually, the target order
+        is not cancelled automatically and it stays there"). A target left
+        resting on a position that has already been sold is not a stale row on
+        a screen -- it is a live SELL that can fill later and open a SHORT.
+        """
+        for leg in ("TARGET_LEG", "STOP_LOSS_LEG"):
+            try:
+                result = await asyncio.to_thread(self.dhan.cancel_super_order, trade.super_order_id, leg)
+                status = str((result or {}).get("orderStatus", "")).upper()
+                if status in ("TRADED", "CLOSED"):
+                    self._log("info", f"ℹ️ Super Order {leg} already gone: orderId={trade.super_order_id}")
+                else:
+                    self._log("info", f"🚫 Super Order {leg} cancelled: orderId={trade.super_order_id}")
+            except Exception as e:
+                message = str(e)
+                # "nothing to cancel" is the answer when the leg is already
+                # gone, which is the state we wanted anyway.
+                if "Nothing to" in message or "not found" in message.lower():
+                    self._log("info", f"ℹ️ Super Order {leg} was not resting: orderId={trade.super_order_id}")
+                else:
+                    self._log("error", f"Super Order {leg} cancel failed ({trade.super_order_id}): {message}")
+
     async def _cancel_super_order(self, trade: ScalpTrade):
         if not trade.super_order_id:
             return
+        entry_traded = trade.super_filled_qty > 0
         try:
             result = await asyncio.to_thread(self.dhan.cancel_super_order, trade.super_order_id, "ENTRY_LEG")
             broker_status = str((result or {}).get("orderStatus", "")).upper()
             if broker_status in ("TRADED", "CLOSED"):
+                entry_traded = True
                 trade.super_order_status = broker_status
                 self._log("info", f"ℹ️ Super Order already traded on broker: orderId={trade.super_order_id}")
             else:
                 trade.super_order_status = "CANCELLED"
                 self._log("info", f"🚫 Super Order cancelled: orderId={trade.super_order_id}")
         except Exception as e:
-            self._log("error", f"Super Order cancel failed ({trade.super_order_id}): {e}")
+            message = str(e)
+            if "Traded" in message or "DH-906" in message:
+                entry_traded = True  # the entry filled first: its exit legs are still out there
+            self._log("error", f"Super Order cancel failed ({trade.super_order_id}): {message}")
+        if entry_traded:
+            await self._release_super_order_exit_legs(trade)
 
     def _schedule_broker_sync(self, trade_id: int):
         trade = self.open_trades.get(trade_id)

@@ -1302,7 +1302,11 @@ class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_super_order_cancel_already_traded_is_not_logged_as_error(self):
         class DummyScalpBroker:
+            def __init__(self):
+                self.legs = []
+
             def cancel_super_order(self, order_id, leg_name="ENTRY_LEG"):
+                self.legs.append(leg_name)
                 return {
                     "orderId": order_id,
                     "orderStatus": "TRADED",
@@ -1328,8 +1332,12 @@ class ScalpBrokerReconciliationTests(unittest.IsolatedAsyncioTestCase):
         await engine._cancel_super_order(trade)
 
         self.assertEqual(trade.super_order_status, "TRADED")
-        self.assertEqual(engine.event_log[-1]["type"], "info")
-        self.assertIn("already traded", engine.event_log[-1]["message"])
+        self.assertFalse([e for e in engine.event_log if e["type"] == "error"], engine.event_log)
+        self.assertTrue(any("already traded" in e["message"] for e in engine.event_log))
+        # A traded entry leaves its target and stop WORKING at the broker, so
+        # they are released too (2026-09-23) -- the log no longer ends on the
+        # entry line, which is why this reads the whole log.
+        self.assertEqual(engine.dhan.legs, ["ENTRY_LEG", "TARGET_LEG", "STOP_LOSS_LEG"])
 
     async def test_nested_position_payload_does_not_break_broker_sync(self):
         class DummyScalpBroker:
