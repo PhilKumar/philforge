@@ -12513,6 +12513,51 @@ async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request
     row = await _db_mod.get_paper_campaign(user_id, campaign_id)
     if row is None or str(row.get("strategy")) != key:
         raise HTTPException(status_code=404, detail="No such archived campaign.")
+    if key == "candle_recovery":
+        # ONE CAMPAIGN, REDRAWN. High Entry archives its mother and its trades
+        # rather than an engine, so it fell into the refusal below and EVERY
+        # closed campaign answered 409 -- the Chart button on a finished book
+        # had never once drawn anything (Phil, 2026-09-23: "there are no
+        # completed charts on the closed campaigns"). Nothing needs reviving:
+        # `_recovery_chart` reads exactly the mother and trades that were
+        # stored, and it is the same renderer the live chart uses.
+        stored = row.get("payload") or {}
+        mother = stored.get("mother") or {}
+        if not mother.get("timestamp"):
+            raise HTTPException(
+                status_code=409,
+                detail="This campaign was archived without its mother candle, so there is nothing to draw.",
+            )
+        wanted = str(timeframe or stored.get("timeframe") or "5m").strip().lower()
+        if wanted not in RECOVERY_TIMEFRAMES:
+            raise HTTPException(status_code=400, detail=f"Charts are {', '.join(RECOVERY_TIMEFRAMES)}.")
+        _user, broker_client, _source = await _request_broker_context(request)
+        if broker_client is None:
+            raise HTTPException(status_code=503, detail="A broker connection is needed to load the candles.")
+        adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+        symbol = str(row.get("symbol") or "NIFTY")
+        start = datetime.fromisoformat(str(mother["timestamp"])).date()
+        closed_at = row.get("closed_at")
+        end = datetime.fromisoformat(str(closed_at)).date() if closed_at else datetime.now(IST).date()
+        try:
+            candles = await adapter.async_get_candles(symbol, wanted, from_date=start, to_date=end)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Unable to load {symbol} {wanted} candles: {exc}") from exc
+        if not candles:
+            raise HTTPException(status_code=503, detail=f"No closed {symbol} {wanted} candles to draw.")
+        return {
+            "status": "ok",
+            "timeframe": wanted,
+            "stages": list(RECOVERY_TIMEFRAMES),
+            "campaign_id": str(row.get("campaign_key") or ""),
+            "campaign_status": str(row.get("status") or ""),
+            "side": str(stored.get("side") or "CE"),
+            "mother_timestamp": mother.get("timestamp"),
+            "net_pnl": row.get("net_pnl"),
+            "frozen": True,
+            "chart": _recovery_chart(stored, candles, wanted),
+        }
+
     snapshot = (row.get("payload") or {}).get("engine")
     if not snapshot:
         raise HTTPException(
