@@ -88,7 +88,9 @@ class TheDeskSaysWhereTheyCameFrom(unittest.TestCase):
 
     def test_the_side_filter_still_applies_to_them(self):
         body = JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
-        block = body.split("(data && data.history)")[1][:300]
+        # The book CARDS read the same history now, so take the LAST use --
+        # the one that builds the ledger rows -- not the first.
+        block = body.split("(data && data.history)")[-1][:300]
         self.assertIn("_cepeFilter", block, "CE/PE filter must cover the old rows too")
 
     def test_they_are_sorted_in_with_the_live_rows(self):

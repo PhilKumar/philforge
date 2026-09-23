@@ -9193,7 +9193,7 @@ function _portfolioTradeTimeLabel(value) {
 function _portfolioCompletedTradeRowHtml(trade, index, all, runId) {
   const pnl = round2(trade?.pnl || 0);
   const journalBtn = runId && trade?.id !== undefined && trade?.id !== null
-    ? `<button type="button" class="live-journal-btn" title="Journal chart — frozen at the exit, with the why" onclick="openLiveTradeJournal('${escapeHtml(String(runId)).replace(/'/g, "\\'")}','${escapeHtml(String(trade.id))}')">${typeof ICO !== 'undefined' && ICO.chart ? ICO.chart(12) : '▤'}</button>`
+    ? `<button type="button" class="ocp-icon-btn is-chart live-journal-btn" aria-label="Journal chart" title="Journal chart — frozen at the exit, with the why" onclick="openLiveTradeJournal('${escapeHtml(String(runId)).replace(/'/g, "\\'")}','${escapeHtml(String(trade.id))}')">${typeof ICO !== 'undefined' && ICO.barchart ? ICO.barchart(12) : '▤'}</button>`
     : '';
   return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);white-space:nowrap;">${_portfolioTradeDateLabel(trade?.entry_time)}</td><td style="padding:8px 12px;">${escapeHtml(trade?.symbol || trade?.trading_symbol || '—')}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.entry_time))}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.exit_time))}</td><td style="padding:8px 12px;text-align:right;color:${trade?.transaction_type === 'BUY' ? 'var(--success)' : 'var(--danger)'}">${escapeHtml(trade?.transaction_type || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.entry_premium || trade?.entry_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.exit_premium || trade?.exit_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${escapeHtml(trade?.lots || trade?.quantity || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(trade?.exit_reason || trade?.reason || '—')}</td>${journalBtn ? `<td style="padding:6px 8px;text-align:right;white-space:nowrap;">${journalBtn}</td>` : ''}</tr>`;
 }
@@ -13417,7 +13417,7 @@ function _buildScalpActiveRow(t) {
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
       <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
         <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
-        <button class="btn btn-sm scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Chart</button>
+        <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
         <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
       </div></td>
     </tr>`;
@@ -13435,7 +13435,7 @@ function _buildScalpActiveRow(t) {
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
     <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
       <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
-      <button class="btn btn-sm scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Chart</button>
+      <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
       <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
     </div></td>
   </tr>`;
@@ -18051,7 +18051,7 @@ function renderLivePanel(d, idx) {
       <div class="live-panel-name">${safeName} ${badgeHtml} ${folderBadgeHtml}</div>
     </div>
     <div class="live-panel-actions">
-      ${(d.positions || []).length || (d.closed_trades || []).length ? `<button type="button" class="cascade-options-control" onclick="openLiveEntryChart('${safeRunIdJs}')">${ICO.chart ? ICO.chart(13) : ''} Entry Chart</button>` : ''}
+      ${(d.positions || []).length || (d.closed_trades || []).length ? `<button type="button" class="ocp-icon-btn is-chart" onclick="openLiveEntryChart('${safeRunIdJs}')" aria-label="Entry chart" title="Entry chart">${ICO.barchart ? ICO.barchart(15) : ''}</button>` : ''}
       <button type="button" class="cascade-options-control" onclick="viewRunningStrategy('${safeRunIdJs}','${safeModeJs}')">${ICO.eye(13)} Strategy</button>
       ${running ? `<button type="button" class="cascade-options-control is-danger" onclick="stopEngine('${safeRunIdJs}','${safeModeJs}')">${ICO.sqstop(13)} Stop</button>` : ''}
       ${!running && runId ? `<button type="button" class="cascade-options-primary-btn" onclick="restartEngine('${safeRunIdJs}','${safeModeJs}')">${ICO.play(13)} Start</button>` : ''}
@@ -21960,7 +21960,7 @@ function _recoveryCampaign(c) {
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="ocp-icon-btn is-chart" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" aria-label="Chart this campaign" title="Chart this campaign">${ICO.barchart(15)}</button>
-        <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
+        <button class="ocp-icon-btn is-danger" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" aria-label="Remove this campaign" title="Remove this campaign">${ICO.cross(15)}</button>
       </div>
     </div>
     <div style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
@@ -22753,9 +22753,10 @@ function renderCePe(data) {
         <td class="ocp-muted cepe-why">${_cepeWhyCell(run, t)}</td>
         <td class="n" style="color:${_cepeTone(t.pnl)};" title="${escapeHtml(_cepeNetNote(t))}">${_cepeMoney(t.pnl)}${
           old && t.costs_known === false ? '<sup class="cepe-nocost" title="The broker had not booked this day\u2019s charges when it was recorded, so nothing is deducted here.">*</sup>' : ''}</td>
-        <td>${t.id == null ? '<span class="ocp-muted">—</span>' : `<button type="button" class="cascade-options-control"
+        <td>${t.id == null ? '<span class="ocp-muted">—</span>' : `<button type="button" class="ocp-icon-btn is-chart"
               onclick="openLiveTradeJournal('${escapeHtml(String(run.run_id)).replace(/'/g, "\\'")}','${escapeHtml(String(t.id))}')"
-              title="Draw this trade on its own frozen chart, with the reasons it opened and closed">↗ Chart</button>`}</td>
+              aria-label="Draw this trade on its own frozen chart"
+              title="Draw this trade on its own frozen chart, with the reasons it opened and closed">${ICO.barchart(15)}</button>`}</td>
       </tr>`).join('')
       : '<tr><td colspan="10" class="ocp-empty">No closed trade yet.</td></tr>';
     // The desk repaints every few seconds. Without this, an ⓘ opened to read a

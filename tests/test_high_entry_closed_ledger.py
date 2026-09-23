@@ -27,7 +27,15 @@ ENGINE = (Path(__file__).resolve().parent.parent / "engine" / "candle_recovery.p
 
 
 def _block(needle: str, size: int = 2600) -> str:
-    return SCRIPT[SCRIPT.index(needle) :][:size]
+    """The named function, to its real end rather than a fixed window.
+
+    It used to take a flat 2600 characters, so adding markup inside a function
+    silently pushed the line under test out of view and the test failed with
+    StopIteration -- about the edit, not about the behaviour (2026-09-23).
+    """
+    start = SCRIPT.index(needle)
+    end = SCRIPT.find("\nfunction ", start + len(needle))
+    return SCRIPT[start : end if end != -1 else start + size]
 
 
 class HighEntryClosedLedgerTests(unittest.TestCase):

@@ -76,7 +76,10 @@ class EventsAreTheirOwnSectionTests(unittest.TestCase):
 
 class HighEntryEventsTests(unittest.TestCase):
     def test_the_engine_finally_ships_the_log_it_was_keeping(self):
-        self.assertIn('"events": [', HOST)
+        # The list is now sorted onto one clock and each row tagged with its
+        # campaign, so the literal changed; what matters is that it is shipped.
+        self.assertIn('"events": sorted(', HOST)
+        self.assertIn('getattr(campaign.engine, "events", [])', HOST)
         self.assertIn('getattr(campaign.engine, "events", [])', HOST)
 
     def test_the_page_renders_them(self):
