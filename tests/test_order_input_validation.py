@@ -98,7 +98,12 @@ class OrderInputValidationTests(unittest.TestCase):
         with self.assertRaises(app_module.HTTPException):
             app_module._validate_scalp_entry_request(partial_stop)
 
-    def test_live_scalp_blank_premium_exits_use_the_form_defaults(self):
+    def test_live_scalp_blank_premium_exits_are_left_for_the_engine_to_price(self):
+        """Changed 2026-09-23. The route used to fill blanks with a flat Rs 300
+        target and Rs 100 stop. On an option trading ABOVE Rs 300 that target
+        sits under the price, and Dhan refuses the whole Super Order (DH-906,
+        "Profit Price Should be greater than Order price"). Blanks now reach
+        scalp.py, which prices the contract and derives them from its premium."""
         req = app_module.ScalpEntryReq(
             underlying="NIFTY",
             strike=25000,
@@ -109,12 +114,15 @@ class OrderInputValidationTests(unittest.TestCase):
             sl_premium=0,
         )
         app_module._validate_scalp_entry_request(req)
-        self.assertEqual(req.target_premium, 300.0)
-        self.assertEqual(req.sl_premium, 100.0)
+        self.assertEqual(req.target_premium, 0)
+        self.assertEqual(req.sl_premium, 0)
 
 
 class ScalpEngineInputTests(unittest.IsolatedAsyncioTestCase):
-    async def test_live_scalp_engine_uses_defaults_for_blank_premium_exits(self):
+    async def test_live_scalp_engine_prices_blank_exits_off_the_option(self):
+        """A flat Rs 300 target means nothing to an option at Rs 150 -- and is
+        refused outright on one trading above it. Blanks follow the premium."""
+
         class Broker:
             def __init__(self):
                 self.super_order_args = None
@@ -140,8 +148,8 @@ class ScalpEngineInputTests(unittest.IsolatedAsyncioTestCase):
             mode="live",
         )
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(broker.super_order_args["target_price"], 300.0)
-        self.assertEqual(broker.super_order_args["stop_loss_price"], 100.0)
+        self.assertEqual(broker.super_order_args["target_price"], 187.5)  # 150 + 25%
+        self.assertEqual(broker.super_order_args["stop_loss_price"], 112.5)  # 150 - 25%
 
     async def test_paper_entry_without_a_real_premium_is_not_created(self):
         broker = type("Broker", (), {"get_option_ltp": lambda self, *args, **kwargs: 0.0})()

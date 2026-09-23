@@ -52,8 +52,66 @@ SCALP_REST_LTP_LOG_COOLDOWN_SEC = 5.0
 # Match the Scalp form's prefilled exit values.  Live Super Orders require
 # both prices at placement, so blank/zero values deliberately resolve here
 # instead of rejecting the entry.  Explicit values always take precedence.
+# They are a LAST RESORT: a flat Rs 300 target means nothing to an option
+# trading at Rs 80 or at Rs 450, so when the premium is known the percentages
+# below are used instead (Phil, 2026-09-23: DH-906 "Profit Price Should be
+# greater than Order price" -- the fixed Rs 300 target sat under the price).
 SCALP_DEFAULT_TARGET_PREMIUM = 300.0
 SCALP_DEFAULT_SL_PREMIUM = 100.0
+SCALP_DEFAULT_TARGET_PCT = 25.0
+SCALP_DEFAULT_SL_PCT = 25.0
+
+
+def resolve_scalp_exit_prices(transaction_type, premium, target_premium, sl_premium):
+    """The target and stop a Super Order can actually carry, or why it cannot.
+
+    Dhan refuses the WHOLE order -- entry included -- when the target is not on
+    the profitable side of the price (DH-906, "Profit Price Should be greater
+    than Order price"), and answers with its code rather than the numbers that
+    caused it. So the numbers are checked here, against the live premium,
+    before anything is sent, and named in plain words when they are wrong.
+
+    Returns (target, stop, error). With no live premium there is nothing to
+    check against: the values pass through and Dhan remains the judge.
+    """
+    side = str(transaction_type or "BUY").upper()
+    buying = side != "SELL"
+    target = float(target_premium or 0)
+    stop = float(sl_premium or 0)
+    premium = float(premium or 0)
+    if premium <= 0:
+        return (
+            target or SCALP_DEFAULT_TARGET_PREMIUM,
+            stop or SCALP_DEFAULT_SL_PREMIUM,
+            None,
+        )
+    if target <= 0:
+        factor = 1 + SCALP_DEFAULT_TARGET_PCT / 100 if buying else 1 - SCALP_DEFAULT_TARGET_PCT / 100
+        target = round(premium * factor, 2)
+    if stop <= 0:
+        factor = 1 - SCALP_DEFAULT_SL_PCT / 100 if buying else 1 + SCALP_DEFAULT_SL_PCT / 100
+        stop = round(max(0.05, premium * factor), 2)
+    word = "above" if buying else "below"
+    other = "below" if buying else "above"
+    if (buying and target <= premium) or (not buying and target >= premium):
+        return (
+            target,
+            stop,
+            (
+                f"The option is trading at Rs {premium:,.2f}. A {side} target of Rs {target:,.2f} is not {word} it, "
+                f"so Dhan would refuse the whole order. Set the target {word} Rs {premium:,.2f}."
+            ),
+        )
+    if (buying and stop >= premium) or (not buying and stop <= premium):
+        return (
+            target,
+            stop,
+            (
+                f"The option is trading at Rs {premium:,.2f}. A {side} stop of Rs {stop:,.2f} is not {other} it, "
+                f"so Dhan would refuse the whole order. Set the stop {other} Rs {premium:,.2f}."
+            ),
+        )
+    return target, stop, None
 
 
 def _now_ist():
@@ -334,8 +392,12 @@ class ScalpEngine:
         quantity = lots * lot_size
         product_type = _normalize_scalp_product_type(product_type)
         if mode == "live":
-            target_premium = float(target_premium) if target_premium > 0 else SCALP_DEFAULT_TARGET_PREMIUM
-            sl_premium = float(sl_premium) if sl_premium > 0 else SCALP_DEFAULT_SL_PREMIUM
+            # A stop-limit entry fills at its TRIGGER, not at today's price, so
+            # its exits are judged when that trigger arrives -- here only the
+            # blanks are filled, as the form does.
+            typed_target, typed_sl = float(target_premium or 0), float(sl_premium or 0)
+            target_premium = typed_target if typed_target > 0 else SCALP_DEFAULT_TARGET_PREMIUM
+            sl_premium = typed_sl if typed_sl > 0 else SCALP_DEFAULT_SL_PREMIUM
 
         # ── Stop-limit entry: create pending trade, no order yet ──
         if entry_limit_price > 0 and entry_limit_max > 0:
@@ -413,6 +475,32 @@ class ScalpEngine:
                     "message": "Paper entry was not created because no positive option premium was available.",
                 }
         else:
+            # THE EXITS, CHECKED BEFORE THE BROKER SEES THEM. Dhan refuses the
+            # WHOLE Super Order -- entry included -- when the target is not on
+            # the profitable side of the price, and answers with a code rather
+            # than the numbers (Phil, 2026-09-23: DH-906 "Profit Price Should be
+            # greater than Order price", from the form's flat Rs 300 target on
+            # an option trading above it). Priced here, named in words here.
+            quote = 0.0
+            for _attempt in range(2):
+                try:
+                    quote = float(
+                        await asyncio.to_thread(self.dhan.get_option_ltp, underlying, strike, expiry, option_type)
+                        or 0.0
+                    )
+                    if quote > 0:
+                        break
+                except Exception:
+                    quote = 0.0
+                if _attempt == 0:
+                    await asyncio.sleep(0.3)
+            target_premium, sl_premium, problem = resolve_scalp_exit_prices(
+                transaction_type, quote, typed_target, typed_sl
+            )
+            if problem:
+                self._log("warn", f"❌ Entry refused before the broker saw it: {problem}")
+                return {"status": "error", "message": problem}
+
             # Place broker-native Super Order so TP and SL live inside Dhan.
             try:
                 result = self.dhan.place_super_order(

@@ -24478,14 +24478,11 @@ def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
         raise HTTPException(status_code=400, detail="expiry cannot be in the past")
     if bool(req.entry_limit_price) != bool(req.entry_limit_max):
         raise HTTPException(status_code=400, detail="Stop-limit entry requires both minimum and maximum premiums")
-    if req.mode == "live":
-        # A Dhan Super Order needs both exit prices.  Treat blank/zero fields
-        # as the same defaults the Scalp form shows, while retaining any value
-        # the trader explicitly entered.
-        if req.target_premium <= 0:
-            req.target_premium = SCALP_DEFAULT_TARGET_PREMIUM
-        if req.sl_premium <= 0:
-            req.sl_premium = SCALP_DEFAULT_SL_PREMIUM
+    # Blank exit prices are left blank on purpose: scalp.py prices the contract
+    # and derives them from that premium, because a flat Rs 300 target means
+    # nothing to an option trading at Rs 80 -- and sat UNDER the price of one
+    # trading above it, which is the order Dhan refused (DH-906, 2026-09-23).
+    # The old absolute defaults remain there as the no-quote fallback.
 
 
 def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
