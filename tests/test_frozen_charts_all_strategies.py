@@ -97,7 +97,7 @@ class LedgerChartRoutingTests(unittest.TestCase):
         # dash -- a dash where a control belongs reads as a missing feature --
         # but it still offers nothing to press.
         cell = SCRIPT[SCRIPT.index("const chartCell = (() => {") :][:2200]
-        self.assertIn('class="ocp-icon-btn" disabled', cell)
+        self.assertIn('class="ocp-icon-btn is-chart" disabled', cell)
         self.assertIn("its engine state was overwritten", cell)
 
 

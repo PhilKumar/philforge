@@ -122,6 +122,16 @@ const ICO = {
   briefcase:(s) => ICO._s('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="12.01"/>', s),
   wrench:   (s) => ICO._s('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94L6.73 20.2a2 2 0 0 1-2.83-2.83l6.73-6.73a6 6 0 0 1 7.94-7.94L14.7 6.3z"/>', s),
   chart:    (s) => ICO._s('<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>', s),
+  // Rising bars under a climbing arrow -- what Phil pictures when he reads
+  // "chart" (2026-09-23). Drawn in the house line style so it sits beside the
+  // other icons rather than looking pasted in.
+  barchart: (s) => ICO._s(
+    '<line x1="3" y1="21" x2="21" y2="21"/>'
+    + '<rect x="4" y="13" width="3.4" height="8" rx="0.8"/>'
+    + '<rect x="10.3" y="9" width="3.4" height="12" rx="0.8"/>'
+    + '<rect x="16.6" y="5" width="3.4" height="16" rx="0.8"/>'
+    + '<polyline points="3.5 10.5 8 6 12 9.5 20.5 2"/>'
+    + '<polyline points="15.5 2 20.5 2 20.5 6.5"/>', s),
   pulse:    (s) => ICO._s('<path d="M3 12h4l3-9 4 18 3-9h4"/>', s),
   bolt:     (s) => ICO._s('<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor" stroke="none"/>', s),
   memo:     (s) => ICO._s('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>', s),
@@ -3457,7 +3467,7 @@ function _renderPaperLedger(strategy) {
       : null;
     const chartCell = (() => {
       if (strategy === 'fib_boundary' && params && params.mother_timestamp) {
-        return `<button type="button" class="ocp-icon-btn" data-pf-action="openArchivedFibChart"`
+        return `<button type="button" class="ocp-icon-btn is-chart" data-pf-action="openArchivedFibChart"`
           + ` data-fx-mother="${escapeHtml(String(params.mother_timestamp))}"`
           + ` data-fx-symbol="${escapeHtml(String(params.symbol || 'NIFTY'))}"`
           + ` data-fx-side="${escapeHtml(String(params.side || 'CE'))}"`
@@ -3466,23 +3476,23 @@ function _renderPaperLedger(strategy) {
           + ` data-fx-closed="${escapeHtml(String(row.closed_at || ''))}"`
           + ` data-fx-id="${escapeHtml(String(row.id || ''))}"`
           + ` aria-label="Draw this finished ladder on its own candles"`
-          + ` title="Draw this finished ladder on its own candles">&#8599;</button>`;
+          + ` title="Draw this finished ladder on its own candles">${ICO.barchart(15)}</button>`;
       }
       // candle_recovery draws from its stored mother and trades rather than a
       // revived engine; the route has served it since 154dce97, but the button
       // was never added, so every High Entry row still showed a dash.
       if ((strategy === 'candle_entry' || strategy === 'gap_carry' || strategy === 'supertrend'
            || strategy === 'candle_recovery') && row.has_chart) {
-        return `<button type="button" class="ocp-icon-btn" data-pf-action="openFrozenCampaignChart"`
+        return `<button type="button" class="ocp-icon-btn is-chart" data-pf-action="openFrozenCampaignChart"`
           + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
           + ` aria-label="Draw this finished campaign as it stood when it closed"`
-          + ` title="Draw this finished campaign as it stood when it closed">&#8599;</button>`;
+          + ` title="Draw this finished campaign as it stood when it closed">${ICO.barchart(15)}</button>`;
       }
       // Disabled rather than absent: a dash where a control belongs reads as a
       // missing feature (Phil, 2026-09-23: "let the chart button gets greyed out").
-      return `<button type="button" class="ocp-icon-btn" disabled`
+      return `<button type="button" class="ocp-icon-btn is-chart" disabled`
         + ` aria-label="No chart for this row"`
-        + ` title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">&#8599;</button>`;
+        + ` title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">${ICO.barchart(15)}</button>`;
     })();
     // A DEL BUTTON ON EVERY CLOSED ROW (Phil, 2026-09-23: "I need for all runs
     // on the closed campaigns... Because I use different timings to test and
@@ -3498,7 +3508,7 @@ function _renderPaperLedger(strategy) {
       + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
       + ` data-net="${net == null ? '' : escapeHtml(String(net))}"`
       + ` aria-label="Remove this row from the closed ledger"`
-      + ` title="Remove this row from the closed ledger">&times;</button>`;
+      + ` title="Remove this row from the closed ledger">${ICO.cross(15)}</button>`;
     return `<tr>`
       + `<td>${when(row.opened_at)}${rebuilt}</td>`
       + `<td>${when(row.closed_at)}</td>`
@@ -21949,7 +21959,7 @@ function _recoveryCampaign(c) {
         <span class="ocp-rule-chip">${escapeHtml(rule)}</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="ocp-icon-btn" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" aria-label="Chart this campaign" title="Chart this campaign">&#8599;</button>
+        <button class="ocp-icon-btn is-chart" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" aria-label="Chart this campaign" title="Chart this campaign">${ICO.barchart(15)}</button>
         <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
       </div>
     </div>

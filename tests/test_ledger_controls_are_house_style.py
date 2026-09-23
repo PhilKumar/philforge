@@ -56,7 +56,8 @@ class TheRemoveControlIsAGlyphNotAPill(unittest.TestCase):
     def test_it_carries_no_label_text(self):
         body = JS[JS.index("const delCell =") :]
         body = body[: body.index("return `<tr>")]
-        self.assertIn("&times;</button>", body)
+        # A drawn cross from the house icon set, not a text glyph.
+        self.assertIn("${ICO.cross(15)}</button>", body)
         self.assertNotIn("Del</button>", body)
 
     def test_it_still_says_what_it_does_to_a_screen_reader(self):

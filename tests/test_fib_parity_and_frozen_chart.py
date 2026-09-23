@@ -115,7 +115,7 @@ class FrozenChartTests(unittest.TestCase):
         # The class has to be one that exists, or the button renders as bare text.
         # The row controls became one quiet glyph on 2026-09-23; what matters
         # here is that a button is offered, not which skin it wears.
-        self.assertIn('class="ocp-icon-btn"', body)
+        self.assertIn('class="ocp-icon-btn is-chart"', body)
 
     def test_the_action_is_wired_through_the_allowlist(self):
         self.assertIn("'openFrozenCampaignChart',", APP_JS)

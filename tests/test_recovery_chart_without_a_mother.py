@@ -90,11 +90,13 @@ class TheRowControlsAreOneStyle(unittest.TestCase):
         body = body[: body.index("return `<tr>")]
         self.assertNotIn("&#8599; Chart", body)
         self.assertNotIn("Del</button>", body)
+        # And the glyph is the bar chart, not a bare arrow.
+        self.assertIn("ICO.barchart(15)", body)
 
     def test_a_row_with_nothing_to_draw_shows_a_disabled_button_not_a_dash(self):
         body = JS[JS.index("const chartCell = (() => {") :]
         body = body[: body.index("return `<tr>")]
-        self.assertIn('class="ocp-icon-btn" disabled', body)
+        self.assertIn('class="ocp-icon-btn is-chart" disabled', body)
 
     def test_the_style_exists_and_dims_when_disabled(self):
         css = (Path(app_module.__file__).parent / "static" / "philforge-app.css").read_text(encoding="utf-8")
