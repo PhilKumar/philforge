@@ -109,7 +109,7 @@ class FrozenChartTests(unittest.TestCase):
         self.assertIn("json_extract(payload, '$.engine')", DB_PY)
 
     def test_the_button_appears_only_where_there_is_something_to_draw(self):
-        body = APP_JS.split("async function _refreshPaperLedger(strategy)")[1].split("\n}")[0]
+        body = APP_JS.split("function _renderPaperLedger(strategy)")[1].split("\n}\n")[0]
         self.assertIn("row.has_chart", body)
         self.assertIn("openFrozenCampaignChart", body)
         # The class has to be one that exists, or the button renders as bare text.

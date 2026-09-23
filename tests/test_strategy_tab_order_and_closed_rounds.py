@@ -147,8 +147,12 @@ class ClosedPaperTradesTests(unittest.TestCase):
         """
         self.assertIn("async function _refreshPaperLedger(strategy)", APP_JS)
         self.assertNotIn("function _renderCandleEntryClosedRounds", APP_JS)
-        body = APP_JS.split("async function _refreshPaperLedger(strategy)")[1].split("\n}")[0]
-        self.assertIn("/api/paper-campaigns/", body)
+        # Since the pager was added the fetch and the draw are two functions:
+        # one fills the cache from the ARCHIVE, the other renders a page of it.
+        fetch = APP_JS.split("async function _refreshPaperLedger(strategy)")[1].split("\n}\n")[0]
+        self.assertIn("/api/paper-campaigns/", fetch)
+        self.assertNotIn("engine", fetch, "the rows come from the archive, never a live engine")
+        body = APP_JS.split("function _renderPaperLedger(strategy)")[1].split("\n}\n")[0]
         self.assertIn("net_pnl", body)
         # A rebuilt row must never pass as a live capture.
         self.assertIn("rebuilt", body)

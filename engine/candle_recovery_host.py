@@ -423,6 +423,28 @@ class CandleRecoveryHost:
             "open": t.open,
         }
 
+    # INDEX PRICES IN AN EVENT ARE ENGINE-SPACE, and a put campaign runs on
+    # MIRRORED bars -- so a PE stop was logged at -23,352.05 and the page would
+    # print it. Harmless while a run was all one side; now that a call book and
+    # a put book share a host it is on screen. The event also carries which
+    # campaign it came from, or a desk running both sides reads as one stream
+    # with no way to tell whose trade stopped.
+    _EVENT_PRICE_FIELDS = ("trigger", "entry_index", "sl", "close", "low", "buyer_high", "swing_low")
+
+    def _event_row(self, campaign: RecoveryCampaign, event: dict) -> dict:
+        row = dict(event)
+        row["campaign_id"] = campaign.campaign_id
+        row["side"] = campaign.side
+        if campaign.mirrored:
+            for field in self._EVENT_PRICE_FIELDS:
+                if row.get(field) is not None:
+                    row[field] = unmirror_price(row[field])
+            for zone in row.get("zones") or []:
+                # upper and lower swap as well as negate, like a mirrored bar
+                if isinstance(zone, dict) and zone.get("upper") is not None:
+                    zone["upper"], zone["lower"] = unmirror_price(zone["lower"]), unmirror_price(zone["upper"])
+        return row
+
     def campaign_row(self, campaign: RecoveryCampaign) -> dict:
         engine = campaign.engine
         trades = list(getattr(engine, "trades", []) or [])
@@ -495,11 +517,14 @@ class CandleRecoveryHost:
             # Entry was the one strategy whose page could not say what its run
             # had been doing (Phil, 2026-08-26). Newest last, capped: a page
             # needs the recent past, not the whole session.
-            "events": [
-                dict(event)
-                for campaign in self.campaigns.values()
-                for event in (getattr(campaign.engine, "events", []) or [])
-            ][-120:],
+            "events": sorted(
+                (
+                    self._event_row(campaign, event)
+                    for campaign in self.campaigns.values()
+                    for event in (getattr(campaign.engine, "events", []) or [])
+                ),
+                key=lambda row: str(row.get("timestamp") or ""),
+            )[-120:],
             "booked_net": round(sum(priced), 2) if priced else 0.0,
             "last_poll": self.last_poll.isoformat() if self.last_poll else None,
             "last_report": self.last_report.to_dict() if self.last_report else None,

@@ -2213,6 +2213,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadCandleEntryChart',
   'openFrozenCampaignChart',
   'deleteClosedCampaign',
+  'setPaperLedgerPage',
   'hideCandleEntryChart',
   'hideGapCarryChart',
   'setCandleEntrySession',
@@ -3214,7 +3215,7 @@ async function deleteClosedCampaign(event, el) {
     if (!res.ok) throw new Error(_apiErrorMessage(data, `Could not remove it (${res.status}).`));
     showToast('Row removed from the ledger', 'success');
     node.closest('tr')?.remove();
-    if (typeof _refreshPaperLedger === 'function') _refreshPaperLedger(strategy);
+    if (typeof _refreshPaperLedger === 'function') await _refreshPaperLedger(strategy);
   } catch (err) {
     node.disabled = false;
     showToast(err.message || 'Could not remove it.', 'error');
@@ -3331,23 +3332,80 @@ function _paintBookedPill(strategy, totals) {
     + (unpriced ? ` · ${unpriced} still unpriced and not counted` : '');
 }
 
+// TEN AT A TIME, ON EVERY STRATEGY (Phil, 2026-09-23: "Apply pagination to all
+// the tables on all the strategies' closed campaigns"). The CE/PE desk has had
+// a pager since 2026-09-11; these five tables grew without one, and a morning
+// of testing different timeframes buries the campaigns that matter.
+//
+// The page is kept PER STRATEGY, so paging Fib Boundary does not move High
+// Entry, and it is held across a refresh -- a poll that reset you to page 1
+// while you were reading page 3 would be worse than no pager.
+const _PAPER_LEDGER_PAGE_SIZE = 10;
+const _paperLedgerPage = {};
+const _paperLedgerCache = {};
+
+function setPaperLedgerPage(event, el) {
+  const node = el || event?.currentTarget;
+  if (!node) return;
+  const strategy = node.getAttribute('data-strategy');
+  const want = node.getAttribute('data-ledger-page');
+  if (!strategy || !want) return;
+  const now = _paperLedgerPage[strategy] || 1;
+  _paperLedgerPage[strategy] = want === 'prev' ? now - 1 : want === 'next' ? now + 1 : Number(want) || 1;
+  _renderPaperLedger(strategy);
+}
+
+// The pager lives under the table and is made on demand, so none of the five
+// strategy pages needed new markup to gain one.
+function _paperLedgerPager(strategy, ids, total, pages, from, on) {
+  const table = document.getElementById(ids.body)?.closest('table');
+  if (!table) return;
+  const id = `${ids.body}-pager`;
+  let host = document.getElementById(id);
+  if (!host) {
+    host = document.createElement('div');
+    host.id = id;
+    host.className = 'cepe-pager';
+    table.parentNode.insertBefore(host, table.nextSibling);
+  }
+  if (total <= _PAPER_LEDGER_PAGE_SIZE) { host.innerHTML = ''; return; }
+  const page = _paperLedgerPage[strategy] || 1;
+  host.innerHTML = `
+    <span class="cepe-pager-at">${from + 1}&ndash;${from + on} of ${total}</span>
+    <button type="button" class="cascade-options-control" data-pf-action="setPaperLedgerPage"
+            data-strategy="${escapeHtml(strategy)}" data-ledger-page="prev" ${page <= 1 ? 'disabled' : ''}>&larr; Newer</button>
+    <span class="cepe-pager-n">${page} / ${pages}</span>
+    <button type="button" class="cascade-options-control" data-pf-action="setPaperLedgerPage"
+            data-strategy="${escapeHtml(strategy)}" data-ledger-page="next" ${page >= pages ? 'disabled' : ''}>Older &rarr;</button>`;
+}
+
 async function _refreshPaperLedger(strategy) {
+  const ids = _PAPER_LEDGER_UI[strategy];
+  if (!ids) return;
+  if (!document.getElementById(ids.wrap) || !document.getElementById(ids.body)) return;
+  try {
+    const res = await fetch(`/api/paper-campaigns/${strategy}`, { credentials: 'same-origin', cache: 'no-store' });
+    const data = await res.json();
+    _paperLedgerCache[strategy] = {
+      rows: Array.isArray(data.campaigns) ? data.campaigns : [],
+      total: data.net_total,
+    };
+    _paintBookedPill(strategy, data.booked_all_time);
+  } catch (err) {
+    return;
+  }
+  _renderPaperLedger(strategy);
+}
+
+function _renderPaperLedger(strategy) {
   const ids = _PAPER_LEDGER_UI[strategy];
   if (!ids) return;
   const wrap = document.getElementById(ids.wrap);
   const body = document.getElementById(ids.body);
   if (!wrap || !body) return;
-  let rows = [];
-  let total = null;
-  try {
-    const res = await fetch(`/api/paper-campaigns/${strategy}`, { credentials: 'same-origin', cache: 'no-store' });
-    const data = await res.json();
-    rows = Array.isArray(data.campaigns) ? data.campaigns : [];
-    total = data.net_total;
-    _paintBookedPill(strategy, data.booked_all_time);
-  } catch (err) {
-    return;
-  }
+  const cached = _paperLedgerCache[strategy] || { rows: [], total: null };
+  const rows = cached.rows;
+  const total = cached.total;
   // THE PANEL IS ALWAYS THERE. It used to hide itself when the archive was
   // empty, so which strategies showed a "Closed paper campaigns" table
   // depended on which ones happened to have traded -- Phil, 2026-08-26:
@@ -3359,12 +3417,22 @@ async function _refreshPaperLedger(strategy) {
     if (count) count.textContent = '· none yet';
     const columns = body.closest('table')?.querySelectorAll('thead th').length || 8;
     body.innerHTML = `<tr><td colspan="${columns}" class="ocp-empty" style="padding:16px;text-align:center;color:var(--muted);">No closed campaign yet — a finished one is kept here for good.</td></tr>`;
+    const stale = document.getElementById(`${ids.body}-pager`);
+    if (stale) stale.innerHTML = '';
     return;
   }
   if (count) {
     count.textContent = `· ${rows.length}` + (total === null || total === undefined ? '' : ` · net ${_candleEntrySigned(total)}`);
   }
-  body.innerHTML = rows.map(row => {
+  // Rows can shrink under you -- a delete, or a shorter archive on refresh.
+  const pages = Math.max(1, Math.ceil(rows.length / _PAPER_LEDGER_PAGE_SIZE));
+  if ((_paperLedgerPage[strategy] || 1) > pages) _paperLedgerPage[strategy] = pages;
+  if ((_paperLedgerPage[strategy] || 1) < 1) _paperLedgerPage[strategy] = 1;
+  const from = ((_paperLedgerPage[strategy] || 1) - 1) * _PAPER_LEDGER_PAGE_SIZE;
+  const shown = rows.slice(from, from + _PAPER_LEDGER_PAGE_SIZE);
+  _paperLedgerPager(strategy, ids, rows.length, pages, from, shown.length);
+
+  body.innerHTML = shown.map(row => {
     const net = row.net_pnl == null ? null : Number(row.net_pnl);
     const tone = net == null ? 'var(--muted)' : _candleEntryPnlTone(net);
     // A row rebuilt from recorded prices says so rather than passing as a live capture.
@@ -7631,6 +7699,7 @@ window.initOptionsCascadePage = initOptionsCascadePage;
 window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;
 window.openFrozenCampaignChart = openFrozenCampaignChart;
 window.deleteClosedCampaign = deleteClosedCampaign;
+window.setPaperLedgerPage = setPaperLedgerPage;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.setFibBoundaryMode = setFibBoundaryMode;
 window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
@@ -22129,11 +22198,15 @@ function renderRecovery(data) {
     if (evCount) evCount.textContent = `${rows.length} update${rows.length === 1 ? '' : 's'}`;
     const keep = evEl.scrollTop;
     evEl.innerHTML = rows.length
-      ? rows.slice(-40).reverse().map(ev => `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">`
-          + `<span style="color:#64748b;">${escapeHtml(_recTime(ev.timestamp))}</span> `
-          + `<strong style="color:var(--text);">${escapeHtml(String(ev.event || '').replaceAll('_', ' '))}</strong>`
-          + `${ev.trade != null ? ` <span style="color:#38bdf8;">trade ${escapeHtml(String(ev.trade))}</span>` : ''}`
-          + `</div>`).join('')
+      ? rows.slice(-40).reverse().map(ev => {
+          const side = String(ev.side || '').toUpperCase();
+          const tone = side === 'PE' ? '#fbbf24' : '#38bdf8';
+          return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">`
+            + `<span style="color:#64748b;">${escapeHtml(_recTime(ev.timestamp))}</span> `
+            + (side ? `<span style="color:${tone};">${escapeHtml(side)}</span> ` : '')
+            + `<span style="color:var(--text);">${_recoveryEventSentence(ev)}</span>`
+            + `</div>`;
+        }).join('')
       : 'No events yet.';
     evEl.scrollTop = keep;
   }
@@ -22148,6 +22221,84 @@ function renderRecovery(data) {
   list.innerHTML = campaigns.length
     ? campaigns.map(_recoveryCampaign).join('')
     : '<div style="color:var(--muted);font:11px \'JetBrains Mono\',monospace;">Running, but no mother named yet. Pick a completed candle open above.</div>';
+}
+
+// WHAT THE RUN ACTUALLY DID, in words (Phil, 2026-09-23: "put sensible events
+// on the high entry campaign events"). The log printed the engine's own key
+// with its underscores swapped -- "eod square off", "no contract" -- and threw
+// away the payload beside it, so the panel could say that something happened
+// and never what. Every number below was already being recorded.
+//
+// Index prices are unmirrored by the host before they arrive, so a PE event
+// reads in real NIFTY levels rather than the engine's negative ones.
+function _recNum2(v) { return v == null ? '—' : Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function _recMoney(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  return `${n < 0 ? '-' : '+'}₹${Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function _recoveryEventSentence(ev) {
+  const t = ev.trade != null ? `T${escapeHtml(String(ev.trade))}` : 'the trade';
+  const net = _recMoney(ev.net);
+  const booked = _recMoney(ev.booked);
+  const px = v => escapeHtml(_recNum2(v));
+  const b = s => `<b>${s}</b>`;
+  switch (String(ev.event || '')) {
+    case 'armed':
+      return `${b(t)} armed — buy waiting above ${b(px(ev.trigger))}`;
+    case 'rearmed':
+      return `${b(t)} re-armed after the stop — buy waiting above ${b(px(ev.trigger))}`;
+    case 'zone_armed':
+      return `${b(t)} armed in zone ${escapeHtml(String(ev.zone))} — buy above ${b(px(ev.trigger))}`;
+    case 'zone_rearmed':
+      return `Zone ${escapeHtml(String(ev.zone))} re-armed — buy above ${b(px(ev.trigger))}`;
+    case 'filled':
+      return `${b(t)} bought at ${b(px(ev.entry_index))} — ${escapeHtml(String(ev.strike || ''))} at ₹${px(ev.premium)}`
+        + `, stop if a candle closes past ${b(px(ev.sl))}`;
+    case 'zone_filled':
+      return `${b(t)} bought in zone ${escapeHtml(String(ev.zone))} at ${b(px(ev.entry_index))}`
+        + ` — ${escapeHtml(String(ev.lots ?? ''))} lot(s) at ₹${px(ev.premium)}, stop ${b(px(ev.sl))}`;
+    case 'stopped':
+      return `${b(t)} stopped — the candle closed at ${b(px(ev.close))}, past the ${px(ev.sl)} stop`
+        + (net ? `, booking ${b(net)}` : '');
+    case 'basket_stopped':
+      return `The basket stopped — closed at ${b(px(ev.close))}, past ${px(ev.sl)}`
+        + (booked ? `. Ledger now ${b(booked)}` : '');
+    case 'target':
+      return `${b(t)} hit the recovery target${net ? ` at ${b(net)}` : ''}`
+        + (booked ? ` — the campaign is green at ${b(booked)}` : '');
+    case 'basket_target':
+      return `The basket reached its recovery target${booked ? ` — ledger ${b(booked)}` : ''}`;
+    case 'eod_square_off':
+      return `${ev.trade != null ? b(t) : 'The open trade'} squared off at the close`
+        + (net ? ` at ${b(net)}` : '') + (booked ? ` — ledger ${b(booked)}` : '')
+        + ' — nothing is carried overnight';
+    case 'expiry_close':
+      return `${b(t)} closed out on its expiry day${net ? ` at ${b(net)}` : ''}`;
+    case 'end_close':
+      return `${b(t)} closed as the campaign ended${net ? ` at ${b(net)}` : ''}`;
+    case 'no_contract':
+      return `${b(t)} could not be bought — the chain had no contract to take at that level`;
+    case 'buyer_involvement':
+      return `Buyers showed up — ${escapeHtml(String(ev.greens ?? ''))} green candles off the ${px(ev.low)} low`;
+    case 'zones_drawn':
+      return `Zones drawn between the ${px(ev.swing_low)} low and the ${px(ev.buyer_high)} high`
+        + ` — ${(ev.zones || []).length} of them`;
+    case 'campaign_over': {
+      const why = {
+        recovered: 'it recovered green',
+        horizon: 'it ran out of sessions',
+        end_of_data: 'the replay reached the last candle',
+        abandoned: 'it was abandoned',
+      }[String(ev.reason || '')] || escapeHtml(String(ev.reason || '').replaceAll('_', ' '));
+      return `Campaign over — ${why}`
+        + (ev.trades != null ? `, after ${escapeHtml(String(ev.trades))} trade(s)` : '')
+        + (booked ? `, ledger ${b(booked)}` : '');
+    }
+    default:
+      return escapeHtml(String(ev.event || '').replaceAll('_', ' '));
+  }
 }
 
 // The recipe is only honest if it moves with the controls.
