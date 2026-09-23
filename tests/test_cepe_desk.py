@@ -74,7 +74,7 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         panel = panel[: panel.index('id="oc-tab-gapcarry"')] if 'id="oc-tab-gapcarry"' in panel else panel
         for wrap in re.findall(r'<div class="ocp-table-wrap"([^>]*)>', panel):
             self.assertIn("tabindex", wrap, "a scrollable table on this tab cannot be reached by keyboard")
-        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        card = APP_JS.split("function _cepeBookCard(run, earlier)")[1].split("\nfunction renderCePe")[0]
         wrap = re.search(r'<div class="ocp-table-wrap"([^`]*?)>', card)
         self.assertIsNotNone(wrap)
         self.assertIn("tabindex", wrap.group(1))
@@ -88,7 +88,7 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         """A Start that only explained itself in a toast was a button that did
         nothing; deploying a run belongs to the strategy builder."""
         self.assertNotIn("cepeStart", APP_JS)
-        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        card = APP_JS.split("function _cepeBookCard(run, earlier)")[1].split("\nfunction renderCePe")[0]
         self.assertNotIn("▶ Start", card)
         self.assertNotIn('data-pf-action="cepeStart"', card)
 
@@ -101,7 +101,7 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         allow = APP_JS[APP_JS.index("const PF_DELEGATED_ACTIONS") :]
         self.assertIn("'openCePeIndexChart'", allow[: allow.index("]")])
         self.assertIn("window.openCePeIndexChart = openCePeIndexChart;", APP_JS)
-        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        card = APP_JS.split("function _cepeBookCard(run, earlier)")[1].split("\nfunction renderCePe")[0]
         self.assertNotIn("openCePeIndexChart", card, "the chart belongs to the page, not each card")
 
     def test_the_index_chart_reuses_the_one_renderer(self):
@@ -136,7 +136,10 @@ class TheTabExistsAndIsWired(unittest.TestCase):
         """The whole point: standing on Live must not render a paper book."""
         body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]
         self.assertIn("const all = everything.filter(page.test)", body)
-        self.assertIn("books.innerHTML = runs.map(_cepeBookCard)", body)
+        self.assertIn("books.innerHTML = runs.map(r => _cepeBookCard(r, earlier))", body)
+        # ITS OWN history, not the desk's: a card summing every book's
+        # earlier trades would report the same money on both.
+        self.assertIn("const earlier = _cepeMode === 'live' ?", body)
         for stale in ("cepe-section-head", "cepe-section-live", "cepe-section-paper"):
             self.assertNotIn(stale, CSS, f"{stale} belonged to the stacked model")
 
@@ -196,7 +199,7 @@ class TheDeskShowsBothBooks(unittest.TestCase):
         body = APP_PY.split('@app.get("/api/live/runs")')[1].split("@app.get")[0]
         self.assertIn('"real_orders"', body)
         self.assertIn("order_type", body)
-        card = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        card = APP_JS.split("function _cepeBookCard(run, earlier)")[1].split("\nfunction renderCePe")[0]
         self.assertIn("run.real_orders", card)
         self.assertNotIn("=== 'live'", card, "the badge must not compare mode to 'live'")
         # The badge reads "LIVE" in the danger colour; the words stay on its hover.
@@ -257,12 +260,12 @@ class TheTwoBooksAreToldApart(unittest.TestCase):
         self.assertIn("openLiveTradeJournal(", body)
 
     def test_the_desk_says_when_a_leg_has_no_broker_stop(self):
-        body = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        body = APP_JS.split("function _cepeBookCard(run, earlier)")[1].split("\nfunction renderCePe")[0]
         self.assertIn("no stop", body)
         self.assertIn("No broker stop for this leg", body)
 
     def test_the_expiry_day_size_is_shown_where_it_is_set(self):
-        body = APP_JS.split("function _cepeBookCard(run)")[1].split("\nfunction renderCePe")[0]
+        body = APP_JS.split("function _cepeBookCard(run, earlier)")[1].split("\nfunction renderCePe")[0]
         self.assertIn("expiry_day_lots", body)
 
     def test_polling_stops_when_the_tab_is_hidden(self):

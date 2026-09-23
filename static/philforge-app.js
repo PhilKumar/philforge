@@ -22259,7 +22259,30 @@ function _cepeRecipe() {
     + `· one trade a day each · no target, no trailing stop`;
 }
 
-function _cepeBookCard(run) {
+// A BOOK'S OWN ALL-TIME NET, not just what it has closed since the last
+// restart. `booked_pnl` is summed from the engine's in-memory closed list,
+// which every deploy empties -- the desk TILE was moved onto the ledger on
+// 22-Sep for exactly that reason and these cards were left behind, so after
+// four deploys they were short three real trades and the two numbers on one
+// screen disagreed by Rs 3,620 (Phil, 2026-09-23: "is booked all time
+// correct?").
+//
+// `earlier` is this book's own saved-run history, already deduplicated by the
+// server against `recent`, so adding it cannot double-count a trade.
+function _cepeBookAllTime(run, earlier) {
+  const mine = (earlier || []).filter(h =>
+    String(h.book || '') === String(run.name || run.run_id || '')
+    && String(h.side || '').toUpperCase() === String(run.side || '').toUpperCase());
+  if (!mine.length) return { booked: run.booked_pnl, closed: run.closed_count ?? 0 };
+  // A book with nothing closed yet reports null, not 0 -- keep that meaning.
+  const base = run.booked_pnl == null ? 0 : Number(run.booked_pnl);
+  return {
+    booked: Math.round((base + mine.reduce((n, h) => n + (Number(h.pnl) || 0), 0)) * 100) / 100,
+    closed: Number(run.closed_count || 0) + mine.length,
+  };
+}
+
+function _cepeBookCard(run, earlier) {
   const side = run.side || '';
   const tone = _cepeSide(side);
   const live = !!run.real_orders;
@@ -22287,6 +22310,7 @@ function _cepeBookCard(run) {
             data-cepe-index="${i}" title="Sell this leg now at market">Exit</button></td>
     </tr>`).join('');
 
+  const allTime = _cepeBookAllTime(run, earlier);
   return `
   <div class="card oc-cepe-book" style="padding:13px 14px;border-left:3px solid ${tone.tint};">
     <div class="cepe-head">
@@ -22298,8 +22322,8 @@ function _cepeBookCard(run) {
     <div class="cepe-figs">
       ${rule ? `<span class="ocp-muted">${escapeHtml(rule)}</span>` : ''}
       <span>today <b style="color:${_cepeTone(run.daily_pnl)};">${_cepeMoney(run.daily_pnl)}</b></span>
-      <span>booked <b style="color:${_cepeTone(run.booked_pnl)};">${_cepeMoney(run.booked_pnl)}</b></span>
-      <span class="ocp-muted">${run.closed_count ?? 0} closed</span>
+      <span>booked <b style="color:${_cepeTone(allTime.booked)};">${_cepeMoney(allTime.booked)}</b></span>
+      <span class="ocp-muted">${allTime.closed} closed</span>
       ${run.error ? `<span style="color:var(--danger);" title="${escapeHtml(run.error)}">unreadable</span>` : ''}
       ${run.manual_intervention_required ? '<span style="color:var(--danger);">needs reconciling</span>' : ''}
     </div>
@@ -22480,7 +22504,10 @@ function renderCePe(data) {
     ].join('');
   };
 
-  books.innerHTML = runs.map(_cepeBookCard).join('');
+  // The broker's saved rows belong to the live page only, exactly as the
+  // ledger below treats them: a paper book never reached the broker.
+  const earlier = _cepeMode === 'live' ? ((data && data.history) || []) : [];
+  books.innerHTML = runs.map(r => _cepeBookCard(r, earlier)).join('');
 
   // ── one flat ledger under both books, newest first ──
   // Live rows come from each engine's own list, which a fresh deploy empties.
