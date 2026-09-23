@@ -80,9 +80,17 @@ class TheMessageJobStaysAlive(unittest.TestCase):
 
     SRC = (ROOT / "app.py").read_text(encoding="utf-8")
 
-    def test_the_loop_is_started_with_a_kept_reference(self):
-        self.assertIn('_spawn_background_loop(_run_official_close_telegram_loop(), "official previous close', self.SRC)
+    def test_the_job_starts_at_handover_not_only_at_startup(self):
+        """A deployed worker starts as STANDBY. The startup block skipped this
+        job, and nothing started it after the handover -- so after every deploy
+        the 09:00 message was simply gone (2026-09-23)."""
+        self.assertIn('"official-prev-close": _run_official_close_telegram_loop', self.SRC)
         self.assertNotIn("asyncio.create_task(_run_official_close_telegram_loop())", self.SRC)
+        self.assertNotIn("_spawn_background_loop(_run_official_close_telegram_loop()", self.SRC)
+
+    def test_the_auto_loop_starter_runs_at_handover(self):
+        handover = self.SRC.split("async def restore_engines_after_handover")[1][:900]
+        self.assertIn("_ensure_auto_loops_running()", handover)
 
     def test_the_zerodha_reminder_is_held_the_same_way(self):
         self.assertIn("_spawn_background_loop(_run_zerodha_login_reminder_loop()", self.SRC)

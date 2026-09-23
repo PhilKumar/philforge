@@ -43,7 +43,16 @@ import app as app_module  # noqa: E402
 # Every loop _ensure_auto_loops_running is responsible for, by the name it
 # reports. Add a loop, add it here -- and to STUBBED below, or this test will
 # run the real one.
-EXPECTED_LOOPS = ["candle-entry", "fib-boundary", "gap-carry", "sanctuary-plans", "supertrend"]
+EXPECTED_LOOPS = [
+    "candle-entry",
+    "fib-boundary",
+    "gap-carry",
+    # The 09:00 official-close message joined them on 2026-09-23: started from
+    # the startup block alone, a deployed (standby) worker never started it.
+    "official-prev-close",
+    "sanctuary-plans",
+    "supertrend",
+]
 
 # (owner, attribute) for each loop factory, so a module-level one can be
 # stubbed too. sanctuary-plans hangs off the sanctuary module, not off app.
@@ -52,6 +61,7 @@ STUBBED = [
     (None, "_run_candle_entry_auto_loop"),
     (None, "_run_gap_carry_auto_loop"),
     (None, "_run_supertrend_auto_loop"),
+    (None, "_run_official_close_telegram_loop"),
     (app_module._sanctuary, "plan_nudge_loop"),
 ]
 

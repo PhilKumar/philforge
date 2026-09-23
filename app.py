@@ -3792,6 +3792,11 @@ def _ensure_auto_loops_running() -> list[str]:
         # the startup block alone, a deployed worker would never bring the
         # sanctuary's morning reminder back.
         "sanctuary-plans": _sanctuary.plan_nudge_loop,
+        # Nor is the 09:00 official-close message, and it proved the point: a
+        # deployed worker starts as standby, so the startup block skipped it and
+        # nothing ever started it. Phil got no message on 2026-09-23 and the
+        # journal held no trace of the job at all.
+        "official-prev-close": _run_official_close_telegram_loop,
     }
     started: list[str] = []
     for name, factory in loops.items():
@@ -25744,9 +25749,10 @@ async def _start_token_renewal():
         _journal_chart_state.update({"status": "disabled", "message": "Daily Journal charts are disabled."})
         print("📈 [JOURNAL CHARTS] Scheduler disabled (PHILFORGE_JOURNAL_CHARTS=0)")
 
+    # The 09:00 official-close message is started by _ensure_auto_loops_running,
+    # at startup on the active worker and again at handover -- never here, where
+    # a standby worker would skip it and never come back to it.
     _spawn_background_loop(_run_zerodha_login_reminder_loop(), "zerodha login reminder")
-    if _engine_restore_owner_is_active_instance():
-        _spawn_background_loop(_run_official_close_telegram_loop(), "official previous close 09:00")
 
     if _STARTUP_ENGINE_RESTORE_ENABLED and _engine_restore_owner_is_active_instance():
         asyncio.create_task(_restore_live_engines())
