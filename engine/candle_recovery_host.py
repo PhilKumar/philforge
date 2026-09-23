@@ -66,13 +66,25 @@ def bars_from_candles(candles) -> list[RecoveryBar]:
 
 @dataclass
 class RecoveryCampaign:
-    """One named mother and everything replayed from it."""
+    """One named mother and everything replayed from it.
+
+    SIDE BELONGS TO THE CAMPAIGN, not to the run (Phil, 2026-09-23: "I need
+    both CE and PE side by side").  A call campaign reads the bars as they
+    come; a put campaign reads them mirrored.  Holding the side here is what
+    lets one host carry both at once -- and what lets the same mother candle
+    be traded from both ends, which a shared host-level side made impossible.
+    """
 
     campaign_id: str
     mother: RecoveryBar
     mode: str
     started_at: datetime
     engine: Any = None  # the most recent replay
+    side: str = "CE"
+
+    @property
+    def mirrored(self) -> bool:
+        return str(self.side).upper() == "PE"
 
     @property
     def status(self) -> str:
@@ -162,25 +174,30 @@ class CandleRecoveryHost:
 
     @property
     def mirrored(self) -> bool:
+        """The side a NEW campaign takes by default. Each campaign knows its own."""
         return self.side == "PE"
 
-    def _contract_for(self, when: datetime, index_price: float):
-        # On a PE run the engine hands back a mirrored (negative) index price;
-        # the chain must be asked for the real spot.
-        spot = -float(index_price) if self.mirrored else float(index_price)
+    def _contract_for(self, when: datetime, index_price: float, side: str):
+        # On a PE campaign the engine hands back a mirrored (negative) index
+        # price; the chain must be asked for the real spot.
+        spot = -float(index_price) if str(side).upper() == "PE" else float(index_price)
         try:
-            picked = self.select_contract(when, spot)
+            picked = self.select_contract(when, spot, side)
         except Exception:
             return None
         return int(picked.strike), picked.expiry
 
-    def _premium_for(self, when: datetime, strike: int, expiry) -> Optional[float]:
-        key = (when.replace(second=0, microsecond=0), int(strike), str(expiry))
+    def _premium_for(self, when: datetime, strike: int, expiry, side: str) -> Optional[float]:
+        # SIDE IS PART OF THE KEY. A call and a put on the same strike and
+        # expiry are two different contracts at two different prices; without
+        # the side in the key a CE campaign and a PE campaign running together
+        # would read each other's premiums and both books would be wrong.
+        key = (when.replace(second=0, microsecond=0), int(strike), str(expiry), str(side).upper())
         cached = self._premium_cache.get(key)
         if cached is not None:
             return cached
         try:
-            value = self.premium_lookup(when, strike, expiry)
+            value = self.premium_lookup(when, strike, expiry, side)
         except Exception:
             return None
         if value is not None:
@@ -226,19 +243,23 @@ class CandleRecoveryHost:
     def _replay(self, campaign: RecoveryCampaign, bars: list[RecoveryBar]):
         """Rebuild this campaign from its mother. Pure; returns the engine."""
         engine_cls = FibZoneEntry if campaign.mode == "fib-zone" else TwoRedRecovery
+        # The engine's callbacks take (when, price) and (when, strike, expiry);
+        # this campaign's side is bound in here rather than widening the
+        # engine's contract, so the rules module stays side-blind.
+        side = campaign.side
         engine = engine_cls(
             campaign.mother,
             self.config,
-            contract_for=self._contract_for,
-            premium_lookup=self._premium_for,
+            contract_for=lambda when, price: self._contract_for(when, price, side),
+            premium_lookup=lambda when, strike, expiry: self._premium_for(when, strike, expiry, side),
             lot_size=self.lot_size,
         )
         window = [b for b in bars if b.timestamp > campaign.mother.timestamp]
-        engine.run(mirror_bars(window) if self.mirrored else window)
+        engine.run(mirror_bars(window) if campaign.mirrored else window)
         return engine
 
     async def start_named_mother(
-        self, when: datetime, *, now: datetime, max_age_days: int | None = None
+        self, when: datetime, *, now: datetime, max_age_days: int | None = None, side: str | None = None
     ) -> RecoveryCampaign:
         """Open a campaign on the bar the trader named.
 
@@ -252,7 +273,14 @@ class CandleRecoveryHost:
         own, larger figure, because reaching back is the whole point of one --
         and the candle fetch widens with it, or the mother's own bar falls off
         the front of the window and reads as "no candle opens at that time".
+
+        `side` defaults to the run's, but naming it makes the campaign a call
+        or a put on its own. The SAME candle can therefore be a call mother and
+        a put mother at once -- its high starts one book and its low the other.
         """
+        side = str(side or self.side).upper()
+        if side not in SIDES:
+            raise ValueError(f"side must be one of {SIDES}")
         step = TIMEFRAME_MINUTES[self.config.timeframe]
         if when.minute % step or when.second or when.microsecond:
             raise ValueError(f"mother must be a {self.config.timeframe} candle open in IST")
@@ -266,10 +294,19 @@ class CandleRecoveryHost:
             raise LookupError(
                 f"no closed {self.config.timeframe} {self.dhan_symbol} candle opens at {when:%d %b %Y %H:%M} IST"
             )
-        campaign_id = f"{self.symbol}:{self.config.timeframe}:{when:%Y%m%dT%H%M}"
+        # SIDE IS PART OF THE ID. Without it the call campaign on a mother
+        # blocked the put campaign on the same candle, which read as "already
+        # running" for a book that did not exist (Phil, 2026-09-23).
+        campaign_id = f"{self.symbol}:{self.config.timeframe}:{side}:{when:%Y%m%dT%H%M}"
         if campaign_id in self.campaigns:
-            raise ValueError(f"a campaign is already running on the {when:%d %b %Y %H:%M} mother")
-        campaign = RecoveryCampaign(campaign_id, mirror_bar(bar) if self.mirrored else bar, self.mode, now)
+            raise ValueError(f"a {side} campaign is already running on the {when:%d %b %Y %H:%M} mother")
+        campaign = RecoveryCampaign(
+            campaign_id,
+            mirror_bar(bar) if side == "PE" else bar,
+            self.mode,
+            now,
+            side=side,
+        )
         campaign.engine = self._replay(campaign, bars)
         self.campaigns[campaign_id] = campaign
         return campaign
@@ -338,7 +375,7 @@ class CandleRecoveryHost:
                         campaign.campaign_id,
                         list(getattr(campaign.engine, "trades", []) or []),
                         symbol=self.dhan_symbol,
-                        side=self.side,
+                        side=campaign.side,
                         when=now,
                     )
                 except Exception as exc:
@@ -356,28 +393,29 @@ class CandleRecoveryHost:
 
     # ── what the panel reads ────────────────────────────────────────────────
 
-    def _px(self, value):
+    def _px(self, value, mirrored: bool):
         """An index-space number from the engine, in real prices."""
-        return unmirror_price(value) if self.mirrored else value
+        return unmirror_price(value) if mirrored else value
 
-    def _trade_row(self, t) -> dict:
+    def _trade_row(self, t, side: str, mirrored: bool) -> dict:
+        _px = lambda v: self._px(v, mirrored)  # noqa: E731
         return {
             "trade_no": t.trade_no,
             "armed_at": t.armed_at.isoformat() if t.armed_at else None,
-            "trigger": self._px(t.trigger),
+            "trigger": _px(t.trigger),
             "entry_time": t.entry_time.isoformat() if t.entry_time else None,
-            "entry_index": self._px(t.entry_index),
-            "sl_level": self._px(t.sl_level),
+            "entry_index": _px(t.entry_index),
+            "sl_level": _px(t.sl_level),
             "strike": t.strike,
             # Which contract this leg actually bought. The table read
             # "2x24050" with no way to tell a call from a put.
-            "side": self.side,
+            "side": side,
             "expiry": t.expiry.isoformat() if t.expiry else None,
             "lots": t.lots,
             "quantity": t.quantity,
             "entry_premium": t.entry_premium,
             "exit_time": t.exit_time.isoformat() if t.exit_time else None,
-            "exit_index": self._px(t.exit_index),
+            "exit_index": _px(t.exit_index),
             "exit_premium": t.exit_premium,
             "exit_reason": t.exit_reason,
             "net_pnl": t.net_pnl,
@@ -389,11 +427,13 @@ class CandleRecoveryHost:
         engine = campaign.engine
         trades = list(getattr(engine, "trades", []) or [])
         open_trades = [t for t in trades if t.open]
+        mirrored = campaign.mirrored
+        _px = lambda v: self._px(v, mirrored)  # noqa: E731
         return {
             "campaign_id": campaign.campaign_id,
             "mode": campaign.mode,
             "timeframe": self.config.timeframe,
-            "side": self.side,
+            "side": campaign.side,
             # A card has to be able to say which rule it is. The panel's Side
             # and depth controls describe the run you would START, not the one
             # you are looking at, so a CE book read under a PE recipe looks
@@ -407,8 +447,8 @@ class CandleRecoveryHost:
             "mother": {
                 "timestamp": campaign.mother.timestamp.isoformat(),
                 # a mirrored mother's high is the real low, and vice versa
-                "high": self._px(campaign.mother.low) if self.mirrored else campaign.mother.high,
-                "low": self._px(campaign.mother.high) if self.mirrored else campaign.mother.low,
+                "high": _px(campaign.mother.low) if mirrored else campaign.mother.high,
+                "low": _px(campaign.mother.high) if mirrored else campaign.mother.low,
             },
             "status": campaign.status,
             "end_reason": getattr(engine, "end_reason", None),
@@ -417,13 +457,13 @@ class CandleRecoveryHost:
             # target is a rupee threshold on the ledger, never a price level.
             "required_recovery": getattr(engine, "required_recovery", None),
             "open_trades": len(open_trades),
-            "trades": [self._trade_row(t) for t in trades],
+            "trades": [self._trade_row(t, campaign.side, mirrored) for t in trades],
             "zones": [
-                {"level": z.level, "upper": self._px(z.upper), "lower": self._px(z.lower), "lots": z.lots}
+                {"level": z.level, "upper": _px(z.upper), "lower": _px(z.lower), "lots": z.lots}
                 for z in (getattr(engine, "zones", None) or [])
             ],
-            "swing_low": self._px(getattr(engine, "swing_low", None)),
-            "buyer_high": self._px(getattr(engine, "buyer_high", None)),
+            "swing_low": _px(getattr(engine, "swing_low", None)),
+            "buyer_high": _px(getattr(engine, "buyer_high", None)),
         }
 
     def snapshot(self) -> dict:
@@ -433,7 +473,12 @@ class CandleRecoveryHost:
             "symbol": self.symbol,
             "dhan_symbol": self.dhan_symbol,
             "mode": self.mode,
+            # The side a NEW mother takes unless it names its own. The panel
+            # must describe the CAMPAIGNS, not this -- reading the run's side
+            # as the book's is what made an ATM-2 CE book display under an
+            # ATM-4 recipe (Phil, 2026-09-23).
             "side": self.side,
+            "sides_running": sorted({c.side for c in self.campaigns.values()}),
             "timeframe": self.config.timeframe,
             "lot_size": self.lot_size,
             "config": {

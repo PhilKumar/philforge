@@ -104,6 +104,7 @@ from engine.candle_ladder import (
 )
 from engine.candle_recovery import RecoveryConfig
 from engine.candle_recovery_host import MODES as RECOVERY_MODES
+from engine.candle_recovery_host import SIDES as RECOVERY_SIDES
 from engine.candle_recovery_host import CandleRecoveryHost
 from engine.candle_recovery_live import RecoveryOrderBook
 from engine.cascade_calendar import ContractCalendar
@@ -2990,24 +2991,24 @@ def _build_recovery_host(
                 return None
 
     side = str(side).upper()
-    # Depth and side are per-run choices, not properties of the index. The
-    # five-year audit put the only surviving book four strikes in the money,
-    # so the console has to be able to ask for it.
+    # Depth is a per-run choice; SIDE IS PER CAMPAIGN, so both callbacks take
+    # the side of the campaign asking rather than closing over the run's. That
+    # is what lets one host carry a CE and a PE book at the same time.
     depth = int(terms["itm_steps"] if itm_steps is None else itm_steps)
-    # In the money is BELOW spot for a call and ABOVE it for a put.
-    offset_steps = -depth if side == "CE" else depth
 
-    def select_contract(when: datetime, index_price: float):
+    def select_contract(when: datetime, index_price: float, option_side: str = side):
+        option_side = str(option_side).upper()
+        # In the money is BELOW spot for a call and ABOVE it for a put.
         return adapter.select_campaign_contract(
             mother_spot=float(index_price),
             selected_at=when,
-            ce_offset_steps=offset_steps,
+            ce_offset_steps=-depth if option_side == "CE" else depth,
             strike_step=int(terms["strike_step"]),
-            option_type=side,
+            option_type=option_side,
             symbol=terms["dhan_symbol"],
         )
 
-    def premium_lookup(when: datetime, strike: int, expiry) -> float | None:
+    def premium_lookup(when: datetime, strike: int, expiry, option_side: str = side) -> float | None:
         # The live quote keys on .underlying; the recorded history also reads
         # .symbol, so a contract handed to either carries both names.
         return quote(
@@ -3017,7 +3018,7 @@ def _build_recovery_host(
                 symbol=terms["dhan_symbol"],
                 strike=int(strike),
                 expiry=expiry,
-                option_type=side,
+                option_type=str(option_side).upper(),
             ),
         )
 
@@ -3091,7 +3092,18 @@ async def _save_recovery_state(user_id: int, runtime: _RecoveryRuntime) -> None:
                     "sl_source": runtime.host.config.sl_source,
                     "horizon_sessions": runtime.host.config.horizon_sessions,
                 },
-                "mothers": sorted(c.mother.timestamp.isoformat() for c in runtime.host.campaigns.values()),
+                # EACH MOTHER CARRIES ITS SIDE. A bare list of timestamps came
+                # back as whatever the run's side was, so a PE campaign adopted
+                # into a CE run returned as a call on the same candle.  Old
+                # saves hold plain strings and are still read (see
+                # _readopt_recovery_mothers).
+                "mothers": sorted(
+                    (
+                        {"timestamp": c.mother.timestamp.isoformat(), "side": c.side}
+                        for c in runtime.host.campaigns.values()
+                    ),
+                    key=lambda row: (row["timestamp"], row["side"]),
+                ),
                 # THE REAL ORDERS. The campaigns themselves replay from bars,
                 # but what was SENT for them cannot be replayed -- a restart
                 # without this comes back and buys every open trade again.
@@ -3131,9 +3143,15 @@ async def _readopt_recovery_mothers(user_id: int, host: CandleRecoveryHost, symb
         return 0  # a mother is a bar of ITS timeframe; it does not carry across
     now = datetime.now(IST).replace(tzinfo=None)
     adopted = 0
-    for stamp in saved.get("mothers") or []:
+    for row in saved.get("mothers") or []:
+        # A save from before sides were per-campaign is a bare timestamp; it
+        # belongs to whatever side that run was started as.
+        if isinstance(row, dict):
+            stamp, side = row.get("timestamp"), row.get("side")
+        else:
+            stamp, side = row, saved.get("side")
         try:
-            await host.start_named_mother(datetime.fromisoformat(str(stamp)), now=now)
+            await host.start_named_mother(datetime.fromisoformat(str(stamp)), now=now, side=side)
             adopted += 1
         except Exception as exc:
             _logger.warning("[RECOVERY] Could not re-adopt mother %s for user %s: %s", stamp, user_id, exc)
@@ -18315,7 +18333,10 @@ async def recovery_paper_start(request: Request):
 async def recovery_paper_mother(request: Request):
     """Run the recovery rules on a mother candle the trader names.
 
-    Only the timestamp is taken; the high and low come from the market bar.
+    Only the timestamp and the SIDE are taken; the high and low come from the
+    market bar.  A side may differ from the run's, so one run carries a call
+    book and a put book at once -- and the same candle can start both, its
+    high the call mother and its low the put mother.
     """
     body = await request.json() if await request.body() else {}
     user_id = _request_user_id(request)
@@ -18330,8 +18351,12 @@ async def recovery_paper_mother(request: Request):
     if not (dt_time(9, 15) <= when.time() <= dt_time(15, 30)):
         raise HTTPException(status_code=400, detail="Mother candle must be within the NSE 09:15-15:30 session.")
 
+    side = str(body.get("side") or runtime.host.side).upper()
+    if side not in RECOVERY_SIDES:
+        raise HTTPException(status_code=400, detail=f"Side must be one of {', '.join(RECOVERY_SIDES)}.")
+
     try:
-        campaign = await runtime.host.start_named_mother(when, now=now)
+        campaign = await runtime.host.start_named_mother(when, now=now, side=side)
     except LookupError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:

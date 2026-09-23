@@ -21597,16 +21597,20 @@ async function recoveryAddMother() {
   _recoveryError('');
   const raw = document.getElementById('oc-high-mother')?.value;
   if (!raw) { _recoveryError('Pick a completed candle open first.'); return; }
+  // THE SIDE TRAVELS WITH THE MOTHER. It used to be fixed for the whole run,
+  // so a PE mother named into a CE run came back as a call on the same candle
+  // -- or was refused as "already running" (Phil, 2026-09-23).
+  const side = document.getElementById('oc-high-side')?.value || 'CE';
   let res = null;
   let data = null;
   try {
     res = await fetch('/api/recovery/paper/mother', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: raw }),
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mother_timestamp: raw, side }),
     });
     // A 500 can answer in HTML; reading it must not become the error itself.
     data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(_apiErrorMessage(data, ''));
-    showToast(`Mother ${_recTime(data.mother)} accepted — high ${_recNum(data.mother_high, 2)}`, 'success');
+    showToast(`${side} mother ${_recTime(data.mother)} accepted — high ${_recNum(data.mother_high, 2)}`, 'success');
     refreshRecoveryStatus();
   } catch (err) {
     _recoveryError(_recoveryFailure(err, data, res, 'That mother candle was refused.'));
@@ -21849,7 +21853,12 @@ function openRecoveryTearsheet(event) {
 // THE RECIPE STRIP. One sentence saying what pressing Start would actually do,
 // rebuilt whenever a control moves -- the settings live in six places and the
 // only honest summary is a computed one.
-function _recoveryRecipe() {
+//
+// WHILE A RUN IS ON, THE BOOK COMES FIRST. The form describes the run you
+// WOULD start; reading it as a description of the running campaigns is what
+// showed an ATM-2 CE book under an "ATM-4 CE" heading (Phil, 2026-09-23). So
+// a live run states itself, and the form only gets a line when it disagrees.
+function _recoveryRecipe(status) {
   const host = document.getElementById('oc-high-recipe');
   if (!host) return;
   const val = (id, fallback) => document.getElementById(id)?.value || fallback;
@@ -21873,7 +21882,7 @@ function _recoveryRecipe() {
   }
   // Short by design -- see the note in _syncFibBoundaryRecipe. The audit chip
   // stays: whether this is the green book is the one thing worth the width.
-  host.innerHTML = [
+  const form = [
     `<strong>${escapeHtml(tf)}</strong>`,
     'two reds',
     `<strong>ATM&minus;${itm} ${escapeHtml(side)}</strong>`,
@@ -21881,6 +21890,30 @@ function _recoveryRecipe() {
     mode === 'LIVE' ? '<strong>LIVE</strong>' : null,
     audit,
   ].filter(Boolean).join(' · ');
+
+  const running = status && status.status === 'ok' && status.running;
+  if (!running) { host.innerHTML = form; return; }
+
+  // What is ACTUALLY going: the run's own timeframe and depth, and the sides
+  // its campaigns carry -- which may now be both at once.
+  const runTf = String(status.timeframe || tf).toUpperCase();
+  const runItm = Number(status.config?.itm_steps ?? itm);
+  const sides = (status.sides_running || []).length ? status.sides_running : [status.side || 'CE'];
+  const runLive = status.mode === 'live' || status.trade_mode === 'live';
+  const live = [
+    `<strong>${escapeHtml(runTf)}</strong>`,
+    'two reds',
+    `<strong>ATM&minus;${runItm} ${escapeHtml(sides.join(' + '))}</strong>`,
+    runLive ? '<strong>LIVE</strong>' : 'paper',
+    'running',
+  ].join(' · ');
+
+  // Only mention the form when it would start something different, so the
+  // strip stays one line in the normal case.
+  const differs = runTf !== tf || runItm !== itm || !sides.includes(side);
+  host.innerHTML = differs
+    ? `${live}<br><span style="color:var(--muted);">form would start &middot; ${form}</span>`
+    : live;
 }
 
 // THE CHART. Same overlay and same payload the other consoles draw, asked for
@@ -21971,7 +22004,7 @@ function renderRecovery(data) {
   const list = document.getElementById('oc-high-rows');
   if (!badge || !tiles || !list) return;
 
-  _recoveryRecipe();
+  _recoveryRecipe(data);
   const running = data && data.status === 'ok' && data.running;
   const kicker = document.getElementById('oc-high-monitor-kicker');
   if (kicker) kicker.textContent = running ? 'Paper campaigns · live' : 'Paper campaigns';

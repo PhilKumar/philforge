@@ -200,8 +200,10 @@ class ReachBehaviourTests(unittest.IsolatedAsyncioTestCase):
         return CandleRecoveryHost(
             "nifty",
             Adapter(),
-            premium_lookup=lambda when, strike, expiry: 200.0,
-            select_contract=lambda when, px: SimpleNamespace(strike=24000, expiry=dt.date(2026, 3, 5), lot_size=75),
+            premium_lookup=lambda when, strike, expiry, side="CE": 200.0,
+            select_contract=lambda when, px, side="CE": SimpleNamespace(
+                strike=24000, expiry=dt.date(2026, 3, 5), lot_size=75
+            ),
             config=RecoveryConfig(timeframe="15m"),
             mode="ladder",
             side="CE",

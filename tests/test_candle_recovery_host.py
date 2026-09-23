@@ -60,8 +60,8 @@ def build(mode="ladder", aware=True, premium=None):
     host = CandleRecoveryHost(
         "nifty",
         adapter,
-        premium_lookup=lambda when, strike, expiry: prices.get(when.replace(second=0, microsecond=0), 100.0),
-        select_contract=lambda when, index: SimpleNamespace(strike=24000, expiry=EXPIRY),
+        premium_lookup=lambda when, strike, expiry, side="CE": prices.get(when.replace(second=0, microsecond=0), 100.0),
+        select_contract=lambda when, index, side="CE": SimpleNamespace(strike=24000, expiry=EXPIRY),
         config=RecoveryConfig(timeframe="5m"),
         mode=mode,
         lot_size=65,
@@ -184,7 +184,7 @@ class PremiumsAreRemembered(unittest.IsolatedAsyncioTestCase):
         adapter = _Adapter(rows, aware=True)
         served = {"count": 0}
 
-        def only_once(when, strike, expiry):
+        def only_once(when, strike, expiry, side="CE"):
             # the real lookup refuses anything but the current minute
             served["count"] += 1
             return 100.0 if served["count"] <= 3 else None
@@ -193,7 +193,7 @@ class PremiumsAreRemembered(unittest.IsolatedAsyncioTestCase):
             "nifty",
             adapter,
             premium_lookup=only_once,
-            select_contract=lambda when, index: SimpleNamespace(strike=24000, expiry=EXPIRY),
+            select_contract=lambda when, index, side="CE": SimpleNamespace(strike=24000, expiry=EXPIRY),
             config=RecoveryConfig(timeframe="5m"),
             mode="ladder",
             lot_size=65,
@@ -206,6 +206,79 @@ class PremiumsAreRemembered(unittest.IsolatedAsyncioTestCase):
         await host.poll(now=now)
         again = [t.entry_premium for t in host.campaigns[c.campaign_id].engine.trades if t.entry_time]
         self.assertEqual(first, again)  # not lost when the broker stops serving it
+
+
+class BothSidesAtOnce(unittest.IsolatedAsyncioTestCase):
+    """One run carries a call book and a put book (Phil, 2026-09-23).
+
+    Side used to belong to the host, so a PE mother named into a CE run came
+    back as a call, and naming the SAME candle for the other side was refused
+    as "already running" against a book that did not exist.
+    """
+
+    async def test_the_same_mother_can_start_a_call_and_a_put(self):
+        host, _, mother_ts = build()
+        now = mother_ts + timedelta(hours=1)
+        ce = await host.start_named_mother(mother_ts, now=now, side="CE")
+        pe = await host.start_named_mother(mother_ts, now=now, side="PE")
+        self.assertNotEqual(ce.campaign_id, pe.campaign_id)
+        self.assertEqual(len(host.campaigns), 2)
+        self.assertEqual((ce.side, pe.side), ("CE", "PE"))
+
+    async def test_a_repeat_of_the_SAME_side_is_still_refused(self):
+        host, _, mother_ts = build()
+        now = mother_ts + timedelta(hours=1)
+        await host.start_named_mother(mother_ts, now=now, side="PE")
+        with self.assertRaises(ValueError):
+            await host.start_named_mother(mother_ts, now=now, side="PE")
+
+    async def test_each_campaign_reports_its_own_side_not_the_runs(self):
+        host, _, mother_ts = build()
+        now = mother_ts + timedelta(hours=1)
+        await host.start_named_mother(mother_ts, now=now, side="CE")
+        await host.start_named_mother(mother_ts, now=now, side="PE")
+        snap = host.snapshot()
+        self.assertEqual(sorted(r["side"] for r in snap["campaigns"]), ["CE", "PE"])
+        self.assertEqual(snap["sides_running"], ["CE", "PE"])
+        for row in snap["campaigns"]:
+            for leg in row["trades"]:
+                self.assertEqual(leg["side"], row["side"])
+
+    async def test_a_put_mothers_high_is_the_real_high(self):
+        """The mirror must not leak into what the panel prints."""
+        host, _, mother_ts = build()
+        now = mother_ts + timedelta(hours=1)
+        pe = await host.start_named_mother(mother_ts, now=now, side="PE")
+        row = host.campaign_row(pe)
+        # the tape's mother is (open 100, high 110, low 99, close 108)
+        self.assertAlmostEqual(row["mother"]["high"], 110.0)
+        self.assertAlmostEqual(row["mother"]["low"], 99.0)
+
+    async def test_the_premium_cache_does_not_confuse_a_call_with_a_put(self):
+        """A call and a put on one strike are two contracts, not one price."""
+        served = {}
+
+        def pricer(when, strike, expiry, side):
+            served[side] = served.get(side, 0) + 1
+            return 111.0 if side == "CE" else 222.0
+
+        rows, mother_ts = tape()
+        host = CandleRecoveryHost(
+            "nifty",
+            _Adapter(rows),
+            premium_lookup=pricer,
+            select_contract=lambda when, index, side: SimpleNamespace(strike=24000, expiry=EXPIRY),
+            config=RecoveryConfig(timeframe="5m"),
+            lot_size=65,
+            dhan_symbol="NIFTY",
+        )
+        when = mother_ts + timedelta(minutes=5)
+        self.assertEqual(host._premium_for(when, 24000, EXPIRY, "CE"), 111.0)
+        self.assertEqual(host._premium_for(when, 24000, EXPIRY, "PE"), 222.0)
+        # and each is cached under its OWN key, so neither re-asks
+        self.assertEqual(host._premium_for(when, 24000, EXPIRY, "CE"), 111.0)
+        self.assertEqual(host._premium_for(when, 24000, EXPIRY, "PE"), 222.0)
+        self.assertEqual(served, {"CE": 1, "PE": 1})
 
 
 if __name__ == "__main__":
