@@ -245,14 +245,18 @@ class TradeChartRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["why"]["entry"]["conditions"][0]["result"], True)
         self.assertEqual(data["why"]["exit"]["reason"], "ENGINE_STOP")
         self.assertEqual(data["trade"]["exit_reason"], "ENGINE_STOP")
-        # analytics still there -- CPR/EMA lines from the same helper as the entry chart
+        # analytics still there -- CPR/EMA from the same helper as the entry chart.
+        # The pivots are OVERLAYS since 2026-09-23: each session carries its own
+        # levels across its own bars, so they are polylines and not the flat
+        # full-width lines they used to be.
+        drawn = list(data["lines"]) + list(data.get("overlays") or [])
         self.assertTrue(
             any(
                 str(line.get("label", "")).upper().startswith(("CPR", "R1", "S1", "TC", "BC", "PIVOT", "P"))
                 or "EMA" in str(line.get("label", "")).upper()
-                for line in data["lines"]
+                for line in drawn
             ),
-            data["lines"][:4],
+            drawn[:4],
         )
 
     async def test_an_unknown_trade_id_is_a_404(self):

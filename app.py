@@ -24110,14 +24110,21 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
     if len(points) >= 2:
         overlays.append({"label": "EMA 20", "color": "#38bdf8", "width": 1.3, "points": points})
 
-    # Previous IST session's H/L/C.
+    # EVERY SESSION CARRIES ITS OWN LEVELS. One set of pivots drawn flat across
+    # the whole window is only true for the last day: on a three-day chart the
+    # first two days were being read against today's CPR, which is not the frame
+    # those candles traded in (Phil, 2026-09-23: "It has to show the responding
+    # day CPR"). Each day is drawn from the day before it, across its own bars
+    # only, so the steps land on the session boundaries.
     sessions: dict[str, list[dict]] = {}
     for bar in candles:
         day = datetime.fromtimestamp(int(bar["t"]), IST).date().isoformat()
         sessions.setdefault(day, []).append(bar)
     days = sorted(sessions)
-    if len(days) >= 2:
-        prev = sessions[days[-2]]
+    amber, red, green = "#f59e0b", "#f87171", "#4ade80"
+    for index in range(1, len(days)):
+        prev = sessions[days[index - 1]]
+        today = sessions[days[index]]
         high = max(float(b["h"]) for b in prev)
         low = min(float(b["l"]) for b in prev)
         close = float(prev[-1]["c"])
@@ -24132,7 +24139,8 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         # Traditional floor pivots, as engine/indicators.py cpr() and TradingView draw them.
         r4, s4 = 3 * p + (high - 3 * low), 3 * p - (3 * high - low)
         s5 = 4 * p - (4 * high - low)
-        amber, red, green = "#f59e0b", "#f87171", "#4ade80"
+        last_day = index == len(days) - 1
+        span = [{"t": today[0]["t"], "price": 0.0}, {"t": today[-1]["t"], "price": 0.0}]
         for label, price, color in (
             ("CPR TC", tc, amber),
             ("CPR P", p, amber),
@@ -24147,14 +24155,16 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
             ("S4", s4, green),
             ("S5", s5, green),
         ):
-            lines.append(
+            overlays.append(
                 {
-                    "label": label,
-                    "price": round(price, 4),
+                    # Only the newest session labels the gutter; twelve labels a
+                    # day would bury the chart it is meant to explain.
+                    "label": f"{label} ({price:,.2f})" if last_day else "",
                     "color": color,
                     "dash": [] if label.startswith("CPR") else [5, 4],
                     "width": 1.1 if label == "CPR P" else 0.9,
                     "opacity": 0.85 if label.startswith("CPR") else 0.55,
+                    "points": [{"t": pt["t"], "price": round(price, 4)} for pt in span],
                 }
             )
     return {"lines": lines, "overlays": overlays}
