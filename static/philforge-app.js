@@ -15137,14 +15137,22 @@ function _buildCPRColumns() {
       cols.push({ value: `${prefix}${lvl}`, label: `${label} — ${lvl}` });
     });
     cols.push({ value: `${prefix}width_pct`, label: `${label} — Width %` });
-    cols.push({ value: `${prefix}is_narrow`, label: `${label} — Is Narrow` });
-    cols.push({ value: `${prefix}is_moderate`, label: `${label} — Is Moderate` });
-    cols.push({ value: `${prefix}is_wide`, label: `${label} — Is Wide` });
+    // "Is Wide" + the operator "Is False" read as a double negative on the row
+    // (Phil, 2026-09-23: "Don't you think this CPR is contradictory?"). These
+    // three are yes/no facts about today, so the label says so and the row
+    // reads "CPR — Wide (true/false)  Is False".
+    cols.push({ value: `${prefix}is_narrow`, label: `${label} — Narrow (true/false)` });
+    cols.push({ value: `${prefix}is_moderate`, label: `${label} — Moderate (true/false)` });
+    cols.push({ value: `${prefix}is_wide`, label: `${label} — Wide (true/false)` });
   });
   return cols;
 }
 // Backward compat: static reference for any code that reads CPR_CONDITION_COLUMNS directly
 const CPR_CONDITION_COLUMNS = _buildCPRColumns();
+// Every day the exchange can open, Sunday included: NSE ran a full session on
+// Sunday 1 February 2026 (the Budget), and a day list that stops at Saturday
+// cannot describe it.
+const DAY_CHOICES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const CANDLE_COLUMNS = [
   { value: "current_open",   label: "Current Candle — Open" },
   { value: "current_high",   label: "Current Candle — High" },
@@ -15309,8 +15317,8 @@ function addConditionRow(type) {
   let lhsOpts = buildLHSOptions();
   let rhsOpts = buildRHSOptions(null);
   row.innerHTML = `
-    <select class="condition-select left-op" style="flex:2;min-width:140px" onchange="onLHSChange(this)">${lhsOpts}</select>
-    <select class="operator" style="flex:1;min-width:110px">
+    <select class="condition-select left-op" onchange="onLHSChange(this)">${lhsOpts}</select>
+    <select class="operator">
       <option value="crosses_above">Crosses Above</option>
       <option value="is_above">Is Above</option>
       <option value="crosses_below">Crosses Below</option>
@@ -15320,9 +15328,9 @@ function addConditionRow(type) {
       <option value="<=">Equal or Below</option>
       <option value="==">Equal To</option>
     </select>
-    <div class="rhs-wrap" style="flex:1;display:flex;gap:5px;align-items:center;">
-      <select class="condition-select right-op" onchange="toggleNumberInput(this)" style="flex:2;min-width:140px;">${rhsOpts}</select>
-      <input type="number" class="right-num" style="display:none;width:100px;padding:8px;font-size:13px;" placeholder="Enter value">
+    <div class="rhs-wrap">
+      <select class="condition-select right-op" onchange="toggleNumberInput(this)">${rhsOpts}</select>
+      <input type="number" class="right-num" style="display:none;" placeholder="Value">
     </div>
     <button type="button" class="btn btn-danger btn-sm" onclick="removeConditionRow('${type}',${rowId})" title="Delete">&#x1F5D1;</button>`;
   container.appendChild(row);
@@ -15405,34 +15413,33 @@ function onLHSChange(lhsSelect) {
 
   if (lhsVal === 'Time_Of_Day') {
     opSelect.innerHTML = '<option value="is_below">Is Below</option><option value="is_above">Is Above</option><option value="<=">Equal or Below</option><option value=">=">Equal or Above</option>';
-    rhsWrap.innerHTML = '<input type="time" class="time-rhs" value="11:00" step="1" style="flex:1; font-family: JetBrains Mono, monospace; font-size: 14px; text-align: center;">';
+    rhsWrap.innerHTML = '<input type="time" class="time-rhs" value="11:00" step="1">';
   } else if (lhsVal === 'Day_Of_Week') {
     opSelect.innerHTML = '<option value="contains">Contains</option><option value="not_contains">Not Contains</option>';
-    rhsWrap.innerHTML = `<div class="day-picker" style="flex:1;position:relative;">
-      <div class="day-picker-toggle" onclick="toggleDayDropdown(this)" style="padding:6px 10px;background:var(--card2);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;color:var(--muted);">Can select multiple days \u25BE</div>
-      <div class="day-picker-dd" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);margin-top:4px;padding:4px 0;">
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Monday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Monday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Tuesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Tuesday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Wednesday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Wednesday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Thursday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Thursday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Friday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Friday</label>
-        <label class="day-opt" style="display:block;padding:10px 16px;cursor:pointer;font-size:14px;" onmouseover="this.style.background='rgba(var(--pf-tint-primary-rgb, 0,200,150),0.08)'" onmouseout="this.style.background='transparent'"><input type="checkbox" value="Saturday" style="margin-right:10px;accent-color:var(--accent);" onchange="updateDayLabel(this)"> Saturday</label>
-      </div>
-    </div>`;
+    // THE DAYS, IN THE ROW. This was a dropdown of six full-width rows that
+    // opened over the Save button, hid the selection until you opened it, and
+    // stopped at Saturday -- NSE does sit on a Sunday (the Budget session of
+    // 1 Feb 2026). Phil, 2026-09-23: "make it complete and compact". Seven
+    // chips, always visible, the selection readable at a glance.
+    rhsWrap.innerHTML = `<div class="day-picker day-chips">${DAY_CHOICES.map(d => `
+      <label class="day-opt" title="${d}"><input type="checkbox" value="${d}" onchange="updateDayLabel(this)"><span>${d.substring(0, 3)}</span></label>`).join('')}</div>`;
   } else {
     const isBool = BOOLEAN_FIELDS.includes(lhsVal);
     opSelect.innerHTML = isBool
       ? '<option value="==">Equal To</option><option value="is_true">Is True</option><option value="is_false">Is False</option>'
       : '<option value="crosses_above">Crosses Above</option><option value="is_above">Is Above</option><option value="crosses_below">Crosses Below</option><option value="is_below">Is Below</option><option value="touches">Touches</option><option value=">=">Equal or Above</option><option value="<=">Equal or Below</option><option value="==">Equal To</option>';
-    rhsWrap.innerHTML = `<select class="condition-select right-op" onchange="toggleNumberInput(this)" style="flex:1;min-width:120px;">${buildRHSOptions(lhsVal)}</select><input type="number" class="right-num" style="display:none;width:100px;padding:8px;font-size:13px;" placeholder="Enter value">`;
+    rhsWrap.innerHTML = `<select class="condition-select right-op" onchange="toggleNumberInput(this)">${buildRHSOptions(lhsVal)}</select><input type="number" class="right-num" style="display:none;" placeholder="Value">`;
   }
 }
 
-function toggleDayDropdown(el) { const dd = el.nextElementSibling; dd.style.display = dd.style.display === 'none' ? 'block' : 'none'; }
+// Kept: a saved strategy written before the chips may still carry the old
+// markup in a rendered row, and its toggle must not throw when clicked.
+function toggleDayDropdown(el) { const dd = el.nextElementSibling; if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none'; }
 function updateDayLabel(cb) {
   const picker = cb.closest('.day-picker');
+  const label = picker && picker.querySelector('.day-picker-toggle');
+  if (!label) return;   // the chips show the selection themselves
   const checks = picker.querySelectorAll('input:checked');
-  const label = picker.querySelector('.day-picker-toggle');
   if (checks.length === 0) label.textContent = 'Can select multiple days \u25BE';
   else label.textContent = Array.from(checks).map(c => c.value.substring(0,3)).join(', ') + ' \u25BE';
 }

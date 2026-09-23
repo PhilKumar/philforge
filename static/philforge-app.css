@@ -852,8 +852,25 @@
   }
   .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 999px; }
   .flex-row { display: flex; gap: 10px; align-items: center; }
-  .condition-row { flex-wrap: wrap; }
-  .condition-row select { font-size: 12px; padding: 8px 6px; }
+  /* ONE RULE, ONE LINE. The row's widths used to be typed into the markup
+     (min-width 140 / 110 / 140), which in the builder's 434px middle column
+     pushed the delete button onto a line of its own and left the whole panel
+     looking broken (Phil, 2026-09-23: "the panels horrible ... make it
+     complete and compact"). They shrink now, and the legs column keeps its
+     width because this one never grew. */
+  .condition-row { flex-wrap: wrap; gap: 6px; align-items: center; }
+  .condition-row select { font-size: 12px; padding: 8px 6px; min-width: 0; }
+  .condition-row .left-op { flex: 1.3 1 120px; }
+  .condition-row .operator { flex: 1 1 96px; }
+  .condition-row .rhs-wrap { flex: 1.3 1 120px; display: flex; gap: 5px; align-items: center; min-width: 0; }
+  .condition-row .rhs-wrap select { flex: 1; min-width: 0; }
+  .condition-row .rhs-wrap .right-num { width: 80px; padding: 8px 6px; font-size: 12px; }
+  .condition-row .rhs-wrap .time-rhs {
+    flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px; text-align: center;
+  }
+  .condition-row > button { flex: 0 0 auto; padding: 6px 10px; }
+  /* The AND/OR between two rules is a pill, not a full-width bar. */
+  .condition-connector select.logic-op { width: auto; min-width: 88px; }
   .condition-connector {
     display: flex; justify-content: center; align-items: center; margin: 2px 0;
   }
@@ -867,6 +884,36 @@
     color: var(--accent); font-weight: 600; font-size: 11px; text-align: center;
     padding: 3px 16px; border-radius: 10px; letter-spacing: 1px;
   }
+  /* THE DAYS, IN THE ROW ─────────────────────────────────────────────────────
+     A dropdown of full-width day rows opened over the Save button and hid the
+     selection until you opened it (Phil, 2026-09-23: "make it complete and
+     compact"). Seven chips sit in the row itself, wrap on a narrow panel, and
+     read at a glance. The checkbox stays — it is what the builder reads and
+     writes — it is just not what you look at. */
+  .day-chips {
+    display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 150px; align-items: center;
+  }
+  .day-chips .day-opt {
+    display: inline-flex; align-items: center; cursor: pointer; user-select: none;
+    padding: 5px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--card2); border: 1px solid var(--border); color: var(--muted);
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .day-chips .day-opt input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .day-chips .day-opt:hover { border-color: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.45); color: var(--text); }
+  .day-chips .day-opt:has(input:checked) {
+    background: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.16);
+    border-color: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.55);
+    color: var(--accent);
+  }
+  .day-chips .day-opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* Seven chips do not fit beside two dropdowns in a 434px column, so the day
+     row takes a line of its own and the delete button stays up with the rule.
+     Nothing else in the builder changes width, which is the point: the legs
+     column keeps its room. */
+  .condition-row:has(.day-chips) .rhs-wrap { flex: 1 0 100%; order: 5; margin-top: 2px; }
+  .condition-row:has(.day-chips) > button { order: 4; margin-left: auto; }
+  .condition-row:has(.day-chips) .operator { flex: 0 1 130px; }
   /* Current Candle optgroup highlight */
   .condition-row select optgroup[label*="Current Candle"] {
     color: #38bdf8; font-weight: 700; font-style: normal;
