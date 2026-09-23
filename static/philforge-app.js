@@ -21895,11 +21895,15 @@ function _recoveryRecipe(status) {
   if (!running) { host.innerHTML = form; return; }
 
   // What is ACTUALLY going: the run's own timeframe and depth, and the sides
-  // its campaigns carry -- which may now be both at once.
-  const runTf = String(status.timeframe || tf).toUpperCase();
-  const runItm = Number(status.config?.itm_steps ?? itm);
-  const sides = (status.sides_running || []).length ? status.sides_running : [status.side || 'CE'];
-  const runLive = status.mode === 'live' || status.trade_mode === 'live';
+  // its campaigns carry -- which may now be both at once. THE SNAPSHOT IS
+  // NESTED UNDER `book`; reading these off the top level silently found
+  // undefined and fell back to the form, which is the very thing this strip
+  // exists to stop doing.
+  const book = status.book || {};
+  const runTf = String(book.timeframe || tf).toUpperCase();
+  const runItm = Number(book.config?.itm_steps ?? itm);
+  const sides = (book.sides_running || []).length ? book.sides_running : [book.side || 'CE'];
+  const runLive = book.trade_mode === 'live' || status.trade_mode === 'live';
   const live = [
     `<strong>${escapeHtml(runTf)}</strong>`,
     'two reds',
