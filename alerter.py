@@ -36,6 +36,16 @@ _DISCORD_OK = bool(DISCORD_WEBHOOK_URL)
 # Shared async client — connection-pooled, reused across calls
 _client: Optional[httpx.AsyncClient] = None
 
+# EVERY IN-FLIGHT ALERT, HELD. `loop.create_task` keeps only a WEAK reference to
+# the task it returns: drop it and the garbage collector may finalise the task
+# before it has sent anything, with no error logged anywhere. Every alert on
+# this desk was fired that way, so an alert could simply vanish -- which is the
+# worst possible failure for the thing whose whole job is to tell Phil what the
+# books did (2026-09-23: "I am not getting the scalp alerts in telegram").
+#
+# A set, discarding itself on completion, is the documented fix.
+_inflight: set = set()
+
 
 def _get_client() -> httpx.AsyncClient:
     global _client
@@ -174,14 +184,24 @@ def alert(title: str, body: str, level: str = "error") -> None:
 
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_dispatch(html, plain))
     except RuntimeError:
         # No running loop — skip (startup context)
         _log.debug("No event loop — alert skipped: %s", title)
+        return
+    task = loop.create_task(_dispatch(html, plain))
+    _inflight.add(task)
+    task.add_done_callback(_inflight.discard)
 
 
 async def shutdown() -> None:
-    """Close the shared HTTP client. Call on app shutdown."""
+    """Close the shared HTTP client. Call on app shutdown.
+
+    The in-flight alerts are waited for FIRST, briefly. Closing the client from
+    under them turned the last alerts before a deploy -- exactly the ones that
+    say why it was restarted -- into logged errors.
+    """
+    if _inflight:
+        await asyncio.wait(set(_inflight), timeout=5)
     global _client
     if _client and not _client.is_closed:
         await _client.aclose()
