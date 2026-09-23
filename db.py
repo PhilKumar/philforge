@@ -1746,6 +1746,32 @@ async def get_paper_campaign(user_id: int, campaign_id: int) -> dict | None:
         await db.close()
 
 
+async def delete_unpriced_paper_campaign(user_id: int, campaign_id: int) -> bool:
+    """Drop ONE archived campaign, and only if it never priced.
+
+    Phil asked for this (2026-09-23) after High Entry left rows reading
+    "unpriced" in his closed ledger -- a live run prices only what fills now,
+    so a leg the archive could not quote leaves the campaign with no honest
+    total at all.  Such a row carries no money; removing it changes no number.
+
+    THE GUARD IS IN THE SQL, not only in the route.  `net_pnl IS NULL` is what
+    makes this safe, and a caller that forgets the check must not be able to
+    delete a settled campaign through the same door.  `buys > 0` keeps it to
+    campaigns that actually traded -- a no-buy row reads "no trade", which is
+    a nil result and not a missing one.
+    """
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM paper_campaigns WHERE user_id = ? AND id = ? AND net_pnl IS NULL AND buys > 0",
+            (int(user_id), int(campaign_id)),
+        )
+        await db.commit()
+        return int(cursor.rowcount or 0) > 0
+    finally:
+        await db.close()
+
+
 async def list_paper_campaigns(user_id: int, strategy: str, limit: int = 50, *, only_traded: bool = True) -> list[dict]:
     """Archived campaigns for one strategy, newest first.
 

@@ -12493,6 +12493,43 @@ async def paper_campaigns_closed(strategy: str, request: Request):
     }
 
 
+@app.delete("/api/paper-campaigns/{strategy}/{campaign_id}")
+async def delete_paper_campaign(strategy: str, campaign_id: int, request: Request):
+    """Remove ONE closed campaign that never priced.
+
+    Phil, 2026-09-23: "Give me a del button to remove the unpriced entries on
+    the closed campaigns."  Deliberately narrow.  A row whose net is a real
+    number is booked money and stays: the ledger is the record of what the
+    rules did, and a door that can quietly erase a loss is worth more to a bad
+    day than to a tidy one.  So this refuses anything priced, and the storage
+    layer refuses it again in the SQL.
+    """
+    key = str(strategy or "").replace("-", "_").lower()
+    if key not in _PAPER_LEDGER_STRATEGIES:
+        raise HTTPException(status_code=404, detail=f"Unknown strategy '{strategy}'.")
+    user_id = _request_user_id(request)
+    row = await _db_mod.get_paper_campaign(user_id, campaign_id)
+    if row is None or str(row.get("strategy")) != key:
+        raise HTTPException(status_code=404, detail="No such archived campaign.")
+    if row.get("net_pnl") is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This campaign has a settled net, so it is booked money and stays in the ledger. "
+                "Only rows that never priced can be removed."
+            ),
+        )
+    if int(row.get("buys") or 0) <= 0:
+        raise HTTPException(
+            status_code=409,
+            detail="This campaign never bought, so its P&L is nil rather than missing. Nothing to remove.",
+        )
+    if not await _db_mod.delete_unpriced_paper_campaign(user_id, campaign_id):
+        raise HTTPException(status_code=409, detail="That campaign could not be removed; reload and try again.")
+    _logger.info("[LEDGER] %s: removed unpriced campaign %s for user %s", key, campaign_id, user_id)
+    return {"status": "ok", "deleted": int(campaign_id)}
+
+
 @app.get("/api/paper-campaigns/{strategy}/{campaign_id}/chart")
 async def paper_campaign_chart(strategy: str, campaign_id: int, request: Request, timeframe: str = ""):
     """A FINISHED campaign, redrawn from the engine it ended as.

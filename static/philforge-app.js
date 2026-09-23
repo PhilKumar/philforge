@@ -2212,6 +2212,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'toggleCandleEntryBacktestChart',
   'loadCandleEntryChart',
   'openFrozenCampaignChart',
+  'deleteUnpricedCampaign',
   'hideCandleEntryChart',
   'hideGapCarryChart',
   'setCandleEntrySession',
@@ -3186,6 +3187,35 @@ function _paperLedgerMoney(value, buys) {
   return _candleEntrySigned(Number(value));
 }
 
+// REMOVING AN UNPRICED ROW. It carries no number -- a live run prices only
+// what fills now, so a leg the archive could not quote leaves the campaign
+// with no honest total. Deleting it therefore changes no money. The server
+// refuses anything priced, so this cannot be turned into a way to erase a bad
+// day by pointing it at the wrong row.
+async function deleteUnpricedCampaign(event, el) {
+  const node = el || event?.currentTarget;
+  if (!node) return;
+  const id = node.getAttribute('data-campaign-id');
+  const strategy = node.getAttribute('data-strategy');
+  if (!id || !strategy) return;
+  if (!window.confirm('Remove this unpriced row from the closed ledger? It carries no P&L, and this cannot be undone.')) return;
+  node.disabled = true;
+  let data = null;
+  try {
+    const res = await fetch(`/api/paper-campaigns/${strategy}/${id}`, {
+      method: 'DELETE', credentials: 'same-origin',
+    });
+    data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(_apiErrorMessage(data, `Could not remove it (${res.status}).`));
+    showToast('Unpriced row removed', 'success');
+    node.closest('tr')?.remove();
+    if (typeof _refreshPaperLedger === 'function') _refreshPaperLedger(strategy);
+  } catch (err) {
+    node.disabled = false;
+    showToast(err.message || 'Could not remove it.', 'error');
+  }
+}
+
 // A finished campaign, redrawn as it stood when it closed. It borrows the tab's
 // own chart overlay rather than opening a second kind of window, and the strip
 // offers no timeframe switch: this is a record, not a live chart.
@@ -3369,6 +3399,16 @@ async function _refreshPaperLedger(strategy) {
       }
       return `<span class="ocp-muted" title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">—</span>`;
     })();
+    // A DEL BUTTON, ONLY ON A ROW THAT NEVER PRICED (Phil, 2026-09-23). A
+    // settled net is booked money and keeps no button at all -- the server
+    // refuses it too, twice, but a control that is not there cannot be
+    // pressed by mistake. A no-buy row reads "no trade", which is a nil
+    // result rather than a missing one, so it is not offered either.
+    const delCell = (net == null && Number(row.buys || 0) > 0)
+      ? ` <button type="button" class="cascade-options-control" data-pf-action="deleteUnpricedCampaign"`
+        + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
+        + ` title="Remove this unpriced row from the ledger">\u2715 Del</button>`
+      : '';
     return `<tr>`
       + `<td>${when(row.opened_at)}${rebuilt}</td>`
       + `<td>${when(row.closed_at)}</td>`
@@ -3377,7 +3417,7 @@ async function _refreshPaperLedger(strategy) {
       + `<td>${row.deployed_inr == null ? '—' : escapeHtml(_cascadeOptionsMoney(Number(row.deployed_inr)))}</td>`
       + `<td class="ocp-muted">${escapeHtml(String(row.exit_reason || row.status || '—'))}</td>`
       + `<td style="color:${tone};">${escapeHtml(_paperLedgerMoney(net, row.buys))}</td>`
-      + `<td>${chartCell}</td>`
+      + `<td>${chartCell}${delCell}</td>`
       + `</tr>`;
   }).join('');
 }
@@ -7584,6 +7624,7 @@ function toggleFibBoundaryBacktestChart() {
 window.initOptionsCascadePage = initOptionsCascadePage;
 window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;
 window.openFrozenCampaignChart = openFrozenCampaignChart;
+window.deleteUnpricedCampaign = deleteUnpricedCampaign;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.setFibBoundaryMode = setFibBoundaryMode;
 window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
