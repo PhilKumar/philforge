@@ -520,10 +520,29 @@ class ScalpEngine:
                 order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
                 if order_status in ("REJECTED", "CANCELLED", "FAILED"):
                     reason = result.get("remarks", result.get("message", result.get("rejectedReason", "Unknown")))
+                    self._log(
+                        "error",
+                        f"❌ Super Order rejected: {transaction_type} {underlying} {strike}{option_type} "
+                        f"exp={expiry} qty={quantity} | quoted=₹{quote:.2f} target=₹{target_premium} "
+                        f"SL=₹{sl_premium} {order_type}/{product_type} | {reason}",
+                    )
                     return {"status": "error", "message": f"Super Order rejected by broker: {reason}"}
                 if not order_id:
+                    self._log("error", f"❌ Super Order returned no orderId: {result}")
                     return {"status": "error", "message": f"No orderId returned: {result}"}
             except Exception as e:
+                # A REFUSED ORDER MUST LEAVE A TRACE. This returned the broker's
+                # words to the browser and wrote nothing here, so a rejection
+                # Phil saw on screen could not be found on the server at all
+                # (2026-09-23: DH-906 "Profit Price Should be greater than Order
+                # price", invisible in the journal). The numbers we sent are
+                # what make it answerable, so they are in the line.
+                self._log(
+                    "error",
+                    f"❌ Super Order placement failed: {transaction_type} {underlying} {strike}{option_type} "
+                    f"exp={expiry} qty={quantity} | quoted=₹{quote:.2f} target=₹{target_premium} "
+                    f"SL=₹{sl_premium} {order_type}/{product_type} | {e}",
+                )
                 return {"status": "error", "message": str(e)}
 
             # Use a live premium snapshot for immediate UI feedback; sync later replaces it with actual fill.

@@ -80,6 +80,26 @@ class WithNoQuoteDhanRemainsTheJudge(unittest.TestCase):
         self.assertEqual(resolve_scalp_exit_prices("BUY", 0.0, 12.0, 5.0)[:2], (12.0, 5.0))
 
 
+class ARefusedOrderLeavesATrace(unittest.TestCase):
+    """2026-09-23: Phil saw a DH-906 rejection on screen and the server journal
+    had no record of it at all -- the handler returned the broker's words to the
+    browser and logged nothing, so the order could not be investigated."""
+
+    SRC = (ROOT / "scalp.py").read_text(encoding="utf-8")
+
+    def test_a_broker_exception_is_logged_with_what_was_sent(self):
+        block = self.SRC.split("result = self.dhan.place_super_order(")[1].split("# Use a live premium snapshot")[0]
+        failure = block.split("except Exception as e:")[1]
+        self.assertIn("self._log(", failure)
+        for field in ("quoted=", "target=", "SL=", "qty="):
+            self.assertIn(field, failure)
+
+    def test_a_rejected_status_is_logged_too(self):
+        block = self.SRC.split("result = self.dhan.place_super_order(")[1].split("except Exception as e:")[0]
+        self.assertIn("Super Order rejected:", block)
+        self.assertIn("quoted=", block)
+
+
 class ItIsWiredWhereTheOrderIsPlaced(unittest.TestCase):
     SRC = (ROOT / "scalp.py").read_text(encoding="utf-8")
 
