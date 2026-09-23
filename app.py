@@ -5749,6 +5749,35 @@ def _temp_files_belong_on_the_disk() -> None:
 
 _temp_files_belong_on_the_disk()
 _journal_chart_task: asyncio.Task | None = None
+# THE LOOPS THAT MUST NOT BE COLLECTED. asyncio keeps only a weak reference to a
+# task, so a loop started with a bare create_task() can be garbage-collected
+# mid-sleep and simply stop -- silently, with nothing in the journal. That is
+# what happened to the 09:00 official-close message on 2026-09-23: the job was
+# created at startup, never ran, and logged nothing at all (Phil: "I've not
+# received any telegram alerts"). Anything started for the life of the process
+# is held here.
+_BACKGROUND_LOOPS: set[asyncio.Task] = set()
+
+
+def _spawn_background_loop(coro, label: str) -> asyncio.Task:
+    """Start a forever-loop, keep a strong reference, and say so in the log."""
+    task = asyncio.create_task(coro, name=label)
+    _BACKGROUND_LOOPS.add(task)
+    task.add_done_callback(_BACKGROUND_LOOPS.discard)
+
+    def _report(done: asyncio.Task) -> None:
+        if done.cancelled():
+            _logger.warning("[LOOP] %s was cancelled", label)
+        elif done.exception() is not None:
+            _logger.error("[LOOP] %s died: %s", label, done.exception())
+        else:
+            _logger.warning("[LOOP] %s returned -- it should never finish", label)
+
+    task.add_done_callback(_report)
+    _logger.info("[LOOP] %s scheduled", label)
+    return task
+
+
 _journal_chart_wakeup: asyncio.Event | None = None
 
 # THE AUTO MOTHERS' OWN TASKS. They used to be fire-and-forget
@@ -25601,11 +25630,16 @@ async def _run_official_close_telegram_loop() -> None:
             sent_on = (await _db_mod.get_app_state(_OFFICIAL_CLOSE_SENT_KEY)) or ""
             if _official_close_telegram_due(now, sent_on):
                 found = await _nifty_official_prev_close(now.date())
-                if found is not None:
+                if found is None:
+                    # Silence here is what made the first failure so hard to
+                    # read: no message, no log, nothing to grep for.
+                    _logger.warning("[AF CLOSE] no official close for %s yet; will try again next minute", now.date())
+                else:
                     session = datetime.fromisoformat(found["session"]).strftime("%d-%b")
                     body = f"{found['close']:,.2f} (close of {session}). Type it into AF -> Official previous close."
                     alerter.alert("NIFTY official previous close", body, level="info")
                     await _db_mod.set_app_state(_OFFICIAL_CLOSE_SENT_KEY, now.date().isoformat())
+                    _logger.info("[AF CLOSE] sent %s (close of %s)", found["close"], found["session"])
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -25710,9 +25744,9 @@ async def _start_token_renewal():
         _journal_chart_state.update({"status": "disabled", "message": "Daily Journal charts are disabled."})
         print("📈 [JOURNAL CHARTS] Scheduler disabled (PHILFORGE_JOURNAL_CHARTS=0)")
 
-    asyncio.create_task(_run_zerodha_login_reminder_loop())
+    _spawn_background_loop(_run_zerodha_login_reminder_loop(), "zerodha login reminder")
     if _engine_restore_owner_is_active_instance():
-        asyncio.create_task(_run_official_close_telegram_loop())
+        _spawn_background_loop(_run_official_close_telegram_loop(), "official previous close 09:00")
 
     if _STARTUP_ENGINE_RESTORE_ENABLED and _engine_restore_owner_is_active_instance():
         asyncio.create_task(_restore_live_engines())

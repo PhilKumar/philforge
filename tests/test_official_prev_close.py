@@ -70,6 +70,55 @@ class TheNineOClockMessage(unittest.TestCase):
         self.assertFalse(app._official_close_telegram_due(datetime(2026, 10, 2, 9, 0, tzinfo=app.IST), ""))
 
 
+class TheMessageJobStaysAlive(unittest.TestCase):
+    """2026-09-23: the 09:00 job never ran and logged nothing.
+
+    asyncio holds only a weak reference to a task, so the bare
+    `create_task(...)` that started this loop could be -- and was -- collected
+    mid-sleep. Phil got no message and the journal had not one line to grep.
+    """
+
+    SRC = (ROOT / "app.py").read_text(encoding="utf-8")
+
+    def test_the_loop_is_started_with_a_kept_reference(self):
+        self.assertIn('_spawn_background_loop(_run_official_close_telegram_loop(), "official previous close', self.SRC)
+        self.assertNotIn("asyncio.create_task(_run_official_close_telegram_loop())", self.SRC)
+
+    def test_the_zerodha_reminder_is_held_the_same_way(self):
+        self.assertIn("_spawn_background_loop(_run_zerodha_login_reminder_loop()", self.SRC)
+        self.assertNotIn("asyncio.create_task(_run_zerodha_login_reminder_loop())", self.SRC)
+
+    def test_a_kept_task_survives_a_collection_sweep(self):
+        import asyncio
+        import gc
+
+        async def scenario():
+            ticks = []
+
+            async def loop():
+                while True:
+                    ticks.append(1)
+                    await asyncio.sleep(0.01)
+
+            app._spawn_background_loop(loop(), "test loop")
+            await asyncio.sleep(0.02)
+            gc.collect()
+            await asyncio.sleep(0.05)
+            held = [t for t in app._BACKGROUND_LOOPS if t.get_name() == "test loop"]
+            for t in held:
+                t.cancel()
+            return len(ticks), held
+
+        count, held = asyncio.run(scenario())
+        self.assertTrue(held, "the task must still be referenced after a collection")
+        self.assertGreater(count, 1, "the loop must still be ticking after a collection")
+
+    def test_an_empty_lookup_says_so(self):
+        body = self.SRC.split("async def _run_official_close_telegram_loop")[1][:1400]
+        self.assertIn("[AF CLOSE] no official close", body)
+        self.assertIn("[AF CLOSE] sent", body)
+
+
 class TheDeskShowsIt(unittest.TestCase):
     def test_the_button_sits_with_the_nifty_chart_buttons(self):
         bar = HTML.split('class="cepe-chartbar"')[1].split("</div>")[0]
