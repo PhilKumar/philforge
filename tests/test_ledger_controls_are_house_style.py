@@ -46,7 +46,7 @@ class TheBrowsersOwnDialogIsNotUsed(unittest.TestCase):
 
 class TheRemoveControlIsAGlyphNotAPill(unittest.TestCase):
     def test_it_uses_the_house_remove_style(self):
-        self.assertIn('class="leg-remove" data-pf-action="deleteClosedCampaign"', JS)
+        self.assertIn('class="ocp-icon-btn is-danger" data-pf-action="deleteClosedCampaign"', JS)
 
     def test_it_is_not_the_blue_primary_control(self):
         body = JS[JS.index("const delCell =") :]

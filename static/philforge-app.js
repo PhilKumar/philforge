@@ -3457,7 +3457,7 @@ function _renderPaperLedger(strategy) {
       : null;
     const chartCell = (() => {
       if (strategy === 'fib_boundary' && params && params.mother_timestamp) {
-        return `<button type="button" class="cascade-options-control" data-pf-action="openArchivedFibChart"`
+        return `<button type="button" class="ocp-icon-btn" data-pf-action="openArchivedFibChart"`
           + ` data-fx-mother="${escapeHtml(String(params.mother_timestamp))}"`
           + ` data-fx-symbol="${escapeHtml(String(params.symbol || 'NIFTY'))}"`
           + ` data-fx-side="${escapeHtml(String(params.side || 'CE'))}"`
@@ -3465,18 +3465,24 @@ function _renderPaperLedger(strategy) {
           + ` data-fx-buy-mode="${escapeHtml(String(params.buy_mode || 'levels'))}"`
           + ` data-fx-closed="${escapeHtml(String(row.closed_at || ''))}"`
           + ` data-fx-id="${escapeHtml(String(row.id || ''))}"`
-          + ` title="Draw this finished ladder on its own candles">↗ Chart</button>`;
+          + ` aria-label="Draw this finished ladder on its own candles"`
+          + ` title="Draw this finished ladder on its own candles">&#8599;</button>`;
       }
       // candle_recovery draws from its stored mother and trades rather than a
       // revived engine; the route has served it since 154dce97, but the button
       // was never added, so every High Entry row still showed a dash.
       if ((strategy === 'candle_entry' || strategy === 'gap_carry' || strategy === 'supertrend'
            || strategy === 'candle_recovery') && row.has_chart) {
-        return `<button type="button" class="cascade-options-control" data-pf-action="openFrozenCampaignChart"`
+        return `<button type="button" class="ocp-icon-btn" data-pf-action="openFrozenCampaignChart"`
           + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
-          + ` title="Draw this finished campaign as it stood when it closed">↗ Chart</button>`;
+          + ` aria-label="Draw this finished campaign as it stood when it closed"`
+          + ` title="Draw this finished campaign as it stood when it closed">&#8599;</button>`;
       }
-      return `<span class="ocp-muted" title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">—</span>`;
+      // Disabled rather than absent: a dash where a control belongs reads as a
+      // missing feature (Phil, 2026-09-23: "let the chart button gets greyed out").
+      return `<button type="button" class="ocp-icon-btn" disabled`
+        + ` aria-label="No chart for this row"`
+        + ` title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">&#8599;</button>`;
     })();
     // A DEL BUTTON ON EVERY CLOSED ROW (Phil, 2026-09-23: "I need for all runs
     // on the closed campaigns... Because I use different timings to test and
@@ -3488,7 +3494,7 @@ function _renderPaperLedger(strategy) {
     // `leg-remove` is the house style for this: a muted glyph that turns red
     // on hover. A blue pill reading "X Del" shouted at the row it sits beside
     // and looked like a primary action (Phil, 2026-09-23).
-    const delCell = ` <button type="button" class="leg-remove" data-pf-action="deleteClosedCampaign"`
+    const delCell = ` <button type="button" class="ocp-icon-btn is-danger" data-pf-action="deleteClosedCampaign"`
       + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
       + ` data-net="${net == null ? '' : escapeHtml(String(net))}"`
       + ` aria-label="Remove this row from the closed ledger"`
@@ -21943,7 +21949,7 @@ function _recoveryCampaign(c) {
         <span class="ocp-rule-chip">${escapeHtml(rule)}</span>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="cascade-options-control" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;" aria-label="Chart this campaign">&#8599; Chart</button>
+        <button class="ocp-icon-btn" type="button" data-pf-action="loadRecoveryChart" data-rec-campaign="${escapeHtml(c.campaign_id)}" aria-label="Chart this campaign" title="Chart this campaign">&#8599;</button>
         <button class="btn btn-ghost" type="button" data-pf-action="recoveryDrop" data-rec-campaign="${escapeHtml(c.campaign_id)}" style="font-size:11px;padding:4px 10px;">Remove</button>
       </div>
     </div>
@@ -22226,6 +22232,15 @@ function renderRecovery(data) {
     poll.textContent = `${String(book.timeframe || '').toUpperCase()} · ${book.mode} · lot ${book.lot_size} · `
       + (book.last_poll ? `last poll ${_recTime(book.last_poll)} IST` : 'no poll yet')
       + (skipped ? ` (${skipped})` : '');
+  }
+
+  // NOTHING NAMED, NOTHING TO DRAW. The header chart button used to open an
+  // overlay that then reported a server error -- offering a control that can
+  // only fail is worse than not offering it (Phil, 2026-09-23).
+  const chartBtn = document.getElementById('oc-high-chart-btn');
+  if (chartBtn) {
+    chartBtn.disabled = !campaigns.length;
+    chartBtn.title = campaigns.length ? 'Open campaign chart' : 'Name a mother candle first — there is nothing to draw yet';
   }
 
   list.innerHTML = campaigns.length

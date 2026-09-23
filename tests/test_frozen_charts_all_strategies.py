@@ -93,8 +93,11 @@ class LedgerChartRoutingTests(unittest.TestCase):
 
     def test_a_rebuilt_row_still_refuses_a_chart(self):
         # It kept no state; drawing it would be a guess dressed as a record.
-        cell = SCRIPT[SCRIPT.index("const chartCell = (() => {") :][:1800]
-        self.assertIn("ocp-muted", cell)
+        # Since 2026-09-23 it says so with a DISABLED button rather than a
+        # dash -- a dash where a control belongs reads as a missing feature --
+        # but it still offers nothing to press.
+        cell = SCRIPT[SCRIPT.index("const chartCell = (() => {") :][:2200]
+        self.assertIn('class="ocp-icon-btn" disabled', cell)
         self.assertIn("its engine state was overwritten", cell)
 
 

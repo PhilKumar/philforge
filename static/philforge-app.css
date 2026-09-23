@@ -1121,6 +1121,15 @@
   .add-leg-btn.buy-pe:hover { background: rgba(239,68,68,0.15); }
   .add-leg-btn.sell-pe { color: var(--purple); border-color: rgba(168,85,247,0.3); }
   .add-leg-btn.sell-pe:hover { background: rgba(168,85,247,0.15); }
+  /* ONE QUIET GLYPH FOR ROW ACTIONS. Chart and remove sit side by side in the
+     same cell, so they must read as the same kind of control -- a blue pill
+     saying "Chart" beside a bare X looked like a primary action next to an
+     afterthought (Phil, 2026-09-23: "just make it similar like the X"). */
+  .ocp-icon-btn { background: none; border: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 2px 7px; border-radius: 4px; transition: 0.2s; line-height: 1; }
+  .ocp-icon-btn:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,0.08); }
+  .ocp-icon-btn.is-danger:hover:not(:disabled) { color: var(--danger); background: rgba(239,68,68,0.1); }
+  /* Nothing to draw yet: still there, visibly not offering anything. */
+  .ocp-icon-btn:disabled { opacity: 0.32; cursor: not-allowed; }
   .leg-remove { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: 0.2s; line-height: 1; }
   .leg-remove:hover { color: var(--danger); background: rgba(239,68,68,0.1); }
 

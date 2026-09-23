@@ -18530,7 +18530,7 @@ def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
         stamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
         return int((stamp.replace(tzinfo=IST) if stamp.tzinfo is None else stamp).timestamp())
 
-    mother_ts = row["mother"]["timestamp"][:19]
+    mother_ts = str((row.get("mother") or {}).get("timestamp") or "")[:19]
     rows = [
         {
             "t": _epoch(c.timestamp),
@@ -18576,7 +18576,13 @@ def _recovery_chart(row: dict, candles: list, timeframe: str) -> dict:
     return {
         "timeframe": timeframe,
         "candles": rows,
-        "mother": {"high": row["mother"]["high"], "low": row["mother"]["low"]},
+        # A NAMED MOTHER MAY NOT EXIST. The "no campaign yet" answer draws plain
+        # NIFTY through this same builder and passes a stub carrying only a
+        # timestamp, so reading high and low by key raised KeyError and the
+        # panel showed "Something went wrong on our end" instead of a chart --
+        # on the one path that exists BECAUSE there is nothing to draw yet
+        # (Phil, 2026-09-23).
+        "mother": {"high": (row.get("mother") or {}).get("high"), "low": (row.get("mother") or {}).get("low")},
         "trendlines": [],
         "legs": [],
         "lines": lines,
