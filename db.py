@@ -1746,24 +1746,25 @@ async def get_paper_campaign(user_id: int, campaign_id: int) -> dict | None:
         await db.close()
 
 
-async def delete_unpriced_paper_campaign(user_id: int, campaign_id: int) -> bool:
-    """Drop ONE archived campaign, and only if it never priced.
+async def delete_paper_campaign(user_id: int, campaign_id: int) -> bool:
+    """Drop ONE archived campaign from the closed ledger.
 
-    Phil asked for this (2026-09-23) after High Entry left rows reading
-    "unpriced" in his closed ledger -- a live run prices only what fills now,
-    so a leg the archive could not quote leaves the campaign with no honest
-    total at all.  Such a row carries no money; removing it changes no number.
+    Phil, 2026-09-23: "I need for all runs on the closed campaigns... Because I
+    use different timings to test and it gives more results."  The ledger is a
+    working surface as much as a record -- a morning of trying 5m against 15m
+    leaves rows he has no use for, and a tidy-up he cannot do is a ledger he
+    stops reading.
 
-    THE GUARD IS IN THE SQL, not only in the route.  `net_pnl IS NULL` is what
-    makes this safe, and a caller that forgets the check must not be able to
-    delete a settled campaign through the same door.  `buys > 0` keeps it to
-    campaigns that actually traded -- a no-buy row reads "no trade", which is
-    a nil result and not a missing one.
+    So this deletes any of HIS OWN rows, priced or not.  The user_id is the one
+    condition that is not negotiable: it scopes the delete, and without it an
+    id from another account would be reachable through the same door.  The
+    caller is responsible for asking first -- the route does, and the button
+    names the money when there is any.
     """
     db = await get_db()
     try:
         cursor = await db.execute(
-            "DELETE FROM paper_campaigns WHERE user_id = ? AND id = ? AND net_pnl IS NULL AND buys > 0",
+            "DELETE FROM paper_campaigns WHERE user_id = ? AND id = ?",
             (int(user_id), int(campaign_id)),
         )
         await db.commit()

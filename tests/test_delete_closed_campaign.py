@@ -1,12 +1,13 @@
-"""An unpriced closed campaign can be removed; a settled one cannot.
+"""Any closed campaign can be removed from the ledger -- but only his own.
 
-Phil, 2026-09-23: "Give me a del button to remove the unpriced entries on the
-closed campaigns."  He chose the narrow version deliberately -- whole rows that
-never priced, never individual legs, because dropping an unpriced leg and
-summing the rest reports a SMALLER loss than the campaign had.
+Phil asked first for the unpriced rows (2026-09-23), then widened it: "I need
+for all runs on the closed campaigns... Because I use different timings to test
+and it gives more results."  Testing 5m against 15m against 1h fills the table
+with runs he has no use for.
 
-So the thing worth testing is the refusal, not the delete.  A row with a real
-net is booked money and must survive every path into this door.
+So the guard that is left is OWNERSHIP, and that is what these test hardest: a
+row belonging to another user, or to another strategy, must be untouchable
+through this door however the id is aimed at it.
 """
 
 import unittest
@@ -20,7 +21,7 @@ SETTLED = {"id": 8, "strategy": "candle_recovery", "net_pnl": -2882.0, "buys": 3
 NO_TRADE = {"id": 9, "strategy": "candle_recovery", "net_pnl": None, "buys": 0}
 
 
-class TheDeleteDoorIsNarrow(unittest.IsolatedAsyncioTestCase):
+class TheDeleteDoorIsScopedToHim(unittest.IsolatedAsyncioTestCase):
     async def _call(self, row, *, strategy="candle_recovery", deleted=True):
         self.asked = []
 
@@ -34,7 +35,7 @@ class TheDeleteDoorIsNarrow(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(app_module, "_request_user_id", lambda request: 1),
             patch.object(app_module._db_mod, "get_paper_campaign", _get),
-            patch.object(app_module._db_mod, "delete_unpriced_paper_campaign", _delete),
+            patch.object(app_module._db_mod, "delete_paper_campaign", _delete),
         ):
             return await app_module.delete_paper_campaign(strategy, int(row["id"]), SimpleNamespace())
 
@@ -44,19 +45,15 @@ class TheDeleteDoorIsNarrow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["deleted"], 7)
         self.assertEqual(self.asked, [(1, 7)])
 
-    async def test_a_settled_campaign_is_refused_and_never_reaches_the_db(self):
-        with self.assertRaises(app_module.HTTPException) as caught:
-            await self._call(SETTLED)
-        self.assertEqual(caught.exception.status_code, 409)
-        self.assertIn("booked money", caught.exception.detail)
-        self.assertEqual(self.asked, [])
+    async def test_a_settled_campaign_goes_too_and_its_net_is_reported_back(self):
+        """So the page can tell him what he just removed."""
+        out = await self._call(SETTLED)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["net_pnl"], -2882.0)
 
-    async def test_a_campaign_that_never_bought_is_refused(self):
-        """Its P&L is nil, not missing -- the ledger says 'no trade'."""
-        with self.assertRaises(app_module.HTTPException) as caught:
-            await self._call(NO_TRADE)
-        self.assertEqual(caught.exception.status_code, 409)
-        self.assertEqual(self.asked, [])
+    async def test_a_campaign_that_never_bought_goes_as_well(self):
+        out = await self._call(NO_TRADE)
+        self.assertEqual(out["status"], "ok")
 
     async def test_an_unknown_strategy_is_a_404(self):
         with self.assertRaises(app_module.HTTPException) as caught:
@@ -74,18 +71,17 @@ class TheDeleteDoorIsNarrow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.status_code, 409)
 
 
-class TheSqlGuardsItToo(unittest.TestCase):
-    """The route's check is not the only one; a careless caller must fail too."""
+class TheSqlIsScopedToTheUser(unittest.TestCase):
+    """Ownership is the guard that is left, so it must be in the SQL."""
 
-    def test_the_statement_refuses_a_priced_row(self):
+    def test_the_statement_is_scoped_to_the_user(self):
         from pathlib import Path
 
         db = Path(app_module.__file__).parent.joinpath("db.py").read_text(encoding="utf-8")
-        body = db[db.index("async def delete_unpriced_paper_campaign(") :]
+        body = db[db.index("async def delete_paper_campaign(") :]
         body = body[: body.index("\nasync def ")]
-        self.assertIn("net_pnl IS NULL", body)
-        self.assertIn("buys > 0", body)
         self.assertIn("user_id = ?", body)
+        self.assertIn("AND id = ?", body)
 
 
 class TheButtonIsReachable(unittest.TestCase):
@@ -95,15 +91,15 @@ class TheButtonIsReachable(unittest.TestCase):
         from pathlib import Path
 
         js = Path(app_module.__file__).parent.joinpath("static", "philforge-app.js").read_text(encoding="utf-8")
-        self.assertIn("'deleteUnpricedCampaign',", js)
-        self.assertIn("window.deleteUnpricedCampaign = deleteUnpricedCampaign;", js)
-        self.assertIn('data-pf-action="deleteUnpricedCampaign"', js)
+        self.assertIn("'deleteClosedCampaign',", js)
+        self.assertIn("window.deleteClosedCampaign = deleteClosedCampaign;", js)
+        self.assertIn('data-pf-action="deleteClosedCampaign"', js)
 
-    def test_the_button_is_only_drawn_on_an_unpriced_row(self):
+    def test_a_booked_row_names_its_money_before_it_goes(self):
         from pathlib import Path
 
         js = Path(app_module.__file__).parent.joinpath("static", "philforge-app.js").read_text(encoding="utf-8")
-        self.assertIn("const delCell = (net == null && Number(row.buys || 0) > 0)", js)
+        self.assertIn("It carries a booked net of ${_candleEntrySigned(Number(raw))}", js)
 
 
 if __name__ == "__main__":
@@ -161,21 +157,29 @@ class AgainstARealDatabase(unittest.IsolatedAsyncioTestCase):
 
     async def test_an_unpriced_row_really_goes(self):
         rid = await self._save("unpriced", None, 3)
-        self.assertTrue(await self.db_mod.delete_unpriced_paper_campaign(self.user, rid))
+        self.assertTrue(await self.db_mod.delete_paper_campaign(self.user, rid))
         self.assertIsNone(await self.db_mod.get_paper_campaign(self.user, rid))
 
-    async def test_a_settled_row_survives_the_same_call(self):
+    async def test_a_settled_row_goes_too(self):
+        """The whole point of widening it -- test runs book real numbers."""
         rid = await self._save("settled", -2882.0, 3)
-        self.assertFalse(await self.db_mod.delete_unpriced_paper_campaign(self.user, rid))
-        self.assertIsNotNone(await self.db_mod.get_paper_campaign(self.user, rid))
+        self.assertTrue(await self.db_mod.delete_paper_campaign(self.user, rid))
+        self.assertIsNone(await self.db_mod.get_paper_campaign(self.user, rid))
 
-    async def test_a_no_buy_row_survives(self):
+    async def test_a_no_buy_row_goes(self):
         rid = await self._save("nobuy", None, 0)
-        self.assertFalse(await self.db_mod.delete_unpriced_paper_campaign(self.user, rid))
-        self.assertIsNotNone(await self.db_mod.get_paper_campaign(self.user, rid))
+        self.assertTrue(await self.db_mod.delete_paper_campaign(self.user, rid))
+        self.assertIsNone(await self.db_mod.get_paper_campaign(self.user, rid))
 
     async def test_another_users_row_is_untouchable(self):
+        """The one guard that is left, and the one that matters."""
         rid = await self._save("unpriced", None, 3)
         other = await self.db_mod.create_user("someone-else", "y" * 60)
-        self.assertFalse(await self.db_mod.delete_unpriced_paper_campaign(other, rid))
+        self.assertFalse(await self.db_mod.delete_paper_campaign(other, rid))
         self.assertIsNotNone(await self.db_mod.get_paper_campaign(self.user, rid))
+
+    async def test_only_the_named_row_goes(self):
+        keep = await self._save("keep", 500.0, 2)
+        drop = await self._save("drop", 100.0, 2)
+        self.assertTrue(await self.db_mod.delete_paper_campaign(self.user, drop))
+        self.assertIsNotNone(await self.db_mod.get_paper_campaign(self.user, keep))

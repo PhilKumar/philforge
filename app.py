@@ -12495,14 +12495,18 @@ async def paper_campaigns_closed(strategy: str, request: Request):
 
 @app.delete("/api/paper-campaigns/{strategy}/{campaign_id}")
 async def delete_paper_campaign(strategy: str, campaign_id: int, request: Request):
-    """Remove ONE closed campaign that never priced.
+    """Remove ONE closed campaign from the ledger.
 
-    Phil, 2026-09-23: "Give me a del button to remove the unpriced entries on
-    the closed campaigns."  Deliberately narrow.  A row whose net is a real
-    number is booked money and stays: the ledger is the record of what the
-    rules did, and a door that can quietly erase a loss is worth more to a bad
-    day than to a tidy one.  So this refuses anything priced, and the storage
-    layer refuses it again in the SQL.
+    Phil, 2026-09-23: "I need for all runs on the closed campaigns... Because I
+    use different timings to test and it gives more results."  He asked first
+    for the unpriced rows only; testing 5m against 15m against 1h fills the
+    table with runs he has no use for, and the narrow version left them there.
+
+    Any of HIS OWN rows, then, priced or not.  What it does NOT do is take a
+    strategy's word for which row is his: the campaign is read back and its
+    user and strategy checked before anything is deleted, and the DELETE is
+    scoped to the user again in its own WHERE.  The answer says what the row
+    was carrying so the caller can tell him what he just removed.
     """
     key = str(strategy or "").replace("-", "_").lower()
     if key not in _PAPER_LEDGER_STRATEGIES:
@@ -12511,23 +12515,17 @@ async def delete_paper_campaign(strategy: str, campaign_id: int, request: Reques
     row = await _db_mod.get_paper_campaign(user_id, campaign_id)
     if row is None or str(row.get("strategy")) != key:
         raise HTTPException(status_code=404, detail="No such archived campaign.")
-    if row.get("net_pnl") is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "This campaign has a settled net, so it is booked money and stays in the ledger. "
-                "Only rows that never priced can be removed."
-            ),
-        )
-    if int(row.get("buys") or 0) <= 0:
-        raise HTTPException(
-            status_code=409,
-            detail="This campaign never bought, so its P&L is nil rather than missing. Nothing to remove.",
-        )
-    if not await _db_mod.delete_unpriced_paper_campaign(user_id, campaign_id):
+    net = row.get("net_pnl")
+    if not await _db_mod.delete_paper_campaign(user_id, campaign_id):
         raise HTTPException(status_code=409, detail="That campaign could not be removed; reload and try again.")
-    _logger.info("[LEDGER] %s: removed unpriced campaign %s for user %s", key, campaign_id, user_id)
-    return {"status": "ok", "deleted": int(campaign_id)}
+    _logger.info(
+        "[LEDGER] %s: removed campaign %s (net %s) for user %s",
+        key,
+        campaign_id,
+        "unpriced" if net is None else f"{float(net):.2f}",
+        user_id,
+    )
+    return {"status": "ok", "deleted": int(campaign_id), "net_pnl": net}
 
 
 @app.get("/api/paper-campaigns/{strategy}/{campaign_id}/chart")

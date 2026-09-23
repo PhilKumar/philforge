@@ -2212,7 +2212,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'toggleCandleEntryBacktestChart',
   'loadCandleEntryChart',
   'openFrozenCampaignChart',
-  'deleteUnpricedCampaign',
+  'deleteClosedCampaign',
   'hideCandleEntryChart',
   'hideGapCarryChart',
   'setCandleEntrySession',
@@ -3187,18 +3187,23 @@ function _paperLedgerMoney(value, buys) {
   return _candleEntrySigned(Number(value));
 }
 
-// REMOVING AN UNPRICED ROW. It carries no number -- a live run prices only
-// what fills now, so a leg the archive could not quote leaves the campaign
-// with no honest total. Deleting it therefore changes no money. The server
-// refuses anything priced, so this cannot be turned into a way to erase a bad
-// day by pointing it at the wrong row.
-async function deleteUnpricedCampaign(event, el) {
+// REMOVING A CLOSED ROW. The ledger is a working surface as much as a record:
+// testing 5m against 15m against 1h leaves rows with no use, and a tidy-up he
+// cannot do is a ledger he stops reading. The server checks the row is his
+// before deleting and scopes the DELETE to him again.
+async function deleteClosedCampaign(event, el) {
   const node = el || event?.currentTarget;
   if (!node) return;
   const id = node.getAttribute('data-campaign-id');
   const strategy = node.getAttribute('data-strategy');
   if (!id || !strategy) return;
-  if (!window.confirm('Remove this unpriced row from the closed ledger? It carries no P&L, and this cannot be undone.')) return;
+  // A row with a net is booked money. Say the number, so deleting one is a
+  // decision rather than a reflex; an unpriced row has nothing to name.
+  const raw = node.getAttribute('data-net');
+  const ask = raw
+    ? `Remove this row? It carries a booked net of ${_candleEntrySigned(Number(raw))}, and this cannot be undone.`
+    : 'Remove this unpriced row from the closed ledger? It carries no P&L, and this cannot be undone.';
+  if (!window.confirm(ask)) return;
   node.disabled = true;
   let data = null;
   try {
@@ -3207,7 +3212,7 @@ async function deleteUnpricedCampaign(event, el) {
     });
     data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(_apiErrorMessage(data, `Could not remove it (${res.status}).`));
-    showToast('Unpriced row removed', 'success');
+    showToast('Row removed from the ledger', 'success');
     node.closest('tr')?.remove();
     if (typeof _refreshPaperLedger === 'function') _refreshPaperLedger(strategy);
   } catch (err) {
@@ -3399,16 +3404,17 @@ async function _refreshPaperLedger(strategy) {
       }
       return `<span class="ocp-muted" title="Rebuilt from recorded prices — its engine state was overwritten before it could be kept">—</span>`;
     })();
-    // A DEL BUTTON, ONLY ON A ROW THAT NEVER PRICED (Phil, 2026-09-23). A
-    // settled net is booked money and keeps no button at all -- the server
-    // refuses it too, twice, but a control that is not there cannot be
-    // pressed by mistake. A no-buy row reads "no trade", which is a nil
-    // result rather than a missing one, so it is not offered either.
-    const delCell = (net == null && Number(row.buys || 0) > 0)
-      ? ` <button type="button" class="cascade-options-control" data-pf-action="deleteUnpricedCampaign"`
-        + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
-        + ` title="Remove this unpriced row from the ledger">\u2715 Del</button>`
-      : '';
+    // A DEL BUTTON ON EVERY CLOSED ROW (Phil, 2026-09-23: "I need for all runs
+    // on the closed campaigns... Because I use different timings to test and
+    // it gives more results"). The first version offered it only where the
+    // net was missing, which left every test run in the table.
+    //
+    // A row carrying real money still says so before it goes: the confirm
+    // names the net, so removing a booked loss cannot be a reflex.
+    const delCell = ` <button type="button" class="cascade-options-control" data-pf-action="deleteClosedCampaign"`
+      + ` data-campaign-id="${escapeHtml(String(row.id))}" data-strategy="${escapeHtml(strategy)}"`
+      + ` data-net="${net == null ? '' : escapeHtml(String(net))}"`
+      + ` title="Remove this row from the closed ledger">\u2715 Del</button>`;
     return `<tr>`
       + `<td>${when(row.opened_at)}${rebuilt}</td>`
       + `<td>${when(row.closed_at)}</td>`
@@ -7624,7 +7630,7 @@ function toggleFibBoundaryBacktestChart() {
 window.initOptionsCascadePage = initOptionsCascadePage;
 window.toggleFibBoundaryBacktestChart = toggleFibBoundaryBacktestChart;
 window.openFrozenCampaignChart = openFrozenCampaignChart;
-window.deleteUnpricedCampaign = deleteUnpricedCampaign;
+window.deleteClosedCampaign = deleteClosedCampaign;
 window.showOptionsCascadeTab = showOptionsCascadeTab;
 window.setFibBoundaryMode = setFibBoundaryMode;
 window.setFibBoundaryBuyMode = setFibBoundaryBuyMode;
