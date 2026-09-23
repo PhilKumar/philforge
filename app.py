@@ -3028,13 +3028,12 @@ def _build_recovery_host(
         int(lot_size_override)
         if lot_size_override
         else int(
-            adapter.select_campaign_contract(
-                mother_spot=float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
-                selected_at=datetime.now(IST),
-                ce_offset_steps=offset_steps,
-                strike_step=int(terms["strike_step"]),
-                option_type=side,
-                symbol=terms["dhan_symbol"],
+            # Through the same picker the fills use, so the in-the-money
+            # offset has ONE definition rather than a copy that can drift.
+            select_contract(
+                datetime.now(IST),
+                float(adapter.get_ticker(terms["dhan_symbol"])["last_price"]),
+                side,
             ).lot_size
         )
     )

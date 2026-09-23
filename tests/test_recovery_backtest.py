@@ -319,3 +319,68 @@ class PanelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheLiveBuilderIsActuallyRun(unittest.TestCase):
+    """Build the host the way a Start does -- no override, real ticker path.
+
+    Every test here read the builder as text or passed `lot_size_override`, so
+    the branch that sizes a LIVE run from the chain was never executed. A name
+    deleted from it therefore reached production green (`offset_steps`,
+    2026-09-23): High Entry's Start would have raised NameError. Running the
+    builder once is the whole point of this test.
+    """
+
+    def _build(self, **kwargs):
+        import datetime as dt
+        from types import SimpleNamespace
+
+        import app as app_module
+
+        picked = SimpleNamespace(strike=24000, expiry=dt.date(2026, 3, 5), lot_size=65)
+        seen = {}
+
+        class _Adapter:
+            def select_campaign_contract(self, **kw):
+                seen.update(kw)
+                return picked
+
+            def get_ticker(self, symbol):
+                return {"last_price": 23400.0}
+
+        with patch.object(app_module, "_cascade_premium_lookup", lambda broker: lambda when, contract: None):
+            host = app_module._build_recovery_host(
+                "nifty",
+                _Adapter(),
+                object(),
+                timeframe="5m",
+                mode="ladder",
+                **kwargs,
+            )
+        return host, seen
+
+    def test_a_live_call_run_sizes_itself_from_the_chain(self):
+        host, seen = self._build(side="CE", itm_steps=4)
+        self.assertEqual(host.lot_size, 65)
+        # in the money is BELOW spot for a call
+        self.assertEqual(seen["ce_offset_steps"], -4)
+        self.assertEqual(seen["option_type"], "CE")
+
+    def test_a_live_put_run_sizes_itself_on_the_other_side(self):
+        host, seen = self._build(side="PE", itm_steps=4)
+        self.assertEqual(host.lot_size, 65)
+        # and ABOVE spot for a put
+        self.assertEqual(seen["ce_offset_steps"], 4)
+        self.assertEqual(seen["option_type"], "PE")
+
+    def test_the_pickers_offset_follows_the_side_it_is_asked_for(self):
+        """One host, both sides -- the offset must flip per campaign."""
+        import datetime as dt
+
+        host, seen = self._build(side="CE", itm_steps=3)
+        host.select_contract(dt.datetime(2026, 3, 2, 10, 0), 23400.0, "PE")
+        self.assertEqual(seen["ce_offset_steps"], 3)
+        self.assertEqual(seen["option_type"], "PE")
+        host.select_contract(dt.datetime(2026, 3, 2, 10, 0), 23400.0, "CE")
+        self.assertEqual(seen["ce_offset_steps"], -3)
+        self.assertEqual(seen["option_type"], "CE")
