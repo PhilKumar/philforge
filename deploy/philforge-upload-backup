@@ -73,3 +73,17 @@ receipt_tmp="$BACKUP_DIR/offsite-receipt.json.tmp"
 printf '{\n  "archive": "%s",\n  "completed_at": "%s",\n  "completed_at_epoch": %s,\n  "sha256": "%s",\n  "remote": "%s"\n}\n' \
   "$archive_name" "$(date -Is)" "$(date +%s)" "$expected_sha" "$REMOTE" > "$receipt_tmp"
 mv -f "$receipt_tmp" "$BACKUP_DIR/offsite-receipt.json"
+
+# Dead-man switch. Everything else here only shouts when something goes WRONG —
+# which is useless if the whole box is gone. This pings an external watcher on
+# SUCCESS only, so the watcher alarms on SILENCE: a failed snapshot, a failed
+# upload, a dead server or a dead network all look the same to it, because in
+# every one of those cases this line is never reached.
+hc_url="$(awk -F= '/^PHILFORGE_HEALTHCHECK_URL=/{sub(/^[^=]*=/,""); gsub(/^["'"'"']|["'"'"']$/,""); print; exit}' /home/ec2-user/philforge/.env 2>/dev/null)"
+if [[ -n "$hc_url" ]]; then
+  if curl -fsS -m 15 --retry 3 --retry-delay 5 -o /dev/null "$hc_url"; then
+    echo "dead-man switch pinged"
+  else
+    echo "dead-man switch ping FAILED (the backup itself is fine)" >&2
+  fi
+fi

@@ -57,6 +57,36 @@ class TheAlarmIsWrittenDownNotJustSent(unittest.TestCase):
         )
 
 
+class TheDeadManSwitchAlarmsOnSilence(unittest.TestCase):
+    """The box being gone is the failure no on-box alarm can report.
+
+    So the ping fires on SUCCESS only, and the external watcher alarms when it
+    stops arriving — a failed snapshot, a failed upload, a dead server and a cut
+    network are then indistinguishable, which is exactly what we want.
+    """
+
+    def test_the_ping_is_the_last_thing_the_uploader_does(self):
+        ping = UPLOAD_SCRIPT.index("PHILFORGE_HEALTHCHECK_URL")
+        for earlier in ("remote_sha", "offsite-receipt.json"):
+            self.assertLess(
+                UPLOAD_SCRIPT.index(earlier),
+                ping,
+                f"the ping must come after {earlier} — otherwise it reports health it has not proven",
+            )
+
+    def test_there_is_no_ping_on_the_failure_paths(self):
+        """A ping inside a failure branch would tell the watcher all is well."""
+        for line in UPLOAD_SCRIPT.splitlines():
+            if "curl" in line and "hc_url" in line:
+                self.assertNotIn("||", line)
+
+    def test_a_missing_url_is_not_an_error(self):
+        self.assertIn('if [[ -n "$hc_url" ]]', UPLOAD_SCRIPT)
+
+    def test_a_failed_ping_does_not_fail_the_backup(self):
+        self.assertIn("the backup itself is fine", UPLOAD_SCRIPT)
+
+
 class TheHealthCheckReadsThoseFiles(unittest.TestCase):
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
