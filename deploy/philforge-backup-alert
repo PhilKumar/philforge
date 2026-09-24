@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+import datetime as dt
+import fcntl
+import json
+import os
+import pathlib
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+ENV_FILE = pathlib.Path("/home/ec2-user/philforge/.env")
+RUNTIME_DIR = pathlib.Path("/run/philforge-backup-alert")
+ALLOWED_UNIT = "philforge-backup.service"
+RATE_LIMIT_SECONDS = 15 * 60
+
+
+def read_env_value(name: str) -> str:
+    for raw in ENV_FILE.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() == name:
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            return value
+    return ""
+
+
+def unit_status(unit: str) -> tuple[str, str]:
+    completed = subprocess.run(
+        [
+            "/usr/bin/systemctl",
+            "show",
+            unit,
+            "--property=Result",
+            "--property=ExecMainStatus",
+            "--value",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    values = [line.strip() for line in completed.stdout.splitlines()]
+    result = values[0] if values else "unknown"
+    exit_status = values[1] if len(values) > 1 else "unknown"
+    return result[:40], exit_status[:20]
+
+
+BACKUP_ROOT = pathlib.Path(
+    os.environ.get("PHILFORGE_BACKUP_ROOT") or pathlib.Path.home() / ".local/share/philforge/backups"
+).expanduser()
+
+
+def record_failure(unit: str, reason: str, telegram_delivered: bool) -> None:
+    """Write the failure down where the APP can see it.
+
+    Telegram is not a safety net on its own: when the bot token died, this
+    alarm died with it and six days of failed uploads passed unnoticed
+    (24-Sep-2026). The file written here is read by /api/health, so the site
+    shows a stale backup even when no message can be delivered.
+    """
+    try:
+        BACKUP_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+        payload = {
+            "at": dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "at_epoch": time.time(),
+            "unit": unit,
+            "reason": reason,
+            "telegram_delivered": telegram_delivered,
+            "host": socket.gethostname()[:80],
+        }
+        tmp = BACKUP_ROOT / "last-failure.json.tmp"
+        tmp.write_text(json.dumps(payload, indent=2))
+        tmp.replace(BACKUP_ROOT / "last-failure.json")
+    except OSError as exc:
+        print(f"could not record the failure on disk: {type(exc).__name__}", file=sys.stderr)
+
+
+def send_telegram(token: str, chat_id: str, message: str) -> None:
+    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": message, "disable_web_page_preview": "true"}).encode()
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=payload,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = json.loads(response.read().decode())
+            if response.status != 200 or body.get("ok") is not True:
+                raise RuntimeError("Telegram rejected the alert")
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Telegram delivery failed: {type(exc).__name__}") from exc
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: philforge-backup-alert UNIT")
+    unit = sys.argv[1]
+    is_test = unit == "test"
+    if not is_test and unit != ALLOWED_UNIT:
+        raise SystemExit("refusing alert for an unexpected unit")
+
+    if not is_test:
+        result, exit_status = unit_status(unit)
+        record_failure(unit, f"result={result} exit_status={exit_status}", telegram_delivered=False)
+
+    token = read_env_value("TELEGRAM_BOT_TOKEN")
+    chat_id = read_env_value("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        raise SystemExit("Telegram backup alert credentials are not configured")
+
+    RUNTIME_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = RUNTIME_DIR / "send.lock"
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        marker = RUNTIME_DIR / "last-failure-alert"
+        now = time.time()
+        if not is_test and marker.exists():
+            elapsed = now - marker.stat().st_mtime
+            if 0 <= elapsed < RATE_LIMIT_SECONDS:
+                print("telegram_delivery=rate_limited mode=failure recorded_on_disk=yes")
+                return 0
+
+        timestamp = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+        host = socket.gethostname()[:80]
+        if is_test:
+            message = (
+                "✅ PhilForge backup alert test passed\n"
+                f"Host: {host}\n"
+                f"Time: {timestamp}\n"
+                "Google Drive backup failure notifications are active."
+            )
+        else:
+            message = (
+                "🚨 PhilForge backup failed\n"
+                f"Unit: {unit}\n"
+                f"Result: {result}\n"
+                f"Exit status: {exit_status}\n"
+                f"Host: {host}\n"
+                f"Time: {timestamp}\n"
+                f"Check: journalctl -u {unit}"
+            )
+
+        send_telegram(token, chat_id, message)
+        if not is_test:
+            record_failure(unit, f"result={result} exit_status={exit_status}", telegram_delivered=True)
+            marker.touch(mode=0o600)
+        print(f"telegram_delivery=ok mode={'test' if is_test else 'failure'}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

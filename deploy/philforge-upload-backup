@@ -66,3 +66,10 @@ remote_sha="$("$RCLONE" cat "${REMOTE}${archive_name}" --config "$RCLONE_CONFIG"
 
 printf 'PhilForge Google Drive backup verified: archive=%s sha256=%s retention=%s\n' \
   "$archive_name" "$expected_sha" "$REMOTE_RETENTION"
+
+# Leave a receipt the app can read. A backup that stops reaching Drive used to
+# be invisible unless Telegram was working; /api/health now reads this file.
+receipt_tmp="$BACKUP_DIR/offsite-receipt.json.tmp"
+printf '{\n  "archive": "%s",\n  "completed_at": "%s",\n  "completed_at_epoch": %s,\n  "sha256": "%s",\n  "remote": "%s"\n}\n' \
+  "$archive_name" "$(date -Is)" "$(date +%s)" "$expected_sha" "$REMOTE" > "$receipt_tmp"
+mv -f "$receipt_tmp" "$BACKUP_DIR/offsite-receipt.json"

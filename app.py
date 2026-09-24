@@ -9573,6 +9573,80 @@ async def get_strategy_versions(sid: int, request: Request):
 
 
 # ── Health ────────────────────────────────────────────────────────
+_BACKUP_STALE_AFTER_HOURS = 36.0
+
+
+def _backup_health() -> dict:
+    """Report backup health WITHOUT depending on Telegram.
+
+    The backup's own alarm shouts over Telegram, so a dead bot token hides a
+    dead backup — that is exactly how six days of failed uploads went unnoticed
+    (24-Sep-2026). This reads the artefacts on disk instead, so opening the app
+    is enough to see the truth.
+    """
+    root = os.path.expanduser(config.BACKUP_ROOT)
+
+    def _age_hours(when: float | None) -> float | None:
+        if when is None:
+            return None
+        return round(max(0.0, time.time() - when) / 3600.0, 1)
+
+    snapshot_at: float | None = None
+    try:
+        snapshot_at = os.stat(os.path.realpath(os.path.join(root, "latest.tar.gz"))).st_mtime
+    except OSError:
+        snapshot_at = None
+
+    offsite_at: float | None = None
+    offsite_archive = ""
+    try:
+        with open(os.path.join(root, "offsite-receipt.json")) as fh:
+            receipt = json.load(fh)
+        offsite_at = float(receipt.get("completed_at_epoch") or 0) or None
+        offsite_archive = str(receipt.get("archive") or "")[:120]
+    except (OSError, ValueError, TypeError):
+        offsite_at = None
+
+    failure: dict = {}
+    try:
+        with open(os.path.join(root, "last-failure.json")) as fh:
+            failure = json.load(fh)
+    except (OSError, ValueError):
+        failure = {}
+
+    snapshot_age = _age_hours(snapshot_at)
+    offsite_age = _age_hours(offsite_at)
+    snapshot_ok = snapshot_age is not None and snapshot_age <= _BACKUP_STALE_AFTER_HOURS
+    offsite_ok = offsite_age is not None and offsite_age <= _BACKUP_STALE_AFTER_HOURS
+
+    problems = []
+    if snapshot_age is None:
+        problems.append("no local snapshot has ever been recorded")
+    elif not snapshot_ok:
+        problems.append(f"local snapshot is {snapshot_age}h old")
+    if offsite_age is None:
+        problems.append("no offsite copy has ever been confirmed")
+    elif not offsite_ok:
+        problems.append(f"offsite copy is {offsite_age}h old")
+
+    return {
+        "ok": snapshot_ok and offsite_ok,
+        "snapshot_age_hours": snapshot_age,
+        "offsite_age_hours": offsite_age,
+        "offsite_archive": offsite_archive,
+        "stale_after_hours": _BACKUP_STALE_AFTER_HOURS,
+        "last_failure": {
+            "at": str(failure.get("at") or "")[:40],
+            "unit": str(failure.get("unit") or "")[:80],
+            "reason": str(failure.get("reason") or "")[:200],
+            "telegram_delivered": bool(failure.get("telegram_delivered")),
+        }
+        if failure
+        else None,
+        "problems": problems,
+    }
+
+
 @app.get("/api/health")
 async def health():
     runtime_running = any(_runtime_control_summary(owner_id)["any_running"] for owner_id in _runtime_owner_ids())
@@ -9584,6 +9658,7 @@ async def health():
         ),
         "live_running": _any_running(live_engines),
         "runtime_running": runtime_running,
+        "backup": _backup_health(),
     }
 
 
