@@ -4419,8 +4419,26 @@ def _resolve_user_broker_client(
         )
     if client_id or access_token:
         return None, "partial"
-    if allow_admin_fallback and user and user.get("role") == "admin" and dhan._is_configured():
-        return dhan, "global"
+    # A READ-ONLY ACCOUNT BORROWS THE OWNER'S BROKER, FOR READS ONLY.
+    #
+    # This clause is named "admin fallback" but it only ever fired for an
+    # admin's OWN request, so a viewer got nothing -- and every closed High
+    # Entry chart answered 503, because that route needs candles and candles
+    # need a broker (Phil, 2026-09-24: "Closed campaign charts are not opening
+    # up"). A viewer is meant to see every page and every number, so it borrows
+    # the same client the shared reads already come from.
+    #
+    # What stops this becoming a trading door: the viewer gate in the auth
+    # middleware refuses every unsafe method outright, so no route that PLACES
+    # an order is reachable with this client, and the account balance stays on
+    # VIEWER_REFUSED_READS. The client is handed over for reads that a viewer
+    # was already entitled to see.
+    if allow_admin_fallback and user and dhan._is_configured():
+        role = str(user.get("role") or "").lower()
+        if role == "admin":
+            return dhan, "global"
+        if role == _auth_mod.VIEWER_ROLE:
+            return dhan, "global-viewer"
     return None, "missing"
 
 
