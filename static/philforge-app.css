@@ -727,6 +727,25 @@
   .live-event-empty { color: var(--muted); }
   #scalp-lot-size[readonly] { background: rgba(255,255,255,0.02); }
   select { cursor: pointer; }
+
+  /* The list a <select> drops down is drawn by the OS, not by this stylesheet.
+     With no colour scheme declared the browser paints that panel in its default
+     LIGHT theme, while the options inherit the site's pale text — pale on white,
+     which reads as "the dropdown has no CSS". `color-scheme` is the only thing
+     that steers the native panel; the option rules cover the platforms that do
+     honour page styling. Both are needed. */
+  select { color-scheme: dark; }
+  select option,
+  select optgroup {
+    background: #0e1424;
+    color: #e6edf7;
+  }
+  html[data-theme="light"] select { color-scheme: light; }
+  html[data-theme="light"] select option,
+  html[data-theme="light"] select optgroup {
+    background: #ffffff;
+    color: #0f172a;
+  }
   /* ── BUTTONS ── */
   .btn {
     background: var(--btn-bg, linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 0,191,165),0.22) 0%, rgba(0,150,130,0.40) 100%));

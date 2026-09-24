@@ -444,6 +444,11 @@ VIEWER_SHARED_READ_PREFIXES = (
     "/api/options/",
     "/api/orders",
     "/api/paper/",
+    # The closed-campaign ledgers behind every strategy console. "/api/paper/"
+    # does NOT cover these -- the routes are "/api/paper-campaigns/..." and a
+    # prefix match is literal, so a viewer was being answered from their own
+    # empty account and every strategy showed no closed campaigns at all.
+    "/api/paper-campaigns/",
     "/api/portfolio/",
     "/api/positions",
     "/api/recovery/",
