@@ -73,6 +73,10 @@ receipt_tmp="$BACKUP_DIR/offsite-receipt.json.tmp"
 printf '{\n  "archive": "%s",\n  "completed_at": "%s",\n  "completed_at_epoch": %s,\n  "sha256": "%s",\n  "remote": "%s"\n}\n' \
   "$archive_name" "$(date -Is)" "$(date +%s)" "$expected_sha" "$REMOTE" > "$receipt_tmp"
 mv -f "$receipt_tmp" "$BACKUP_DIR/offsite-receipt.json"
+# The app runs as ec2-user and reads this file; a run under sudo would otherwise
+# leave it root-owned 0600 and the site would report a backup that never happened.
+chmod 0644 "$BACKUP_DIR/offsite-receipt.json"
+chown --reference="$BACKUP_DIR" "$BACKUP_DIR/offsite-receipt.json" 2>/dev/null || true
 
 # Dead-man switch. Everything else here only shouts when something goes WRONG —
 # which is useless if the whole box is gone. This pings an external watcher on
