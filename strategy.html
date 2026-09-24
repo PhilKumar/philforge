@@ -759,7 +759,7 @@
 
       <!-- Action Buttons below conditions -->
       <div class="flex-row" style="margin-top: 4px;">
-        <button class="btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">Run Backtest</button>
+        <button class="read-only-lock btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">Run Backtest</button>
         <button class="btn deploy-cta-btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-size: 13px; font-weight: 700;">Deploy</button>
         <button class="btn" onclick="saveStrategy()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%); --btn-border: rgba(255,255,255,0.12); font-size: 13px; --btn-color: var(--muted);">Save</button>
       </div>
@@ -2596,7 +2596,7 @@
             </div>
             <div class="ocp-field ocp-field-actions ocp-actions">
               <button id="oc-st-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startSupertrendPaper">&#9654; Start paper run</button>
-              <button id="oc-st-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runSupertrendBacktest">&#9649; Backtest</button>
+              <button id="oc-st-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runSupertrendBacktest">&#9649; Backtest</button>
               <button id="oc-st-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killSupertrendPaper" style="display:none;">&#9632; Kill &amp; close</button>
             </div>
           </div>
@@ -2670,7 +2670,7 @@
             <div class="cascade-options-strip-actions">
               <a id="oc-st-backtest-csv" class="cascade-options-control" href="/api/supertrend/backtests/latest/export.csv" download>&#8681; CSV</a>
               <button id="oc-st-backtest-chart-btn" class="ocp-icon-btn is-chart" type="button" data-pf-action="toggleSupertrendBacktestChart" aria-label="Show the backtest chart" title="Show the backtest chart"><span class="ico"><svg width="15" height="15" viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="21"/><rect x="4" y="13" width="3.4" height="8" rx="0.8"/><rect x="10.3" y="9" width="3.4" height="12" rx="0.8"/><rect x="16.6" y="5" width="3.4" height="16" rx="0.8"/><polyline points="3.5 10.5 8 6 12 9.5 20.5 2"/><polyline points="15.5 2 20.5 2 20.5 6.5"/></svg></span></button>
-              <button id="oc-st-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteSupertrendBacktest">&#10005; Clear</button>
+              <button id="oc-st-backtest-delete" class="read-only-lock cascade-options-control is-danger" type="button" data-pf-action="deleteSupertrendBacktest">&#10005; Clear</button>
             </div>
             <div id="oc-st-backtest-chart-wrap" hidden><div id="oc-st-backtest-chart" class="pf-cascade-chart pf-standard-cascade-chart"></div></div>
           </section>
@@ -2889,7 +2889,7 @@
           </div>
           <div class="ocp-field ocp-field-actions ocp-actions">
             <button id="oc-fib-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button>
-            <button id="oc-fib-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest</button>
+            <button id="oc-fib-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest</button>
           </div>
         </div>
         <div id="oc-fib-symbol-note" style="min-height:15px;padding-top:7px;font:10px 'JetBrains Mono',monospace;color:var(--warn);line-height:1.45;"></div>
@@ -2995,7 +2995,7 @@
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="oc-fib-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="oc-fib-backtest-contract" class="cascade-options-contract">Real fixed-strike premiums · CE and PE</div></div>
           <div id="oc-fib-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
-          <div class="cascade-options-strip-actions"><a id="oc-fib-backtest-csv" class="cascade-options-control" href="#" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-fib-backtest-chart-btn" class="ocp-icon-btn is-chart" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart" title="Open journal chart"><span class="ico"><svg width="15" height="15" viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="21"/><rect x="4" y="13" width="3.4" height="8" rx="0.8"/><rect x="10.3" y="9" width="3.4" height="12" rx="0.8"/><rect x="16.6" y="5" width="3.4" height="16" rx="0.8"/><polyline points="3.5 10.5 8 6 12 9.5 20.5 2"/><polyline points="15.5 2 20.5 2 20.5 6.5"/></svg></span></button><button id="oc-fib-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+          <div class="cascade-options-strip-actions"><a id="oc-fib-backtest-csv" class="cascade-options-control" href="#" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-fib-backtest-chart-btn" class="ocp-icon-btn is-chart" type="button" data-pf-action="toggleFibBoundaryBacktestChart" style="display:none;" aria-label="Open journal chart" title="Open journal chart"><span class="ico"><svg width="15" height="15" viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="21"/><rect x="4" y="13" width="3.4" height="8" rx="0.8"/><rect x="10.3" y="9" width="3.4" height="12" rx="0.8"/><rect x="16.6" y="5" width="3.4" height="16" rx="0.8"/><polyline points="3.5 10.5 8 6 12 9.5 20.5 2"/><polyline points="15.5 2 20.5 2 20.5 6.5"/></svg></span></button><button id="oc-fib-backtest-delete" class="read-only-lock cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
         </summary>
         <div class="cascade-options-window-body">
           <div id="oc-fib-backtest-stale" class="ocp-stale-note" style="display:none;"></div>
@@ -3210,7 +3210,7 @@
         </div>
         <div class="ocp-field ocp-field-chart"><label for="oc-candle-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label><select id="oc-candle-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
         <div class="ocp-field ocp-field-when"><label id="oc-candle-timestamp-label" for="oc-candle-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="oc-candle-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
-        <div class="ocp-field ocp-field-actions ocp-actions"><button id="oc-candle-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="oc-candle-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="oc-candle-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+        <div class="ocp-field ocp-field-actions ocp-actions"><button id="oc-candle-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="oc-candle-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="oc-candle-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
       </div>
       <details id="oc-candle-advanced" class="ocp-advanced">
         <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-candle-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
@@ -3312,7 +3312,7 @@
         <summary class="cascade-options-window-head">
           <div class="cascade-options-window-title"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">Backtest · this mother, real premiums</h3><span id="oc-candle-backtest-badge" class="cascade-options-state">REAL PREMIUMS</span></div><div id="oc-candle-backtest-contract" class="cascade-options-contract">One fixed NIFTY CE, priced from recorded option history</div></div>
           <div id="oc-candle-backtest-gist" class="cascade-options-gist">The same ladder Start trades, replayed on this mother and priced from recorded option history — never a fabricated premium.</div>
-          <div class="cascade-options-strip-actions"><a id="oc-candle-backtest-csv" class="cascade-options-control" href="/api/candle-entry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-candle-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleCandleEntryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="oc-candle-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteCandleEntryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+          <div class="cascade-options-strip-actions"><a id="oc-candle-backtest-csv" class="cascade-options-control" href="/api/candle-entry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-candle-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleCandleEntryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="oc-candle-backtest-delete" class="read-only-lock cascade-options-control is-danger" type="button" data-pf-action="deleteCandleEntryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result — an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
         </summary>
         <div class="cascade-options-window-body">
           <div id="oc-candle-backtest-stale" class="ocp-stale-note" style="display:none;"></div>
@@ -3455,7 +3455,7 @@
           </div>
           <div class="ocp-field ocp-field-actions ocp-actions">
             <button id="oc-gap-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startGapCarryPaper">▶ Start paper carry</button>
-            <button id="oc-gap-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runGapCarryBacktest" title="Replay the SAME rule on recorded option prices">◱ Backtest</button>
+            <button id="oc-gap-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runGapCarryBacktest" title="Replay the SAME rule on recorded option prices">◱ Backtest</button>
             <button id="oc-gap-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
           </div>
         </div>
@@ -3552,7 +3552,7 @@
           <div class="ocp-monitor-head"><span class="ocp-monitor-kicker">Replay on recorded prices</span><span id="oc-gap-backtest-updated" class="ocp-monitor-updated"></span></div>
           <div id="oc-gap-backtest-tiles" class="ocp-tiles"></div>
           <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table" id="oc-gap-backtest-table"></table></div></div>
-          <div class="cascade-options-strip-actions"><a id="oc-gap-backtest-csv" class="cascade-options-control" href="/api/gap-carry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-gap-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleGapCarryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="oc-gap-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteGapCarryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result &mdash; an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
+          <div class="cascade-options-strip-actions"><a id="oc-gap-backtest-csv" class="cascade-options-control" href="/api/gap-carry/backtests/latest/export.csv" style="display:none;text-decoration:none;" download>↓ CSV</a><button id="oc-gap-backtest-chart-btn" class="cascade-options-control" type="button" data-pf-action="toggleGapCarryBacktestChart" style="display:none;" aria-label="Open journal chart">↗ Journal chart</button><button id="oc-gap-backtest-delete" class="read-only-lock cascade-options-control is-danger" type="button" data-pf-action="deleteGapCarryBacktest" style="display:none;" aria-label="Delete this saved replay" title="Throw this replay away. It is a saved run, not a live result &mdash; an old one can be from a rule the page no longer trades.">✕ Delete</button></div>
           <div id="oc-gap-backtest-chart-wrap" style="display:none;margin-top:12px;"><div id="oc-gap-backtest-chart" class="pf-cascade-chart pf-standard-cascade-chart"></div></div>
         </section>
       </div>
@@ -3751,7 +3751,7 @@
           <label class="sr-only" for="oc-high-mother">High Entry mother candle timestamp</label>
           <input id="oc-high-mother" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="flex:1;min-width:220px;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
           <button id="oc-high-add-mother" class="btn btn-sm cascade-options-control" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
-          <button id="oc-high-backtest-btn" class="btn btn-sm cascade-options-control" type="button" data-pf-action="runRecoveryBacktest" title="Replay that mother on recorded prices. Nothing is placed.">&#9649; Backtest</button>
+          <button id="oc-high-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runRecoveryBacktest" title="Replay that mother on recorded prices. Nothing is placed.">&#9649; Backtest</button>
         </div>
         <div style="margin-top:8px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
           <!-- Four lines of prose became one: the rest is in the info sheet
@@ -3768,7 +3768,7 @@
         <div id="oc-high-backtest-badge" style="padding:0 16px;font:11px 'JetBrains Mono',monospace;"></div>
         <div id="oc-high-backtest-tiles" class="ocp-tiles"></div>
         <div class="ocp-monitor-section"><div class="ocp-table-wrap"><table class="ocp-table" id="oc-high-backtest-table"></table></div></div>
-        <div class="cascade-options-strip-actions"><button id="oc-high-backtest-delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteRecoveryBacktest">Delete this replay</button></div>
+        <div class="cascade-options-strip-actions"><button id="oc-high-backtest-delete" class="read-only-lock cascade-options-control is-danger" type="button" data-pf-action="deleteRecoveryBacktest">Delete this replay</button></div>
       </section>
       <div id="oc-high-status" style="margin-top:10px;font:11px 'JetBrains Mono',monospace;color:#fca5a5;display:none;"></div>
       </div><!-- /ocp-pane-form -->
