@@ -88,7 +88,7 @@
      stopCascadeOptionsPaper + stopFibSpacePaper (Cascade), and
      stopTerminalCascadePaper (Terminal). Nothing became unreachable.
      POST /api/emergency-stop and the emergencyStop() handler both remain, so
-     restoring it is one <button data-pf-action="emergencyStop"> away. -->
+     restoring it is one <button class="read-only-lock" data-pf-action="emergencyStop"> away. -->
 
 <!-- ═══ HEADER: Top Bar ═══ -->
 <header class="header-shell">
@@ -309,7 +309,7 @@
         </div>
         <div style="display: flex; gap: 6px; margin-top: 10px;">
           <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; flex: 1;">Check</button>
-          <button id="broker-refresh-btn" onclick="refreshToken()" class="btn" style="font-size: 11px; padding: 6px 10px; display: none; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.35) 100%); --btn-border: rgba(245,158,11,0.4); --btn-color: rgb(245,158,11);" title="Regenerate Dhan access token">⟳ Token</button>
+          <button id="broker-refresh-btn" onclick="refreshToken()" class="read-only-lock btn" style="font-size: 11px; padding: 6px 10px; display: none; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.35) 100%); --btn-border: rgba(245,158,11,0.4); --btn-color: rgb(245,158,11);" title="Regenerate Dhan access token">⟳ Token</button>
         </div>
       </div>
     </div>
@@ -522,7 +522,7 @@
         </span>
         <span class="dashboard-flow-panel-chevron" aria-hidden="true">&#9654;</span>
       </button>
-      <button class="btn btn-sm btn-purple" onclick="addNewFolder()" style="font-size: 11px; padding: 5px 12px;">+ New Folder</button>
+      <button class="read-only-lock btn btn-sm btn-purple" onclick="addNewFolder()" style="font-size: 11px; padding: 5px 12px;">+ New Folder</button>
     </div>
     <div id="dash-saved-strategies-body" class="dashboard-flow-panel-body" aria-hidden="true" inert>
       <div class="dashboard-flow-panel-body-inner">
@@ -760,8 +760,8 @@
       <!-- Action Buttons below conditions -->
       <div class="flex-row" style="margin-top: 4px;">
         <button class="read-only-lock btn btn-submit" onclick="runBacktest()" style="margin: 0; flex: 2; font-size: 13px;">Run Backtest</button>
-        <button class="btn deploy-cta-btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-size: 13px; font-weight: 700;">Deploy</button>
-        <button class="btn" onclick="saveStrategy()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%); --btn-border: rgba(255,255,255,0.12); font-size: 13px; --btn-color: var(--muted);">Save</button>
+        <button class="read-only-lock btn deploy-cta-btn" onclick="openDeployModal()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-size: 13px; font-weight: 700;">Deploy</button>
+        <button class="read-only-lock btn" onclick="saveStrategy()" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%); --btn-border: rgba(255,255,255,0.12); font-size: 13px; --btn-color: var(--muted);">Save</button>
       </div>
     </div>
 
@@ -927,7 +927,7 @@
       <div><span style="font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase;">Status</span><br><span style="color: var(--success); font-weight: 700; font-size: 14px;"><span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span> Completed</span></div>
       <div id="results-action-row" style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
         <span id="res-trade-count-badge" style="background: linear-gradient(135deg, var(--accent), rgba(0,200,150,0.7)); color: #000; padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 700; box-shadow: 0 2px 10px rgba(0,200,150,0.3);">0 Trades</span>
-        <button class="btn deploy-cta-btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-weight: 700;" title="Deploy this strategy to live/paper trading">Deploy</button>
+        <button class="read-only-lock btn deploy-cta-btn" onclick="openDeployModal()" style="font-size: 11px; padding: 8px 16px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250); font-weight: 700;" title="Deploy this strategy to live/paper trading">Deploy</button>
         <button class="btn" onclick="copyEditStrategy(currentViewingRunId)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(59,130,246,0.15); --btn-border: rgba(59,130,246,0.3); --btn-color: #93c5fd;" title="Copy this strategy to editor for modification">Copy & Edit</button>
         <button class="btn" onclick="if(lastBacktestData) viewRunDetails(lastBacktestData)" style="font-size: 11px; padding: 6px 14px; --btn-bg: rgba(139,92,246,0.15); --btn-border: rgba(139,92,246,0.3); --btn-color: #c4b5fd;" title="View strategy details">View Strategy</button>
       </div>
@@ -1301,7 +1301,7 @@
     </div>
 
     <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
-      <button class="btn deploy-cta-btn" onclick="deployStrategy()" style="padding: 10px 30px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250);">Deploy Strategy in Live</button>
+      <button class="read-only-lock btn deploy-cta-btn" onclick="deployStrategy()" style="padding: 10px 30px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.45) 100%); --btn-border: rgba(139,92,246,0.45); --btn-color: rgb(167,139,250);">Deploy Strategy in Live</button>
     </div>
   </div>
 </div>
@@ -1807,15 +1807,15 @@
           </div>
         </div>
         <div class="terminal-cascade-start-panel-actions">
-          <button id="terminal-cascade-start" class="btn btn-sm terminal-cascade-start-btn" onclick="startTerminalCascadePaper()">Start Paper</button>
+          <button id="terminal-cascade-start" class="read-only-lock btn btn-sm terminal-cascade-start-btn" onclick="startTerminalCascadePaper()">Start Paper</button>
           <!-- It PREVIEWS the mother you are about to start on: same geometry
                the engine will draw, before any money is committed. The label
                says so now, because "Chart" beside "Start Paper" reads as a
                second way to open the campaign chart, which is what the running
                campaign's own card is for. -->
           <button id="terminal-cascade-chart-btn" class="btn btn-sm terminal-cascade-chart-launch" onclick="previewTerminalCascadeChart()" title="Draw this mother's trendline, fibs and rungs before starting">Preview Chart</button>
-          <button id="terminal-cascade-stop" class="btn btn-sm btn-outline" onclick="stopTerminalCascadePaper()" style="display:none;">Stop</button>
-          <button id="terminal-cascade-delete" class="btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper()" style="display:none;">Delete</button>
+          <button id="terminal-cascade-stop" class="read-only-lock btn btn-sm btn-outline" onclick="stopTerminalCascadePaper()" style="display:none;">Stop</button>
+          <button id="terminal-cascade-delete" class="read-only-lock btn btn-sm btn-danger" onclick="deleteTerminalCascadePaper()" style="display:none;">Delete</button>
         </div>
         <div id="terminal-cascade-form-status" class="terminal-cascade-form-status"></div>
       </section>
@@ -2113,7 +2113,7 @@
                used, run on the scrip's own daily chart. -->
           <div id="tworeds-mothers" class="terminal-cascade-selected" style="display:none;"></div>
           <div class="terminal-cascade-start-panel-actions">
-            <button id="tworeds-start" class="btn btn-sm terminal-cascade-start-btn" data-pf-action="startTwoRedCampaign">Start Paper</button>
+            <button id="tworeds-start" class="read-only-lock btn btn-sm terminal-cascade-start-btn" data-pf-action="startTwoRedCampaign">Start Paper</button>
             <button id="tworeds-chart-btn" class="btn btn-sm terminal-cascade-chart-launch" data-pf-action="loadTwoRedChart">Chart</button>
           </div>
           <div id="tworeds-form-status" class="terminal-cascade-form-status"></div>
@@ -2366,8 +2366,8 @@
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;">
-        <button class="btn" onclick="submitStockTerminalOrder('BUY')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(52,211,153,0.28) 0%,rgba(16,150,90,0.48) 100%);--btn-color:#34d399;--btn-border:rgba(52,211,153,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▲ BUY</button>
-        <button class="btn" onclick="submitStockTerminalOrder('SELL')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(248,113,113,0.28) 0%,rgba(185,38,38,0.48) 100%);--btn-color:#f87171;--btn-border:rgba(248,113,113,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▼ SELL</button>
+        <button class="read-only-lock btn" onclick="submitStockTerminalOrder('BUY')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(52,211,153,0.28) 0%,rgba(16,150,90,0.48) 100%);--btn-color:#34d399;--btn-border:rgba(52,211,153,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▲ BUY</button>
+        <button class="read-only-lock btn" onclick="submitStockTerminalOrder('SELL')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(248,113,113,0.28) 0%,rgba(185,38,38,0.48) 100%);--btn-color:#f87171;--btn-border:rgba(248,113,113,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▼ SELL</button>
       </div>
       <div id="stock-terminal-entry-status" style="min-height:18px;margin-top:8px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;"></div>
     </div>
@@ -2583,8 +2583,8 @@
               <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Runner</label>
               <input type="hidden" id="oc-st-auto" value="off">
               <div id="oc-st-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Unattended runner">
-                <button type="button" class="scalp-toggle-btn active" data-value="off" data-tone="paper" data-pf-action="setSupertrendAuto" role="radio" aria-checked="true"><span>Manual</span></button>
-                <button type="button" class="scalp-toggle-btn" data-value="on" data-tone="ember" data-pf-action="setSupertrendAuto" role="radio" aria-checked="false"><span>Auto</span></button>
+                <button type="button" class="read-only-lock scalp-toggle-btn active" data-value="off" data-tone="paper" data-pf-action="setSupertrendAuto" role="radio" aria-checked="true"><span>Manual</span></button>
+                <button type="button" class="read-only-lock scalp-toggle-btn" data-value="on" data-tone="ember" data-pf-action="setSupertrendAuto" role="radio" aria-checked="false"><span>Auto</span></button>
               </div>
             </div>
             <div class="ocp-field ocp-field-chart">
@@ -2595,9 +2595,9 @@
               </select>
             </div>
             <div class="ocp-field ocp-field-actions ocp-actions">
-              <button id="oc-st-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startSupertrendPaper">&#9654; Start paper run</button>
+              <button id="oc-st-start" class="read-only-lock btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startSupertrendPaper">&#9654; Start paper run</button>
               <button id="oc-st-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runSupertrendBacktest">&#9649; Backtest</button>
-              <button id="oc-st-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killSupertrendPaper" style="display:none;">&#9632; Kill &amp; close</button>
+              <button id="oc-st-stop" class="read-only-lock btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killSupertrendPaper" style="display:none;">&#9632; Kill &amp; close</button>
             </div>
           </div>
           <details id="oc-st-advanced" class="ocp-advanced">
@@ -2852,8 +2852,8 @@
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mother</label>
             <input type="hidden" id="oc-fib-mother-mode" value="manual">
             <div id="oc-fib-mother-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="How the mother is chosen">
-              <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="manual" data-pf-action="setFibBoundaryMotherMode" role="radio" title="You pick the mother candle" aria-checked="true"><span>✎ Manual</span></button>
-              <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="auto" data-pf-action="setFibBoundaryMotherMode" role="radio" title="Every session: the 09:15 5m candle is the mother; a broken mother is replaced by the breakout candle; out by 15:15; tomorrow starts itself" aria-checked="false"><span>⟳ Auto · 09:15</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn active" data-tone="ember" data-value="manual" data-pf-action="setFibBoundaryMotherMode" role="radio" title="You pick the mother candle" aria-checked="true"><span>✎ Manual</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn" data-tone="ember" data-value="auto" data-pf-action="setFibBoundaryMotherMode" role="radio" title="Every session: the 09:15 5m candle is the mother; a broken mother is replaced by the breakout candle; out by 15:15; tomorrow starts itself" aria-checked="false"><span>⟳ Auto · 09:15</span></button>
             </div>
           </div>
           <div class="ocp-field">
@@ -2863,8 +2863,8 @@
                  no password + authenticator challenge. -->
             <input type="hidden" id="oc-fib-mode" value="paper">
             <div id="oc-fib-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
-              <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="true"><span>◎ Paper</span></button>
-              <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="false"><span>◉ Live</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="true"><span>◎ Paper</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setFibBoundaryMode" role="radio" aria-checked="false"><span>◉ Live</span></button>
             </div>
           </div>
           <div id="oc-fib-mother-manual-row" class="ocp-field ocp-field-when" style="grid-column:1 / -1;">
@@ -2888,7 +2888,7 @@
             <input id="oc-fib-capital-cap" type="number" min="1" step="5000" value="75000" title="A cap on the WHOLE ladder, not per rung. At roughly ₹13,000 a NIFTY lot this funds about five rungs; deeper levels are drawn but marked UNFUNDED." style="width:100%;padding:9px 11px;box-sizing:border-box;font:13px 'JetBrains Mono',monospace;">
           </div>
           <div class="ocp-field ocp-field-actions ocp-actions">
-            <button id="oc-fib-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button>
+            <button id="oc-fib-start" class="read-only-lock btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startFibBoundaryPaper">▶ Start fib-boundary paper</button>
             <button id="oc-fib-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runFibBoundaryBacktest" title="Replay this mother through the SAME ladder Start trades, priced from recorded option history">◱ Backtest</button>
           </div>
         </div>
@@ -2934,8 +2934,8 @@
                      where two fibs' levels meet. -->
                 <input type="hidden" id="oc-fib-buy-mode" value="levels">
                 <div id="oc-fib-buy-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="What the ladder buys">
-                  <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Lone: every level of every drawn fib" aria-checked="true"><span>⑃ Lone</span></button>
-                  <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Partner: only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Partner</span></button>
+                  <button type="button" class="read-only-lock scalp-toggle-btn active" data-tone="ember" data-value="levels" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Lone: every level of every drawn fib" aria-checked="true"><span>⑃ Lone</span></button>
+                  <button type="button" class="read-only-lock scalp-toggle-btn" data-tone="ember" data-value="convergence" data-pf-action="setFibBoundaryBuyMode" role="radio" title="Partner: only where a level of one fib meets a level of another" aria-checked="false"><span>◈ Partner</span></button>
                 </div>
               </div>
               <div>
@@ -2944,8 +2944,8 @@
                      option to be selected from console UI." -->
                 <input type="hidden" id="oc-fib-session" value="intraday">
                 <div id="oc-fib-session-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Session rule">
-                  <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" title="Out by 15:15 on the mother's own day" aria-checked="true"><span>⏱ Intraday</span></button>
-                  <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" title="Runs to its target, a broken mother or expiry" aria-checked="false"><span>↗ Carry</span></button>
+                  <button type="button" class="read-only-lock scalp-toggle-btn active" data-tone="ember" data-value="intraday" data-pf-action="setFibBoundarySession" role="radio" title="Out by 15:15 on the mother's own day" aria-checked="true"><span>⏱ Intraday</span></button>
+                  <button type="button" class="read-only-lock scalp-toggle-btn" data-tone="ember" data-value="normal" data-pf-action="setFibBoundarySession" role="radio" title="Runs to its target, a broken mother or expiry" aria-checked="false"><span>↗ Carry</span></button>
                 </div>
               </div>
               <div id="oc-fib-deep-carry-row">
@@ -3037,7 +3037,7 @@
           <div class="cascade-options-window-title"><!-- ONE ROW: the state, then its badge. It wrapped, so a long title pushed AUTO . WATCHING onto a line of its own (Phil, 2026-08-26). --><div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;min-width:0;"><h3 data-fx="title" style="margin:0;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Campaign monitor</h3><span data-fx="badge" class="cascade-options-state" style="flex:0 0 auto;">IDLE</span></div><div data-fx="contract" class="cascade-options-contract">No active campaign</div></div>
           <div data-fx="gist" class="cascade-options-gist">Pick an instrument, a side and a mother candle — the swing is found for you.</div>
         </summary>
-        <div class="cascade-options-strip-actions oc-fib-monitor-strip-actions"><button data-fx="chart" class="ocp-icon-btn is-chart" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart" title="Open campaign chart"><span class="ico"><svg width="15" height="15" viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="21"/><rect x="4" y="13" width="3.4" height="8" rx="0.8"/><rect x="10.3" y="9" width="3.4" height="12" rx="0.8"/><rect x="16.6" y="5" width="3.4" height="16" rx="0.8"/><polyline points="3.5 10.5 8 6 12 9.5 20.5 2"/><polyline points="15.5 2 20.5 2 20.5 6.5"/></svg></span></button><button data-fx="kill" class="cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
+        <div class="cascade-options-strip-actions oc-fib-monitor-strip-actions"><button data-fx="chart" class="ocp-icon-btn is-chart" type="button" data-pf-action="loadFibBoundaryChart" aria-label="Open campaign chart" title="Open campaign chart"><span class="ico"><svg width="15" height="15" viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="21"/><rect x="4" y="13" width="3.4" height="8" rx="0.8"/><rect x="10.3" y="9" width="3.4" height="12" rx="0.8"/><rect x="16.6" y="5" width="3.4" height="16" rx="0.8"/><polyline points="3.5 10.5 8 6 12 9.5 20.5 2"/><polyline points="15.5 2 20.5 2 20.5 6.5"/></svg></span></button><button data-fx="kill" class="read-only-lock cascade-options-control is-danger" type="button" data-pf-action="killFibBoundaryPaper" style="display:none;">■ Kill</button><button data-fx="delete" class="read-only-lock cascade-options-control is-danger" type="button" data-pf-action="deleteFibBoundaryPaper" style="display:none;" title="Remove this ended campaign from the monitors. Bookkeeping only — nothing is closed by this.">🗑 Delete</button></div>
         <div class="cascade-options-window-body">
           <div class="oc-fib-monitor-body-inner">
           <div data-fx="summary" class="cascade-options-summary"></div>
@@ -3204,13 +3204,13 @@
                to 15:10 on weekdays; never on top of a running campaign. -->
           <input type="hidden" id="oc-candle-auto" value="off">
           <div id="oc-candle-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Auto mother">
-            <button type="button" class="scalp-toggle-btn active" data-tone="ember" data-value="off" data-pf-action="setCandleEntryAuto" role="radio" aria-checked="true"><span>○ Off</span></button>
-            <button type="button" class="scalp-toggle-btn" data-tone="ember" data-value="on" data-pf-action="setCandleEntryAuto" role="radio" title="Starts the measured rule on each new 278-bar high, market hours only" aria-checked="false"><span>◉ On</span></button>
+            <button type="button" class="read-only-lock scalp-toggle-btn active" data-tone="ember" data-value="off" data-pf-action="setCandleEntryAuto" role="radio" aria-checked="true"><span>○ Off</span></button>
+            <button type="button" class="read-only-lock scalp-toggle-btn" data-tone="ember" data-value="on" data-pf-action="setCandleEntryAuto" role="radio" title="Starts the measured rule on each new 278-bar high, market hours only" aria-checked="false"><span>◉ On</span></button>
           </div>
         </div>
         <div class="ocp-field ocp-field-chart"><label for="oc-candle-timeframe" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Chart</label><select id="oc-candle-timeframe" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></select></div>
         <div class="ocp-field ocp-field-when"><label id="oc-candle-timestamp-label" for="oc-candle-mother-timestamp" style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Look back from · IST (blank = now)</label><input id="oc-candle-mother-timestamp" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" placeholder="now" style="width:100%;padding:9px 11px;font:13px 'JetBrains Mono',monospace;"></div>
-        <div class="ocp-field ocp-field-actions ocp-actions"><button id="oc-candle-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="oc-candle-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="oc-candle-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
+        <div class="ocp-field ocp-field-actions ocp-actions"><button id="oc-candle-start" class="read-only-lock btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startCandleEntryPaper">▶ Start paper campaign</button><button id="oc-candle-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runCandleEntryBacktest" title="Replay through the SAME ladder Start trades, priced from recorded option history, to the option's expiry">◱ Backtest</button><button id="oc-candle-stop" class="read-only-lock btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killCandleEntryPaper" style="display:none;">■ Kill &amp; close</button></div>
       </div>
       <details id="oc-candle-advanced" class="ocp-advanced">
         <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-candle-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
@@ -3434,16 +3434,16 @@
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Mode</label>
             <input type="hidden" id="oc-gap-mode" value="paper">
             <div id="oc-gap-mode-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Trading mode">
-              <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setGapCarryMode" role="radio" aria-checked="true"><span>◎ Paper</span></button>
-              <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setGapCarryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn active" data-value="paper" data-tone="paper" data-pf-action="setGapCarryMode" role="radio" aria-checked="true"><span>◎ Paper</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn" data-value="live" data-tone="live" data-pf-action="setGapCarryMode" role="radio" title="Live is refused by the server until the Dhan order path is verified — same gate as Fib Boundary" aria-checked="false"><span>◉ Live</span></button>
             </div>
           </div>
           <div class="ocp-field ocp-field-auto">
             <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:4px;">Auto</label>
             <input type="hidden" id="oc-gap-auto" value="off">
             <div id="oc-gap-auto-toggle" class="scalp-toggle compact" style="width:100%;" role="radiogroup" aria-label="Auto carry">
-              <button type="button" class="scalp-toggle-btn active" data-value="off" data-tone="paper" data-pf-action="setGapCarryAuto" role="radio" aria-checked="true"><span>○ Manual</span></button>
-              <button type="button" class="scalp-toggle-btn" data-value="on" data-tone="bull" data-pf-action="setGapCarryAuto" role="radio" title="Every session: read the candle closed by 15:10, buy at 15:10 if it qualifies; cut at 09:15 if it opens down, else sell at 09:20. Pinned to the measured settings." aria-checked="false"><span>◉ Auto</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn active" data-value="off" data-tone="paper" data-pf-action="setGapCarryAuto" role="radio" aria-checked="true"><span>○ Manual</span></button>
+              <button type="button" class="read-only-lock scalp-toggle-btn" data-value="on" data-tone="bull" data-pf-action="setGapCarryAuto" role="radio" title="Every session: read the candle closed by 15:10, buy at 15:10 if it qualifies; cut at 09:15 if it opens down, else sell at 09:20. Pinned to the measured settings." aria-checked="false"><span>◉ Auto</span></button>
             </div>
           </div>
           <div class="ocp-field ocp-field-chart">
@@ -3454,9 +3454,9 @@
             </select>
           </div>
           <div class="ocp-field ocp-field-actions ocp-actions">
-            <button id="oc-gap-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startGapCarryPaper">▶ Start paper carry</button>
+            <button id="oc-gap-start" class="read-only-lock btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="startGapCarryPaper">▶ Start paper carry</button>
             <button id="oc-gap-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runGapCarryBacktest" title="Replay the SAME rule on recorded option prices">◱ Backtest</button>
-            <button id="oc-gap-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
+            <button id="oc-gap-stop" class="read-only-lock btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
           </div>
         </div>
         <details id="oc-gap-advanced" class="ocp-advanced">
@@ -3712,8 +3712,8 @@
           </div>
         </div>
         <div class="ocp-field ocp-field-actions">
-          <button id="oc-high-start" class="btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="recoveryStart">&#9654; Start paper run</button>
-          <button id="oc-high-stop" class="btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="recoveryStop" style="display:none;">&#9632; Stop</button>
+          <button id="oc-high-start" class="read-only-lock btn btn-sm cascade-options-primary-btn" type="button" data-pf-action="recoveryStart">&#9654; Start paper run</button>
+          <button id="oc-high-stop" class="read-only-lock btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="recoveryStop" style="display:none;">&#9632; Stop</button>
         </div>
       </div>
 
@@ -3750,7 +3750,7 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;">
           <label class="sr-only" for="oc-high-mother">High Entry mother candle timestamp</label>
           <input id="oc-high-mother" class="pf-cascade-datetime" data-pf-calendar-no-future="1" type="datetime-local" step="60" style="flex:1;min-width:220px;padding:9px 11px;font:13px 'JetBrains Mono',monospace;">
-          <button id="oc-high-add-mother" class="btn btn-sm cascade-options-control" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
+          <button id="oc-high-add-mother" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="recoveryAddMother">+ Run this mother</button>
           <button id="oc-high-backtest-btn" class="read-only-lock btn btn-sm cascade-options-control" type="button" data-pf-action="runRecoveryBacktest" title="Replay that mother on recorded prices. Nothing is placed.">&#9649; Backtest</button>
         </div>
         <div style="margin-top:8px;font:11px/1.6 'JetBrains Mono',monospace;color:var(--muted);">
@@ -4296,9 +4296,9 @@
         <span id="scalp-session-pnl" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; color: var(--muted);">₹0.00</span>
       </div>
       <div style="display: flex; gap: 8px;">
-        <button class="btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(96,165,250,0.28), rgba(30,64,175,0.46)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,0.48); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
+        <button class="read-only-lock btn btn-sm" onclick="startScalpEngine()" id="scalp-start-btn" style="--btn-bg: linear-gradient(180deg, rgba(96,165,250,0.28), rgba(30,64,175,0.46)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,0.48); padding: 5px 14px; font-size: 11px;">▶ Start Engine</button>
         <button type="button" class="btn btn-sm" data-pf-action="openCePeIndexChart" data-cepe-tf="5m" title="Open NIFTY 5-minute chart with CPR, S1-S5, R1-R4 and 20 EMA" style="padding:5px 12px;font-size:11px;">↗ NIFTY 5m</button>
-        <button class="btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
+        <button class="read-only-lock btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
       </div>
       </div>
     </div>
@@ -4313,7 +4313,7 @@
       <h3 style="font-size: 15px; font-weight: 700; margin: 0;">Active Positions</h3>
       <div style="display: flex; align-items: center; gap: 10px;">
         <span id="scalp-open-count" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">0 open</span>
-        <button class="btn btn-sm" onclick="killAllScalpTrades()" id="scalp-kill-all-btn" style="padding: 4px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; --btn-bg: linear-gradient(180deg, rgba(220,38,38,0.35) 0%, rgba(153,27,27,0.6) 100%); --btn-color: #fca5a5; --btn-border: rgba(248,113,113,0.6); display: none;">⚠ KILL ALL</button>
+        <button class="read-only-lock btn btn-sm" onclick="killAllScalpTrades()" id="scalp-kill-all-btn" style="padding: 4px 12px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; --btn-bg: linear-gradient(180deg, rgba(220,38,38,0.35) 0%, rgba(153,27,27,0.6) 100%); --btn-color: #fca5a5; --btn-border: rgba(248,113,113,0.6); display: none;">⚠ KILL ALL</button>
       </div>
       </div>
       <!-- Focusable because it scrolls: in the live pane the table is wider
@@ -4466,8 +4466,8 @@
             <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" onclick="setScalpMode('paper')"><span>Paper</span></button>
             <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" onclick="setScalpMode('live')"><span>Live</span></button>
           </div>
-          <button class="btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
-          <button class="btn" onclick="submitScalpEntry('SELL')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.28) 0%, rgba(185,38,38,0.48) 100%); --btn-color: #f87171; --btn-border: rgba(248,113,113,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▼ SELL</button>
+          <button class="read-only-lock btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
+          <button class="read-only-lock btn" onclick="submitScalpEntry('SELL')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.28) 0%, rgba(185,38,38,0.48) 100%); --btn-color: #f87171; --btn-border: rgba(248,113,113,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▼ SELL</button>
         </div>
         <div class="scalp-live-note">Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.</div>
         <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
@@ -4854,9 +4854,9 @@
           Save your own Dhan Client ID and Access Token here. This only affects the current user account.
         </div>
         <div class="settings-actions-row">
-          <button class="btn" id="account-broker-save-btn" onclick="saveBrokerSettings()">Save Broker Credentials</button>
+          <button class="read-only-lock btn" id="account-broker-save-btn" onclick="saveBrokerSettings()">Save Broker Credentials</button>
           <button class="btn" id="account-broker-check-btn" onclick="checkBrokerFromSettings()" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
-          <button class="btn" id="account-broker-clear-btn" onclick="clearBrokerSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Stored Credentials</button>
+          <button class="read-only-lock btn" id="account-broker-clear-btn" onclick="clearBrokerSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Stored Credentials</button>
           <button class="btn" id="account-ip-refresh-btn" onclick="loadExecutionIpStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: #6ee7b7;">Refresh IP Check</button>
         </div>
       </div>
@@ -4882,10 +4882,10 @@
           </div>
         </div>
         <div class="settings-actions-row">
-          <button class="btn" id="account-zerodha-save-btn" onclick="saveZerodhaSettings()">Save Zerodha App</button>
+          <button class="read-only-lock btn" id="account-zerodha-save-btn" onclick="saveZerodhaSettings()">Save Zerodha App</button>
           <button class="btn" id="account-zerodha-login-btn" onclick="loginZerodha()" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: #6ee7b7;">Log in to Zerodha</button>
           <button class="btn" id="account-zerodha-check-btn" onclick="checkZerodhaStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
-          <button class="btn" id="account-zerodha-clear-btn" onclick="clearZerodhaSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Zerodha</button>
+          <button class="read-only-lock btn" id="account-zerodha-clear-btn" onclick="clearZerodhaSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Zerodha</button>
         </div>
       </div>
 
@@ -5035,7 +5035,7 @@
             <option value="admin">Admin</option>
           </select>
         </div>
-        <button class="btn" onclick="createAdminUser()">Create User</button>
+        <button class="read-only-lock btn" onclick="createAdminUser()">Create User</button>
       </div>
     </div>
 

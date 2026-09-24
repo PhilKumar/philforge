@@ -118,5 +118,78 @@ class ThePageStopsOfferingWhatCannotWork(unittest.TestCase):
         self.assertIn("'read-only-account', data.role === 'viewer'", js)
 
 
+class EveryWriteControlOnThePageIsLocked(unittest.TestCase):
+    """The rule, not just the backtest buttons.
+
+    Classified by what the handler actually DOES — a fetch with a POST, PUT,
+    DELETE or PATCH — rather than by what the button is called, because a name
+    is not a permission.
+    """
+
+    SELF_SERVICE = {
+        # A viewer keeps control of their OWN login. These match
+        # auth.VIEWER_WRITE_ALLOWLIST, so the server accepts them too.
+        "logoutUser",
+        "changeOwnPasswordFromSettings",
+        "disableMfa",
+        "startMfaEnrollment",
+        "verifyMfaEnrollment",
+        "registerPasskey",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tags = re.findall(r"<(?:button|a|input|select)\b[^>]*>", PAGE)
+        cls.js = "\n".join(
+            (ROOT / "static" / name).read_text(encoding="utf-8")
+            for name in ("philforge-app.js", "philforge-two-red.js")
+        )
+
+    def _handler_body(self, name):
+        for pat in (
+            rf"\basync\s+function\s+{re.escape(name)}\s*\(",
+            rf"\bfunction\s+{re.escape(name)}\s*\(",
+            rf"\b{re.escape(name)}\s*[:=]\s*async\s+function",
+            rf"\b{re.escape(name)}\s*[:=]\s*async\s*\(",
+        ):
+            m = re.search(pat, self.js)
+            if not m:
+                continue
+            i = self.js.index("{", m.end() - 1)
+            depth = 0
+            for j in range(i, len(self.js)):
+                if self.js[j] == "{":
+                    depth += 1
+                elif self.js[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return self.js[i:j]
+        return None
+
+    def test_a_control_that_writes_is_locked(self):
+        checked = 0
+        for tag in self.tags:
+            names = {a or b for a, b in re.findall(r'data-pf-action="([A-Za-z0-9_]+)"|onclick="([A-Za-z0-9_]+)\(', tag)}
+            for name in names - self.SELF_SERVICE:
+                body = self._handler_body(name)
+                if not body or not re.search(r"method\s*:\s*['\"](POST|PUT|DELETE|PATCH)", body, re.I):
+                    continue
+                checked += 1
+                with self.subTest(action=name):
+                    self.assertIn(
+                        "read-only-lock",
+                        tag,
+                        f"{name} writes but is offered to read-only accounts",
+                    )
+        self.assertGreater(checked, 30, "the classifier found too few write controls to be believable")
+
+    def test_the_viewers_own_login_controls_stay_usable(self):
+        for tag in self.tags:
+            names = {a or b for a, b in re.findall(r'data-pf-action="([A-Za-z0-9_]+)"|onclick="([A-Za-z0-9_]+)\(', tag)}
+            for name in names & self.SELF_SERVICE:
+                with self.subTest(action=name):
+                    self.assertNotIn("read-only-lock", tag, f"{name} is the viewer's own and must work")
+
+
 if __name__ == "__main__":
     unittest.main()
