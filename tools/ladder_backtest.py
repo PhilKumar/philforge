@@ -169,16 +169,21 @@ def run(args) -> list:
 
         # 2. a new campaign starts at a marked mother candle
         if is_mother.get(ts, False) and len(live) < args.max_concurrent:
-            # The chart as a person sees it when they reset to this mother: the
-            # lowest low on screen behind it. The structure's own range is the
-            # unit the boundaries are measured in, scaled by --unit-fraction
-            # because 8 whole swing-ranges below is a level price never reaches.
-            window = bars.loc[:ts].tail(args.mother_lookback)
-            visible_low = float(window["low"].min())
-            span = high - visible_low
-            if span < args.min_unit:
+            # PHIL, 25-Sep-2026: "The visible low is on the same timeframe
+            # you're trading." With the chart reset so the mother IS the first
+            # candle, the visible low at that instant is the mother's own low —
+            # and the boundaries walk down from there in units of the mother's
+            # range (T18: 0, 1, 2, 4, 8). Each timeframe does this on its own
+            # bars with its own fund, which is what the 1m -> 1H progression in
+            # Part 4 means.
+            #
+            # A mother has to be worth marking. Without a floor on its range the
+            # 0.25 exit is a quarter of a nothing-candle and noise closes every
+            # campaign, which is exactly how the first run got 567 of 569.
+            unit = high - low
+            if unit < args.min_unit:
                 continue
-            c = Campaign(ts, high, visible_low, span * args.unit_fraction, args.capital)
+            c = Campaign(ts, high, low, unit, args.capital)
             campaigns.append(c)
             live.append(c)
 
@@ -197,7 +202,15 @@ def report(campaigns: list, args) -> None:
     if not started:
         return
     realised = sum(c.realised for c in closed)
-    print(f"\nrealised on the closed ones {realised:>12,.0f} index-points-of-capital")
+    deployed = sum(c.deployed for c in closed)
+    # RETURN ON THE MONEY ACTUALLY USED. The ladder spends a tenth of the
+    # account on a typical campaign and holds it for hours, so measuring against
+    # the whole account for the whole period flatters nothing and explains
+    # nothing. Both numbers belong in the open.
+    print(
+        f"\nrealised on the closed ones {realised:>12,.0f}   on {deployed:>12,.0f} deployed"
+        f"   = {100.0 * realised / deployed if deployed else 0:>5.2f}% of money used"
+    )
     if closed:
         days = [(c.closed_ts - c.open_ts).total_seconds() / 86400.0 for c in closed]
         legs = [len(c.legs) for c in closed]
@@ -222,10 +235,7 @@ def main() -> None:
     ap.add_argument("--to-date", default="2026-08-21")
     ap.add_argument("--bar-minutes", type=int, default=5)
     ap.add_argument("--mother-lookback", type=int, default=78, help="bars each side of a swing high")
-    ap.add_argument("--min-unit", type=float, default=50.0, help="ignore structures smaller than this")
-    ap.add_argument(
-        "--unit-fraction", type=float, default=0.25, help="boundary spacing as a fraction of the structure's range"
-    )
+    ap.add_argument("--min-unit", type=float, default=30.0, help="the mother candle's own range must be at least this")
     ap.add_argument("--capital", type=float, default=100_000.0)
     ap.add_argument("--trading-fraction", type=float, default=0.50, help="T6: half is never a trading fund")
     ap.add_argument("--first-exit-portion", type=float, default=0.50, help="how much leaves at 0.25")
