@@ -3826,6 +3826,8 @@ def _ensure_auto_loops_running() -> list[str]:
         # nothing ever started it. Phil got no message on 2026-09-23 and the
         # journal held no trace of the job at all.
         "official-prev-close": _run_official_close_telegram_loop,
+        # Silence is the alarm -- see _run_live_watchdog_loop.
+        "live-watchdog": _run_live_watchdog_loop,
     }
     started: list[str] = []
     for name, factory in loops.items():
@@ -25864,6 +25866,86 @@ def _official_close_telegram_due(now: datetime, sent_on: str) -> bool:
     trading_day = not _nse_session_closed(now.date())
     in_window = start <= now.time() <= end
     return trading_day and in_window and sent_on != now.date().isoformat()
+
+
+# ── THE BOOK WATCHES ITSELF ──────────────────────────────────────────────────
+#
+# 25-Sep-2026, Phil: "I am really annoyed in this monitoring a live trade
+# daily.. For this I can do trade manually.."
+#
+# He is right. A book he has to watch is a book he is running by hand with extra
+# steps. The failures that made him watch were all SILENT ones -- an engine that
+# stops taking candles, a token that dies mid-session, a strategy that quietly
+# decides on the wrong number. None of them raise an error; they just do
+# nothing, and nothing looks exactly like a quiet market.
+#
+# So silence itself is now the alarm. During the session every running live book
+# must have processed a candle recently. If one goes quiet, he is told once, and
+# told again when it comes back -- so no news really does mean the books are
+# working.
+_LIVE_WATCHDOG_SILENCE_MIN = 7  # two missed 5m candles, then speak
+_LIVE_WATCHDOG_FIRST_CHECK = dt_time(9, 25)
+_LIVE_WATCHDOG_LAST_CHECK = dt_time(15, 20)
+_live_watchdog_quiet: dict = {}
+
+
+def _live_watchdog_targets() -> list:
+    out = []
+    for _owner_id, run_id, engine in _iter_registry_items(live_engines):
+        if getattr(engine, "running", False):
+            out.append((run_id, engine))
+    return out
+
+
+def _live_watchdog_silence_minutes(engine, now: datetime) -> Optional[float]:
+    """Minutes since this engine last processed a candle, or None if unknown."""
+    seen = getattr(engine, "current_time", None)
+    if seen is None:
+        return None
+    try:
+        if seen.tzinfo is None:
+            seen = seen.replace(tzinfo=IST)
+        return max(0.0, (now - seen).total_seconds() / 60.0)
+    except (TypeError, AttributeError, ValueError):
+        return None
+
+
+async def _run_live_watchdog_loop() -> None:
+    while True:
+        try:
+            now = datetime.now(IST)
+            in_session = now.weekday() < 5 and _LIVE_WATCHDOG_FIRST_CHECK <= now.time() <= _LIVE_WATCHDOG_LAST_CHECK
+            if in_session:
+                for run_id, engine in _live_watchdog_targets():
+                    name = (
+                        str(engine.strategy.get("name", run_id))[:60] if getattr(engine, "strategy", None) else run_id
+                    )
+                    quiet_for = _live_watchdog_silence_minutes(engine, now)
+                    was_quiet = _live_watchdog_quiet.get(run_id, False)
+                    is_quiet = quiet_for is None or quiet_for >= _LIVE_WATCHDOG_SILENCE_MIN
+                    if is_quiet and not was_quiet:
+                        seen = "never this session" if quiet_for is None else f"{quiet_for:.0f} min ago"
+                        alerter.alert(
+                            "Live book has gone quiet",
+                            f"<b>{name}</b> last took a candle {seen}.\n\n"
+                            f"It is still marked running, so it is not an orderly stop. "
+                            f"Nothing has been placed or closed on your behalf.",
+                            level="error",
+                        )
+                        _logger.error("[WATCHDOG] %s silent, last candle %s", name, seen)
+                    elif was_quiet and not is_quiet:
+                        alerter.alert(
+                            "Live book is taking candles again",
+                            f"<b>{name}</b> is back, {quiet_for:.0f} min since its last candle.",
+                            level="info",
+                        )
+                    _live_watchdog_quiet[run_id] = is_quiet
+            else:
+                _live_watchdog_quiet.clear()
+        except Exception:
+            # The watchdog must never be the thing that dies.
+            _logger.exception("[WATCHDOG] check failed")
+        await asyncio.sleep(60)
 
 
 async def _run_official_close_telegram_loop() -> None:

@@ -1831,6 +1831,22 @@ class LiveEngine:
             f"history {worst[1]['history']} (off by {worst[1]['off_by']}) — deciding on the broker history",
             {"divergence": self.indicator_divergence},
         )
+        # AND TELL HIM. Phil should not have to sit and watch the book to learn
+        # that it is judging on a number the broker disagrees with (25-Sep-2026:
+        # "I am really annoyed in this monitoring a live trade daily").
+        try:
+            import alerter
+
+            alerter.alert(
+                "Indicator divergence",
+                f"<b>{self.strategy.get('name', 'live book')}</b> was about to decide on "
+                f"{worst[0]} = {worst[1]['engine']}, but the broker's own history says "
+                f"{worst[1]['history']} (off by {worst[1]['off_by']}).\n\n"
+                f"The entry is being judged on the history instead. Candle {at}.",
+                level="error",
+            )
+        except Exception:
+            pass
         # Decide on the history. It carries the full series, which is the whole
         # point of the check; the live frame's own bars are in it too, because
         # the same broker produced both.
