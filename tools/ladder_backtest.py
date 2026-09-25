@@ -199,8 +199,18 @@ def run(args) -> list:
         low, high, close = float(bar["low"]), float(bar["high"]), float(bar["close"])
 
         # 1. existing campaigns: fill deeper legs, then look for the book's exits
+        #
+        # INTRABAR LOOK-AHEAD, found 26-Sep-2026 by pricing these campaigns as
+        # options: the buys and the exit were landing in the SAME bar — filled at
+        # its low, exited at its high — and the option carried one price for both
+        # ends, which is what exposed it. Inside a bar we do not know the order
+        # of the low and the high, so a book may not be opened and closed in one.
+        # One level a bar, and no exit on a bar that bought.
         for c in list(live):
+            bought_this_bar = False
             for i, level in enumerate(c.levels):
+                if bought_this_bar:
+                    break
                 if not c.filled[i] and low <= level:
                     if len(c.legs) >= args.max_legs:
                         break
@@ -213,6 +223,7 @@ def run(args) -> list:
                         break
                     spend = min(c.capital * share, room)
                     c.buy(ts, min(level, float(bar["open"])), i, spend / c.capital)
+                    bought_this_bar = True
             c.low_water = min(c.low_water, low)
             if c.qty:
                 eq = c.equity(args.capital, low, args.leverage)
@@ -220,7 +231,7 @@ def run(args) -> list:
                     c.worst_equity = eq
                 if eq <= 0 and not getattr(c, "blown", False):
                     c.blown = True
-            if c.qty > 0:
+            if c.qty > 0 and not bought_this_bar:
                 first, second = c.target(0.25), c.target(0.5)
                 if high >= first and not any(e["reason"] == "0.25" for e in c.exits):
                     c.sell(ts, first, args.first_exit_portion, "0.25")
