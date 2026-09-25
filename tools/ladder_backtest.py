@@ -1,0 +1,246 @@
+"""The ladder: accumulate against the move, no stop, exit on the BOOK.
+
+This is the part of the course nothing we own has ever modelled. Every backtest
+so far priced ONE entry, ONE exit and ONE direction — and his method is none of
+those. Day17 puts it plainly: taking the trade is about 20% of the work, the
+80% is what happens after. This measures the 80%.
+
+THE RULES, as written in CLASS_PLAYBOOK.md, not as I imagine them
+-----------------------------------------------------------------
+  * A campaign starts from a MOTHER CANDLE. "Reset the chart so that your
+    starting point becomes the first candle." Its high is the recovery
+    reference; its range is the unit everything is measured in.
+  * Buys go in BELOW, at the boundary indices he names (T18: 0, 1, 2, 4, 8
+    units under the mother's low), never above.
+  * Sizes ladder 20 / 30 / 50 within a zone (T3), and trading capital is capped
+    at 50% of the account (T6) — the rest is not a trading fund.
+  * There is NO STOP (T11). A ladder is defended with unspent capital, not with
+    a price.
+  * Exit is measured off the BOOK, not the leg (T7): 0.25 and 0.5 of the
+    distance from the AVERAGE entry back toward the mother candle (T10).
+    Worked example from the playbook — mother 100, average 80: exits at 85 and
+    90. How much leaves at each is a free parameter Phil says the backtest
+    should decide, so it is swept, not assumed.
+
+WHAT THIS IS REALLY ASKING. A system with no stop only works if the position
+always comes back. So the headline is not the profit — it is how deep it went,
+how long it took, how much capital it demanded, and HOW OFTEN IT NEVER CAME
+BACK AT ALL. A ladder that returns money on 98% of campaigns and is still
+holding the other 2% at the end of the data has not made money; it has borrowed
+it from a campaign that has not finished losing yet.
+
+Index points and index-sized capital, deliberately. Option pricing would add
+decay and spread on top of a mechanic that has never been measured alone.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from tools.ema_level_confluence import load_clean_minutes  # noqa: E402
+
+BOUNDARIES = (0.0, 1.0, 2.0, 4.0, 8.0)  # T18, in mother-candle ranges below the low
+ZONE_SPLIT = (0.20, 0.30, 0.50)  # T3, within each boundary's own fund
+
+
+class Campaign:
+    """T4: "Find the VISIBLE LOW on that timeframe. Deploy that timeframe's
+    money only below that low." The first version bought at the mother candle's
+    own low, one bar under the high -- so the book's average sat a few points
+    below the mother and the 0.25 exit was a quarter of ONE CANDLE's range.
+    A target that small is hit by noise, which is why 567 of 569 campaigns
+    "recovered". That was measuring the market's tendency to wobble, not his
+    ladder."""
+
+    def __init__(self, mother_ts, mother_high, visible_low, unit, capital):
+        self.mother_ts = mother_ts
+        self.mother_high = mother_high
+        self.unit = unit
+        self.levels = [visible_low - k * unit for k in BOUNDARIES]
+        self.filled = [False] * len(self.levels)
+        self.capital = capital
+        self.qty = 0.0
+        self.cost = 0.0
+        self.legs = []
+        self.exits = []
+        self.low_water = visible_low
+        self.open_ts = None
+        self.closed_ts = None
+
+    @property
+    def average(self) -> float:
+        return self.cost / self.qty if self.qty else 0.0
+
+    def target(self, fraction: float) -> float:
+        """0.25 or 0.5 of the way from the average entry back to the mother."""
+        avg = self.average
+        return avg + (self.mother_high - avg) * fraction
+
+    def buy(self, when, price, level_index, share_of_capital):
+        # Size in "units of index", so one unit of capital buys one point of
+        # index. The absolute size is arbitrary; what matters is the RATIO
+        # between legs and the capital ceiling, which is what the rules fix.
+        spend = self.capital * share_of_capital
+        qty = spend / price
+        self.qty += qty
+        self.cost += qty * price
+        self.filled[level_index] = True
+        self.legs.append({"at": when, "price": price, "qty": qty, "level": level_index})
+        if self.open_ts is None:
+            self.open_ts = when
+
+    def sell(self, when, price, portion, reason):
+        qty = self.qty * portion
+        if qty <= 0:
+            return
+        proceeds = qty * price
+        cost_out = self.average * qty
+        self.exits.append({"at": when, "price": price, "qty": qty, "pnl": proceeds - cost_out, "reason": reason})
+        self.qty -= qty
+        self.cost -= cost_out
+        if self.qty <= 1e-9:
+            self.qty = 0.0
+            self.cost = 0.0
+            self.closed_ts = when
+
+    @property
+    def realised(self) -> float:
+        return sum(e["pnl"] for e in self.exits)
+
+    @property
+    def deployed(self) -> float:
+        return sum(leg["qty"] * leg["price"] for leg in self.legs)
+
+
+def find_mothers(bars: pd.DataFrame, lookback: int) -> pd.Series:
+    """A mother candle is a local swing HIGH — the "starting point" you reset the
+    chart to. Taking every bar would start a campaign every five minutes; taking
+    the highest bar of a rolling window takes the ones a person would mark."""
+    high = bars["high"]
+    return high == high.rolling(lookback, center=True, min_periods=1).max()
+
+
+def run(args) -> list:
+    minute = load_clean_minutes()
+    minute = minute[(minute.index >= args.from_date) & (minute.index <= args.to_date)]
+    bars = (
+        minute.resample(f"{args.bar_minutes}min")
+        .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
+        .dropna()
+    )
+    bars = bars.between_time("09:15", "15:29")
+    is_mother = find_mothers(bars, args.mother_lookback)
+
+    campaigns: list = []
+    live: list = []
+    for ts, bar in bars.iterrows():
+        low, high, close = float(bar["low"]), float(bar["high"]), float(bar["close"])
+
+        # 1. existing campaigns: fill deeper legs, then look for the book's exits
+        for c in list(live):
+            for i, level in enumerate(c.levels):
+                if not c.filled[i] and low <= level:
+                    if len(c.legs) >= args.max_legs:
+                        break
+                    share = ZONE_SPLIT[min(len(c.legs), len(ZONE_SPLIT) - 1)] * args.trading_fraction
+                    # T6 IS A CEILING, NOT A SUGGESTION. The first version let
+                    # five legs of 10/15/25/25/25% spend 100% of the account --
+                    # the half that "is never a trading fund" was being traded.
+                    room = c.capital * args.trading_fraction - c.deployed
+                    if room <= 0:
+                        break
+                    spend = min(c.capital * share, room)
+                    c.buy(ts, min(level, float(bar["open"])), i, spend / c.capital)
+            c.low_water = min(c.low_water, low)
+            if c.qty > 0:
+                first, second = c.target(0.25), c.target(0.5)
+                if high >= first and not any(e["reason"] == "0.25" for e in c.exits):
+                    c.sell(ts, first, args.first_exit_portion, "0.25")
+                if c.qty > 0 and high >= second:
+                    c.sell(ts, second, 1.0, "0.5")
+            if c.qty <= 0:
+                live.remove(c)
+
+        # 2. a new campaign starts at a marked mother candle
+        if is_mother.get(ts, False) and len(live) < args.max_concurrent:
+            # The chart as a person sees it when they reset to this mother: the
+            # lowest low on screen behind it. The structure's own range is the
+            # unit the boundaries are measured in, scaled by --unit-fraction
+            # because 8 whole swing-ranges below is a level price never reaches.
+            window = bars.loc[:ts].tail(args.mother_lookback)
+            visible_low = float(window["low"].min())
+            span = high - visible_low
+            if span < args.min_unit:
+                continue
+            c = Campaign(ts, high, visible_low, span * args.unit_fraction, args.capital)
+            campaigns.append(c)
+            live.append(c)
+
+    return campaigns
+
+
+def report(campaigns: list, args) -> None:
+    started = [c for c in campaigns if c.legs]
+    closed = [c for c in started if c.qty == 0]
+    open_still = [c for c in started if c.qty > 0]
+    never = len(open_still)
+    print(f"mother candles marked      {len(campaigns):>8,}")
+    print(f"campaigns that opened      {len(started):>8,}")
+    print(f"  closed (book recovered)  {len(closed):>8,}")
+    print(f"  STILL OPEN at the end    {never:>8,}   <- the ones the ladder never rescued")
+    if not started:
+        return
+    realised = sum(c.realised for c in closed)
+    print(f"\nrealised on the closed ones {realised:>12,.0f} index-points-of-capital")
+    if closed:
+        days = [(c.closed_ts - c.open_ts).total_seconds() / 86400.0 for c in closed]
+        legs = [len(c.legs) for c in closed]
+        print(f"  median hold                {sorted(days)[len(days)//2]:>8.1f} days" f"   longest {max(days):>6.1f}")
+        print(f"  median legs used           {sorted(legs)[len(legs)//2]:>8}" f"   most {max(legs):>6}")
+    if open_still:
+        under = [(c.average - c.low_water) for c in open_still]
+        held = [len(c.legs) for c in open_still]
+        print("\nthe unrescued ones:")
+        print(f"  median legs spent          {sorted(held)[len(held)//2]:>8}")
+        print(f"  median depth below average {sorted(under)[len(under)//2]:>8.0f} points")
+        worst = max(open_still, key=lambda c: c.average - c.low_water)
+        print(
+            f"  worst: opened {worst.open_ts:%Y-%m-%d}, {len(worst.legs)} legs, "
+            f"average {worst.average:,.0f}, went to {worst.low_water:,.0f}"
+        )
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--from-date", default="2021-01-01")
+    ap.add_argument("--to-date", default="2026-08-21")
+    ap.add_argument("--bar-minutes", type=int, default=5)
+    ap.add_argument("--mother-lookback", type=int, default=78, help="bars each side of a swing high")
+    ap.add_argument("--min-unit", type=float, default=50.0, help="ignore structures smaller than this")
+    ap.add_argument(
+        "--unit-fraction", type=float, default=0.25, help="boundary spacing as a fraction of the structure's range"
+    )
+    ap.add_argument("--capital", type=float, default=100_000.0)
+    ap.add_argument("--trading-fraction", type=float, default=0.50, help="T6: half is never a trading fund")
+    ap.add_argument("--first-exit-portion", type=float, default=0.50, help="how much leaves at 0.25")
+    ap.add_argument("--max-legs", type=int, default=len(BOUNDARIES))
+    ap.add_argument("--max-concurrent", type=int, default=50)
+    args = ap.parse_args()
+
+    campaigns = run(args)
+    print(
+        f"{args.from_date} -> {args.to_date}, {args.bar_minutes}m bars, "
+        f"mother = swing high over {args.mother_lookback} bars, "
+        f"{args.first_exit_portion:.0%} out at 0.25\n"
+    )
+    report(campaigns, args)
+
+
+if __name__ == "__main__":
+    main()
