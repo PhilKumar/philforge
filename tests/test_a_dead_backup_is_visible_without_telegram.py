@@ -154,6 +154,47 @@ class TheHealthCheckReadsThoseFiles(unittest.TestCase):
         self.assertFalse(health["last_failure"]["telegram_delivered"])
         self.assertIn("exit_status=1", health["last_failure"]["reason"])
 
+    def test_a_failure_after_the_last_good_copy_is_not_ok(self):
+        """The real 25-Sep bug. rclone's config was unreadable to the service
+        user, so the upload failed while yesterday's receipt was only 17h old.
+        Both ages were inside the 36h window, so this endpoint said ok:true and
+        Phil learnt of it from Telegram — the one channel it must not rely on."""
+        self._write_snapshot(0.2)
+        self._write_receipt(17)
+        (self.root / "last-failure.json").write_text(
+            json.dumps(
+                {
+                    "at": "2026-09-25T09:12:14+05:30",
+                    "at_epoch": time.time() - 600,  # AFTER the receipt
+                    "unit": "philforge-backup.service",
+                    "reason": "result=exit-code exit_status=1",
+                    "telegram_delivered": True,
+                }
+            )
+        )
+        health = _load_app_health()()
+        self.assertFalse(health["ok"])
+        self.assertTrue(any("failed after the last good copy" in p for p in health["problems"]), health["problems"])
+
+    def test_an_old_failure_before_a_good_copy_does_not_keep_it_red(self):
+        """Once a later upload succeeds, yesterday's failure must not stick."""
+        self._write_snapshot(0.2)
+        self._write_receipt(1)
+        (self.root / "last-failure.json").write_text(
+            json.dumps(
+                {
+                    "at": "2026-09-24T09:09:54+05:30",
+                    "at_epoch": time.time() - 24 * 3600,  # BEFORE the receipt
+                    "unit": "philforge-backup.service",
+                    "reason": "result=exit-code exit_status=1",
+                    "telegram_delivered": True,
+                }
+            )
+        )
+        health = _load_app_health()()
+        self.assertTrue(health["ok"], health["problems"])
+        self.assertIsNotNone(health["last_failure"])
+
     def test_nothing_at_all_reads_as_broken_not_as_fine(self):
         health = _load_app_health()()
         self.assertFalse(health["ok"])

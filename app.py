@@ -9637,6 +9637,19 @@ def _backup_health() -> dict:
     snapshot_ok = snapshot_age is not None and snapshot_age <= _BACKUP_STALE_AFTER_HOURS
     offsite_ok = offsite_age is not None and offsite_age <= _BACKUP_STALE_AFTER_HOURS
 
+    # A FAILURE NEWER THAN THE LAST SUCCESS IS A PROBLEM, whatever the ages say.
+    # On 25-Sep-2026 the upload had been failing for a day -- rclone's config was
+    # unreadable to the service user -- and this endpoint still reported ok:true,
+    # because yesterday's receipt was 17h old and the 36h window had not closed.
+    # Phil learnt it from Telegram, which is the one channel this was built not
+    # to depend on. Age alone is too slow to be the only test.
+    failed_at = 0.0
+    try:
+        failed_at = float(failure.get("at_epoch") or 0)
+    except (TypeError, ValueError):
+        failed_at = 0.0
+    failure_is_current = bool(failed_at) and failed_at > (offsite_at or 0.0)
+
     problems = []
     if snapshot_age is None:
         problems.append("no local snapshot has ever been recorded")
@@ -9646,9 +9659,13 @@ def _backup_health() -> dict:
         problems.append("no offsite copy has ever been confirmed")
     elif not offsite_ok:
         problems.append(f"offsite copy is {offsite_age}h old")
+    if failure_is_current:
+        reason = str(failure.get("reason") or "").strip()[:120]
+        unit = str(failure.get("unit") or "the backup").strip()[:80]
+        problems.append(f"{unit} failed after the last good copy" + (f": {reason}" if reason else ""))
 
     return {
-        "ok": snapshot_ok and offsite_ok,
+        "ok": snapshot_ok and offsite_ok and not failure_is_current,
         "snapshot_age_hours": snapshot_age,
         "offsite_age_hours": offsite_age,
         "offsite_archive": offsite_archive,

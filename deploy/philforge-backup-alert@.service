@@ -1,0 +1,29 @@
+[Unit]
+Description=PhilForge backup failure alert for %I
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+UMask=0077
+RuntimeDirectory=philforge-backup-alert
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/sbin/philforge-backup-alert %i
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
