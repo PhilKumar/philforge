@@ -47,9 +47,16 @@ EXPECTED_LOOPS = [
     "candle-entry",
     "fib-boundary",
     "gap-carry",
+    # Both joined on 2026-09-25, for the same reason the official-close message
+    # did: Phil should not be the thing that notices a book has stopped working.
+    # live-watchdog speaks when a running book takes no candle for 7 minutes;
+    # pre-open-check inspects every book at 09:10 and reports either way.
+    # (The list is compared against sorted(started), so it stays alphabetical.)
+    "live-watchdog",
     # The 09:00 official-close message joined them on 2026-09-23: started from
     # the startup block alone, a deployed (standby) worker never started it.
     "official-prev-close",
+    "pre-open-check",
     "sanctuary-plans",
     "supertrend",
 ]
@@ -62,6 +69,8 @@ STUBBED = [
     (None, "_run_gap_carry_auto_loop"),
     (None, "_run_supertrend_auto_loop"),
     (None, "_run_official_close_telegram_loop"),
+    (None, "_run_live_watchdog_loop"),
+    (None, "_run_pre_open_check_loop"),
     (app_module._sanctuary, "plan_nudge_loop"),
 ]
 
