@@ -3828,6 +3828,8 @@ def _ensure_auto_loops_running() -> list[str]:
         "official-prev-close": _run_official_close_telegram_loop,
         # Silence is the alarm -- see _run_live_watchdog_loop.
         "live-watchdog": _run_live_watchdog_loop,
+        # And the faults that are knowable before the open, at 09:10.
+        "pre-open-check": _run_pre_open_check_loop,
     }
     started: list[str] = []
     for name, factory in loops.items():
@@ -25866,6 +25868,88 @@ def _official_close_telegram_due(now: datetime, sent_on: str) -> bool:
     trading_day = not _nse_session_closed(now.date())
     in_window = start <= now.time() <= end
     return trading_day and in_window and sent_on != now.date().isoformat()
+
+
+# ── THE MORNING CHECK, BEFORE THE FIRST CANDLE ───────────────────────────────
+#
+# 25-Sep-2026, Phil: "Then daily I am catching a bug on your code even on the
+# live trades."
+#
+# That is the real complaint, and the watchdog does not answer it: a watchdog
+# reports faster, it does not find things EARLIER. Every fault he has caught
+# himself was visible before the market opened -- a book whose session_date
+# never rolled, a book sitting on yesterday's position, an engine registered but
+# not running, an indicator series that had not carried across the break. All of
+# it is knowable at 09:10, with nothing at stake, instead of at 10:00 with money
+# in the market.
+#
+# So the books are inspected before the open and the result is sent whether it
+# is good or bad. A silent morning would be indistinguishable from a broken
+# check, which is the failure this whole day has been about.
+_PRE_OPEN_CHECK_AT = dt_time(9, 10)
+_PRE_OPEN_CHECK_KEY = "pre_open_check_sent_on"
+
+
+def _pre_open_faults(engine, today: date) -> list[str]:
+    """Everything that can be known about a live book before the first candle."""
+    faults = []
+    if not getattr(engine, "running", False):
+        faults.append("registered but not running")
+    session_date = getattr(engine, "session_date", None)
+    if session_date is not None and session_date != today:
+        # The known one: an after-midnight restart leaves a stale session_date
+        # and the book skips the whole day without saying anything.
+        faults.append(f"session_date is {session_date}, not {today}")
+    if getattr(engine, "in_trade", False):
+        faults.append("still marked in-trade from the previous session")
+    if getattr(engine, "manual_intervention_required", False):
+        faults.append("manual intervention flag is set")
+    if getattr(engine, "indicator_divergence", None):
+        cols = ", ".join((engine.indicator_divergence.get("columns") or {}).keys())
+        faults.append(f"indicators disagreed with the broker's history yesterday ({cols})")
+    if getattr(engine, "dhan", None) is None:
+        faults.append("no broker client attached")
+    return faults
+
+
+def _pre_open_report(today: date) -> tuple[str, str, int]:
+    lines, faulty = [], 0
+    books = list(_iter_registry_items(live_engines))
+    for _owner_id, run_id, engine in books:
+        name = str(getattr(engine, "strategy", {}).get("name", run_id))[:60]
+        faults = _pre_open_faults(engine, today)
+        if faults:
+            faulty += 1
+            lines.append(f"🔴 <b>{name}</b>\n    " + "\n    ".join(faults))
+        else:
+            lines.append(f"🟢 <b>{name}</b> ready")
+    if not books:
+        return ("No live book is loaded", "Nothing is registered to trade today.", 1)
+    title = "Books ready for the open" if not faulty else f"{faulty} book(s) NOT ready"
+    return (title, "\n".join(lines), faulty)
+
+
+async def _run_pre_open_check_loop() -> None:
+    """09:10 IST on trading days: inspect every live book and say what it found."""
+    while True:
+        try:
+            now = datetime.now(IST)
+            today = now.date()
+            sent_on = (await _db_mod.get_app_state(_PRE_OPEN_CHECK_KEY)) or ""
+            due = (
+                now.weekday() < 5
+                and now.time() >= _PRE_OPEN_CHECK_AT
+                and now.time() < dt_time(9, 15)
+                and sent_on != today.isoformat()
+            )
+            if due:
+                title, body, faulty = _pre_open_report(today)
+                alerter.alert(title, body, level="error" if faulty else "info")
+                await _db_mod.set_app_state(_PRE_OPEN_CHECK_KEY, today.isoformat())
+                _logger.info("[PRE-OPEN] %s", title)
+        except Exception:
+            _logger.exception("[PRE-OPEN] check failed")
+        await asyncio.sleep(60)
 
 
 # ── THE BOOK WATCHES ITSELF ──────────────────────────────────────────────────
