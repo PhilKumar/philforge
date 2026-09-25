@@ -49,6 +49,52 @@ BOUNDARIES = (0.0, 1.0, 2.0, 4.0, 8.0)  # T18, in mother-candle ranges below the
 ZONE_SPLIT = (0.20, 0.30, 0.50)  # T3, within each boundary's own fund
 
 
+# ─────────────────────────────────────────────────────────── the real bill ──
+# A leveraged ladder pays three separate tolls and the cash test paid none of
+# them. In order of how much they bite:
+#
+#   CARRY.  A long futures position is a financed position: the future trades
+#           above spot by roughly the cost of money, and that premium decays to
+#           zero by expiry. Hold for a month and you have paid a month of
+#           interest on the NOTIONAL, not on your capital. At 8x that is eight
+#           times the rate on your own money.
+#   ROLL.   NIFTY futures expire monthly. A campaign that outlives its contract
+#           must sell the near and buy the far: two more orders, two more
+#           spreads, every month it stays open.
+#   TICKET. Brokerage, STT on the sell, exchange and SEBI charges, GST on top of
+#           those, stamp duty on the buy. Small per trade, not small over 647.
+CARRY_ANNUAL = 0.065  # cost of carry built into the futures basis
+BROKERAGE_PER_ORDER = 20.0
+STT_SELL = 0.000125  # 0.0125% of sell notional, futures
+TXN_CHARGE = 0.000019
+SEBI_CHARGE = 0.000001
+STAMP_BUY = 0.00002
+GST = 0.18
+
+
+def ticket_costs(buy_notional: float, sell_notional: float) -> float:
+    brokerage = BROKERAGE_PER_ORDER * 2
+    txn = (buy_notional + sell_notional) * TXN_CHARGE
+    sebi = (buy_notional + sell_notional) * SEBI_CHARGE
+    gst = (brokerage + txn + sebi) * GST
+    return brokerage + txn + sebi + gst + sell_notional * STT_SELL + buy_notional * STAMP_BUY
+
+
+def rolls_between(start, end) -> int:
+    """Monthly expiries crossed — the last Thursday of each month."""
+    if start is None or end is None:
+        return 0
+    n, cur = 0, pd.Timestamp(start).normalize()
+    end = pd.Timestamp(end).normalize()
+    while cur < end:
+        month_end = (cur + pd.offsets.MonthEnd(0)).normalize()
+        last_thu = month_end - pd.Timedelta(days=(month_end.weekday() - 3) % 7)
+        if cur <= last_thu < end:
+            n += 1
+        cur = (month_end + pd.Timedelta(days=1)).normalize()
+    return n
+
+
 class Campaign:
     """T4: "Find the VISIBLE LOW on that timeframe. Deploy that timeframe's
     money only below that low." The first version bought at the mother candle's
@@ -223,8 +269,28 @@ def report(campaigns: list, args) -> None:
         print(f"\nAT {args.leverage:g}x LEVERAGE")
         print(f"  campaigns that took the account to ZERO   {len(blown):>6,}")
         print(f"  worst equity seen in any campaign         {worst:>12,.0f} of {args.capital:,.0f}")
-    realised = sum(c.realised for c in closed) * args.leverage
+    gross = sum(c.realised for c in closed) * args.leverage
+    carry = tickets = slip = roll_cost = 0.0
+    n_rolls = 0
+    for c in closed:
+        notional = c.deployed * args.leverage
+        days = max(0.0, (c.closed_ts - c.open_ts).total_seconds() / 86400.0)
+        carry += notional * CARRY_ANNUAL * days / 365.0
+        tickets += ticket_costs(notional, notional)
+        rolls = rolls_between(c.open_ts, c.closed_ts)
+        n_rolls += rolls
+        roll_cost += rolls * (ticket_costs(notional, notional) + notional * args.slippage_points / 20000.0)
+        slip += 2 * notional * args.slippage_points / 20000.0
+    bill = carry + tickets + slip + roll_cost
+    realised = gross - bill
     deployed = sum(c.deployed for c in closed)
+    if args.leverage > 1 or args.slippage_points:
+        print(f"  gross before costs {gross:>14,.0f}")
+        print(f"     carry           {carry:>14,.0f}")
+        print(f"     rolls ({n_rolls:>3})      {roll_cost:>14,.0f}")
+        print(f"     slippage        {slip:>14,.0f}")
+        print(f"     brokerage/STT   {tickets:>14,.0f}")
+        print(f"  costs charged      {bill:>14,.0f}")
     # RETURN ON THE MONEY ACTUALLY USED. The ladder spends a tenth of the
     # account on a typical campaign and holds it for hours, so measuring against
     # the whole account for the whole period flatters nothing and explains
@@ -263,6 +329,12 @@ def main() -> None:
     ap.add_argument("--first-exit-portion", type=float, default=0.50, help="how much leaves at 0.25")
     ap.add_argument("--max-legs", type=int, default=len(BOUNDARIES))
     ap.add_argument("--max-concurrent", type=int, default=50)
+    ap.add_argument(
+        "--slippage-points",
+        type=float,
+        default=1.0,
+        help="index points given up per side (20000 is a rough NIFTY level)",
+    )
     ap.add_argument(
         "--leverage", type=float, default=1.0, help="NIFTY futures margin is roughly 12% of notional, so about 8x"
     )
