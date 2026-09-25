@@ -295,6 +295,10 @@ class LiveEngine:
         self._market_open = time(9, 15)
         self._market_close = time(15, 25)
         self._signal_cutoff: Optional[time] = None
+        # Set when the frame the engine decides on disagrees with the broker's
+        # own history -- see _audit_indicators_against_history.
+        self.indicator_divergence: Optional[dict] = None
+        self._indicator_audit_day = None
 
         # Market data
         self.current_spot = 0.0
@@ -1326,6 +1330,7 @@ class LiveEngine:
                 "order_verification_failures": self.order_verification_failures,
                 "last_order_verification": self.last_order_verification,
                 "manual_intervention_required": self.manual_intervention_required,
+                "indicator_divergence": self.indicator_divergence,
                 # Market data snapshot
                 "current_spot": self.current_spot,
                 "current_time": str(self.current_time) if self.current_time else None,
@@ -1730,7 +1735,106 @@ class LiveEngine:
         if df_with_indicators.empty:
             return df_with_indicators
         df_with_indicators = self._apply_daily_averages(df_with_indicators)
+        df_with_indicators = self._audit_indicators_against_history(
+            df_with_indicators, indicators, execution_timeframe, fetch_timeframe
+        )
         return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
+
+    # ── THE INDICATORS THE ENGINE DECIDES ON MUST BE THE ONES ON THE CHART ────
+    #
+    # 25-Sep-2026. The live PE book took its entry at 09:45 instead of 09:20.
+    # Its rule is "close below EMA_20_5m", and at the 09:15 candle it held the
+    # EMA at 23,050 while the same code on the same broker history put it at
+    # 23,094 -- the value on Phil's chart. Its EMA had not carried across the
+    # session: it was 44 points low at the open and still 23 points low at 09:40,
+    # converging only as the morning went on. The strategy trades before 11:00,
+    # so the error sat exactly where every decision was made, and Phil paid for
+    # a later, dearer PE.
+    #
+    # The decision frame is built from WEBSOCKET candles merged with a remembered
+    # context. Whatever thins that series, the fix is the same: check the numbers
+    # against the broker's own history before trading on them, say so loudly when
+    # they disagree, and decide on the history instead. The fetch also refills
+    # _indicator_context_raw, so the frame heals itself for later candles.
+    #
+    # Once per session is enough -- the divergence is a warm-up defect, worst at
+    # the open -- plus a re-check while a divergence is still unresolved.
+    _INDICATOR_AUDIT_TOL_PCT = 0.02  # 0.02% of price: ~4.6 points on NIFTY
+    _INDICATOR_AUDIT_TOL_MIN = 1.0  # never quibble below a point
+
+    def _audit_indicators_against_history(
+        self,
+        df_live: pd.DataFrame,
+        indicators: list,
+        execution_timeframe: int,
+        fetch_timeframe: int,
+    ) -> pd.DataFrame:
+        today = _now_ist().date()
+        if getattr(self, "_indicator_audit_day", None) == today and not getattr(self, "indicator_divergence", None):
+            return df_live
+        if self.dhan is None or df_live.empty:
+            return df_live
+        try:
+            instrument = self.strategy.get("instrument", "26000")
+            history = self._fetch_raw_history(instrument, fetch_timeframe, days=7)
+            if history is None or history.empty:
+                return df_live
+            with pinned_sessions(self._session_book):
+                df_ref = compute_dynamic_indicators(
+                    history,
+                    indicators,
+                    default_timeframe_minutes=execution_timeframe,
+                    source_timeframe_minutes=fetch_timeframe,
+                    execution_timeframe_minutes=execution_timeframe,
+                )
+            df_ref = self._apply_daily_averages(df_ref)
+        except Exception as exc:  # a failed audit must never stop trading
+            self.log_event("warning", f"indicator audit could not run: {type(exc).__name__}")
+            return df_live
+        self._indicator_audit_day = today
+        if df_ref.empty:
+            return df_live
+
+        shared = [ts for ts in df_live.index if ts in df_ref.index]
+        if not shared:
+            return df_live
+        at = shared[-1]
+        price = float(df_live.at[at, "close"]) if "close" in df_live.columns else 0.0
+        tol = max(self._INDICATOR_AUDIT_TOL_MIN, abs(price) * self._INDICATOR_AUDIT_TOL_PCT / 100.0)
+        off = {}
+        for col in df_live.columns:
+            if col not in df_ref.columns or col in ("open", "high", "low", "close", "volume", "oi"):
+                continue
+            live_val, ref_val = df_live.at[at, col], df_ref.at[at, col]
+            try:
+                live_f, ref_f = float(live_val), float(ref_val)
+            except (TypeError, ValueError):
+                continue
+            if live_f != live_f or ref_f != ref_f:  # NaN on either side
+                continue
+            if abs(live_f - ref_f) > tol:
+                off[col] = {"engine": round(live_f, 4), "history": round(ref_f, 4), "off_by": round(live_f - ref_f, 4)}
+        if not off:
+            self.indicator_divergence = None
+            return df_live
+
+        worst = max(off.items(), key=lambda kv: abs(kv[1]["off_by"]))
+        self.indicator_divergence = {
+            "at": str(at),
+            "checked_at": _now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+            "tolerance": round(tol, 2),
+            "columns": off,
+        }
+        self.log_event(
+            "error",
+            f"⚠️ indicator divergence at {at}: {worst[0]} engine {worst[1]['engine']} vs "
+            f"history {worst[1]['history']} (off by {worst[1]['off_by']}) — deciding on the broker history",
+            {"divergence": self.indicator_divergence},
+        )
+        # Decide on the history. It carries the full series, which is the whole
+        # point of the check; the live frame's own bars are in it too, because
+        # the same broker produced both.
+        return df_ref
 
     def _remember_indicator_context(self, raw_df: pd.DataFrame, *, max_rows: int = 800) -> None:
         if not isinstance(raw_df, pd.DataFrame) or raw_df.empty:
@@ -1898,6 +2002,7 @@ class LiveEngine:
                 "open_positions": len(self.positions),
                 "closed_trades": len(self.closed_trades),
                 "manual_intervention_required": self.manual_intervention_required,
+                "indicator_divergence": self.indicator_divergence,
                 "order_verification_failures": self.order_verification_failures,
             },
             "data_state": {
@@ -4405,6 +4510,7 @@ class LiveEngine:
             "order_verification_failures": self.order_verification_failures,
             "last_order_verification": self.last_order_verification,
             "manual_intervention_required": self.manual_intervention_required,
+            "indicator_divergence": self.indicator_divergence,
             "broker_stop": {
                 "requested": str((self.deploy_config or {}).get("place_leg_sl", "no")).lower() == "yes",
                 "unprotected_legs": len(self._unprotected_legs()),
