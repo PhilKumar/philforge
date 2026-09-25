@@ -878,27 +878,36 @@ class LiveEngine:
         return repaired
 
     async def _broker_closing_fill(self, pos: dict) -> tuple[float, datetime | None]:
-        """The price and time the BROKER got out at, from its own trade book.
+        """The price and time the BROKER got out at. See _broker_closing_fill_detail."""
+        price, stamp, _order_id = await self._broker_closing_fill_detail(pos)
+        return price, stamp
+
+    async def _broker_closing_fill_detail(self, pos: dict) -> tuple[float, datetime | None, str]:
+        """The price, time AND ORDER ID the BROKER got out at, from its trade book.
 
         A position row carries averages, not fills, and no time at all. The
         trade book carries both -- so a square-off Dhan made for us can be
         booked at the price it happened and the moment it happened, rather than
         at an average and at whenever we next looked.
 
-        Returns (0.0, None) when it cannot be established; the caller falls back
-        to the position row.
+        The order id is what tells a STOP being hit from a human closing the
+        position by hand: if it is the stop order we placed ourselves, the exit
+        is a stop loss, whatever it looks like from outside.
+
+        Returns (0.0, None, "") when it cannot be established; the caller falls
+        back to the position row.
         """
         security_id = self._resolve_position_security_id(pos)
         if not security_id or self.dhan is None:
-            return 0.0, None
+            return 0.0, None, ""
         closing_side = "SELL" if str(pos.get("transaction_type") or "BUY").upper() == "BUY" else "BUY"
         try:
             fills = await asyncio.to_thread(self.dhan.get_trades)
         except Exception as exc:
             self.log_event("warning", f"Could not read the broker's trade book: {exc}")
-            return 0.0, None
+            return 0.0, None, ""
 
-        latest_price, latest_stamp = 0.0, None
+        latest_price, latest_stamp, latest_order = 0.0, None, ""
         for fill in fills or []:
             if not isinstance(fill, dict):
                 continue
@@ -909,6 +918,7 @@ class LiveEngine:
             price = self._safe_float(fill.get("tradedPrice") or fill.get("price"), 0.0)
             if price <= 0:
                 continue
+            order_id = str(fill.get("orderId") or fill.get("order_id") or "").strip()
             raw_stamp = str(fill.get("exchangeTime") or fill.get("createTime") or "")[:19]
             stamp = None
             for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
@@ -919,8 +929,49 @@ class LiveEngine:
                     continue
             # The LAST closing fill is the one that flattened us.
             if latest_stamp is None or (stamp is not None and stamp >= latest_stamp):
-                latest_price, latest_stamp = price, stamp or latest_stamp
-        return latest_price, latest_stamp
+                latest_price, latest_stamp, latest_order = price, stamp or latest_stamp, order_id
+        return latest_price, latest_stamp, latest_order
+
+    # ── A STOP FIRING IS NOT "MANUAL" ────────────────────────────────────────
+    #
+    # 25-Sep-2026, Phil: "The live trade exited with reason manual exit.. but
+    # I've not exited manually..." He had not. His own resting stop had been hit
+    # -- entry 242.60, trigger 194.08, filled 193.85 -- and the paper book of the
+    # same strategy logged STOP_LOSS for the same moment, one second apart.
+    #
+    # The engine placed that stop itself at entry and then failed to recognise
+    # it: anything that closed a position without an exit order of its own was
+    # labelled BROKER_MANUAL_EXIT. So the one exit the engine is most certain
+    # about was reported to Phil as somebody else's doing, which is alarming and
+    # false, and it went into the trade history that way -- where every later
+    # reading of how these books behave comes from.
+    #
+    # The broker's trade book carries the order id of the fill. If it is the
+    # stop we placed, the answer is not a guess.
+    def _broker_close_reason(self, pos: dict, exit_premium: float, fill_order_id: str) -> str:
+        sl_order_id = str(pos.get("sl_order_id") or "").strip()
+        if sl_order_id and fill_order_id and str(fill_order_id) == sl_order_id:
+            self.log_event(
+                "info",
+                f"Leg {pos.get('leg_num')} was closed by OUR stop order {sl_order_id}, not by hand",
+            )
+            return "STOP_LOSS"
+        # No order id to match (an older fill row, or the trade book was
+        # unreadable): fall back to the price. A long option closed at or below
+        # its own stop trigger is a stop, and saying so is more honest than
+        # calling it manual -- but the basis is logged, because it is weaker.
+        trigger = self._safe_float(pos.get("sl_price") or pos.get("sl_trigger"), 0.0)
+        if trigger > 0 and exit_premium > 0:
+            long_leg = str(pos.get("transaction_type") or "BUY").upper() == "BUY"
+            hit = exit_premium <= trigger if long_leg else exit_premium >= trigger
+            if hit:
+                self.log_event(
+                    "info",
+                    f"Leg {pos.get('leg_num')} closed at {exit_premium} against a stop at {trigger} "
+                    f"— booked as a stop loss (no order id on the fill)",
+                )
+                return "STOP_LOSS"
+        return "BROKER_MANUAL_EXIT"
 
     async def _reconcile_broker_positions(self, callback=None) -> bool:
         if not self.positions:
@@ -956,15 +1007,16 @@ class LiveEngine:
                 continue
 
             # The trade book first: it holds the fill itself, with its time.
-            exit_premium, exit_stamp = await self._broker_closing_fill(pos)
+            exit_premium, exit_stamp, fill_order_id = await self._broker_closing_fill_detail(pos)
             if exit_premium <= 0:
                 exit_premium = self._broker_exit_premium(pos, broker_position)
             if exit_premium <= 0:
                 exit_premium = self._safe_float(pos.get("entry_premium"), 0.0)
 
             if broker_qty <= 0:
+                reason = self._broker_close_reason(pos, exit_premium, fill_order_id)
                 closed_trade = await self._record_closed_trade(
-                    pos, "BROKER_MANUAL_EXIT", exit_premium, engine_qty, exit_time=exit_stamp
+                    pos, reason, exit_premium, engine_qty, exit_time=exit_stamp
                 )
                 async with self._trades_lock:
                     if pos in self.positions:
