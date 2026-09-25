@@ -60,14 +60,21 @@ def _ema(df: pd.DataFrame) -> pd.DataFrame:
 class _Engine:
     """The audit methods under test, on a bare object -- no broker, no loop."""
 
-    def __init__(self):
-        self.strategy = {"name": "PE_NoTarget", "instrument": "26000"}
+    def __init__(self, conditions=None):
+        self.strategy = {
+            "name": "PE_NoTarget",
+            "instrument": "26000",
+            "entry_conditions": conditions
+            if conditions is not None
+            else [{"left": "current_close", "operator": "is_below", "right": "EMA_20_5m"}],
+        }
         self.dhan = object()
         self.event_log = []
         self.indicator_divergence = None
         self._indicator_reference = None
         self._indicator_reference_at = None
         self._indicator_reference_task = None
+        self._divergence_alerted = set()
         self._session_book = None
         self.fetches = []
 
@@ -84,6 +91,10 @@ class _Engine:
     _INDICATOR_AUDIT_TOL_PCT = LiveEngine._INDICATOR_AUDIT_TOL_PCT
     _INDICATOR_AUDIT_TOL_MIN = LiveEngine._INDICATOR_AUDIT_TOL_MIN
     _INDICATOR_REFERENCE_MAX_AGE_MIN = LiveEngine._INDICATOR_REFERENCE_MAX_AGE_MIN
+    _AUDIT_IGNORE_EXACT = LiveEngine._AUDIT_IGNORE_EXACT
+    _AUDIT_IGNORE_PARTS = LiveEngine._AUDIT_IGNORE_PARTS
+    _audit_ignores = LiveEngine._audit_ignores
+    _condition_fields = LiveEngine._condition_fields
     set_indicator_reference = LiveEngine.set_indicator_reference
     _indicator_reference_is_stale = LiveEngine._indicator_reference_is_stale
     _refresh_indicator_reference_soon = LiveEngine._refresh_indicator_reference_soon
@@ -160,6 +171,61 @@ class TheEngineDecidesOnTheChartItShows(unittest.TestCase):
         engine = self._engine()
         engine._indicator_reference_at = _now_ist() - timedelta(minutes=engine._INDICATOR_REFERENCE_MAX_AGE_MIN + 1)
         self.assertTrue(engine._indicator_reference_is_stale())
+
+    # ── THE ALARM ITSELF MUST NOT BECOME THE NOISE ───────────────────────────
+    #
+    # Its first live afternoon, 25-Sep-2026: the check fired every single candle
+    # on `current_volume` — the tick feed carries no index volume, so the engine
+    # had 0 and the broker history had 5,359,282. Nothing in the strategy reads
+    # volume, yet the frame was swapped for the reference every candle and Phil
+    # got a Telegram every five minutes. "getting lot of indicator divergence
+    # alerts" — and an alarm that cries every candle is an alarm he will learn
+    # to ignore, which is worse than not having one.
+
+    def test_volume_is_never_a_divergence(self):
+        """The exact column that fired: the feed has no index volume at all."""
+        engine = self._engine()
+        for name in ("volume", "current_volume", "Volume_20_5m", "oi", "open_interest", "current_oi"):
+            self.assertTrue(engine._audit_ignores(name), name)
+        for name in ("EMA_20_5m", "CPR_BC", "current_close", "RSI_14_5m"):
+            self.assertFalse(engine._audit_ignores(name), name)
+
+    def test_a_column_nothing_reads_does_not_change_the_frame(self):
+        engine = self._engine()
+        live = self.reference.copy()
+        live["Supertrend_10_2_3m"] = 1.0  # present, wrong, and unused
+        ref = self.reference.copy()
+        ref["Supertrend_10_2_3m"] = 99999.0
+        engine.set_indicator_reference(ref)
+        out = engine._audit_indicators_against_history(live, ["EMA_20_5m"], 5, 5)
+        self.assertIs(out, live, "an unused column must not swap the decision frame")
+
+    def test_a_column_the_strategy_reads_does_change_the_frame(self):
+        engine = self._engine()
+        out = engine._audit_indicators_against_history(self.starved, ["EMA_20_5m"], 5, 5)
+        self.assertIsNot(out, self.starved)
+        self.assertAlmostEqual(
+            float(out.at[self.at, "EMA_20_5m"]), float(self.reference.at[self.at, "EMA_20_5m"]), places=6
+        )
+
+    def test_he_is_told_once_per_column_not_once_per_candle(self):
+        import alerter
+
+        sent = []
+        real = alerter.alert
+        alerter.alert = lambda title, body, level="error": sent.append(title)
+        try:
+            engine = self._engine()
+            for _ in range(12):
+                engine._audit_indicators_against_history(self.starved, ["EMA_20_5m"], 5, 5)
+        finally:
+            alerter.alert = real
+        self.assertEqual(len(sent), 1, f"twelve candles sent {len(sent)} alerts")
+
+    def test_the_conditions_are_read_from_the_strategy_itself(self):
+        engine = self._engine()
+        self.assertIn("EMA_20_5m", engine._condition_fields())
+        self.assertIn("current_close", engine._condition_fields())
 
     def test_the_divergence_is_reported_to_phil_not_just_logged(self):
         """He should not have to open the app to find out."""

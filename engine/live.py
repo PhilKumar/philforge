@@ -301,6 +301,7 @@ class LiveEngine:
         self._indicator_reference: Optional[pd.DataFrame] = None
         self._indicator_reference_at: Optional[datetime] = None
         self._indicator_reference_task = None
+        self._divergence_alerted: set = set()
         self._frame_log_day = None
         self._frame_logs_today = 0
         self._frame_log_quiet = False
@@ -1932,6 +1933,29 @@ class LiveEngine:
         except RuntimeError:
             pass  # no loop (tests, startup): skip
 
+    # Columns nothing can trade on: raw bar fields and anything volume-shaped.
+    # The tick feed carries no index volume at all, so these differ permanently
+    # and say nothing about whether a decision is sound.
+    _AUDIT_IGNORE_EXACT = ("open", "high", "low", "close", "volume", "oi")
+    _AUDIT_IGNORE_PARTS = ("volume", "open_interest", "_oi")
+
+    def _audit_ignores(self, col: str) -> bool:
+        name = str(col).lower()
+        return name in self._AUDIT_IGNORE_EXACT or any(part in name for part in self._AUDIT_IGNORE_PARTS)
+
+    def _condition_fields(self) -> set:
+        """Every indicator name the strategy's own conditions mention."""
+        names = set()
+        for key in ("entry_conditions", "exit_conditions"):
+            for cond in self.strategy.get(key) or []:
+                if not isinstance(cond, dict):
+                    continue
+                for side in ("left", "right"):
+                    value = cond.get(side)
+                    if isinstance(value, str) and value:
+                        names.add(value)
+        return names
+
     def _audit_indicators_against_history(
         self,
         df_live: pd.DataFrame,
@@ -1955,7 +1979,7 @@ class LiveEngine:
         tol = max(self._INDICATOR_AUDIT_TOL_MIN, abs(price) * self._INDICATOR_AUDIT_TOL_PCT / 100.0)
         off = {}
         for col in df_live.columns:
-            if col not in df_ref.columns or col in ("open", "high", "low", "close", "volume", "oi"):
+            if col not in df_ref.columns or self._audit_ignores(col):
                 continue
             live_val, ref_val = df_live.at[at, col], df_ref.at[at, col]
             try:
@@ -1970,6 +1994,15 @@ class LiveEngine:
             self.indicator_divergence = None
             return df_live
 
+        # A DIVERGENCE IN SOMETHING THE STRATEGY DOES NOT READ IS NOT A REASON TO
+        # CHANGE THE FRAME. On the first live afternoon this fired every candle
+        # on `current_volume` -- the tick feed carries no index volume, so the
+        # engine had 0 and the history had 5,359,282. Nothing decides on volume
+        # here, yet the frame was being swapped for the reference every candle
+        # and Phil was getting an alert every candle (25-Sep: "getting lot of
+        # indicator divergence alerts").
+        used = self._condition_fields()
+        decisive = {c: v for c, v in off.items() if not used or c in used}
         worst = max(off.items(), key=lambda kv: abs(kv[1]["off_by"]))
         self.indicator_divergence = {
             "at": str(at),
@@ -1977,28 +2010,44 @@ class LiveEngine:
             "tolerance": round(tol, 2),
             "columns": off,
         }
+        verdict = "deciding on the broker history" if decisive else "nothing decides on it, frame kept"
         self.log_event(
-            "error",
+            "error" if decisive else "warning",
             f"⚠️ indicator divergence at {at}: {worst[0]} engine {worst[1]['engine']} vs "
-            f"history {worst[1]['history']} (off by {worst[1]['off_by']}) — deciding on the broker history",
+            f"history {worst[1]['history']} (off by {worst[1]['off_by']}) — {verdict}",
             {"divergence": self.indicator_divergence},
         )
         # AND TELL HIM. Phil should not have to sit and watch the book to learn
         # that it is judging on a number the broker disagrees with (25-Sep-2026:
         # "I am really annoyed in this monitoring a live trade daily").
-        try:
-            import alerter
-
-            alerter.alert(
-                "Indicator divergence",
-                f"<b>{self.strategy.get('name', 'live book')}</b> was about to decide on "
-                f"{worst[0]} = {worst[1]['engine']}, but the broker's own history says "
-                f"{worst[1]['history']} (off by {worst[1]['off_by']}).\n\n"
-                f"The entry is being judged on the history instead. Candle {at}.",
-                level="error",
+        # ONE ALERT PER COLUMN PER SESSION. The check runs every candle, and on
+        # its first live afternoon it sent Phil the same message every five
+        # minutes -- which is how an alarm gets ignored.
+        already = set(getattr(self, "_divergence_alerted", set()))
+        fresh = sorted(set(off) - already)
+        if fresh:
+            self._divergence_alerted = already | set(off)
+            told = ", ".join(fresh)
+            where = (
+                "It is being judged on the broker history instead."
+                if decisive
+                else "Nothing in this strategy reads it, so the frame is unchanged."
             )
-        except Exception:
-            pass
+            try:
+                import alerter
+
+                alerter.alert(
+                    "Indicator divergence",
+                    f"<b>{self.strategy.get('name', 'live book')}</b>: {told}\n"
+                    f"{worst[0]} — engine {worst[1]['engine']}, broker history "
+                    f"{worst[1]['history']} (off by {worst[1]['off_by']}).\n\n"
+                    f"{where} Candle {at}.",
+                    level="error" if decisive else "warn",
+                )
+            except Exception:
+                pass
+        if not decisive:
+            return df_live
         # Decide on the history. It carries the full series, which is the whole
         # point of the check; the live frame's own bars are in it too, because
         # the same broker produced both.
