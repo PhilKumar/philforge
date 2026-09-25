@@ -117,6 +117,16 @@ class Campaign:
     def deployed(self) -> float:
         return sum(leg["qty"] * leg["price"] for leg in self.legs)
 
+    # -- LEVERAGE. The cash test said the mechanic is safe but earns 0.1-0.6% of
+    # the money used. He trades on margin, which multiplies the return AND the
+    # adverse excursion -- and a ladder with no stop cannot answer a margin call
+    # by cutting. So the number that matters is not the profit, it is whether
+    # the account ever goes to zero while waiting to be right.
+    def equity(self, capital: float, mark: float, leverage: float) -> float:
+        """Capital plus realised plus the open position marked to market."""
+        unrealised = (mark - self.average) * self.qty * leverage if self.qty else 0.0
+        return capital + self.realised * leverage + unrealised
+
 
 def find_mothers(bars: pd.DataFrame, lookback: int) -> pd.Series:
     """A mother candle is a local swing HIGH — the "starting point" you reset the
@@ -158,6 +168,12 @@ def run(args) -> list:
                     spend = min(c.capital * share, room)
                     c.buy(ts, min(level, float(bar["open"])), i, spend / c.capital)
             c.low_water = min(c.low_water, low)
+            if c.qty:
+                eq = c.equity(args.capital, low, args.leverage)
+                if eq < getattr(c, "worst_equity", args.capital):
+                    c.worst_equity = eq
+                if eq <= 0 and not getattr(c, "blown", False):
+                    c.blown = True
             if c.qty > 0:
                 first, second = c.target(0.25), c.target(0.5)
                 if high >= first and not any(e["reason"] == "0.25" for e in c.exits):
@@ -201,7 +217,13 @@ def report(campaigns: list, args) -> None:
     print(f"  STILL OPEN at the end    {never:>8,}   <- the ones the ladder never rescued")
     if not started:
         return
-    realised = sum(c.realised for c in closed)
+    blown = [c for c in started if getattr(c, "blown", False)]
+    if args.leverage > 1:
+        worst = min((getattr(c, "worst_equity", args.capital) for c in started), default=args.capital)
+        print(f"\nAT {args.leverage:g}x LEVERAGE")
+        print(f"  campaigns that took the account to ZERO   {len(blown):>6,}")
+        print(f"  worst equity seen in any campaign         {worst:>12,.0f} of {args.capital:,.0f}")
+    realised = sum(c.realised for c in closed) * args.leverage
     deployed = sum(c.deployed for c in closed)
     # RETURN ON THE MONEY ACTUALLY USED. The ladder spends a tenth of the
     # account on a typical campaign and holds it for hours, so measuring against
@@ -241,6 +263,9 @@ def main() -> None:
     ap.add_argument("--first-exit-portion", type=float, default=0.50, help="how much leaves at 0.25")
     ap.add_argument("--max-legs", type=int, default=len(BOUNDARIES))
     ap.add_argument("--max-concurrent", type=int, default=50)
+    ap.add_argument(
+        "--leverage", type=float, default=1.0, help="NIFTY futures margin is roughly 12% of notional, so about 8x"
+    )
     args = ap.parse_args()
 
     campaigns = run(args)
