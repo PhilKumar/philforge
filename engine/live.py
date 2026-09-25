@@ -298,7 +298,9 @@ class LiveEngine:
         # Set when the frame the engine decides on disagrees with the broker's
         # own history -- see _audit_indicators_against_history.
         self.indicator_divergence: Optional[dict] = None
-        self._indicator_audit_day = None
+        self._indicator_reference: Optional[pd.DataFrame] = None
+        self._indicator_reference_at: Optional[datetime] = None
+        self._indicator_reference_task = None
 
         # Market data
         self.current_spot = 0.0
@@ -1757,10 +1759,70 @@ class LiveEngine:
     # they disagree, and decide on the history instead. The fetch also refills
     # _indicator_context_raw, so the frame heals itself for later candles.
     #
-    # Once per session is enough -- the divergence is a warm-up defect, worst at
-    # the open -- plus a re-check while a divergence is still unresolved.
+    # NOTHING HERE MAY TOUCH THE NETWORK. Phil asked the right question about
+    # the first version of this (25-Sep-2026: "This one happens in that
+    # triggering fraction of a second when taking an entry?") -- it did. It
+    # fetched from Dhan inside the decision path, so it would have added about a
+    # second at the exact moment of signalling, and on EVERY candle while a
+    # divergence was unresolved. The engine already learnt this lesson once:
+    # sync broker calls inside the loop are what made live entries late (fixed
+    # in fdd253b).
+    #
+    # So the comparison is pure arithmetic against a reference frame kept on the
+    # side. The reference is built BEFORE the session from the bootstrap history
+    # and refreshed in the background, never on the candle that decides.
     _INDICATOR_AUDIT_TOL_PCT = 0.02  # 0.02% of price: ~4.6 points on NIFTY
     _INDICATOR_AUDIT_TOL_MIN = 1.0  # never quibble below a point
+    _INDICATOR_REFERENCE_MAX_AGE_MIN = 10
+
+    def set_indicator_reference(self, df_ref: pd.DataFrame) -> None:
+        """Hold a broker-history frame to check the decision frame against."""
+        if isinstance(df_ref, pd.DataFrame) and not df_ref.empty:
+            self._indicator_reference = df_ref.copy()
+            self._indicator_reference_at = _now_ist()
+
+    def _indicator_reference_is_stale(self) -> bool:
+        at = getattr(self, "_indicator_reference_at", None)
+        if at is None:
+            return True
+        return (_now_ist() - at).total_seconds() / 60.0 > self._INDICATOR_REFERENCE_MAX_AGE_MIN
+
+    def _refresh_indicator_reference_soon(self, indicators, execution_timeframe, fetch_timeframe) -> None:
+        """Rebuild the reference OFF the decision path: a background task, with
+        the broker call in a worker thread so the one event loop never waits."""
+        task = getattr(self, "_indicator_reference_task", None)
+        if task is not None and not task.done():
+            return
+        if self.dhan is None:
+            return
+
+        def _build():
+            instrument = self.strategy.get("instrument", "26000")
+            history = self._fetch_raw_history(instrument, fetch_timeframe, days=7)
+            if history is None or history.empty:
+                return None
+            with pinned_sessions(self._session_book):
+                built = compute_dynamic_indicators(
+                    history,
+                    indicators,
+                    default_timeframe_minutes=execution_timeframe,
+                    source_timeframe_minutes=fetch_timeframe,
+                    execution_timeframe_minutes=execution_timeframe,
+                )
+            return self._apply_daily_averages(built)
+
+        async def _run():
+            try:
+                built = await asyncio.to_thread(_build)
+                if built is not None:
+                    self.set_indicator_reference(built)
+            except Exception as exc:  # never let this stop trading
+                self.log_event("warning", f"indicator reference refresh failed: {type(exc).__name__}")
+
+        try:
+            self._indicator_reference_task = asyncio.get_running_loop().create_task(_run())
+        except RuntimeError:
+            pass  # no loop (tests, startup): skip
 
     def _audit_indicators_against_history(
         self,
@@ -1769,31 +1831,13 @@ class LiveEngine:
         execution_timeframe: int,
         fetch_timeframe: int,
     ) -> pd.DataFrame:
-        today = _now_ist().date()
-        if getattr(self, "_indicator_audit_day", None) == today and not getattr(self, "indicator_divergence", None):
+        if df_live.empty:
             return df_live
-        if self.dhan is None or df_live.empty:
-            return df_live
-        try:
-            instrument = self.strategy.get("instrument", "26000")
-            history = self._fetch_raw_history(instrument, fetch_timeframe, days=7)
-            if history is None or history.empty:
-                return df_live
-            with pinned_sessions(self._session_book):
-                df_ref = compute_dynamic_indicators(
-                    history,
-                    indicators,
-                    default_timeframe_minutes=execution_timeframe,
-                    source_timeframe_minutes=fetch_timeframe,
-                    execution_timeframe_minutes=execution_timeframe,
-                )
-            df_ref = self._apply_daily_averages(df_ref)
-        except Exception as exc:  # a failed audit must never stop trading
-            self.log_event("warning", f"indicator audit could not run: {type(exc).__name__}")
-            return df_live
-        self._indicator_audit_day = today
-        if df_ref.empty:
-            return df_live
+        if self._indicator_reference_is_stale():
+            self._refresh_indicator_reference_soon(indicators, execution_timeframe, fetch_timeframe)
+        df_ref = getattr(self, "_indicator_reference", None)
+        if df_ref is None or df_ref.empty:
+            return df_live  # nothing to check against yet
 
         shared = [ts for ts in df_live.index if ts in df_ref.index]
         if not shared:
@@ -2235,6 +2279,10 @@ class LiveEngine:
                         execution_timeframe_minutes=execution_timeframe,
                     )
                 df_init = self._apply_daily_averages(df_init)
+                # The bootstrap IS the broker's history, computed by this same
+                # code, so it is exactly the reference the audit needs -- and it
+                # is built here, before the session, at no cost to any decision.
+                self.set_indicator_reference(df_init)
                 if not df_init.empty:
                     self.candle_buffer = df_init
                     self.current_spot = float(df_init.iloc[-1].get("close", 0))

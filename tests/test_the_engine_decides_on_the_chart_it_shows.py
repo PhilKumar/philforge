@@ -12,9 +12,16 @@ Every offline reconstruction of the series -- 5m history, 1m resampled, any
 window from 10 bars to 385, with and without the pre-open bar -- landed between
 23,079 and 23,096. Only the running engine, which decides on WebSocket-built
 candles merged with a remembered context, produced 23,066.7. So the audit does
-not try to guess which mechanism thins that series: it compares the numbers it
-is about to trade on against the broker's own history, says so loudly, and
-decides on the history instead.
+not guess at which mechanism thins that series: it compares the numbers it is
+about to trade on against the broker's own history and decides on the history.
+
+AND IT COSTS THE ENTRY NOTHING. The first version fetched from Dhan inside the
+decision path; Phil asked whether that landed "in that triggering fraction of a
+second when taking an entry", and it did -- about a second at the moment of
+signalling, and again on every candle while a divergence was unresolved. This
+engine has been here before: sync broker calls in the loop are what made live
+entries late (fdd253b). So the reference frame is built before the session and
+refreshed in the background, and the check itself is pure arithmetic.
 """
 
 import os
@@ -25,6 +32,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from engine.indicators import compute_dynamic_indicators  # noqa: E402
 from engine.live import LiveEngine  # noqa: E402
 
 
@@ -43,21 +51,29 @@ def _bars(start: str, n: int, price: float, step: float = 0.0) -> pd.DataFrame:
     )
 
 
-class _Engine:
-    """The audit method under test, on a bare object -- no broker, no loop."""
+def _ema(df: pd.DataFrame) -> pd.DataFrame:
+    return compute_dynamic_indicators(
+        df, ["EMA_20_5m"], default_timeframe_minutes=5, source_timeframe_minutes=5, execution_timeframe_minutes=5
+    )
 
-    def __init__(self, history: pd.DataFrame):
-        self.strategy = {"instrument": "26000"}
-        self.dhan = object()  # merely "configured"
+
+class _Engine:
+    """The audit methods under test, on a bare object -- no broker, no loop."""
+
+    def __init__(self):
+        self.strategy = {"name": "PE_NoTarget", "instrument": "26000"}
+        self.dhan = object()
         self.event_log = []
         self.indicator_divergence = None
-        self._indicator_audit_day = None
+        self._indicator_reference = None
+        self._indicator_reference_at = None
+        self._indicator_reference_task = None
         self._session_book = None
-        self._history = history
+        self.fetches = []
 
-    # the two collaborators the audit uses
     def _fetch_raw_history(self, instrument, fetch_timeframe, *, days=7):
-        return self._history
+        self.fetches.append(instrument)  # must never happen on a decision
+        raise AssertionError("the decision path must not call the broker")
 
     def _apply_daily_averages(self, df):
         return df
@@ -67,127 +83,97 @@ class _Engine:
 
     _INDICATOR_AUDIT_TOL_PCT = LiveEngine._INDICATOR_AUDIT_TOL_PCT
     _INDICATOR_AUDIT_TOL_MIN = LiveEngine._INDICATOR_AUDIT_TOL_MIN
+    _INDICATOR_REFERENCE_MAX_AGE_MIN = LiveEngine._INDICATOR_REFERENCE_MAX_AGE_MIN
+    set_indicator_reference = LiveEngine.set_indicator_reference
+    _indicator_reference_is_stale = LiveEngine._indicator_reference_is_stale
+    _refresh_indicator_reference_soon = LiveEngine._refresh_indicator_reference_soon
     _audit_indicators_against_history = LiveEngine._audit_indicators_against_history
 
 
 class TheEngineDecidesOnTheChartItShows(unittest.TestCase):
     def setUp(self):
-        # A week of history that sat high, then a sharp fall in the last half
-        # hour -- exactly the shape of 24/25-Sep. An EMA carried across the
-        # whole series still sits well above price; one seeded only on the fall
-        # sits right on it. That gap is the bug.
-        high = _bars("2026-09-18 09:15", 294, 23200.0)
-        fall = _bars("2026-09-25 09:15", 6, 23180.0, step=-26.0)
-        self.history = pd.concat([high, fall])
+        # A week sitting high, then a sharp fall in the last half hour -- the
+        # shape of 24/25-Sep. An EMA carried across the whole series sits well
+        # above price; one seeded only on the fall sits right on it.
+        self.history = pd.concat(
+            [_bars("2026-09-18 09:15", 294, 23200.0), _bars("2026-09-25 09:15", 6, 23180.0, step=-26.0)]
+        )
+        self.reference = _ema(self.history)
+        self.starved = _ema(self.history.tail(6))
+        self.at = self.starved.index[-1]
+
+    def _engine(self, with_reference=True):
+        e = _Engine()
+        if with_reference:
+            e.set_indicator_reference(self.reference)
+        return e
 
     def _audit(self, engine, frame):
         return engine._audit_indicators_against_history(frame, ["EMA_20_5m"], 5, 5)
 
+    def test_the_fixture_really_reproduces_a_starved_ema(self):
+        gap = abs(float(self.starved.at[self.at, "EMA_20_5m"]) - float(self.reference.at[self.at, "EMA_20_5m"]))
+        self.assertGreater(gap, 5.0)
+
     def test_a_starved_ema_is_caught_and_the_history_is_used_instead(self):
-        """The real shape of the bug: the frame holds only this morning's bars."""
-        from engine.indicators import compute_dynamic_indicators
-
-        ref = compute_dynamic_indicators(
-            self.history,
-            ["EMA_20_5m"],
-            default_timeframe_minutes=5,
-            source_timeframe_minutes=5,
-            execution_timeframe_minutes=5,
-        )
-        starved = compute_dynamic_indicators(
-            self.history.tail(6),
-            ["EMA_20_5m"],
-            default_timeframe_minutes=5,
-            source_timeframe_minutes=5,
-            execution_timeframe_minutes=5,
-        )
-        at = starved.index[-1]
-        gap = abs(float(starved.at[at, "EMA_20_5m"]) - float(ref.at[at, "EMA_20_5m"]))
-        self.assertGreater(gap, 5.0, "the fixture must actually reproduce a starved EMA")
-
-        engine = _Engine(self.history)
-        out = self._audit(engine, starved)
-
-        self.assertIsNotNone(engine.indicator_divergence, "the divergence must be recorded")
+        engine = self._engine()
+        out = self._audit(engine, self.starved)
+        self.assertIsNotNone(engine.indicator_divergence)
         self.assertIn("EMA_20_5m", engine.indicator_divergence["columns"])
         self.assertTrue(any(e["type"] == "error" for e in engine.event_log), engine.event_log)
-        # and the decision is taken on the history, not the starved frame
-        self.assertAlmostEqual(float(out.at[at, "EMA_20_5m"]), float(ref.at[at, "EMA_20_5m"]), places=6)
+        self.assertAlmostEqual(
+            float(out.at[self.at, "EMA_20_5m"]), float(self.reference.at[self.at, "EMA_20_5m"]), places=6
+        )
+
+    def test_the_decision_path_never_calls_the_broker(self):
+        """The whole point of the rewrite: no I/O in the fraction of a second
+        that takes an entry. _fetch_raw_history raises if it is ever reached."""
+        engine = self._engine()
+        for _ in range(5):
+            self._audit(engine, self.starved)
+        self.assertEqual(engine.fetches, [])
 
     def test_a_frame_that_agrees_is_left_alone(self):
-        from engine.indicators import compute_dynamic_indicators
-
-        good = compute_dynamic_indicators(
-            self.history,
-            ["EMA_20_5m"],
-            default_timeframe_minutes=5,
-            source_timeframe_minutes=5,
-            execution_timeframe_minutes=5,
-        )
-        engine = _Engine(self.history)
-        out = self._audit(engine, good)
+        engine = self._engine()
+        out = self._audit(engine, self.reference)
         self.assertIsNone(engine.indicator_divergence)
-        self.assertEqual(len(out), len(good))
+        self.assertEqual(len(out), len(self.reference))
         self.assertFalse([e for e in engine.event_log if e["type"] == "error"], engine.event_log)
 
-    def test_it_checks_once_a_session_while_everything_agrees(self):
-        from engine.indicators import compute_dynamic_indicators
+    def test_without_a_reference_it_waits_rather_than_blocking(self):
+        """Before the first reference exists the engine trades as it always did
+        -- it must never stall an entry waiting for a check."""
+        engine = self._engine(with_reference=False)
+        out = self._audit(engine, self.starved)
+        self.assertIs(out, self.starved)
+        self.assertEqual(engine.fetches, [], "and it still must not fetch inline")
 
-        good = compute_dynamic_indicators(
-            self.history,
-            ["EMA_20_5m"],
-            default_timeframe_minutes=5,
-            source_timeframe_minutes=5,
-            execution_timeframe_minutes=5,
-        )
-        engine = _Engine(self.history)
-        calls = []
-        real = engine._fetch_raw_history
+    def test_a_fresh_reference_is_not_refetched(self):
+        engine = self._engine()
+        self.assertFalse(engine._indicator_reference_is_stale())
 
-        def counted(*a, **k):
-            calls.append(1)
-            return real(*a, **k)
+    def test_an_old_reference_is_considered_stale(self):
+        from datetime import timedelta
 
-        engine._fetch_raw_history = counted
-        self._audit(engine, good)
-        self._audit(engine, good)
-        self._audit(engine, good)
-        self.assertEqual(len(calls), 1, "a clean session must not refetch on every candle")
+        from engine.live import _now_ist
 
-    def test_a_broken_audit_never_stops_the_engine_trading(self):
-        from engine.indicators import compute_dynamic_indicators
+        engine = self._engine()
+        engine._indicator_reference_at = _now_ist() - timedelta(minutes=engine._INDICATOR_REFERENCE_MAX_AGE_MIN + 1)
+        self.assertTrue(engine._indicator_reference_is_stale())
 
-        good = compute_dynamic_indicators(
-            self.history,
-            ["EMA_20_5m"],
-            default_timeframe_minutes=5,
-            source_timeframe_minutes=5,
-            execution_timeframe_minutes=5,
-        )
-        engine = _Engine(self.history)
+    def test_the_divergence_is_reported_to_phil_not_just_logged(self):
+        """He should not have to open the app to find out."""
+        import alerter
 
-        def boom(*a, **k):
-            raise RuntimeError("Dhan is down")
-
-        engine._fetch_raw_history = boom
-        out = self._audit(engine, good)
-        self.assertEqual(len(out), len(good), "the frame must pass through untouched")
-        self.assertTrue(any("audit could not run" in e["message"] for e in engine.event_log))
-
-    def test_without_a_broker_it_does_nothing(self):
-        from engine.indicators import compute_dynamic_indicators
-
-        good = compute_dynamic_indicators(
-            self.history,
-            ["EMA_20_5m"],
-            default_timeframe_minutes=5,
-            source_timeframe_minutes=5,
-            execution_timeframe_minutes=5,
-        )
-        engine = _Engine(self.history)
-        engine.dhan = None
-        out = self._audit(engine, good)
-        self.assertIs(out, good)
+        sent = []
+        real = alerter.alert
+        alerter.alert = lambda title, body, level="error": sent.append((title, level))
+        try:
+            self._audit(self._engine(), self.starved)
+        finally:
+            alerter.alert = real
+        self.assertTrue(sent, "a divergence must raise an alert")
+        self.assertEqual(sent[0][1], "error")
 
 
 if __name__ == "__main__":
