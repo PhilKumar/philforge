@@ -301,6 +301,9 @@ class LiveEngine:
         self._indicator_reference: Optional[pd.DataFrame] = None
         self._indicator_reference_at: Optional[datetime] = None
         self._indicator_reference_task = None
+        self._frame_log_day = None
+        self._frame_logs_today = 0
+        self._frame_log_quiet = False
 
         # Market data
         self.current_spot = 0.0
@@ -1725,7 +1728,9 @@ class LiveEngine:
         state can occasionally hand us a snapshot that still includes the first
         forming strategy candle. Never evaluate entry/exit conditions on that bar.
         """
+        self._log_decision_frame_shape(candle_df, now)
         candle_df = merge_indicator_context(candle_df, self._indicator_context_raw, max_rows=800)
+        self._log_decision_frame_shape(candle_df, now, merged=True)
         with pinned_sessions(self._session_book):
             df_with_indicators = compute_dynamic_indicators(
                 candle_df,
@@ -1759,6 +1764,57 @@ class LiveEngine:
     # they disagree, and decide on the history instead. The fetch also refills
     # _indicator_context_raw, so the frame heals itself for later candles.
     #
+    # ── THE DIAGNOSTIC: WHAT IS THE ENGINE ACTUALLY LOOKING AT? ──────────────
+    #
+    # 25-Sep-2026. The running engine decided on EMA_20_5m = 23,066.7 when the
+    # same code on the same broker history gives 23,090.1. Wrong code, wrong
+    # data, truncation, 1m substitution, staleness and after-hours bars were all
+    # excluded by test. What is left is the frame itself -- WebSocket candles
+    # merged with a remembered context -- and its contents exist only inside the
+    # running process, so no amount of offline work can settle it.
+    #
+    # The leading suspect is engine/market_feed.py:451 -- aggregators are shared
+    # by "{instrument}_{timeframe}m", and an engine that registers SECOND has its
+    # history seed silently discarded ("Added callback to existing aggregator").
+    # The live PE book and the paper PE book both run NIFTY 5m.
+    #
+    # This is what tells them apart, in one line per candle: how many bars the
+    # frame holds, how far back it reaches, and how many are from BEFORE today.
+    # A frame carrying 300 bars back to last week cannot produce a restarted
+    # EMA; one holding only this morning's bars can, and says so.
+    #
+    # Bounded on purpose: the first twelve candles of a session are where the
+    # error lives, and it goes quiet after that unless a divergence is open.
+    _FRAME_LOG_CANDLES = 12
+
+    def _log_decision_frame_shape(self, df: pd.DataFrame, now: datetime, merged: bool = False) -> None:
+        try:
+            today = now.date() if isinstance(now, datetime) else _now_ist().date()
+            if not merged:
+                if getattr(self, "_frame_log_day", None) != today:
+                    self._frame_log_day = today
+                    self._frame_logs_today = 0
+                if self._frame_logs_today >= self._FRAME_LOG_CANDLES and not self.indicator_divergence:
+                    self._frame_log_quiet = True
+                    return
+                self._frame_log_quiet = False
+                self._frame_logs_today = getattr(self, "_frame_logs_today", 0) + 1
+            elif getattr(self, "_frame_log_quiet", False):
+                return
+            if not isinstance(df, pd.DataFrame) or df.empty:
+                self.log_event("info", f"[FRAME] {'merged' if merged else 'from feed'}: EMPTY")
+                return
+            before_today = int(sum(1 for ts in df.index if ts.date() < today))
+            ctx = self._indicator_context_raw
+            self.log_event(
+                "info",
+                f"[FRAME] {'merged  ' if merged else 'from feed'} rows={len(df)} "
+                f"before_today={before_today} first={df.index[0]} last={df.index[-1]} "
+                f"context={0 if ctx is None else len(ctx)}",
+            )
+        except Exception:
+            pass  # a diagnostic must never break a decision
+
     # NOTHING HERE MAY TOUCH THE NETWORK. Phil asked the right question about
     # the first version of this (25-Sep-2026: "This one happens in that
     # triggering fraction of a second when taking an entry?") -- it did. It
