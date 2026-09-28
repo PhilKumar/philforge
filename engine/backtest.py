@@ -283,6 +283,20 @@ def drain_cross_skips() -> list:
     return out
 
 
+# Levels that are fixed for a whole session by definition: pivots, CPR, and the
+# previous day's extremes. Anything derived from yesterday's candle belongs here.
+# They are computed from yesterday and must not change during today, so a cross
+# against them can only ever be produced by PRICE moving.
+_SESSION_CONSTANT_PREFIXES = ("CPR_", "PIVOT", "PDH", "PDL", "PREV_DAY", "YESTERDAY")
+
+
+def _is_session_constant_level(key) -> bool:
+    if not isinstance(key, str):
+        return False
+    k = key.upper()
+    return k.startswith(_SESSION_CONSTANT_PREFIXES) or k in {"R1", "R2", "R3", "S1", "S2", "S3", "TC", "BC", "PP"}
+
+
 def _prev_cross_operand(prev_row, key, cond, op, side: str):
     """One side of the previous bar, or None with a note saying what was wrong."""
     value = _resolve_value(prev_row, key, cond)
@@ -476,6 +490,22 @@ def eval_condition(row, cond, prev_row=None):
         prv_f = _prev_cross_operand(prev_row, r, cond, op, "right")
         if plv_f is None or prv_f is None:
             return False
+        # ── A SESSION-CONSTANT LEVEL MUST NOT MOVE INSIDE ITS OWN CROSS ──────
+        # Reading the level from BOTH bars is right for something that genuinely
+        # moves (an EMA). A pivot is supposed to be ONE number for the whole day,
+        # so if its value shifts between two bars the comparison can flip with
+        # price standing still:
+        #     bar 1  price 23,100  S3 23,050  ->  price >= S3   true
+        #     bar 2  price 23,100  S3 23,150  ->  price <  S3   true
+        #                                     ->  "crossed below S3"
+        # Price never moved; the LINE crossed the price. That is how an S3 exit
+        # fired on 2026-09-28 with S3 never having been crossed. The 08-Sep and
+        # 15-Sep fixes stopped the live buffer SLIDING, which is what made the
+        # levels move — they did not make a moving level unable to fake a cross.
+        # For these levels, hold the line still: judge both bars against today's
+        # value, so only PRICE can produce the crossing.
+        if _is_session_constant_level(r):
+            prv_f = rv_f
         if op == "crosses_above":
             return plv_f <= prv_f and lv_f > rv_f
         return plv_f >= prv_f and lv_f < rv_f
