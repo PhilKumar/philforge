@@ -2609,3 +2609,66 @@ Also from 002: T97's quarters apply to a **single candle** as well as to a patte
 | **T101** | An outside close **above** the prior high is the buyer's, **below** the prior low the seller's; the first opposite-side outside candle is the takeover sign, and one beyond the extreme candle brings an aggressive break | **Yes** |
 | **T102** | A side that goes **~30 min (6 × 5m) without a new outside close** in its direction is exhausting; expect the other side | **Yes** — the 30 min is his example, not a stated constant |
 | **T103** | Trend = heads broken repeatedly; count highs vs lows over the last swings — the side with more new extremes is in control | **Yes**, and it is the standard HH/HL/LH/LL definition |
+
+## Video 003 — the O pattern, inside and outside PATTERNS, weak and strong, and the clock speeding up
+
+## T104 — O PATTERN: A SHRINKING RANGE IS THE DANGER, NOT THE CALM
+
+*"If the market cannot break the pattern's high or low and keeps a range, that is the O
+pattern. It means the market is shrinking badly — and a shrinking market means it will
+blast one side."* (003 · 00:04:36–00:05:07) Why: *"the big volume traders are not in
+the market at that time. They can come any time."* Small traders settle into the range,
+over-trade it, *"and the big man comes with a sack and takes the lot"* (003 ·
+00:05:07–00:05:38). And: *"the market is a range 70% of the time"* (003 · 00:11:45).
+
+The instruction: *"in a shrinking market, stay away from the crowd. Only after the big
+money enters do we enter."* (003 · 00:12:45) — trade the break out of the O, never
+inside it.
+
+## T105 — INSIDE AND OUTSIDE PATTERNS: count only the ones that break
+
+T95 lifted from a candle to a pattern. *"Mark the V pattern's low. Only when a candle
+breaks that low and closes outside, take the next pattern into account. The patterns
+in between are inside patterns — leave them."* (003 · 00:16:47–00:17:19) Then:
+*"consider a pattern only if it is put OUTSIDE. Everything put inside means no big
+volume."* (003 · 00:18:50) On a busy chart this turns dozens of wiggles into three
+patterns (003 · 00:17:50).
+
+## T106 — WEAK AND STRONG PATTERNS: 50% of the overall range, and the size of the biggest bounce
+
+Two tests. The first: *"if the buyer cannot carry at least 50% of the ultimate high and
+low, those are weak patterns… only if it goes at least 50% is it a strong pattern."*
+(003 · 00:20:23) The second, inside a group of bounces: *"take the one that carried the
+highest; see whether the next ones carry the same. If not, they are all weak."* (003 ·
+00:26:35) And when one finally does: *"we need one to one-and-a-half to two times… this
+one is about one and a half — the market is ready. Buyer ready, we are ready, meaning
+ALERT."* (003 · 00:27:06)
+
+Weak patterns are *"small boys fighting"* — no big volume, not worth a trade (003 ·
+00:27:06). He says this video was made for this rule (003 · 00:27:38).
+
+## T107 — THE CLOCK SPEEDS UP: a third of the candles, then half
+
+*"Short term to mid term — however many candles the short term took, the move to mid
+term takes one THIRD of them. Mid term to long term takes HALF."* (003 · 00:23:31–
+00:24:32) The worked number: *"if it took ten candles to break this low, the next
+boundary comes in three candles."* (003 · 00:24:02–00:24:32) His image: leaving Madurai
+takes twenty minutes for twenty kilometres; once past the city the next twenty
+minutes cover forty (003 · 00:21:55). The reason he gives is fear: *"the fear catches;
+when fear catches, even those who would not sell will sell"* (003 · 00:22:28).
+
+## T108 — AFTER THE BREAK, THE NEXT LEG IS 1.5 TO 2 TIMES THE LAST BOUNCE
+
+*"After the market breaks this low and puts a new low, in the next term they will
+carry it at least one and a half to two times the distance the buyer carried."* (003 ·
+00:23:31–00:24:02) He says he has stated this before; it reads as a projection of the
+next swing from the size of the last counter-move. *(heard once in this video — the
+"I have told you" refers to a video not yet read)*
+
+| Rule | Testable as stated? |
+|---|---|
+| **T104** | An **O pattern** (neither the prior pattern's high nor low broken) is a shrinking market that will break hard one way; trade only the break, never the range | **Yes** — the range is exact; "hard" needs a size, e.g. T108 |
+| **T105** | Count a **new pattern only when a close breaks the previous pattern's extreme**; inside patterns are ignored as no-volume noise | **Yes, exactly** |
+| **T106** | A bounce under **50% of the overall high–low** is a weak pattern; within a group, a bounce **1.5–2× the largest earlier one** is the alert | **Yes** |
+| **T107** | Each stage takes fewer candles: short→mid in **⅓** of the candles the short term took, mid→long in **½** | **Yes — a directly measurable claim, and a strong one** |
+| **T108** | After a pattern's head breaks, the next leg covers **1.5–2× the last counter-move** | **Yes** — *(heard once here)* |
