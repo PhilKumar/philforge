@@ -2459,3 +2459,91 @@ Three candles where buyers take over and carry past the base make it an **extra 
 | Rule | Testable as stated? |  
 |---|---|  
 | **T94** | **Takeover is a control test at a level**: an outside candle, or carrying body/wick past the prior extreme, says who won — and it is only real if volume came with it | **Yes, and it is a sharper form of T68 than the W bottom** |  
+
+---
+
+# THE PUBLIC PLAYLIST, READ IN FULL — video by video
+
+T91–T94 came from a keyword pass over all 82 files. From here each video is read end
+to end, in `docs/playlist-transcripts/`, and every rule carries **video · timestamp** so
+it can be checked at the second he says it. Auto-captions: words he only *shows* on
+the chart are not in the text, and anything the caption does not settle is marked
+*(unclear)*.
+
+## Video 001 — candle, pattern, trend; layers; how far the bounce went
+
+The course's opening lesson, and the vocabulary every later video assumes. Candle is
+a letter, a pattern is a word, a trend is a sentence (00:05:11–00:07:12) — the same
+candle → pattern → trend progression as Part 2.1 of the paid class, so that is now
+corroborated from a second source. Three patterns only: **V, A and O** (00:03:39,
+00:14:20). A V is red candles down then at least one green candle up (00:25:29).
+
+## T95 — INSIDE AND OUTSIDE CANDLE: the close decides
+
+*"If the next candle's CLOSE finished below this candle's body and wick, it is an
+outside candle. The candle broke that candle's high or low and closed outside it —
+confirmed — then that candle is an outside candle."* (001 · 00:07:44) And the
+negative: *"these two did not close beyond the body or the wick — so these are inside
+candles."* (001 · 00:08:15)
+
+A wick through the level is not enough; **the close has to be beyond the previous
+candle's high or low, wick included.** That is T1's close-not-touch rule applied to a
+single candle, and it is the definition T94's "outside candle" was using without
+stating it.
+
+## T96 — LAYERS: count the green candles the buyer could hold
+
+*"The market came back with only ONE green candle; the buyer could not carry it
+further… the buyer could hold for just one candle, five minutes. We call that a
+SINGLE LAYER."* (001 · 00:15:22) Then the count: *"one green candle is single layer,
+more than one is double layer, more than three is multiple layer."* (001 · 00:22:57)
+And why it matters: *"three layers means fifteen minutes — only if the buyer holds the
+market can he put three layers. If the buyer took control for fifteen minutes, the
+buyer is a little strong."* (001 · 00:21:26)
+
+His car image (001 · 00:16:24): a light touch of the brake, a harder one, then a
+hard stop — single, double, then multiple layers, and the low stops breaking.
+
+*(unclear)* whether "double" is exactly two and "multiple" three-plus or four-plus;
+he says both "more than three" and "three layers" for multiple.
+
+## T97 — HOW FAR THE BOUNCE WENT, in quarters of the previous leg
+
+*"Whatever came down from here, split it into four: 25%, 50%, 75%, 100%. Whether it is
+a candle, a pattern or a trend — you MUST split it in four."* (001 · 00:10:48) Then the
+reading: *"if it only went 25%, the seller still holds 75%; the buyer could not take it
+past 25 and it came back down."* (001 · 00:20:56)
+
+No indicators: *"split it in your head. We use no indicator."* (001 · 00:19:26)
+
+## T98 — LAYERS WITHOUT DISTANCE: the buyer arrived, the volume did not
+
+The rule that combines the two. *"Multiple layers — the buyer took over. But of the
+whole high-to-low it only went 25%. The buyer came, but volume accumulation has not
+come yet."* (001 · 00:23:57–00:24:29) And what follows: *"if an outside candle comes
+beyond this, the market comes down."* (001 · 00:24:59)
+
+His picture: a car in a ten-foot ditch three men can push out; the same car in a
+fifty-foot ditch needs a crane. Many green candles that cover little ground are the
+three men.
+
+**This is T91 made measurable.** Strength = distance, as a fraction of the previous
+leg; involvement = layers, as a candle count. He calls the pair *"time and speed"* —
+*"how long it took and how far it went; that is the real result"* (001 · 00:21:57).
+
+## T99 — A PATTERN IS OVER WHEN AN OUTSIDE CANDLE BREAKS ITS HEAD
+
+*"If it breaks this head and an outside candle closes out there — that's it, it's
+finished. The first V pattern's result is over. Announced."* (001 · 00:23:27)
+
+The "head" of a V is its low (the point); of an A, its high. A pattern is live until a
+candle **closes** beyond that point (T95), and then it is done — whatever its layers
+said.
+
+| Rule | Testable as stated? |
+|---|---|
+| **T95** | **Outside candle** = closes beyond the previous candle's high or low (wick included); otherwise **inside** | **Yes, exactly** |
+| **T96** | **Layers** = consecutive green candles on a bounce: 1 single (weak), 2 double, 3+ multiple (buyer holding ≥15 min on 5m) | **Yes** — the 3-vs-4 boundary for "multiple" is *(unclear)* |
+| **T97** | Measure every bounce in **quarters (25/50/75/100%) of the previous leg's high–low**; a 25% bounce leaves the seller in control | **Yes** |
+| **T98** | **Multiple layers + ≤25% distance = buyers without volume**: expect the low to break on the next outside candle | **Yes — and it is T91 with numbers** |
+| **T99** | A pattern ends when an **outside candle closes beyond its head** (a V's low, an A's high) | **Yes** |
