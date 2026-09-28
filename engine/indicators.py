@@ -298,7 +298,6 @@ class SessionBook:
 
     def __init__(self) -> None:
         self._days: dict = {}  # date -> (open, high, low, close, bar_count)
-        self.blanked: list = []  # sessions last blanked for never being seen whole
 
     def learn(self, df: pd.DataFrame) -> None:
         if not isinstance(df, pd.DataFrame) or df.empty or not _is_intraday(df):
@@ -326,29 +325,10 @@ class SessionBook:
             for day in sorted(self._days)[: len(self._days) - self._KEEP_DAYS]:
                 del self._days[day]
 
-    def is_pinned(self, day) -> bool:
-        """True when this session was seen whole, open to close."""
-        return day in self._days
-
     def apply(self, daily: pd.DataFrame) -> pd.DataFrame:
-        """Replace each pinned session, and BLANK every past one we never saw whole.
-
-        Pinning alone was not enough. A past day the engine never saw whole kept
-        its partially-resampled high and low, so the pivot built on it MOVED as
-        the websocket filled the gap in — and a level that moves can be read as a
-        cross while price stands still, which is how a live PE book was taken out
-        on "crosses_below CPR_S3" on 2026-09-28 with S3 never crossed.
-
-        A level derived from a session we did not see whole is a GUESS. Blanking
-        the row makes every level built on it NaN, and a NaN operand makes each
-        condition return False — so the book waits instead of trading on a guess.
-        That turns a silently wrong number into no signal, which is the difference
-        between a bug to be caught the next morning and a trade that simply does
-        not happen.
-
-        Today's row is left alone: it is never pinned because the session has not
-        finished, and blanking it would remove today's levels altogether.
-        """
+        """Replace or add each pinned session in a resampled daily frame."""
+        if not self._days:
+            return daily
         daily = daily.copy()
         tz = getattr(daily.index, "tz", None)
         for day, (o, h, low, c, _n) in self._days.items():
@@ -356,14 +336,7 @@ class SessionBook:
             if tz is not None:
                 stamp = stamp.tz_localize(tz)
             daily.loc[stamp, ["open", "high", "low", "close"]] = [o, h, low, c]
-        daily = daily.sort_index()
-        if len(daily) > 1:
-            today = daily.index.max()
-            unpinned = [ts for ts in daily.index if ts != today and not self.is_pinned(pd.Timestamp(ts).date())]
-            if unpinned:
-                self.blanked = [pd.Timestamp(ts).date() for ts in unpinned]
-                daily.loc[unpinned, ["open", "high", "low", "close"]] = float("nan")
-        return daily
+        return daily.sort_index()
 
 
 # The book of the engine whose indicators are being computed. Set by the engine
