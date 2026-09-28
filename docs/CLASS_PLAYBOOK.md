@@ -2720,6 +2720,7 @@ Each is precise, repeated, and measurable on the NIFTY and BTC history already i
 **Tested 28-Sep-2026 on two years of NIFTY — full numbers in `docs/playlist-claims-results.md`:** (1) 3-candle test ❌ no edge · (2) deeper pullback ❌ not better · (3) back to 50% ⚠️ true of every level, so empty · (4) failed candle ✅ real but small once distance is matched · (5) opening hour ✅ violent, closing window ❌ not.
 Retested at his own 50% line: (1b) 3-candle hold ⚠️ small edge on 5m only (53.8% vs 49.0%) · (2b) under value vs over value ❌ no difference — T297's 7-in-10 vs 3-in-10 is not in the data.
 Built into a trade — fade failed candles in the opening hour: ❌ loses, even at zero cost (`docs/failed-candle-fade-results.md`).
+**The whole method, as Phil trades it** — mother candle, fund formula, no stop, exit at 0.25 — on 9 years of BTC spot: ✅ **100% of books closed in profit on 4h, daily and weekly**, about 3–5% a year on capital; the price is time, up to 174 days stuck (daily) and 2.2 years (weekly) with dips to −36% / −66% (`docs/mother-ladder-results.md`). The single-rule tests above measured pieces with a stop, which is not how the method is traded.
 
 1. **The 3-candle test** (T154/T552) — after a close beyond a level, does holding 3 bars predict continuation better than chance?
 2. **Win rate by pullback depth** (T533) — do buys in the 75–100 zone of the prior leg reach target ~7 in 10, and 0–25 only ~3 in 10?

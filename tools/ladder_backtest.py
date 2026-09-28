@@ -178,8 +178,13 @@ def find_mothers(bars: pd.DataFrame, lookback: int) -> pd.Series:
     """A mother candle is a local swing HIGH — the "starting point" you reset the
     chart to. Taking every bar would start a campaign every five minutes; taking
     the highest bar of a rolling window takes the ones a person would mark."""
+    # TRAILING, not centred. A centred window asks whether this bar's high beats
+    # the NEXT lookback/2 bars too -- which nobody can know at the bar -- so every
+    # mother was a top already proven by the future, and the campaigns started
+    # from it were flattered (found 28-Sep-2026). A mother is a new high of the
+    # bars already seen, known at its own close.
     high = bars["high"]
-    return high == high.rolling(lookback, center=True, min_periods=1).max()
+    return high == high.rolling(lookback, min_periods=1).max()
 
 
 def run(args) -> list:
