@@ -56,3 +56,37 @@ Cost sensitivity — the rule over the whole period:
 
 How the rule's trades ended: stop 328, target 62
 Median risk (entry to stop): 3.1 points.
+
+---
+
+# The same, on Bitcoin (BTCUSDT 5m, 12-Jul to 19-Sep-2026)
+
+Phil, 28-Sep-2026: *"but it does very good on crypto"*. Tested on the only BTC candles
+available here — `BTCUSDT_5m.pkl` from Drive, 14,692 bars, ten weeks — so a first look,
+not a verdict. Same rule; the NIFTY opening hour is replaced by his BTC high-volume
+window, 18:00–22:00 IST (T215), and all day. Result in % of price per trade.
+
+| Window | Stop | Cost / trade | Trades | Win rate | Total |
+|---|---|---|---|---|---|
+| 18:00–22:00 IST | at the candle | 0 | 150 | 21% | −1.4% |
+| 18:00–22:00 IST | one candle wider | 0 | 136 | 49% | **+1.0%** |
+| 18:00–22:00 IST | one candle wider | 0.04% | 136 | 43% | −4.4% |
+| all day | one candle wider | 0 | 815 | 51% | **+2.4%** |
+| all day | one candle wider | 0.04% | 815 | 43% | −30.3% |
+| all day | one candle wider | 0.10% | 815 | 22% | −79.2% |
+
+Both halves of the ten weeks lose at 0.04% (−15.7% and −14.6%).
+
+**On BTC the failed candle is a stronger signal than on NIFTY** — at the same close
+distance it comes back 11–17 points more often than a full break, against 2–15 on NIFTY.
+But the moves are small: the average winning fade is a few hundredths of a percent, and
+one exchange fee (0.04% round trip) is larger than the whole edge. Without costs it is a
+coin toss that very slightly wins; with any realistic cost it loses.
+
+His other claims on the same BTC bars: the 3-candle hold did not help (held breaks went
+on 45%, not-held 49%; at the 50% line 50% vs 47%), and under value did not beat over value
+(1:1 — 50% vs 46%; 2:1 — 32% vs 33%).
+
+**Decision:** the same as NIFTY — not a strategy. More BTC history (the 15 MB
+`BTCUSDT_1h.json` in Drive is too large for the Drive tool here) would firm this up, but a
+signal smaller than one fee does not become profitable with more data.
