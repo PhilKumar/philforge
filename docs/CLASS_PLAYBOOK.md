@@ -2547,3 +2547,65 @@ said.
 | **T97** | Measure every bounce in **quarters (25/50/75/100%) of the previous leg's high–low**; a 25% bounce leaves the seller in control | **Yes** |
 | **T98** | **Multiple layers + ≤25% distance = buyers without volume**: expect the low to break on the next outside candle | **Yes — and it is T91 with numbers** |
 | **T99** | A pattern ends when an **outside candle closes beyond its head** (a V's low, an A's high) | **Yes** |
+
+## Video 002 — body and wick, whose outside candle, and a winner that stops
+
+Recaps 001, then reads a real 5-minute chart candle by candle. His running image is a
+tug-of-war: buyers and sellers pull one rope, and a side that stops pulling has lost
+(00:06:07). Two reads he insists on together: the **individual** pattern and the
+**overall** one it sits inside — never the individual alone (00:03:34).
+
+## T100 — THE BODY BELONGS TO ITS COLOUR; THE WICK BELONGS TO THE OTHER SIDE
+
+*"Whatever colour the body is, that belongs to them. The opposite — the wick — does not
+belong to them. A red candle's body belongs to the seller, but its wick belongs to the
+buyer."* (002 · 00:27:11) Why: inside that 5-minute red candle *"the first two or
+three one-minute candles would have been green; only the last two or three closed
+red"* (002 · 00:10:46) — the wick is the part the other side won and then lost.
+
+So a move is only owned when the **body** gets there: *"only if the body goes is it
+theirs; if only the wick peeps out, it belongs to the opposite side."* (002 · 00:28:13)
+And the read that follows: *"only the wick went past the wick; the body could not.
+Right here we can confirm the seller has taken 50% control."* (002 · 00:17:27)
+
+## T101 — WHOSE OUTSIDE CANDLE: the side it closes on
+
+T95 made precise by direction. *"If it closes on their own side it is the seller's
+outside candle; on the opposite side, the buyer's outside candle."* (002 · 00:08:08)
+The first buyer outside candle after a fall is the takeover sign — here with the
+bounce already at 75% of the fall: *"two things are clear: the buyer has taken over
+… it went 75 of the market's distance and put an outside candle."* (002 · 00:05:07–
+00:05:37)
+
+And the reverse, which he calls the point of no return: *"if the sellers put an
+outside candle beyond the highest green candle the buyer made, they WILL break it
+aggressively — because they get confidence."* (002 · 00:13:21)
+
+## T102 — A WINNER THAT STOPS HAS STOPPED WINNING
+
+*"Those who are carrying it must keep carrying it without thinking. If thirty minutes
+have gone here, the buyer is thinking. That means many are leaving."* (002 ·
+00:15:55) And the war image: *"whoever is winning must keep moving. If they stand still
+in one place, they could not advance further."* (002 · 00:16:25) On the chart: two
+green candles, then only a wick, then about six candles with no new buyer outside
+close — and the market fell fast.
+
+## T103 — HIGHER HIGHS, LOWER LOWS = BREAKING HEADS, COUNTED
+
+His plain reading of the textbook terms: *"you keep hearing higher high, lower low —
+simply, it means the pattern's head is broken again and again."* (002 · 00:26:08) Then
+a count: in a falling market *"how many L's? One, two, three. Only one high. The high
+belongs to the buyer, the low to the seller — three to one, the seller is strong."*
+(002 · 00:23:36–00:24:06) The buyer's "boundary" shrinks each swing while the seller's
+grows (002 · 00:21:30–00:22:31).
+
+Also from 002: T97's quarters apply to a **single candle** as well as to a pattern —
+*"for a candle too you must mark 25, 50, 75, 100; for the pattern too; both"* (002 ·
+00:14:54).
+
+| Rule | Testable as stated? |
+|---|---|
+| **T100** | A move is owned only where the **body** closes; a wick past a level belongs to the **opposite** side. Wick-only probes = the other side holds | **Yes** — body vs wick is exact |
+| **T101** | An outside close **above** the prior high is the buyer's, **below** the prior low the seller's; the first opposite-side outside candle is the takeover sign, and one beyond the extreme candle brings an aggressive break | **Yes** |
+| **T102** | A side that goes **~30 min (6 × 5m) without a new outside close** in its direction is exhausting; expect the other side | **Yes** — the 30 min is his example, not a stated constant |
+| **T103** | Trend = heads broken repeatedly; count highs vs lows over the last swings — the side with more new extremes is in control | **Yes**, and it is the standard HH/HL/LH/LL definition |
