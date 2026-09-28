@@ -33,6 +33,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.indicators import compute_dynamic_indicators  # noqa: E402
+import engine.live as live  # noqa: E402
 from engine.live import LiveEngine  # noqa: E402
 
 
@@ -74,7 +75,6 @@ class _Engine:
         self._indicator_reference = None
         self._indicator_reference_at = None
         self._indicator_reference_task = None
-        self._divergence_alerted = set()
         self._session_book = None
         self.fetches = []
 
@@ -103,6 +103,7 @@ class _Engine:
 
 class TheEngineDecidesOnTheChartItShows(unittest.TestCase):
     def setUp(self):
+        live._DIVERGENCE_TOLD.clear()
         # A week sitting high, then a sharp fall in the last half hour -- the
         # shape of 24/25-Sep. An EMA carried across the whole series sits well
         # above price; one seeded only on the fall sits right on it.
@@ -240,6 +241,53 @@ class TheEngineDecidesOnTheChartItShows(unittest.TestCase):
             alerter.alert = real
         self.assertTrue(sent, "a divergence must raise an alert")
         self.assertEqual(sent[0][1], "error")
+
+    # ── AND NOT AGAIN, AND NOT TWICE ─────────────────────────────────────────
+    #
+    # 28-Sep-2026: "fires again and again, and twice each time" -- after the
+    # once-per-column fix. That fix remembered in one engine's memory only: a
+    # restart forgot it, and two books on the same NIFTY 5m chart each sent
+    # their own copy.
+
+    def _alerts(self, *engines, frame=None):
+        import alerter
+
+        sent = []
+        real = alerter.alert
+        alerter.alert = lambda title, body, level="error": sent.append(body)
+        try:
+            for e in engines:
+                e._audit_indicators_against_history(self.starved if frame is None else frame, ["EMA_20_5m"], 5, 5)
+        finally:
+            alerter.alert = real
+        return sent
+
+    def test_two_books_on_the_same_chart_send_one_alert(self):
+        self.assertEqual(len(self._alerts(self._engine(), self._engine())), 1)
+
+    def test_a_restart_does_not_send_it_again(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "indicator_divergence_told.json")
+            before = self._engine()
+            before._divergence_told_file = path
+            self.assertEqual(len(self._alerts(before)), 1)
+
+            live._DIVERGENCE_TOLD.clear()  # the process restarted
+            after = self._engine()
+            after._divergence_told_file = path
+            self.assertEqual(self._alerts(after), [], "a restart must not repeat today's alert")
+
+    def test_a_column_nothing_reads_is_logged_but_never_sent(self):
+        engine = self._engine()
+        frame = self.reference.copy()
+        frame["Supertrend_10_2_3m"] = 1.0
+        ref = self.reference.copy()
+        ref["Supertrend_10_2_3m"] = 99999.0
+        engine.set_indicator_reference(ref)
+        self.assertEqual(self._alerts(engine, frame=frame), [])
+        self.assertTrue(any(e["type"] == "warning" for e in engine.event_log), engine.event_log)
 
 
 if __name__ == "__main__":

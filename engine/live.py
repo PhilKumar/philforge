@@ -139,6 +139,37 @@ from engine.timeframes import (
 
 # ── State File ────────────────────────────────────────────────
 _STATE_DIR = os.path.dirname(os.path.dirname(__file__))
+
+# Divergence alerts already sent, by day. Held in the process so every book
+# shares it, and mirrored to disk so a restart does not forget it.
+_DIVERGENCE_TOLD: dict = {}
+
+
+def _divergence_not_yet_told(path: Optional[str], day: str, keys: list) -> list:
+    """Of `keys`, the ones not yet alerted today -- and mark them alerted."""
+    told = _DIVERGENCE_TOLD.setdefault(day, set())
+    for old in [d for d in _DIVERGENCE_TOLD if d != day]:
+        del _DIVERGENCE_TOLD[old]
+    if path:
+        try:
+            with open(path) as f:
+                saved = _json.load(f)
+            if saved.get("day") == day:
+                told.update(saved.get("told") or [])
+        except (OSError, ValueError, AttributeError):
+            pass
+    fresh = [k for k in keys if k not in told]
+    if fresh:
+        told.update(fresh)
+        if path:
+            try:
+                tmp = f"{path}.tmp"
+                with open(tmp, "w") as f:
+                    _json.dump({"day": day, "told": sorted(told)}, f)
+                os.replace(tmp, path)
+            except OSError:
+                pass  # worst case he hears it once more after a restart
+    return fresh
 _NSE_CAPITAL_MARKET_HOLIDAYS = {
     "2024-01-26",
     "2024-03-08",
@@ -232,6 +263,9 @@ class LiveEngine:
         else:
             self._state_file = os.path.join(base_state_dir, "live_state.json")
             self._history_file = os.path.join(base_state_dir, "live_history.json")
+        # Shared by every book in this state dir, so two books on the same chart
+        # tell Phil once, and a restart does not tell him again.
+        self._divergence_told_file = os.path.join(base_state_dir, "indicator_divergence_told.json")
 
         # WebSocket feed (injected from app.py — if available, use event-driven mode)
         self._feed = None  # LiveMarketFeed instance
@@ -302,7 +336,6 @@ class LiveEngine:
         self._indicator_reference: Optional[pd.DataFrame] = None
         self._indicator_reference_at: Optional[datetime] = None
         self._indicator_reference_task = None
-        self._divergence_alerted: set = set()
         self._frame_log_day = None
         self._frame_logs_today = 0
         self._frame_log_quiet = False
@@ -2021,29 +2054,37 @@ class LiveEngine:
         # AND TELL HIM. Phil should not have to sit and watch the book to learn
         # that it is judging on a number the broker disagrees with (25-Sep-2026:
         # "I am really annoyed in this monitoring a live trade daily").
-        # ONE ALERT PER COLUMN PER SESSION. The check runs every candle, and on
-        # its first live afternoon it sent Phil the same message every five
-        # minutes -- which is how an alarm gets ignored.
-        already = set(getattr(self, "_divergence_alerted", set()))
-        fresh = sorted(set(off) - already)
-        if fresh:
-            self._divergence_alerted = already | set(off)
-            told = ", ".join(fresh)
-            where = (
-                "It is being judged on the broker history instead."
-                if decisive
-                else "Nothing in this strategy reads it, so the frame is unchanged."
+        # ONE ALERT PER COLUMN PER CHART PER DAY. The check runs every candle,
+        # and on its first live afternoon it sent Phil the same message every
+        # five minutes -- which is how an alarm gets ignored. The first fix kept
+        # "already told" in this engine's memory only, so it still came again
+        # after every restart, and twice each time because the live and paper
+        # PE books both watch NIFTY 5m (28-Sep: "fires again and again, and
+        # twice each time"). The memory is now per chart and on disk.
+        #
+        # A column nothing reads is logged above and never sent: it changes no
+        # decision, so there is nothing for Phil to do about it.
+        fresh = []
+        if decisive:
+            chart = f"{self.strategy.get('instrument', '26000')}:{execution_timeframe}m"
+            fresh = _divergence_not_yet_told(
+                getattr(self, "_divergence_told_file", None),
+                _now_ist().date().isoformat(),
+                [f"{chart}:{col}" for col in sorted(decisive)],
             )
+        if fresh:
+            told = ", ".join(key.rsplit(":", 1)[-1] for key in fresh)
+            name, gap = max(decisive.items(), key=lambda kv: abs(kv[1]["off_by"]))
             try:
                 import alerter
 
                 alerter.alert(
                     "Indicator divergence",
                     f"<b>{self.strategy.get('name', 'live book')}</b>: {told}\n"
-                    f"{worst[0]} — engine {worst[1]['engine']}, broker history "
-                    f"{worst[1]['history']} (off by {worst[1]['off_by']}).\n\n"
-                    f"{where} Candle {at}.",
-                    level="error" if decisive else "warn",
+                    f"{name} — engine {gap['engine']}, broker history "
+                    f"{gap['history']} (off by {gap['off_by']}).\n\n"
+                    f"It is being judged on the broker history instead. Candle {at}.",
+                    level="error",
                 )
             except Exception:
                 pass
