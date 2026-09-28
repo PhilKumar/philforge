@@ -180,6 +180,85 @@ def run(df: pd.DataFrame, lookback: int, capital: float, split: bool) -> list[Bo
     return [b for b in books if b.fills]
 
 
+# ── the FINAL system: 30/70 after buyer involvement (Day31, Day33-35) ─────────
+#
+# `run` above is the boundary ladder (0/1/2/4/8) the class was taught first.
+# The playbook records that it was superseded:
+#   T66  two orders, 30/70: 30% "at how far the SELLER brought it" (the low of the
+#        fall), 70% "as far as the buyer took it, TWICE that distance below".
+#   T68  never approach a market merely falling -- only after BUYER INVOLVEMENT,
+#        a bounce off the seller's low.
+#   T63  SIZE = (capital / 100) x distance in percent, the distance being the
+#        structure's: mother high down to the deeper order.
+#   Day34 "two bought, average them, and 0.25 to the mother candle overall."
+#   Day35 "if you could not place the 30% order, there is no talk of the target."
+# `scale` multiplies T63's base: Phil's own live tickets ran several times the
+# plain formula (e.g. $20 at a 1% dip on a $200 account), so both are shown.
+
+
+def run_3070(df: pd.DataFrame, lookback: int, capital: float, bounce: float = 0.25, scale: float = 1.0) -> list[Book]:
+    o, h, lo, c = (df[k].to_numpy() for k in ("open", "high", "low", "close"))
+    t = df.index
+    books: list[Book] = []
+    i = lookback
+    n = len(df)
+    while i < n:
+        if h[i] < h[i - lookback : i].max():
+            i += 1
+            continue
+        mother, j = h[i], i + 1
+        low, low_j, top = np.inf, None, -np.inf
+        book = None
+        while j < n:
+            if book is None:
+                if h[j] > mother:
+                    break  # a new mother before any order filled: reset (Day22)
+                if lo[j] < low:
+                    low, low_j, top = lo[j], j, -np.inf  # the seller is still bringing it down
+                    j += 1
+                    continue
+                top = max(top, h[j])
+                fall = mother - low
+                if fall <= 0 or top - low < bounce * fall:
+                    j += 1
+                    continue  # no buyer involvement yet (T68)
+                d = top - low  # how far the buyer took it
+                first, second = low, low - 2 * d
+                money = capital / 100 * (mother - second) / mother * 100 * scale  # T63
+                money = min(money, capital * TRADING_CEILING)
+                book = Book(t[i], mother, [first, second], capital)
+                book.plan = [(first, 0.3 * money), (second, 0.7 * money)]
+            # orders fill as limits, one a candle; the 30% must fill first (Day35)
+            bought = False
+            for k, (lvl, amt) in enumerate(book.plan):
+                if amt and lo[j] <= lvl:
+                    px = min(lvl, o[j])
+                    book.qty += amt / px
+                    book.cost += amt
+                    book.fees += amt * FEE
+                    book.fills.append((t[j], px, amt))
+                    book.peak_deployed = max(book.peak_deployed, book.cost)
+                    book.first_fill = book.first_fill or t[j]
+                    book.plan[k] = (lvl, 0.0)
+                    bought = True
+                    break
+            if not book.fills and h[j] > mother:
+                book = None
+                break
+            if book.qty:
+                book.worst = min(book.worst, (lo[j] - book.average) / book.average)
+                if not bought and h[j] >= book.target(0.25):
+                    book.sell(t[j], book.target(0.25), 1.0)
+                    books.append(book)
+                    break
+            j += 1
+        else:
+            if book is not None and book.fills:
+                books.append(book)  # still open when the data ended
+        i = max(j, i + 1)
+    return books
+
+
 # ── report ────────────────────────────────────────────────────────────────────
 
 

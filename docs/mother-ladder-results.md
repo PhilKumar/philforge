@@ -69,3 +69,38 @@ Capital $200. Mother = new 20-candle high, known at its close. Fees 0.1% per fil
 | 1d | 2017-08-17–2026-09-16 | 61 | 60 | 1 | 100% | +64.90% | +7.1% | +4.32% | 48 h | 25272 h | -71.4% | 50.0% |
 | 1w | 2017-08-20–2026-09-20 | 17 | 16 | 1 | 100% | +36.05% | +4.0% | +8.05% | 168 h | 19992 h | -65.6% | 48.9% |
 
+
+---
+
+# His FINAL system — 30/70 after the buyer shows up (Day31, Day33–35)
+
+Phil, 28-Sep-2026: *"every question you asked, the answer is there"* — it was. The
+playbook records that the boundary ladder above is the version first taught, and that
+the class moved to: wait for **buyer involvement** (T68), then **30% at the seller's
+low, 70% at twice the buyer's distance below** (T66), sized by **(capital ÷ 100) × the
+distance in %** (T63), book out at **0.25 of the way from the average to the mother**
+(Day34), and no trade if the 30% never fills (Day35). Spot, no leverage (T40, T46).
+`run_3070` in `tools/mother_ladder.py`.
+
+| TF | books | win rate | per book, on the money used | books a month | longest stuck | deepest dip |
+|---|---|---|---|---|---|---|
+| 5m | 80 | 34% | +0.01% | 35 | 41 d | −6% |
+| 15m | 91 | 55% | +0.05% | 40 | 4 d | −4% |
+| **1h** | 24 | **96%** | +0.30% | 11 | 3 d | −2% |
+| **4h** | 8 | **100%** | +0.45% | 3.5 | 2 d | −2% |
+| **1d** (9 yrs) | 34 | **100%** | +4.08% | 0.3 | 834 d | −73% |
+
+**His claim of 80 wins in 100 (T67) is met and beaten from the 1-hour chart up.**
+On 5m and 15m the 0.25 target is smaller than two exchange fees, so it cannot pay.
+
+**Why the monthly return is still small — the arithmetic of his own sizing.** T63 puts
+(capital ÷ 100) × distance% into a book: a 3% structure uses 3% of capital, and a 0.3%
+gain on that is 0.01% of capital. So one coin on one timeframe earns **~0.05% a month
+at the formula's size, ~0.4% at ten times it**. His 2–5% a month (T286) — and Phil's
+own live 16 trades in 12 days, ≈3.7% a month on $200 — need what the per-timeframe
+test leaves out: **tickets several times the plain formula** (Phil's live buys were
+$8–$50 on $200) and **many books running at once** across coins and timeframes (T64).
+The edge — a very high win rate on small gains — is real; the monthly figure is set by
+how much is put to work and in how many places at once.
+
+Data: BTC 5m for ten weeks only (15m/1h/4h resampled from it); daily for nine years.
