@@ -449,10 +449,34 @@ class LiveMarketFeed:
         agg_key = f"{label}_{timeframe}m"
 
         if agg_key in self._aggregators:
-            # Aggregator exists — just add the callback
+            # Aggregator exists — add the callback AND keep the fuller history.
+            #
+            # This used to `return` right here, so the SECOND engine to register
+            # had its `history_df` silently thrown away. Live PE and paper PE both
+            # run NIFTY 5m and therefore share this key: whichever registered first
+            # got a seeded buffer and correct CPR/EMA, and the other computed its
+            # indicators from whatever had accumulated since startup. That is why
+            # paper was right and live was wrong on the same strategy, and it is
+            # the same root cause as the EMA_20_5m divergence alerts.
+            #
+            # Introduced 2026-03-04 in 9e878d3b "Multi-strategy live monitoring",
+            # which added the sharing; before it each engine owned its aggregator
+            # and kept its own seed.
+            #
+            # A thinner view must never replace a fuller one — the same rule the
+            # SessionBook fix uses for CPR.
             agg = self._aggregators[agg_key]
             if callback not in agg.on_candle_close:
                 agg.on_candle_close.append(callback)
+            if history_df is not None and not history_df.empty:
+                incoming = self._rows_from_history(history_df)
+                if self._is_fuller(incoming, agg.candles):
+                    merged = self._merge_candles(agg.candles, incoming)
+                    agg.candles = merged[-agg.max_candles :]
+                    print(
+                        f"[FEED] Re-seeded {agg_key} from a fuller history: "
+                        f"{len(agg.candles)} candles, first {agg.candles[0]['timestamp']}"
+                    )
             print(f"[FEED] Added callback to existing aggregator: {agg_key}")
             return
 
@@ -480,6 +504,51 @@ class LiveMarketFeed:
         # aggregator and shared by all of them.
         self.start_candle_closer()
         print(f"[FEED] Candle aggregator set: {agg_key}")
+
+    @staticmethod
+    def _rows_from_history(history_df) -> list:
+        """A history frame as the aggregator's own candle dicts."""
+        out = []
+        for ts, row in history_df.iterrows():
+            out.append(
+                {
+                    "timestamp": ts,
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": int(row.get("volume", 0)),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _is_fuller(incoming: list, existing: list) -> bool:
+        """True when `incoming` reaches further back, or simply holds more.
+
+        Reaching further back is what matters for CPR and for any EMA that has to
+        carry across the session break; a buffer that merely has more recent bars
+        is not fuller in the sense that matters.
+        """
+        if not incoming:
+            return False
+        if not existing:
+            return True
+        if incoming[0]["timestamp"] < existing[0]["timestamp"]:
+            return True
+        return len(incoming) > len(existing)
+
+    @staticmethod
+    def _merge_candles(existing: list, incoming: list) -> list:
+        """Union by timestamp, in time order, the LIVE bar winning a tie.
+
+        The running aggregator's own bars are the ones the websocket built and may
+        be more current than a refetched history, so on a clash the existing bar
+        stands; the history only fills what is missing.
+        """
+        by_ts = {c["timestamp"]: c for c in incoming}
+        by_ts.update({c["timestamp"]: c for c in existing})
+        return [by_ts[k] for k in sorted(by_ts)]
 
     def remove_candle_callback(self, instrument_id: str, timeframe: int, callback: Callable):
         """Remove a specific callback from a candle aggregator."""
