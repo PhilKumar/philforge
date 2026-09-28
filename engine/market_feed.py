@@ -151,6 +151,9 @@ class CandleAggregator:
 
         # Completed candles
         self.candles: List[dict] = []
+        # The websocket thread and the candle-closer thread append here while
+        # the event loop may be seeding a second book's history into it.
+        self._lock = threading.RLock()
 
         # Callbacks: fired when a candle closes (with full DataFrame + latest)
         self.on_candle_close: List[Callable] = []
@@ -239,11 +242,19 @@ class CandleAggregator:
         slot = candle.get("timestamp")
         if slot is not None and (self._last_closed_slot is None or slot > self._last_closed_slot):
             self._last_closed_slot = slot
-        self.candles.append(candle)
+        with self._lock:
+            # A seeded history may already hold a bar for this slot (a broker
+            # fetch taken while it was still forming). The live bar replaces it:
+            # two rows with one timestamp would put the same candle in every
+            # indicator twice.
+            if slot is not None:
+                while self.candles and self.candles[-1].get("timestamp") >= slot:
+                    self.candles.pop()
+            self.candles.append(candle)
 
-        # Trim to max
-        if len(self.candles) > self.max_candles:
-            self.candles = self.candles[-self.max_candles :]
+            # Trim to max
+            if len(self.candles) > self.max_candles:
+                self.candles = self.candles[-self.max_candles :]
 
         # Fire all callbacks
         if self.on_candle_close:
@@ -265,9 +276,39 @@ class CandleAggregator:
         """Get the currently forming (incomplete) candle."""
         return self._current.copy() if self._current else None
 
+    def seed(self, rows: List[dict], now: Optional[datetime] = None) -> int:
+        """Merge history candles in. Returns how many candles the buffer holds.
+
+        Safe to call on a running aggregator (a second book registering late):
+          - only FINISHED bars go in -- a bar whose slot has not ended, or the
+            slot the websocket is building right now, is a guess the live bar
+            will replace, and seeding it is how duplicates got in;
+          - a timestamp the buffer already has keeps the buffer's bar, which the
+            websocket built and is the more current;
+          - the whole swap happens under the lock the closer threads take.
+        """
+        now = now or _now_ist()
+        done = []
+        for c in rows:
+            ts = c["timestamp"]
+            if getattr(ts, "tzinfo", None) is not None:
+                ts = pd.Timestamp(ts).tz_convert(IST).tz_localize(None)  # slots are naive IST
+                c = {**c, "timestamp": ts}
+            if ts + timedelta(minutes=self.tf) > now:
+                continue
+            if self._current_slot is not None and ts >= self._current_slot:
+                continue
+            done.append(c)
+        with self._lock:
+            by_ts = {c["timestamp"]: c for c in done}
+            by_ts.update({c["timestamp"]: c for c in self.candles})
+            self.candles = [by_ts[k] for k in sorted(by_ts)][-self.max_candles :]
+            return len(self.candles)
+
     def to_dataframe(self, include_current: bool = False) -> pd.DataFrame:
         """Convert completed candles to DataFrame with timestamp index."""
-        rows = list(self.candles)
+        with self._lock:
+            rows = list(self.candles)
         if include_current and self._current is not None:
             rows.append(self._current.copy())
         if not rows:
@@ -490,40 +531,25 @@ class LiveMarketFeed:
             # and kept its own seed.
             #
             # A thinner view must never replace a fuller one — the same rule the
-            # SessionBook fix uses for CPR.
+            # SessionBook fix uses for CPR. seed() is a union that keeps the
+            # buffer's own bars, so it can only ever add what is missing.
             agg = self._aggregators[agg_key]
             if callback not in agg.on_candle_close:
                 agg.on_candle_close.append(callback)
             if history_df is not None and not history_df.empty:
-                incoming = self._rows_from_history(history_df)
-                if self._is_fuller(incoming, agg.candles):
-                    merged = self._merge_candles(agg.candles, incoming)
-                    agg.candles = merged[-agg.max_candles :]
-                    print(
-                        f"[FEED] Re-seeded {agg_key} from a fuller history: "
-                        f"{len(agg.candles)} candles, first {agg.candles[0]['timestamp']}"
-                    )
+                held = agg.seed(self._rows_from_history(history_df))
+                print(f"[FEED] Merged a second book's history into {agg_key}: {held} candles")
             print(f"[FEED] Added callback to existing aggregator: {agg_key}")
             return
 
         agg = CandleAggregator(timeframe_minutes=timeframe, max_candles=session_buffer_size(timeframe))
         agg.on_candle_close = [callback]
 
-        # Pre-seed with historical candles if provided
+        # Pre-seed with historical candles if provided. Only finished bars: the
+        # fallback history fetch keeps the forming one, and seeding it put two
+        # candles with one timestamp in the buffer once the live bar closed.
         if history_df is not None and not history_df.empty:
-            for ts, row in history_df.iterrows():
-                agg.candles.append(
-                    {
-                        "timestamp": ts,
-                        "open": float(row["open"]),
-                        "high": float(row["high"]),
-                        "low": float(row["low"]),
-                        "close": float(row["close"]),
-                        "volume": int(row.get("volume", 0)),
-                    }
-                )
-            if agg.candles:
-                agg.candles = agg.candles[-agg.max_candles :]
+            agg.seed(self._rows_from_history(history_df))
 
         self._aggregators[agg_key] = agg
         # The clock that ends candles on time, started with the first
@@ -547,34 +573,6 @@ class LiveMarketFeed:
                 }
             )
         return out
-
-    @staticmethod
-    def _is_fuller(incoming: list, existing: list) -> bool:
-        """True when `incoming` reaches further back, or simply holds more.
-
-        Reaching further back is what matters for CPR and for any EMA that has to
-        carry across the session break; a buffer that merely has more recent bars
-        is not fuller in the sense that matters.
-        """
-        if not incoming:
-            return False
-        if not existing:
-            return True
-        if incoming[0]["timestamp"] < existing[0]["timestamp"]:
-            return True
-        return len(incoming) > len(existing)
-
-    @staticmethod
-    def _merge_candles(existing: list, incoming: list) -> list:
-        """Union by timestamp, in time order, the LIVE bar winning a tie.
-
-        The running aggregator's own bars are the ones the websocket built and may
-        be more current than a refetched history, so on a clash the existing bar
-        stands; the history only fills what is missing.
-        """
-        by_ts = {c["timestamp"]: c for c in incoming}
-        by_ts.update({c["timestamp"]: c for c in existing})
-        return [by_ts[k] for k in sorted(by_ts)]
 
     def remove_candle_callback(self, instrument_id: str, timeframe: int, callback: Callable):
         """Remove a specific callback from a candle aggregator."""

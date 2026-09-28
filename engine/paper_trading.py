@@ -1233,7 +1233,7 @@ class PaperTradingEngine:
         if not history_df.empty:
             try:
                 self._remember_indicator_context(history_df)
-                self._latest_raw_candles = history_df.tail(500).copy()
+                self._latest_raw_candles = history_df.tail(LIVE_CONTEXT_ROWS).copy()
                 with pinned_sessions(self._session_book):
                     df_init = compute_dynamic_indicators(
                         merge_indicator_context(
@@ -1924,7 +1924,7 @@ class PaperTradingEngine:
                 source_timeframe_minutes=tf_spec.fetch,
                 execution_timeframe_minutes=execution_timeframe,
             )
-        self._latest_raw_candles = df_raw.tail(500).copy()
+        self._latest_raw_candles = df_raw.tail(LIVE_CONTEXT_ROWS).copy()
 
         # Store current candle + indicator values for live monitor UI
         if not df.empty:

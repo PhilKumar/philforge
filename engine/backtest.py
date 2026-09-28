@@ -288,13 +288,32 @@ def drain_cross_skips() -> list:
 # They are computed from yesterday and must not change during today, so a cross
 # against them can only ever be produced by PRICE moving.
 _SESSION_CONSTANT_PREFIXES = ("CPR_", "PIVOT", "PDH", "PDL", "PREV_DAY", "YESTERDAY")
+# The bare floor-pivot names a rule may use without the CPR_ prefix -- every
+# level the pivot builder emits, half-levels and R4/R5/S4/S5 included. The first
+# version listed only R1-R3/S1-S3, so a rule on S4 or R1.5 still read a moving
+# line as a cross.
+_SESSION_CONSTANT_NAMES = frozenset(
+    {"PP", "TC", "BC"}
+    | {f"{side}{n}" for side in ("R", "S") for n in ("0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5")}
+)
 
 
 def _is_session_constant_level(key) -> bool:
     if not isinstance(key, str):
         return False
     k = key.upper()
-    return k.startswith(_SESSION_CONSTANT_PREFIXES) or k in {"R1", "R2", "R3", "S1", "S2", "S3", "TC", "BC", "PP"}
+    return k.startswith(_SESSION_CONSTANT_PREFIXES) or k in _SESSION_CONSTANT_NAMES
+
+
+def _hold_levels_still(left, right, lv_f, rv_f, plv_f, prv_f):
+    """The previous bar's operands, with a session-constant level pinned to
+    today's value -- on whichever side of the rule it sits -- so only PRICE can
+    produce a crossing."""
+    if _is_session_constant_level(right):
+        prv_f = rv_f
+    if _is_session_constant_level(left):
+        plv_f = lv_f
+    return plv_f, prv_f
 
 
 def _prev_cross_operand(prev_row, key, cond, op, side: str):
@@ -397,7 +416,9 @@ def _touch_fill_price(row, cond, prev_row=None):
             return None
         if isinstance(prv, float) and pd.isna(prv):
             return None
-        prev_diff = float(plv) - float(prv)
+        # A moving pivot must not fake a touch any more than a cross.
+        plv_f, prv_f = _hold_levels_still(left, right, lv_f, rv_f, float(plv), float(prv))
+        prev_diff = plv_f - prv_f
     except (TypeError, ValueError):
         return None
 
@@ -504,8 +525,7 @@ def eval_condition(row, cond, prev_row=None):
         # levels move — they did not make a moving level unable to fake a cross.
         # For these levels, hold the line still: judge both bars against today's
         # value, so only PRICE can produce the crossing.
-        if _is_session_constant_level(r):
-            prv_f = rv_f
+        plv_f, prv_f = _hold_levels_still(left, r, lv_f, rv_f, plv_f, prv_f)
         if op == "crosses_above":
             return plv_f <= prv_f and lv_f > rv_f
         return plv_f >= prv_f and lv_f < rv_f
