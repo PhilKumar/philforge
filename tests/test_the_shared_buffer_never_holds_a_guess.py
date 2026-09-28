@@ -106,7 +106,9 @@ def _cross(level, op="crosses_below", level_on_left=False):
     return {"left": "current_close", "operator": op, "right": level}
 
 
-@pytest.mark.parametrize("level", ["S4", "S5", "R1.5", "S3.5", "R0.5", "pivot", "tc", "bc", "Yesterday_Low", "CPR_W_S3"])
+@pytest.mark.parametrize(
+    "level", ["S4", "S5", "R1.5", "S3.5", "R0.5", "pivot", "tc", "bc", "Yesterday_Low", "CPR_W_S3"]
+)
 def test_every_pivot_level_holds_still(level):
     prev = pd.Series({"close": 23_100.0, level: 23_050.0})
     now = pd.Series({"close": 23_100.0, level: 23_150.0})  # the line moved, price did not

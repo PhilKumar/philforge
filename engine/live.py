@@ -170,6 +170,8 @@ def _divergence_not_yet_told(path: Optional[str], day: str, keys: list) -> list:
             except OSError:
                 pass  # worst case he hears it once more after a restart
     return fresh
+
+
 _NSE_CAPITAL_MARKET_HOLIDAYS = {
     "2024-01-26",
     "2024-03-08",

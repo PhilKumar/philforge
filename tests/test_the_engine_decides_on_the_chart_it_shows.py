@@ -32,8 +32,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.indicators import compute_dynamic_indicators  # noqa: E402
 import engine.live as live  # noqa: E402
+from engine.indicators import compute_dynamic_indicators  # noqa: E402
 from engine.live import LiveEngine  # noqa: E402
 
 
