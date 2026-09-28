@@ -274,6 +274,18 @@ def _session_bars(df: pd.DataFrame) -> pd.DataFrame:
     return inside if not inside.empty else df
 
 
+# How many raw rows a LIVE engine keeps as indicator context.
+#
+# This was a flat 800 (and 500 in places), chosen when the live clock was 5m.
+# On the ONE-MINUTE clock 800 rows is 2.1 sessions and 500 is 1.3, so as today
+# filled up the previous session fell off the back — live on 2026-09-28 the
+# count of bars before today slid 354 -> 329, under the 375 a whole session
+# needs. That is exactly what makes CPR levels move, and a moving level can be
+# read as a cross. 1,500 rows is four whole sessions on the 1m clock and more on
+# every coarser one; at a handful of columns it costs a few megabytes.
+LIVE_CONTEXT_ROWS = 1500
+
+
 class SessionBook:
     """Every COMPLETE session an engine has seen, pinned once seen whole.
 

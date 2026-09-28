@@ -99,6 +99,32 @@ except ImportError:
 # ════════════════════════════════════════════════════════════════
 
 
+# An NSE session is 09:15-15:30 = 375 minutes.
+NSE_SESSION_MINUTES = 375
+# How many WHOLE past sessions every buffer must always be able to hold. Three,
+# so a long weekend still leaves two complete sessions behind today.
+SESSIONS_TO_KEEP = 3
+
+
+def session_buffer_size(timeframe_minutes: int, sessions: int = SESSIONS_TO_KEEP) -> int:
+    """How many candles a buffer needs to hold `sessions` whole sessions plus today.
+
+    The buffer was a flat 500 candles whatever the timeframe. On the 1-MINUTE
+    clock that is 500 minutes — one and a third sessions — so as today filled up,
+    yesterday fell off the back of the buffer. Live on 2026-09-28 the count of
+    bars before today fell 354 -> 329 during the morning, i.e. below the 375 a
+    whole session needs, which is exactly the condition that makes CPR levels
+    move and lets a pivot be read as a cross.
+
+    Sizing from the timeframe instead: 1m needs 1,500 candles for this, 5m needs
+    300. The floor of 500 keeps the old depth for the coarser clocks, which need
+    it for long indicator windows rather than for whole sessions.
+    """
+    tf = max(1, int(timeframe_minutes or 1))
+    per_session = -(-NSE_SESSION_MINUTES // tf)  # ceil
+    return max(500, per_session * (sessions + 1))
+
+
 class CandleAggregator:
     """
     Aggregates streaming LTP ticks into OHLCV candles of arbitrary timeframe.
@@ -480,7 +506,7 @@ class LiveMarketFeed:
             print(f"[FEED] Added callback to existing aggregator: {agg_key}")
             return
 
-        agg = CandleAggregator(timeframe_minutes=timeframe, max_candles=500)
+        agg = CandleAggregator(timeframe_minutes=timeframe, max_candles=session_buffer_size(timeframe))
         agg.on_candle_close = [callback]
 
         # Pre-seed with historical candles if provided

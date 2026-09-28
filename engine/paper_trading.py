@@ -88,6 +88,7 @@ def statutory_round_charges(*, entry_premium, exit_premium, quantity, lots, opti
 
 
 from engine.indicators import (
+    LIVE_CONTEXT_ROWS,
     SessionBook,
     compute_dynamic_indicators,
     infer_execution_timeframe,
@@ -1014,7 +1015,7 @@ class PaperTradingEngine:
         now: datetime,
     ) -> pd.DataFrame:
         """Drop any still-forming strategy candle before WS signal evaluation."""
-        candle_df = merge_indicator_context(candle_df, self._indicator_context_raw, max_rows=800)
+        candle_df = merge_indicator_context(candle_df, self._indicator_context_raw, max_rows=LIVE_CONTEXT_ROWS)
         with pinned_sessions(self._session_book):
             df_with_indicators = compute_dynamic_indicators(
                 candle_df,
@@ -1027,7 +1028,7 @@ class PaperTradingEngine:
             return df_with_indicators
         return drop_incomplete_candle(df_with_indicators, execution_timeframe, now)
 
-    def _remember_indicator_context(self, raw_df: pd.DataFrame, *, max_rows: int = 800) -> None:
+    def _remember_indicator_context(self, raw_df: pd.DataFrame, *, max_rows: int = LIVE_CONTEXT_ROWS) -> None:
         if not isinstance(raw_df, pd.DataFrame) or raw_df.empty:
             return
         merged = pd.concat([self._indicator_context_raw, raw_df]).sort_index()
@@ -1204,7 +1205,9 @@ class PaperTradingEngine:
             self._latest_candle_df = df
             self._latest_candle = candle
             self._remember_indicator_context(df)
-            self._latest_raw_candles = merge_indicator_context(df, self._indicator_context_raw, max_rows=500).copy()
+            self._latest_raw_candles = merge_indicator_context(
+                df, self._indicator_context_raw, max_rows=LIVE_CONTEXT_ROWS
+            ).copy()
             # Set asyncio event from the WS thread
             loop.call_soon_threadsafe(self._candle_event.set)
 
@@ -1233,7 +1236,9 @@ class PaperTradingEngine:
                 self._latest_raw_candles = history_df.tail(500).copy()
                 with pinned_sessions(self._session_book):
                     df_init = compute_dynamic_indicators(
-                        merge_indicator_context(history_df.copy(), self._indicator_context_raw, max_rows=800),
+                        merge_indicator_context(
+                            history_df.copy(), self._indicator_context_raw, max_rows=LIVE_CONTEXT_ROWS
+                        ),
                         indicators,
                         default_timeframe_minutes=execution_timeframe,
                         source_timeframe_minutes=fetch_timeframe,
