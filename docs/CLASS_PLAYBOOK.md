@@ -2700,13 +2700,13 @@ and they recur in video after video.
 
 ## Where he contradicts himself — or this playbook
 
-Recorded, not resolved. Each is a question for data, not for argument.
+The first three were settled by Phil on 28-Sep-2026; the rest are recorded, not resolved — each is a question for data, not for argument.
 
 | Topic | One version | The other |
 |---|---|---|
-| **Capital in trading** | T6: at most 50% | **10–20%** — T127, T145, T273, T586 (four blocks agree); stop at a 10% drawdown, T464 |
-| **NIFTY violent hours** | T93: 09:15–10:00 and 14:45–15:30 | T260: first hour + **13:30–15:30** carry ~80% of the day; T538: 09:15–10:15 and **14:15–15:15** |
-| **Who owns a wick** | T100 (002): the wick belongs to the side opposite the body's colour | T190 (016): **lower wick = buyer, upper wick = seller**, whatever the body |
+| **Capital in trading** | T6: at most 50% | 10–20% — T127, T145, T273, T586; stop at a 10% drawdown, T464. **Phil, 28-Sep-2026: it depends** — not one fixed cap; the size follows the account and the situation, so neither number is a rule on its own |
+| **NIFTY violent hours** | T93: 09:15–10:00 and 14:45–15:30 | T260: first hour + 13:30–15:30; T538: 09:15–10:15 and 14:15–15:15. **Phil, 28-Sep-2026: all the same** — one opening window and one closing window; the minutes differ by video, the idea does not |
+| **Who owns a wick** | T100 (002): the wick belongs to the side opposite the body's colour | T190 (016): lower wick = buyer, upper wick = seller. **Phil, 28-Sep-2026: both are the same** — a wick is the part the other side pushed and lost, read from where it sits |
 | **Next leg size** | T108 / T278: 1.5–2× the last counter-move | T324: 1–1.5× |
 | **After an O pattern** | T104: breaks hard one way | T573: buyers retest inside it; the break does not travel far |
 | **Coinciding 50% lines** | T553: very hard to break | T591: a squeeze that breaks hard |
