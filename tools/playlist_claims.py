@@ -329,6 +329,89 @@ def violent_hours(df5: pd.DataFrame) -> dict:
     }
 
 
+# ── round 2: at HIS line — the last swing's 50% ───────────────────────────────
+#
+# Round 1 tested the 3-candle hold at any 12-bar high and depth against any
+# swing, and neither showed an edge. He applies both at one place: the 50% line
+# of the last swing (T297, T312, T455). These redo them there. The swing used
+# is always the last one KNOWN at that bar -- its `confirmed` index -- so no
+# decision reads a swing it could not yet have seen.
+
+
+def _current_leg(n: int, legs: list[Leg]) -> np.ndarray:
+    cur = np.full(n, -1)
+    for k, leg in enumerate(legs):
+        end = legs[k + 1].confirmed if k + 1 < len(legs) else n
+        cur[leg.confirmed : end] = k
+    return cur
+
+
+def half_line_break(df: pd.DataFrame, legs: list[Leg], step: float = 0.25) -> dict:
+    """A close through the last swing's 50% line. HELD = the next 3 closes stay
+    on the new side. Scored from the third candle's close: a quarter of the
+    swing further in the break's direction before a quarter against (a random
+    walk wins 50%)."""
+    h, lo, c = (df[k].to_numpy() for k in ("high", "low", "close"))
+    cur = _current_leg(len(df), legs)
+    out = {"held": [0, 0], "failed": [0, 0]}
+    for i in range(1, len(df) - 4):
+        k = cur[i]
+        if k < 0 or cur[i - 1] != k:
+            continue
+        leg = legs[k]
+        mid = (leg.start_px + leg.end_px) / 2
+        size = abs(leg.end_px - leg.start_px)
+        if c[i - 1] >= mid > c[i]:
+            side = -1
+        elif c[i - 1] <= mid < c[i]:
+            side = 1
+        else:
+            continue
+        key = "held" if np.all(side * (c[i + 1 : i + 4] - mid) > 0) else "failed"
+        ref = c[i + 3]
+        r = _first_touch(h, lo, i + 4, ref + side * step * size, ref - side * step * size, side)
+        if r is not None:
+            out[key][0] += r
+            out[key][1] += 1
+    return out
+
+
+def value_side_entries(df: pd.DataFrame, legs: list[Leg]) -> dict:
+    """Under value / over value (T297). In the pullback after a swing, the
+    first candle in the swing's own colour (green after an up swing) that
+    closes BELOW the 50% line is an under-value entry; the first above it, an
+    over-value entry. One of each per swing, so one swing cannot vote twice.
+    Scored two ways: 1:1 (a quarter of the swing either way, random walk 50%)
+    and his 2:1 (half the swing in favour before a quarter against, random
+    walk 33%)."""
+    o, h, lo, c = (df[k].to_numpy() for k in ("open", "high", "low", "close"))
+    res = {s: {"1:1": [0, 0], "2:1": [0, 0]} for s in ("over", "under")}
+    for k, leg in enumerate(legs):
+        sign = 1 if leg.up else -1
+        size = abs(leg.end_px - leg.start_px)
+        mid = (leg.start_px + leg.end_px) / 2
+        stop_at = legs[k + 1].confirmed if k + 1 < len(legs) else len(df)
+        taken = set()
+        for i in range(leg.confirmed + 1, min(stop_at, len(df) - 1)):
+            if sign * (c[i] - o[i]) <= 0:
+                continue  # not a candle of the swing's own side
+            # inside the swing's range only; beyond its origin it is a new swing
+            if sign * (c[i] - leg.start_px) <= 0 or sign * (c[i] - leg.end_px) >= 0:
+                continue
+            side = "under" if sign * (c[i] - mid) < 0 else "over"
+            if side in taken:
+                continue
+            taken.add(side)
+            for name, up, dn in (("1:1", 0.25, 0.25), ("2:1", 0.5, 0.25)):
+                r = _first_touch(h, lo, i + 1, c[i] + sign * up * size, c[i] - sign * dn * size, sign)
+                if r is not None:
+                    res[side][name][0] += r
+                    res[side][name][1] += 1
+            if len(taken) == 2:
+                break
+    return res
+
+
 # ── report ────────────────────────────────────────────────────────────────────
 
 
@@ -434,6 +517,33 @@ def main():
             fs = f"{f[0] * 100:.1f}% (n {f[1]:,})" if f else "–"
             us = f"{u[0] * 100:.1f}% (n {u[1]:,})" if u else "–"
             L.append(f"| {tf} | {b} | {fs} | {us} |")
+
+    L += ["", "## Round 2 — the same two claims at his 50% line", ""]
+    L.append("The line is the 50% of the last swing known at that bar (never one still forming).")
+    L.append("")
+    L.append("### 1b. The 3-candle test at the 50% line (T154, T312, T455)")
+    L.append("")
+    L.append("A close through the line. Scored from the third candle: a quarter of the swing onward")
+    L.append("before a quarter back. A random walk wins 50%.")
+    L.append("")
+    L.append("| TF | held 3 candles → went on | not held → went on | held n | not held n |")
+    L.append("|---|---|---|---|---|")
+    for tf in ("5m", "15m", "1h", "1d"):
+        r = half_line_break(frames[tf], legs[tf])
+        L.append(f"| {tf} | {pct(*r['held'])} | {pct(*r['failed'])} | {r['held'][1]:,} | {r['failed'][1]:,} |")
+    L.append("")
+    L.append("### 2b. Under value vs over value (T297)")
+    L.append("")
+    L.append("First candle of the swing's own colour in the pullback, below the 50% (under value) or")
+    L.append("above it (over value). He says under value wins ~7 in 10, over value ~3 in 10.")
+    L.append("")
+    L.append("| TF | side | 1:1 win (random 50%) | n | 2:1 win (random 33%) | n |")
+    L.append("|---|---|---|---|---|---|")
+    for tf in ("5m", "15m", "1h", "1d"):
+        r = value_side_entries(frames[tf], legs[tf])
+        for side in ("under", "over"):
+            a, b = r[side]["1:1"], r[side]["2:1"]
+            L.append(f"| {tf} | {side} value | {pct(*a)} | {a[1]:,} | {pct(*b)} | {b[1]:,} |")
 
     L += ["", "## 5. Violent hours (T260, T538)", ""]
     r = violent_hours(frames["5m"])

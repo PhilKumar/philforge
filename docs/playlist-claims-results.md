@@ -13,16 +13,24 @@ cannot be told apart from a coin.
 | 4 | **Failed candle = trap** (T144, T174) | ✅ **Real, but smaller than it looks** | Failed closes came back 61% vs 38% for full breaks — but most of that gap is just that failed closes sit nearer the level. At the same distance the edge is 2–15 points, largest on the bigger closes. |
 | 5 | **Violent hours** (T260, T538) | ✅ **Opening** / ❌ **closing** | 09:15–10:15 is 16% of the minutes, 24% of the movement and 41% of the day's highs and lows. 13:30–15:30 is 32% of the minutes and 30% of the movement — not violent. Together: 54%, not the 80% he says. |
 
+**Round 2 — at his own line, the last swing's 50%** (as he applies them):
+
+| # | Claim | Verdict | In one line |
+|---|---|---|---|
+| 1b | **3-candle test at the 50% line** | ⚠️ **Small, maybe** | On 5m, held breaks went on 53.8% vs 49.0% not held (≈780 each) — about two standard errors, so possibly real but small. On 15m and 1h the gap is 1–2 points: nothing. |
+| 2b | **Under value 7/10, over value 3/10** (T297) | ❌ **Not supported** | Under value won 41–48% at 1:1 and 29–33% at 2:1; over value 47–50% and 34–36%. Both sit on the coin-toss line — under value was, if anything, slightly worse. |
+
 **What this means for the live book.** Of his five most repeated ideas, two hold up on
 NIFTY: the opening hour really is where the day's extremes are made, and a close
 beyond a level that barely clears it is more likely to fall back. The two ideas the
 method leans on hardest — the 3-candle hold and "deeper is safer" — show nothing
-measurable at this level of definition.
+measurable — and retested at his own 50% line, the 3-candle hold gains at most a small
+edge on 5m while under value still wins no more than over value.
 
 **What this does not prove.** Each claim was tested in one precise form. He may mean
 something narrower: the 3-candle test *at a 50% line* rather than any 12-bar high,
-depth *after his confirmations* rather than any swing. Those are the next tests —
-but a rule that only works under a definition he never states is not yet a rule.
+depth *after his confirmations* rather than any swing. Round 2 did both at the 50% line; the
+results barely moved — and a rule that only works under a definition he never states is not yet a rule.
 
 Reproduce: `python3 tools/playlist_claims.py --data DIR`, with DIR holding the
 `NSE_INDEX_Nifty_50_{5m,15m,1h,1d}_*.json` files from Drive.
@@ -125,6 +133,38 @@ distance: breaks split into quarters by how far the close is beyond the level.
 | 1h | 2nd | 46.7% (n 90) | 45.3% (n 64) |
 | 1h | 3rd | 35.7% (n 42) | 31.5% (n 111) |
 | 1h | furthest | 18.2% (n 11) | 13.3% (n 143) |
+
+## Round 2 — the same two claims at his 50% line
+
+The line is the 50% of the last swing known at that bar (never one still forming).
+
+### 1b. The 3-candle test at the 50% line (T154, T312, T455)
+
+A close through the line. Scored from the third candle: a quarter of the swing onward
+before a quarter back. A random walk wins 50%.
+
+| TF | held 3 candles → went on | not held → went on | held n | not held n |
+|---|---|---|---|---|
+| 5m | 53.8% | 49.0% | 788 | 743 |
+| 15m | 51.8% | 50.7% | 311 | 278 |
+| 1h | 52.3% | 50.0% | 111 | 86 |
+| 1d | 52.9% | 37.5% | 17 | 8 |
+
+### 2b. Under value vs over value (T297)
+
+First candle of the swing's own colour in the pullback, below the 50% (under value) or
+above it (over value). He says under value wins ~7 in 10, over value ~3 in 10.
+
+| TF | side | 1:1 win (random 50%) | n | 2:1 win (random 33%) | n |
+|---|---|---|---|---|---|
+| 5m | under value | 47.3% | 675 | 33.2% | 677 |
+| 5m | over value | 49.6% | 702 | 35.1% | 704 |
+| 15m | under value | 48.2% | 313 | 32.8% | 314 |
+| 15m | over value | 48.0% | 321 | 36.0% | 322 |
+| 1h | under value | 40.6% | 138 | 28.8% | 139 |
+| 1h | over value | 46.5% | 129 | 34.1% | 129 |
+| 1d | under value | 52.2% | 23 | 39.1% | 23 |
+| 1d | over value | 64.7% | 17 | 35.3% | 17 |
 
 ## 5. Violent hours (T260, T538)
 

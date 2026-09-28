@@ -53,3 +53,13 @@ def test_violent_hours_shares_add_up_to_the_whole_session():
     assert abs(sum(r["share"].values()) - 1.0) < 1e-9
     # Flat bars everywhere: each window's share of movement is its share of time.
     assert abs(r["share"]["09:15-10:15"] - 12 / 75) < 1e-9
+
+
+def test_the_50_line_is_only_used_once_its_swing_is_known():
+    closes = list(range(100, 121)) + list(range(119, 104, -1)) + list(range(106, 126))
+    legs = pc.zigzag(_bars(closes), 0.05)
+    cur = pc._current_leg(len(closes), legs)
+    first = legs[0]
+    # Before the first swing is confirmed there is no line to trade against.
+    assert (cur[: first.confirmed] == -1).all()
+    assert cur[first.confirmed] == 0
