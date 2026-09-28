@@ -2717,6 +2717,8 @@ The first three were settled by Phil on 28-Sep-2026; the rest are recorded, not 
 
 Each is precise, repeated, and measurable on the NIFTY and BTC history already in the repo.
 
+**Tested 28-Sep-2026 on two years of NIFTY — full numbers in `docs/playlist-claims-results.md`:** (1) 3-candle test ❌ no edge · (2) deeper pullback ❌ not better · (3) back to 50% ⚠️ true of every level, so empty · (4) failed candle ✅ real but small once distance is matched · (5) opening hour ✅ violent, closing window ❌ not.
+
 1. **The 3-candle test** (T154/T552) — after a close beyond a level, does holding 3 bars predict continuation better than chance?
 2. **Win rate by pullback depth** (T533) — do buys in the 75–100 zone of the prior leg reach target ~7 in 10, and 0–25 only ~3 in 10?
 3. **Return to 50% within ⅓× to 1.5× the leg's duration** (T364).
