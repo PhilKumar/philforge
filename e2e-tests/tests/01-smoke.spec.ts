@@ -653,8 +653,14 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
   // differently on a 390px screen. Pin the documented offline state so the
   // visual gate measures one deterministic layout.
   await page.evaluate(() => {
-    const setIndicator = (window as typeof window & { _wsSetLiveIndicator?: (connected: boolean, stale: boolean) => void })._wsSetLiveIndicator;
+    const w = window as typeof window & { _wsSetLiveIndicator?: (connected: boolean, stale: boolean) => void };
+    const setIndicator = w._wsSetLiveIndicator;
     if (typeof setIndicator === 'function') setIndicator(false, false);
+    // And keep it pinned. The heartbeat repaints this pill every 250ms, so the
+    // label could pass the 'Disconnected' check below and then flip back to
+    // 'Feed Ready' before the screenshot — which is exactly how 29-Sep's run
+    // failed twice while its text assertion passed.
+    w._wsSetLiveIndicator = () => {};
   });
   await expect(page.locator('#ws-status-label')).toHaveText('Disconnected');
   // The NIFTY chart control is intentionally between Start and Stop. Assert it
