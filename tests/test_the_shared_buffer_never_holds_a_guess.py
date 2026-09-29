@@ -72,7 +72,10 @@ def test_a_second_book_with_a_forming_bar_leaves_no_duplicate(feed):
     leave two rows for that slot once the live bar closes."""
     feed.set_candle_config("26000", 5, lambda *a: None, _frame("2026-09-25 09:15", 3))
     agg = feed._aggregators["NIFTY_5m"]
-    agg.feed_tick(150.0, ts=datetime.now().replace(microsecond=0))
+    # A fixed IN-SESSION moment, not datetime.now(): ticks outside 09:15-15:30
+    # make no candle (b14c473c), so a wall-clock tick after hours — or any time
+    # on CI, whose clock is UTC — leaves no forming slot and this test crashes.
+    agg.feed_tick(150.0, ts=datetime(2026, 9, 28, 10, 2, 0))
     forming = agg._current_slot
     history = _frame(str(forming - timedelta(minutes=5 * 20)), 21)  # ends ON the forming slot
     feed.set_candle_config("26000", 5, lambda *a: None, history)

@@ -109,9 +109,15 @@ class TheClockRunsOnItsOwn(unittest.TestCase):
         Host.stop_candle_closer = mf.LiveMarketFeed.stop_candle_closer
 
         host = Host()
-        now = mf._now_ist()
-        # a slot that has ALREADY ended, so the closer fires on its first pass
-        agg.feed_tick(100.0, ts=now - timedelta(minutes=3))
+        # A slot that has ALREADY ended, so the closer fires on its first pass —
+        # and one INSIDE the NSE session. This used `now - 3 minutes`, which is
+        # only a session time while the market is open: since ticks outside
+        # 09:15-15:30 no longer make candles, any run after 15:33 or before 09:18
+        # (CI tonight, a pre-open run) fed a tick that was rightly dropped and
+        # the test failed for a reason unrelated to the clock it tests.
+        # Yesterday at 10:00 is always in the past and always in session.
+        ended = (mf._now_ist() - timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+        agg.feed_tick(100.0, ts=ended)
         host.start_candle_closer()
         try:
             for _ in range(40):
