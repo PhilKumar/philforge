@@ -102,3 +102,63 @@ class TheTwoFakeTradesAreVoided(unittest.TestCase):
         ]
         for t in near_misses:
             self.assertFalse(is_voided_paper_trade(t), t)
+
+
+class TheLateEntryDayIsNoTrade(unittest.TestCase):
+    """The 10:40 late entries on 29-Sep, read off prod: voided, and the day stays shut."""
+
+    LATE = [
+        {"entry_time": "2026-09-29 10:40:01.594877", "strike": 22850, "option_type": "PE", "pnl": -15190.07},
+        {"entry_time": "2026-09-29 10:40:01.689839", "strike": 22850, "option_type": "PE", "pnl": -15008.72},
+    ]
+
+    def test_both_are_voided_and_close_the_day(self):
+        from engine.paper_trading import is_voided_paper_trade, voided_trade_closes_day
+
+        for t in self.LATE:
+            self.assertTrue(is_voided_paper_trade(t), t)
+            self.assertTrue(voided_trade_closes_day(t), t)
+
+    def test_the_0920_voids_do_not_close_the_day(self):
+        from engine.paper_trading import voided_trade_closes_day
+
+        for t in TheTwoFakeTradesAreVoided.REAL:
+            self.assertFalse(voided_trade_closes_day(t), t)
+
+    def test_a_restart_keeps_the_day_shut(self):
+        import json
+        import os
+        import tempfile
+        from unittest import mock
+
+        import engine.paper_trading as pt
+
+        state = {
+            "session_date": "2026-09-29",
+            "positions": [],
+            "closed_trades": [self.LATE[0]],
+            "trades_today": 1,
+            "daily_pnl": -15190.07,
+            "event_log": [],
+        }
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "paper_state_x.json")
+            with open(path, "w") as f:
+                json.dump(state, f)
+            eng = pt.PaperTradingEngine.__new__(pt.PaperTradingEngine)
+            eng._state_file = path
+            eng._load_trade_history = lambda: []
+            eng.event_log = []
+            eng.strategy = {}
+            eng.entry_conditions = []
+            eng.exit_conditions = []
+            eng.execution_profile = None
+            eng.profit_cooldown_trigger_date = None
+            eng.log_event = lambda kind, msg, *a, **k: eng.event_log.append({"type": kind, "message": msg})
+            eng._is_intraday_product = lambda s: True
+            with mock.patch.object(pt, "_now_ist", return_value=pt.datetime(2026, 9, 29, 11, 30)):
+                eng._load_state()
+        self.assertEqual(eng.closed_trades, [])
+        self.assertEqual(round(eng.daily_pnl, 2), 0.0)
+        self.assertEqual(eng.trades_today, 1, "the slot stays used: no later entry today")
+        self.assertIn(pt.NO_TRADE_DAY_NOTE, [e["message"] for e in eng.event_log])

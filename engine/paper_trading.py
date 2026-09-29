@@ -174,21 +174,55 @@ def _get_instrument_map():
 VOIDED_PAPER_TRADES = (
     {"entry_prefix": "2026-09-29 09:2", "strike": 22900, "option_type": "PE", "pnl": -14954.88},
     {"entry_prefix": "2026-09-29 09:2", "strike": 22900, "option_type": "PE", "pnl": -15407.07},
+    # 10:40 on 29-Sep: the same books entered 22850 PE eighty minutes after the
+    # signal, because of the Claude Code faults above. A late entry is not the
+    # strategy, so the day stands as NO TRADE -- and it stays shut ("closes_day"):
+    # the book does not get a second, even later, entry today.
+    {
+        "entry_prefix": "2026-09-29 10:4",
+        "strike": 22850,
+        "option_type": "PE",
+        "pnl": -15190.07,
+        "closes_day": True,
+    },
+    {
+        "entry_prefix": "2026-09-29 10:4",
+        "strike": 22850,
+        "option_type": "PE",
+        "pnl": -15008.72,
+        "closes_day": True,
+    },
 )
 
+NO_TRADE_DAY_NOTE = "No trades taken today — Claude Code issue (late entry voided)"
 
-def is_voided_paper_trade(trade: dict) -> bool:
+
+def _voided_entry(trade: dict) -> Optional[dict]:
     try:
         entry = str(trade.get("entry_time") or "")
         strike = int(float(trade.get("strike") or 0))
         side = str(trade.get("option_type") or "").upper()
         pnl = round(float(trade.get("pnl") or 0.0), 2)
     except (TypeError, ValueError):
-        return False
-    return any(
-        entry.startswith(v["entry_prefix"]) and strike == v["strike"] and side == v["option_type"] and pnl == v["pnl"]
-        for v in VOIDED_PAPER_TRADES
-    )
+        return None
+    for v in VOIDED_PAPER_TRADES:
+        if (
+            entry.startswith(v["entry_prefix"])
+            and strike == v["strike"]
+            and side == v["option_type"]
+            and pnl == v["pnl"]
+        ):
+            return v
+    return None
+
+
+def is_voided_paper_trade(trade: dict) -> bool:
+    return _voided_entry(trade) is not None
+
+
+def voided_trade_closes_day(trade: dict) -> bool:
+    v = _voided_entry(trade)
+    return bool(v and v.get("closes_day"))
 
 
 class PaperPriceUnavailable(Exception):
@@ -442,11 +476,16 @@ class PaperTradingEngine:
             # A voided trade never happened: it leaves the book, its P&L leaves
             # the day, and it stops counting against the day's trade limit.
             voided = [t for t in self.closed_trades if is_voided_paper_trade(t)]
+            no_trade_day = False
             if voided:
                 self.closed_trades = [t for t in self.closed_trades if not is_voided_paper_trade(t)]
                 self.daily_pnl = float(self.daily_pnl or 0.0) - sum(float(t.get("pnl") or 0.0) for t in voided)
-                self.trades_today = max(0, int(self.trades_today or 0) - len(voided))
-                print(f"[PAPER] Voided {len(voided)} trade(s) booked on modelled prices")
+                # A day-closing void keeps its slot used: the day is NO TRADE,
+                # not a fresh chance for a still-later entry.
+                freed = [t for t in voided if not voided_trade_closes_day(t)]
+                no_trade_day = len(freed) < len(voided)
+                self.trades_today = max(0, int(self.trades_today or 0) - len(freed))
+                print(f"[PAPER] Voided {len(voided)} trade(s)")
             self.strat_sl_val = state.get("strat_sl_val", 0.0)
             self.strat_tp_val = state.get("strat_tp_val", 0.0)
             self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
@@ -487,6 +526,8 @@ class PaperTradingEngine:
                 except Exception:
                     t = _now_ist()
                 self.event_log.append({"time": t, "type": entry["type"], "message": entry["message"], "data": {}})
+            if no_trade_day and not any(e.get("message") == NO_TRADE_DAY_NOTE for e in self.event_log):
+                self.log_event("warning", NO_TRADE_DAY_NOTE)
 
             if restoring_stale_positions:
                 self.trades_today = 0
