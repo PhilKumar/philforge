@@ -238,6 +238,25 @@ class PremiumScanUnavailable(Exception):
     """
 
 
+def step_down_to_base_lots(leg_plans: list, capital_plans: list) -> tuple:
+    """Each leg back at the book's OWN lot count, dropping any size-up.
+
+    Returns (plans, capital_plans, stepped) where `stepped` names each leg that
+    came down. Legs already at their own size are passed through untouched, so
+    an empty `stepped` means there was nothing to fall back to.
+    """
+    plans, capital, stepped = [], [], []
+    for plan, cap in zip(leg_plans, capital_plans):
+        i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size = plan
+        base = max(1, int(leg.get("lots", 1) or 1))
+        if base < lots:
+            stepped.append(f"leg {i + 1} {lots}->{base}")
+            lots, quantity = base, base * lot_size
+        plans.append((i, leg, strike, scanned_premium, quantity, opt_type, txn_type, lots, expiry, lot_size))
+        capital.append({**cap, "lots": lots, "quantity": quantity})
+    return plans, capital, stepped
+
+
 class LiveEngine:
     """
     Live auto-trading engine.
@@ -1412,6 +1431,12 @@ class LiveEngine:
                 "closed_trades": self.closed_trades,
                 "banked_pnl": round(float(self.banked_pnl), 2),
                 "trades_today": self.trades_today,
+                # WHICH DIVERGENCES PHIL HAS ALREADY BEEN TOLD ABOUT. The dedupe
+                # set used to live only in memory, so every restart wiped it and
+                # re-announced the same column. Three deploys on 2026-09-28 sent
+                # the same `current_close` alert three times, which is how an
+                # alarm gets ignored.
+                "divergence_alerted": sorted(getattr(self, "_divergence_alerted", set()) or []),
                 "daily_pnl": self.daily_pnl,
                 "profit_cooldown_trigger_date": str(self.profit_cooldown_trigger_date)
                 if self.profit_cooldown_trigger_date
@@ -1551,6 +1576,9 @@ class LiveEngine:
             self.in_trade = bool(open_positions) or bool(state.get("in_trade", False))
             self.closed_trades = state.get("closed_trades", [])
             self.trades_today = state.get("trades_today", 0)
+            # Only for TODAY: a new session should hear about a divergence again.
+            if state.get("session_date") == str(_now_ist().date()):
+                self._divergence_alerted = set(state.get("divergence_alerted") or [])
             self.daily_pnl = state.get("daily_pnl", 0.0)
             self.strat_sl_val = state.get("strat_sl_val", 0.0)
             self.strat_tp_val = state.get("strat_tp_val", 0.0)
@@ -2514,6 +2542,7 @@ class LiveEngine:
                             )
                             self._save_state()
                     self.trades_today = 0
+                    self._divergence_alerted = set()
                     self.daily_pnl = 0.0
                     self.session_date = now.date()
                     self._reset_intraday_status()
@@ -3636,7 +3665,23 @@ class LiveEngine:
         _phase_t0 = _perf()
 
         if not await self._can_enter_trade(capital_plans):
-            return
+            # ── A SIZE-UP THAT DOES NOT FIT FALLS BACK, IT DOES NOT SKIP ─────
+            # 2026-09-29 was an expiry day: the book sized leg 1 at 3 lots
+            # instead of 2, needed Rs 51,207 against Rs 39,581 usable, and gave
+            # up after two attempts. 2 lots (~Rs 34,100) fitted. The expiry-day
+            # and compounding size-ups are EXTRAS on top of the book's own lot
+            # count; when the account cannot carry the extra, take the trade at
+            # the book's own size rather than miss it entirely.
+            fallback_plans, fallback_capital, stepped = step_down_to_base_lots(leg_plans, capital_plans)
+            if not stepped:
+                return
+            self.log_event(
+                "warning",
+                "Size-up does not fit the funds — retrying at the book's own lot count: " + ", ".join(stepped),
+            )
+            if not await self._can_enter_trade(fallback_capital):
+                return
+            leg_plans = fallback_plans
         self._entry_phase_s["capital"] = _perf() - _phase_t0
         _phase_t0 = _perf()
 
