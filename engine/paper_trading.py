@@ -163,6 +163,38 @@ def _get_instrument_map():
     return INSTRUMENT_MAP
 
 
+# ── PAPER TRADES VOIDED BY HAND ─────────────────────────────────────────────
+# Trades that were booked on a price the market never quoted. Each is named
+# exactly — date, strike, side, exit and P&L to the paisa — so nothing else can
+# ever match, and each carries the reason. Phil voided these on 2026-09-29.
+#
+# 09:20 on 29-Sep: Dhan answered 429, paper bought 22900 PE at a MODELLED ~Rs 273,
+# read the real price (~Rs 57 lower) one second later and booked a stop-loss on
+# two books. Nothing moved; the "losses" were the model's error.
+VOIDED_PAPER_TRADES = (
+    {"entry_prefix": "2026-09-29 09:2", "strike": 22900, "option_type": "PE", "pnl": -14954.88},
+    {"entry_prefix": "2026-09-29 09:2", "strike": 22900, "option_type": "PE", "pnl": -15407.07},
+)
+
+
+def is_voided_paper_trade(trade: dict) -> bool:
+    try:
+        entry = str(trade.get("entry_time") or "")
+        strike = int(float(trade.get("strike") or 0))
+        side = str(trade.get("option_type") or "").upper()
+        pnl = round(float(trade.get("pnl") or 0.0), 2)
+    except (TypeError, ValueError):
+        return False
+    return any(
+        entry.startswith(v["entry_prefix"]) and strike == v["strike"] and side == v["option_type"] and pnl == v["pnl"]
+        for v in VOIDED_PAPER_TRADES
+    )
+
+
+class PaperPriceUnavailable(Exception):
+    """No real option price was available, so paper will not trade on a model."""
+
+
 class PaperTradingEngine:
     """
     Paper trading engine that uses REAL live market data.
@@ -349,7 +381,7 @@ class PaperTradingEngine:
         try:
             if not os.path.exists(self._state_file):
                 # Even without state file, load historical trades
-                hist = self._load_trade_history()
+                hist = [t for t in (self._load_trade_history() or []) if not is_voided_paper_trade(t)]
                 if hist:
                     self.closed_trades = hist
                     print(f"[PAPER] Loaded {len(hist)} historical trades from trade history")
@@ -394,7 +426,7 @@ class PaperTradingEngine:
                 if stale_trades:
                     self._save_trade_history(stale_trades)
                 # Load all historical trades for display
-                self.closed_trades = self._load_trade_history()
+                self.closed_trades = [t for t in (self._load_trade_history() or []) if not is_voided_paper_trade(t)]
                 n = len(self.closed_trades)
                 print(f"[PAPER] Stale state from {saved_date} — loaded {n} historical trades")
                 return
@@ -407,6 +439,14 @@ class PaperTradingEngine:
             self.closed_trades = state.get("closed_trades", [])
             self.trades_today = state.get("trades_today", 0)
             self.daily_pnl = state.get("daily_pnl", 0.0)
+            # A voided trade never happened: it leaves the book, its P&L leaves
+            # the day, and it stops counting against the day's trade limit.
+            voided = [t for t in self.closed_trades if is_voided_paper_trade(t)]
+            if voided:
+                self.closed_trades = [t for t in self.closed_trades if not is_voided_paper_trade(t)]
+                self.daily_pnl = float(self.daily_pnl or 0.0) - sum(float(t.get("pnl") or 0.0) for t in voided)
+                self.trades_today = max(0, int(self.trades_today or 0) - len(voided))
+                print(f"[PAPER] Voided {len(voided)} trade(s) booked on modelled prices")
             self.strat_sl_val = state.get("strat_sl_val", 0.0)
             self.strat_tp_val = state.get("strat_tp_val", 0.0)
             self.trade_entry_prem = state.get("trade_entry_prem", 0.0)
@@ -2179,97 +2219,104 @@ class PaperTradingEngine:
         entry_time = self.current_time or _now_ist()
 
         default_lots = int(self.strategy.get("lots", 1) or 1)
-        planned_positions = []
+        try:
+            planned_positions = []
 
-        for i, leg in enumerate(legs):
-            expiry = ScripMaster.resolve_expiry(symbol, leg.get("expiry"), session_date_str)
-            if not expiry:
-                self.log_event("error", f"No expiry found for {symbol} leg {i + 1} — cannot enter trade")
-                continue
+            for i, leg in enumerate(legs):
+                expiry = ScripMaster.resolve_expiry(symbol, leg.get("expiry"), session_date_str)
+                if not expiry:
+                    self.log_event("error", f"No expiry found for {symbol} leg {i + 1} — cannot enter trade")
+                    continue
 
-            if user_lot_size > 0:
-                lot_size = user_lot_size
-            else:
-                # ScripMaster answers 0 when Dhan does not carry the lot size.
-                # Fall back to the effective-dated table rather than sizing this
-                # leg at zero, which is what a bare 0 would silently do here.
-                lot_size = ScripMaster.get_lot_size(symbol, expiry) if expiry else 0
-                if lot_size <= 0:
-                    lot_size = get_lot_size(instrument, self.session_date)
+                if user_lot_size > 0:
+                    lot_size = user_lot_size
+                else:
+                    # ScripMaster answers 0 when Dhan does not carry the lot size.
+                    # Fall back to the effective-dated table rather than sizing this
+                    # leg at zero, which is what a bare 0 would silently do here.
+                    lot_size = ScripMaster.get_lot_size(symbol, expiry) if expiry else 0
+                    if lot_size <= 0:
+                        lot_size = get_lot_size(instrument, self.session_date)
 
-            option_type = leg.get("option_type", "PE")
-            strike_type = leg.get("strike_type", "atm")
-            strike_value = leg.get("strike_value", 0)
-            leg_lots = leg.get("lots", default_lots)
+                option_type = leg.get("option_type", "PE")
+                strike_type = leg.get("strike_type", "atm")
+                strike_value = leg.get("strike_value", 0)
+                leg_lots = leg.get("lots", default_lots)
 
-            self.log_event("info", f"📊 Leg {i + 1} expiry: {expiry} | Lot size: {lot_size} | Lots: {leg_lots}")
+                self.log_event("info", f"📊 Leg {i + 1} expiry: {expiry} | Lot size: {lot_size} | Lots: {leg_lots}")
 
-            # Calculate strike — handle premium-based types by scanning real LTP
-            scanned_premium = 0.0
-            if strike_type in ("premium_near", "premium_above", "premium_below") and expiry:
-                mode = strike_type.split("_")[1]  # "near", "above", "below"
-                strike, scanned_premium = await self._find_premium_strike(
-                    symbol, expiry, option_type, float(strike_value), entry_spot, strike_step, mode=mode
+                # Calculate strike — handle premium-based types by scanning real LTP
+                scanned_premium = 0.0
+                if strike_type in ("premium_near", "premium_above", "premium_below") and expiry:
+                    mode = strike_type.split("_")[1]  # "near", "above", "below"
+                    strike, scanned_premium = await self._find_premium_strike(
+                        symbol, expiry, option_type, float(strike_value), entry_spot, strike_step, mode=mode
+                    )
+                    self.log_event("info", f"🎯 {strike_type} target=₹{strike_value} → strike={strike}")
+                else:
+                    strike = self._calculate_strike(leg, entry_spot, strike_step)
+
+                # Get entry premium — reuse from scan if available, else fetch fresh
+                entry_premium = scanned_premium if scanned_premium > 0 else 0.0
+                if entry_premium <= 0 and expiry:
+                    try:
+                        entry_premium = await self.dhan.async_get_option_ltp(symbol, int(strike), expiry, option_type)
+                    except Exception as e:
+                        self.log_event("warning", f"LTP fetch failed: {e}")
+
+                if entry_premium <= 0:
+                    # No modelled entry prices. An estimated entry followed by a real
+                    # exit books the model's error as P&L (29-Sep: -Rs 15k in 1s).
+                    raise PaperPriceUnavailable(f"no live price for {symbol} {strike}{option_type}")
+
+                quoted_entry_premium = float(entry_premium)
+                entry_premium = self._apply_execution_costs(
+                    quoted_entry_premium,
+                    leg["transaction_type"],
+                    "entry",
                 )
-                self.log_event("info", f"🎯 {strike_type} target=₹{strike_value} → strike={strike}")
-            else:
-                strike = self._calculate_strike(leg, entry_spot, strike_step)
+                quantity = int(leg_lots) * int(lot_size)
 
-            # Get entry premium — reuse from scan if available, else fetch fresh
-            entry_premium = scanned_premium if scanned_premium > 0 else 0.0
-            if entry_premium <= 0 and expiry:
-                try:
-                    entry_premium = await self.dhan.async_get_option_ltp(symbol, int(strike), expiry, option_type)
-                except Exception as e:
-                    self.log_event("warning", f"LTP fetch failed: {e}")
+                option_name = f"{symbol} {strike} {option_type}"
+                planned_positions.append(
+                    {
+                        "id": len(self.positions) + len(self.closed_trades) + len(planned_positions) + 1,
+                        "leg_num": i + 1,
+                        "symbol": option_name,
+                        "transaction_type": leg["transaction_type"],
+                        "option_type": option_type,
+                        "strike": strike,
+                        "expiry": expiry,
+                        "entry_time": entry_time,
+                        "entry_why": entry_why,
+                        "entry_spot": entry_spot,
+                        "entry_quote_premium": quoted_entry_premium,
+                        "entry_premium": entry_premium,
+                        "current_premium": entry_premium,
+                        "lots": leg_lots,
+                        "lot_size": lot_size,
+                        "quantity": quantity,
+                        "sl_pct": leg.get("sl_pct", 0),
+                        "target_pct": leg.get("target_pct", 0),
+                        "sl_points": leg.get("sl_points", 0),
+                        "target_points": leg.get("target_points", 0),
+                        "sl_rupees": leg.get("sl_rupees", 0),
+                        "target_rupees": leg.get("target_rupees", 0),
+                        "trail_pct": leg.get("trail_pct", 0),
+                        "sqoff_time": leg.get("sqoff_time", "15:20"),
+                        "unrealized_pnl": 0,
+                        "peak_premium": entry_premium,
+                        "status": "open",
+                        "ws_sec_id": None,
+                    }
+                )
 
-            if entry_premium <= 0:
-                # Fallback to estimation
-                entry_premium = await self._estimate_premium(strike, entry_spot, option_type, strike_step)
-                self.log_event("warning", f"Using estimated premium: ₹{entry_premium:.2f}")
-
-            quoted_entry_premium = float(entry_premium)
-            entry_premium = self._apply_execution_costs(
-                quoted_entry_premium,
-                leg["transaction_type"],
-                "entry",
-            )
-            quantity = int(leg_lots) * int(lot_size)
-
-            option_name = f"{symbol} {strike} {option_type}"
-            planned_positions.append(
-                {
-                    "id": len(self.positions) + len(self.closed_trades) + len(planned_positions) + 1,
-                    "leg_num": i + 1,
-                    "symbol": option_name,
-                    "transaction_type": leg["transaction_type"],
-                    "option_type": option_type,
-                    "strike": strike,
-                    "expiry": expiry,
-                    "entry_time": entry_time,
-                    "entry_why": entry_why,
-                    "entry_spot": entry_spot,
-                    "entry_quote_premium": quoted_entry_premium,
-                    "entry_premium": entry_premium,
-                    "current_premium": entry_premium,
-                    "lots": leg_lots,
-                    "lot_size": lot_size,
-                    "quantity": quantity,
-                    "sl_pct": leg.get("sl_pct", 0),
-                    "target_pct": leg.get("target_pct", 0),
-                    "sl_points": leg.get("sl_points", 0),
-                    "target_points": leg.get("target_points", 0),
-                    "sl_rupees": leg.get("sl_rupees", 0),
-                    "target_rupees": leg.get("target_rupees", 0),
-                    "trail_pct": leg.get("trail_pct", 0),
-                    "sqoff_time": leg.get("sqoff_time", "15:20"),
-                    "unrealized_pnl": 0,
-                    "peak_premium": entry_premium,
-                    "status": "open",
-                    "ws_sec_id": None,
-                }
-            )
-
+        except PaperPriceUnavailable as exc:
+            # Nothing has been committed — positions are only planned above — so
+            # abandoning here leaves the book exactly as it was, and the next
+            # candle can try again with real prices.
+            self.log_event("error", f"⛔ Paper entry abandoned — {exc}")
+            return
         if not planned_positions:
             self.log_event("warning", "No legs could be planned — cannot enter trade")
             return
@@ -2375,6 +2422,20 @@ class PaperTradingEngine:
             "info",
             f"🔍 premium_{mode}: {len(candidates)} strikes ({live_count} live LTPs, {len(candidates) - live_count} estimated)",
         )
+
+        # NO REAL PRICE, NO STRIKE — the rule live has had since 2026-09-03.
+        # Paper never got it. On 2026-09-29 Dhan returned 429 at 09:20, paper
+        # scanned "31 strikes (0 live LTPs, 31 estimated)", bought 22900 PE at
+        # a MODELLED Rs 273, then read the real price a second later, roughly
+        # Rs 57 lower, and booked a STOP_LOSS of Rs -14,954 and Rs -15,407 on
+        # two books. Nothing moved; the losses were the model's error. A paper
+        # book exists to tell the truth about live, so it must refuse exactly
+        # where live refuses.
+        if live_count == 0:
+            raise PaperPriceUnavailable(
+                f"no live prices for any of {len(candidates)} {symbol} {option_type} strikes; "
+                "refusing to pick a strike from estimates alone"
+            )
 
         if mode == "above":
             valid = [(s, p) for s, p, _ in candidates if p >= target_prem]
