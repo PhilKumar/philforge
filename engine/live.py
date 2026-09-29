@@ -1431,12 +1431,6 @@ class LiveEngine:
                 "closed_trades": self.closed_trades,
                 "banked_pnl": round(float(self.banked_pnl), 2),
                 "trades_today": self.trades_today,
-                # WHICH DIVERGENCES PHIL HAS ALREADY BEEN TOLD ABOUT. The dedupe
-                # set used to live only in memory, so every restart wiped it and
-                # re-announced the same column. Three deploys on 2026-09-28 sent
-                # the same `current_close` alert three times, which is how an
-                # alarm gets ignored.
-                "divergence_alerted": sorted(getattr(self, "_divergence_alerted", set()) or []),
                 "daily_pnl": self.daily_pnl,
                 "profit_cooldown_trigger_date": str(self.profit_cooldown_trigger_date)
                 if self.profit_cooldown_trigger_date
@@ -1576,9 +1570,7 @@ class LiveEngine:
             self.in_trade = bool(open_positions) or bool(state.get("in_trade", False))
             self.closed_trades = state.get("closed_trades", [])
             self.trades_today = state.get("trades_today", 0)
-            # Only for TODAY: a new session should hear about a divergence again.
-            if state.get("session_date") == str(_now_ist().date()):
-                self._divergence_alerted = set(state.get("divergence_alerted") or [])
+
             self.daily_pnl = state.get("daily_pnl", 0.0)
             self.strat_sl_val = state.get("strat_sl_val", 0.0)
             self.strat_tp_val = state.get("strat_tp_val", 0.0)
@@ -2542,7 +2534,6 @@ class LiveEngine:
                             )
                             self._save_state()
                     self.trades_today = 0
-                    self._divergence_alerted = set()
                     self.daily_pnl = 0.0
                     self.session_date = now.date()
                     self._reset_intraday_status()
