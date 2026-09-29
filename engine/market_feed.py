@@ -59,6 +59,8 @@ def _looks_like_disconnect_error(error) -> bool:
     return any(marker in msg for marker in markers)
 
 
+from datetime import time as _dt_time
+
 import pandas as pd
 
 import config
@@ -97,6 +99,19 @@ except ImportError:
 # ════════════════════════════════════════════════════════════════
 #  Candle Aggregator — aggregates ticks into OHLCV candles
 # ════════════════════════════════════════════════════════════════
+
+
+def in_nse_session(ts) -> bool:
+    """True when `ts` falls inside the NSE cash session, 09:15:00-15:29:59 IST.
+
+    A candle STARTING at 15:29 still belongs to the session; nothing from 15:30
+    on does. Weekends are not filtered here — the exchange sends no ticks then.
+    """
+    try:
+        t = ts.time()
+    except AttributeError:
+        return True
+    return _dt_time(9, 15) <= t < _dt_time(15, 30)
 
 
 # An NSE session is 09:15-15:30 = 375 minutes.
@@ -166,6 +181,19 @@ class CandleAggregator:
         """Feed a tick into the aggregator. Call this on every LTP update."""
         if ts is None:
             ts = _now_ist()
+
+        # ── ONLY THE SESSION MAKES CANDLES ──────────────────────────────────
+        # Dhan's websocket starts streaming the moment it connects — pre-open
+        # indicative values and the previous close repeated — and every tick
+        # used to become a candle. On 2026-09-29 the engine held 66 bars of
+        # "today" at 09:15:04, before the market had opened. Dhan's historical
+        # candles are session-only, so the engine's EMA/Supertrend were dragged
+        # by an hour of flat fake bars every morning: wrong at the open,
+        # converging by late morning — the EMA_20_5m / Supertrend divergence
+        # alerts (25-Sep "44 points low at the open, converging through the
+        # morning", 29-Sep -25.5 / +29.6 at the 09:20 candle).
+        if not in_nse_session(ts):
+            return
 
         slot = self._get_slot(ts)
 
@@ -316,6 +344,11 @@ class CandleAggregator:
         df = pd.DataFrame(rows)
         df.set_index("timestamp", inplace=True)
         df.sort_index(inplace=True)
+        # A buffer seeded before this filter existed, or a history source that
+        # stamps an out-of-session bar, must not reach an indicator either.
+        if len(df):
+            keep = [in_nse_session(ts) for ts in df.index]
+            df = df[keep]
         return df
 
 
