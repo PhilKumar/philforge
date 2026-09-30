@@ -1940,11 +1940,33 @@ class LiveEngine:
     _INDICATOR_AUDIT_TOL_MIN = 1.0  # never quibble below a point
     _INDICATOR_REFERENCE_MAX_AGE_MIN = 10
 
-    def set_indicator_reference(self, df_ref: pd.DataFrame) -> None:
+    # THE REFERENCE MUST HOLD ONLY CANDLES THAT HAD CLOSED WHEN IT WAS FETCHED.
+    # It is refreshed every ten minutes, so it is usually fetched mid-candle,
+    # and the broker's history then carries that candle HALF-BUILT. On 30-Sep
+    # the check compared the engine's finished 09:45 candle (close 22702.1)
+    # against the reference's half-built one (22711.55 on one book, 22711.2 on
+    # the other -- two fetches, two moments) and alerted on a divergence that
+    # did not exist. A candle not closed at the fetch is not history yet.
+    _REFERENCE_SETTLE_SECONDS = 10
+
+    def set_indicator_reference(
+        self,
+        df_ref: pd.DataFrame,
+        *,
+        timeframe_minutes: Optional[int] = None,
+        fetched_at: Optional[datetime] = None,
+    ) -> None:
         """Hold a broker-history frame to check the decision frame against."""
-        if isinstance(df_ref, pd.DataFrame) and not df_ref.empty:
-            self._indicator_reference = df_ref.copy()
-            self._indicator_reference_at = _now_ist()
+        if not isinstance(df_ref, pd.DataFrame) or df_ref.empty:
+            return
+        if timeframe_minutes:
+            cutoff = (fetched_at or _now_ist()) - timedelta(seconds=self._REFERENCE_SETTLE_SECONDS)
+            closed = [candle_close_time(ts, int(timeframe_minutes)) <= cutoff for ts in df_ref.index]
+            df_ref = df_ref[closed]
+            if df_ref.empty:
+                return
+        self._indicator_reference = df_ref.copy()
+        self._indicator_reference_at = _now_ist()
 
     def _indicator_reference_is_stale(self) -> bool:
         at = getattr(self, "_indicator_reference_at", None)
@@ -1963,6 +1985,7 @@ class LiveEngine:
 
         def _build():
             instrument = self.strategy.get("instrument", "26000")
+            fetched_at = _now_ist()
             history = self._fetch_raw_history(instrument, fetch_timeframe, days=7)
             if history is None or history.empty:
                 return None
@@ -1974,13 +1997,14 @@ class LiveEngine:
                     source_timeframe_minutes=fetch_timeframe,
                     execution_timeframe_minutes=execution_timeframe,
                 )
-            return self._apply_daily_averages(built)
+            return self._apply_daily_averages(built), fetched_at
 
         async def _run():
             try:
-                built = await asyncio.to_thread(_build)
-                if built is not None:
-                    self.set_indicator_reference(built)
+                result = await asyncio.to_thread(_build)
+                if result is not None:
+                    built, fetched_at = result
+                    self.set_indicator_reference(built, timeframe_minutes=execution_timeframe, fetched_at=fetched_at)
             except Exception as exc:  # never let this stop trading
                 self.log_event("warning", f"indicator reference refresh failed: {type(exc).__name__}")
 
@@ -2507,7 +2531,7 @@ class LiveEngine:
                 # The bootstrap IS the broker's history, computed by this same
                 # code, so it is exactly the reference the audit needs -- and it
                 # is built here, before the session, at no cost to any decision.
-                self.set_indicator_reference(df_init)
+                self.set_indicator_reference(df_init, timeframe_minutes=execution_timeframe)
                 if not df_init.empty:
                     self.candle_buffer = df_init
                     self.current_spot = float(df_init.iloc[-1].get("close", 0))
