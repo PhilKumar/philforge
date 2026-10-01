@@ -235,9 +235,22 @@ def supertrend(df: pd.DataFrame, period: int = 10, multiplier: float = 2.7) -> p
 
 
 def _is_intraday(df: pd.DataFrame) -> bool:
+    """True for intraday bars, judged on the TYPICAL gap between bars.
+
+    This used to read only the first two bars. A live buffer is a rolling
+    window, and when its oldest bars are the last minutes of a Friday, the
+    first gap is the weekend -- more than a day -- so the whole frame was taken
+    for DAILY bars and "yesterday" became the previous candle. On 01-Oct-2026
+    from about 15:20 the live CE book read Yesterday_High 22433 instead of
+    22809 and R5 22518 instead of 23129 (the 1m window then began at Friday
+    25-Sep 15:22). A median of the gaps cannot be moved by one weekend.
+    """
     if len(df) < 2:
         return False
-    return (df.index[1] - df.index[0]).total_seconds() < 86400
+    gaps = df.index.to_series().diff().dropna()
+    if gaps.empty:
+        return False
+    return gaps.median().total_seconds() < 86400
 
 
 # NSE cash and index hours. A daily bar built for a pivot calculation is the
