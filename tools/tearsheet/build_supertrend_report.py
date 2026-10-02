@@ -13,7 +13,7 @@ Every figure comes from CryptoForge's tools/supertrend_options_backtest.py
 one NIFTY call at the money on the NEXT week's expiry, held overnight, rolled
 to a fresh ATM contract at 6 strikes in the money, a trail armed after +100
 index points that exits on an 80-point give-back, otherwise out on the flip
-or at expiry 15:20. 1 Jan 2021 -> 21 Aug 2026, one position at a time, real
+or at expiry 15:20. 1 Jan 2021 -> 30 Sep 2026 (extended 02-Oct-2026 from 21 Aug), one position at a time, real
 archive premiums both legs, 0.15% adverse slippage a leg, the full charge
 schedule. Nothing here is typed by hand.
 
@@ -215,6 +215,31 @@ def book(rows: list[dict]) -> dict:
 
 
 TRAIL_ROWS = load(RUNS / "st_final_CE.json")
+
+# Facts that depend on the data are computed, never typed: the extension to
+# 30-Sep-2026 turned "about Rs 24,000 a year" false, and "2022 ... did not pay"
+# was false already (2022 made money).
+_TRAIL_RAW = json.load(open(RUNS / "st_final_CE.json"))
+_END = datetime.strptime(str(_TRAIL_RAW["to"])[:10], "%Y-%m-%d")
+_BY_YEAR = {int(y): v for y, v in _TRAIL_RAW["results"][0]["by_year"].items()}
+_YEARS_SINCE_2024 = (_END - datetime(2024, 1, 1)).days / 365.25
+_SO_FAR = f"{_END.year}-so-far"
+
+
+def _years(sign: int) -> str:
+    ys = [str(y) if y != _END.year else _SO_FAR for y in sorted(_BY_YEAR) if (_BY_YEAR[y] > 0) == (sign > 0)]
+    return ", ".join(ys[:-1]) + (" and " if len(ys) > 1 else "") + ys[-1] if ys else "none"
+
+
+def _years_ta(sign: int) -> str:
+    ys = [
+        str(y) if y != _END.year else f"{_END.year}-இதுவரை" for y in sorted(_BY_YEAR) if (_BY_YEAR[y] > 0) == (sign > 0)
+    ]
+    return ", ".join(ys) if ys else "எதுவும் இல்லை"
+
+
+_FIRST_N = 685  # the trades the eight checks covered, to 21-Aug-2026
+_ADDED_N = len(TRAIL_ROWS) - _FIRST_N
 BASE_ROWS = load(RUNS / "st_roll_CE_tf60.json", mult=1.5)
 TGT_ROWS = load(RUNS / "st_tgt_CE_tf60_m1.5_t125.json")
 PE_ROWS = load(RUNS / "st_roll_PE_tf60.json", mult=1.5)
@@ -525,6 +550,12 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
         "வெளியிடும் முன் எட்டு சுயாதீன சரிபார்ப்புகள். 685 trades-இன் இயந்திரத் தணிக்கையில் <strong>lookahead இல்லை</strong> (ஒவ்வொரு fill-உம் அதன் signal bar முடிந்த பின் முதல் நிமிடம்; trail-இன் உச்சக் குறி முடிந்த bars-ஐ மட்டுமே எண்ணும்), நிலைகள் மேற்பொருந்தவில்லை, ஒவ்வொரு தேதிக்கும் சரியான lot, ஒவ்வொரு ஒப்பந்தத்துக்கும் செல்லுபடி expiry. <strong>ஒவ்வொரு premium-உம் இந்தப் பக்கத்தின் code இல்லாமல் மூல archive கோப்புகளில் மறு-வாசிக்கப்பட்டது: 685-இல் 685 நுழைவுகளும் 673-இல் 673 விலையிடப்பட்ட வெளியேற்றங்களும் அங்கே அப்படியே உள்ளன.</strong> Archive விலை தர முடியாத 12 வெளியேற்றங்கள் &mdash; Dhan வரம்பைத் தாண்டிய ஆழ்ந்த ITM strikes &mdash; வெறும் intrinsic-இல்; அது அவற்றைக் <em>குறைத்தே</em> மதிப்பிடுகிறது என நிரூபிக்கப்பட்டது. விதியிலிருந்து புதிதாக எழுதப்பட்ட இரண்டாவது simulator 685 trades-ஐயும் ரூபாய்க்கு ரூபாய் மறு-உருவாக்குகிறது. Upstox சாளரத்தில் விழும் 198 trades அங்கே மறு-விலை: இடைநிலை வேறுபாடு 0.00%, Upstox பதிப்பு <em>கூடுதலே</em> தருகிறது. 2021&ndash;2023-இல் மட்டும் தரவரிசைப்படுத்தினால் இந்த அமைப்பு பதினாறில் இரண்டாவது; பார்க்காத 2024&ndash;2026-இல் அந்த முதல் மூன்றில் சிறந்தது. மூன்று மடங்கு slippage-ஐயும் தாங்குகிறது. Expiry நாட்காட்டி tape-இல் நிரூபணம்: expiry நாட்களில் ATM time value &#8377;0.10, மற்ற நாட்களில் &#8377;81.85.",
     )
 }</p>
+  <p>{
+    t(
+        f"Those checks covered the {_FIRST_N} trades to 21 August 2026. The book now runs to {_END:%d %B %Y}: the {_ADDED_N} trades since were produced by the same backtest on the same archive, extended, and every earlier trade is unchanged to the rupee &mdash; but those {_ADDED_N} have not been through the eight checks.",
+        f"அந்தச் சரிபார்ப்புகள் 21 ஆகஸ்ட் 2026 வரையிலான {_FIRST_N} trades-ஐ உள்ளடக்கின. புத்தகம் இப்போது {_END:%Y-%m-%d} வரை செல்கிறது: அதன் பின் வந்த {_ADDED_N} trades அதே backtest, அதே archive (நீட்டிக்கப்பட்டது) கொண்டு உருவானவை; முந்தைய ஒவ்வொரு trade-உம் ஒரு ரூபாய் கூட மாறவில்லை &mdash; ஆனால் அந்த {_ADDED_N} எட்டு சரிபார்ப்புகளுக்கு உட்படுத்தப்படவில்லை.",
+    )
+}</p>
 </div>
 
 <div class="note note-warn">
@@ -533,8 +564,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</h2>
   <p>{
     t(
-        f"Of the {lakh(TRAIL['net'])} net, {lakh(round(TRAIL['net'] - recent(TRAIL_ROWS), 2))} was earned in 2021&ndash;2023. The last two and a half years made {lakh(recent(TRAIL_ROWS))} &mdash; about &#8377;24,000 a year against a historical worst drawdown of {lakh(-TRAIL['max_dd'])} &mdash; and 2024 on its own LOST money. Trend-following in calls pays when the index trends; 2021, 2023 and 2025 paid, 2022, 2024 and 2026-so-far did not. Nothing in the checks above changes that arithmetic, and no neighbouring setting escapes it either. <strong>Treat the five-year headline as history, size against the recent rate, and let the paper run prove it forward before a rupee rides on it.</strong>",
-        f"நிகர {lakh(TRAIL['net'])}-இல் {lakh(round(TRAIL['net'] - recent(TRAIL_ROWS), 2))} 2021&ndash;2023-இல் ஈட்டியது. கடைசி இரண்டரை ஆண்டுகள் {lakh(recent(TRAIL_ROWS))} &mdash; ஆண்டுக்கு ஏறத்தாழ &#8377;24,000, வரலாற்று மோசமான இறக்கம் {lakh(-TRAIL['max_dd'])}-க்கு எதிராக &mdash; 2024 தனியே நஷ்டம். கால்-களில் trend-following, index trend ஆகும்போதுதான் சம்பாதிக்கும்; 2021, 2023, 2025 கொடுத்தன; 2022, 2024, 2026-இதுவரை இல்லை. மேலே உள்ள சரிபார்ப்புகள் எதுவும் இந்தக் கணக்கை மாற்றாது; அண்டை அமைப்புகள் எதுவும் தப்பவில்லை. <strong>ஐந்தாண்டு தலைப்பை வரலாறாகக் கொள்ளுங்கள்; சமீபத்திய விகிதத்தின்படி அளவிடுங்கள்; ஒரு ரூபாய் ஏறும் முன் paper run முன்னோக்கி நிரூபிக்கட்டும்.</strong>",
+        f"Of the {lakh(TRAIL['net'])} net, {lakh(round(TRAIL['net'] - recent(TRAIL_ROWS), 2))} was earned in 2021&ndash;2023. Since January 2024 it made {lakh(recent(TRAIL_ROWS))} &mdash; about {lakh(round(recent(TRAIL_ROWS) / _YEARS_SINCE_2024))} a year against a historical worst drawdown of {lakh(-TRAIL['max_dd'])} &mdash; and 2024 on its own LOST money. Trend-following in calls pays when the index trends; {_years(1)} paid; {_years(-1)} did not. Nothing in the checks above changes that arithmetic, and no neighbouring setting escapes it either. <strong>Treat the five-year headline as history, size against the recent rate, and let the paper run prove it forward before a rupee rides on it.</strong>",
+        f"நிகர {lakh(TRAIL['net'])}-இல் {lakh(round(TRAIL['net'] - recent(TRAIL_ROWS), 2))} 2021&ndash;2023-இல் ஈட்டியது. ஜனவரி 2024 முதல் {lakh(recent(TRAIL_ROWS))} &mdash; ஆண்டுக்கு ஏறத்தாழ {lakh(round(recent(TRAIL_ROWS) / _YEARS_SINCE_2024))}, வரலாற்று மோசமான இறக்கம் {lakh(-TRAIL['max_dd'])}-க்கு எதிராக &mdash; 2024 தனியே நஷ்டம். கால்-களில் trend-following, index trend ஆகும்போதுதான் சம்பாதிக்கும்; {_years_ta(1)} கொடுத்தன; {_years_ta(-1)} இல்லை. மேலே உள்ள சரிபார்ப்புகள் எதுவும் இந்தக் கணக்கை மாற்றாது; அண்டை அமைப்புகள் எதுவும் தப்பவில்லை. <strong>ஐந்தாண்டு தலைப்பை வரலாறாகக் கொள்ளுங்கள்; சமீபத்திய விகிதத்தின்படி அளவிடுங்கள்; ஒரு ரூபாய் ஏறும் முன் paper run முன்னோக்கி நிரூபிக்கட்டும்.</strong>",
     )
 }</p>
 </div>
