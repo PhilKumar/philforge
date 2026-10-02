@@ -62,6 +62,43 @@ def _is_invalid_token_response(resp) -> bool:
         return False
 
 
+def _is_no_data_access_response(resp) -> bool:
+    """DH-902: a VALID token that Dhan will not serve chart data on.
+
+    On 01-Oct-2026 at 22:47 IST something else logged in to the account and
+    killed the server's token; the token minted two minutes later worked for
+    funds and orders but was refused every chart request ("User has not
+    subscribed to Data APIs") although the subscription ran to 27-Oct. Nothing
+    treated that as a token problem, so the server sat on it all night and
+    every engine start died at its history seed. It is not an invalid token,
+    but a fresh token is the one thing that can cure it.
+    """
+    if getattr(resp, "status_code", None) not in (401, 451):
+        return False
+    try:
+        body = resp.json() if hasattr(resp, "json") else {}
+    except Exception:
+        return False
+    return isinstance(body, dict) and body.get("errorCode") == "DH-902"
+
+
+# A refused-data token is replaced at most once per half hour: if a fresh token
+# is refused too, the cause is on Dhan's side, and minting a new token every
+# few minutes would only keep killing the one in use.
+_NO_DATA_ACCESS_REFRESH_SEC = 1800.0
+
+
+def _should_replace_token(resp) -> str:
+    """Why this response calls for a new token: "invalid", "no_data", or ""."""
+    if _is_invalid_token_response(resp):
+        return "invalid"
+    if _is_no_data_access_response(resp) and _reserve_refresh_slot(
+        "no_data_access", cooldown_sec=_NO_DATA_ACCESS_REFRESH_SEC
+    ):
+        return "no_data"
+    return ""
+
+
 def _is_rate_limited(detail: str) -> bool:
     """Dhan's own "one token every two minutes", which is not a failure.
 
@@ -438,8 +475,12 @@ async def _async_request_with_retry(
                 json=json_data,
                 timeout=timeout,
             )
-            if allow_token_refresh and _is_invalid_token_response(resp):
-                _dhan_log.warning(f"[DHAN-ASYNC] {method} {url} → Invalid Token (400), refreshing...")
+            why = _should_replace_token(resp) if allow_token_refresh else ""
+            if why:
+                _dhan_log.warning(
+                    f"[DHAN-ASYNC] {method} {url} → "
+                    f"{'Invalid Token (400)' if why == 'invalid' else 'no data access (DH-902)'}, refreshing..."
+                )
                 new_token = None
                 if refresh_token_func:
                     new_token = await asyncio.to_thread(refresh_token_func)
@@ -637,8 +678,12 @@ def _request_with_retry(
     for attempt in range(attempts):
         try:
             resp = _http_session.request(method, url, headers=headers, json=json, timeout=timeout)
-            if allow_token_refresh and _is_invalid_token_response(resp):
-                _dhan_log.warning(f"[DHAN] {method} {url} → Invalid Token (400), refreshing...")
+            why = _should_replace_token(resp) if allow_token_refresh else ""
+            if why:
+                _dhan_log.warning(
+                    f"[DHAN] {method} {url} → "
+                    f"{'Invalid Token (400)' if why == 'invalid' else 'no data access (DH-902)'}, refreshing..."
+                )
                 new_token = refresh_token_func() if refresh_token_func else None
                 if not new_token and _try_refresh_token():
                     new_token = config.DHAN_ACCESS_TOKEN
@@ -1426,6 +1471,16 @@ class DhanClient:
             error_text = resp.text[:500]
             _circuit_breaker.record_failure()
             _dhan_log.warning(f"[DHAN] POST {endpoint} status={resp.status_code} err={error_text}")
+            if _is_no_data_access_response(resp):
+                # Still refused after the fresh token _request_with_retry
+                # fetched (or within half an hour of one): say so plainly,
+                # once an hour, instead of letting engines die one by one.
+                _notify_token_event(
+                    False,
+                    "Dhan refuses chart data on the current token (DH-902), so no engine can load "
+                    "candles. A fresh token did not cure it: check Data APIs on DhanHQ, or set a "
+                    "token generated there.",
+                )
             raise Exception(f"Dhan API error {resp.status_code}: {error_text}")
         _circuit_breaker.record_success()
 

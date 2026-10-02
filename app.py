@@ -4577,6 +4577,46 @@ async def _live_engine_broadcast(user_id: int, run_id: str, event: dict):
         await _save_single_trade_to_history(event["trade"], "live", run_name=run_id, explicit_user_id=user_id)
 
 
+# (run_id, reason) -> when Phil was last told an engine died of it.
+_ENGINE_DEATH_TOLD: dict = {}
+
+
+def _engine_never_ran(engine) -> bool:
+    """True when the engine died before its first candle, holding nothing."""
+    try:
+        open_positions = [p for p in (getattr(engine, "positions", None) or []) if (p or {}).get("status") != "closed"]
+        if open_positions or getattr(engine, "in_trade", False):
+            return False
+        return getattr(engine, "_last_processed_candle_time", None) is None
+    except Exception:
+        return False
+
+
+def _death_reason_key(detail: str) -> str:
+    text = str(detail or "")
+    if "DH-902" in text:
+        return "DH-902"
+    if "circuit breaker" in text:
+        return "circuit-breaker"
+    return text[:80]
+
+
+def _plain_death_reason(detail: str) -> str:
+    key = _death_reason_key(detail)
+    if key == "DH-902":
+        return (
+            "Dhan would not give chart data on the current token (DH-902), so the engine could not "
+            "load its candles. The server tries a fresh token by itself, at most every half hour; "
+            "start the engine again once charts load."
+        )
+    if key == "circuit-breaker":
+        return (
+            "Dhan's chart calls were failing, so the server had paused them (circuit breaker) and "
+            "the engine could not load its candles. Start it again in a few minutes."
+        )
+    return str(detail)
+
+
 def _supervise_engine_task(task, engine, *, run_id: str, mode_label: str = "Auto"):
     """Notice when a driver task dies instead of letting it vanish.
 
@@ -4616,12 +4656,32 @@ def _supervise_engine_task(task, engine, *, run_id: str, mode_label: str = "Auto
             _engine._save_state()
         except Exception as report_exc:
             print(f"❌ [{_mode}] Could not record the driver death for '{_run_id}': {report_exc}")
+        # An engine that died BEFORE its first candle, holding nothing, never
+        # ran: tell it that way, once an hour per strategy and reason. On
+        # 02-Oct-2026 a token Dhan refused data on killed every start at the
+        # history seed, and Phil got "CRITICAL: the engine driver stopped ...
+        # check any open broker position" four times for engines that had
+        # never begun and held nothing.
+        never_ran = _engine_never_ran(_engine)
+        key = (_run_id, _death_reason_key(detail))
+        now = time.time()
+        if now - _ENGINE_DEATH_TOLD.get(key, 0.0) < 3600.0:
+            return
+        _ENGINE_DEATH_TOLD[key] = now
         try:
-            alerter.alert(
-                "Engine Driver Stopped",
-                f"Strategy: {_run_id}\nMode: {_mode}\n{detail}",
-                level="error",
-            )
+            if never_ran:
+                alerter.alert(
+                    "Engine Could Not Start",
+                    f"Strategy: {_run_id}\nMode: {_mode}\nNo position was open; nothing was traded.\n"
+                    f"{_plain_death_reason(detail)}",
+                    level="error",
+                )
+            else:
+                alerter.alert(
+                    "Engine Driver Stopped",
+                    f"Strategy: {_run_id}\nMode: {_mode}\n{detail}",
+                    level="error",
+                )
         except Exception:
             pass
 
