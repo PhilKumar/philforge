@@ -11,7 +11,7 @@ Every figure comes from a replay of the exact rule the Gap Carry tab trades: at
 over 70 buys an ATM+4 ITM call, a close below with RSI at or under 30 buys the
 put; the nearest weekly that survives the night; cut at 09:15 if it opens below
 what it cost, otherwise sold at 09:20.
-NIFTY, 2021-01-05 -> 2026-07-09, one lot, real recorded premiums from two
+NIFTY, 2021-01-05 -> 2026-09-09 (extended 02-Oct-2026), one lot, real recorded premiums from two
 archives, lot size by expiry date. Nothing here is typed by hand.
 
 The replay this reads reproduces through engine/gap_carry.py to the rupee, which
@@ -572,7 +572,7 @@ def ladder_section() -> str:
   <div class="note" style="margin-top:14px">
     <h2 class="note-h">{t("The last column is the one to read", "கடைசி நெடுவரிசையே படிக்க வேண்டியது")}</h2>
     <p>{t("Compounding at +25% earns ten times the money and needs fifteen times the capital, so per rupee committed the flat book is the most efficient of the four at 6.01 against 4.28. What the ladder buys is a bigger absolute result from an account that is willing to grow into it, not a better use of the money.", "+25% compounding பத்து மடங்கு பணம் தருகிறது, ஆனால் பதினைந்து மடங்கு மூலதனம் கேட்கிறது; எனவே ஒரு ரூபாய்க்கு நிலையான புத்தகமே சிறந்தது &mdash; 6.01 எதிராக 4.28. Ladder தருவது பெரிய முழுமையான முடிவு, பணத்தின் சிறந்த பயன்பாடு அல்ல.")}</p>
-    <p>{t("The ordering of the steps is not reliable. Across 168 nights +50% measured the worst per rupee of the three steps, a middle setting losing to both its neighbours &mdash; a sign these thresholds rest on too few trades to be structure. The engine therefore ships with compounding OFF and the step as a setting, and picks none of them.", "படிகளின் வரிசை நம்பகமானது அல்ல. 168 இரவுகளில் +50%, மூன்று படிகளில் ஒரு ரூபாய்க்கு மிக மோசமாக அளந்தது &mdash; இரு பக்கத்து அமைப்புகளையும் விட நடுவில் உள்ளது மோசமாக இருப்பது, இந்த வரம்புகள் மிகச் சில வர்த்தகங்களில் நிற்கின்றன என்பதன் அறிகுறி. எனவே என்ஜின் compounding OFF ஆக வருகிறது; படி ஒரு அமைப்பு, தேர்வு அல்ல.")}</p>
+    <p>{t("The ordering of the steps is not reliable. Across the 168 nights to July 2026 (measured then, not re-run since) +50% measured the worst per rupee of the three steps, a middle setting losing to both its neighbours &mdash; a sign these thresholds rest on too few trades to be structure. The engine therefore ships with compounding OFF and the step as a setting, and picks none of them.", "படிகளின் வரிசை நம்பகமானது அல்ல. ஜூலை 2026 வரையிலான 168 இரவுகளில் (அப்போது அளந்தது, அதன் பின் மீண்டும் ஓட்டப்படவில்லை) +50%, மூன்று படிகளில் ஒரு ரூபாய்க்கு மிக மோசமாக அளந்தது &mdash; இரு பக்கத்து அமைப்புகளையும் விட நடுவில் உள்ளது மோசமாக இருப்பது, இந்த வரம்புகள் மிகச் சில வர்த்தகங்களில் நிற்கின்றன என்பதன் அறிகுறி. எனவே என்ஜின் compounding OFF ஆக வருகிறது; படி ஒரு அமைப்பு, தேர்வு அல்ல.")}</p>
   </div>
 </section>
 """
