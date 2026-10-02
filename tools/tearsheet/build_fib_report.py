@@ -8,7 +8,7 @@ the Assets page.
 Every figure comes from tools/fib_offline sweeps of the exact FibTouchLadder
 the Cascade page trades: Lone (every level) · 5m mother · CE and PE · Intraday
 out by 15:15 · Target = Trailing (1 span) · at most 4 buys a round · Rs 75,000 cap · ATM-2 · nearest
-expiry >= 4 days, NIFTY, 3 Oct 2024 -> 17 Aug 2026, seven blind mother times a
+expiry >= 4 days, NIFTY, 3 Oct 2024 -> 30 Sep 2026 (extended 02-Oct-2026), seven blind mother times a
 session, real recorded premiums, lot 25 / 75 / 65 by date. Nothing here is
 typed by hand.
 
@@ -18,18 +18,19 @@ REGENERATING THE SWEEPS. They used to be written to $TMPDIR and were gone by
 the time anyone needed them again, which left this sheet unbuildable -- it
 could not even be recoloured with its siblings on 2026-09-02. Four commands,
 about three minutes, and they reproduce the published book EXACTLY
-(CE 174 / Rs 92,658.35, ALL 343 / Rs 2,11,721.15):
+(to 17-Aug-2026: CE 174 / Rs 92,658.35, ALL 343 / Rs 2,11,721.15 -- SENSEX
+now differs: its lot table was corrected on 22-Sep-2026, see engine/backtest.py):
 
     T=09:15,09:30,10:15,11:15,12:15,13:15,14:15
     D=tools/fib_offline/runs/v4 && mkdir -p $D
     SYMBOL=NIFTY  TRAIL=1 MAX_BUYS=4 python3 tools/fib_offline/fib_sweep.py \
-        5m CE levels intraday 2024-10-03 2026-08-17 $T $D/NIFTY_CE_trail_max4.csv
+        5m CE levels intraday 2024-10-03 2026-09-30 $T $D/NIFTY_CE_trail_max4.csv
     SYMBOL=NIFTY  TRAIL=1 MAX_BUYS=0 python3 tools/fib_offline/fib_sweep.py \
-        5m PE levels intraday 2024-10-03 2026-08-17 $T $D/NIFTY_PE_trail_max0.csv
+        5m PE levels intraday 2024-10-03 2026-09-30 $T $D/NIFTY_PE_trail_max0.csv
     SYMBOL=SENSEX TRAIL=1 MAX_BUYS=4 python3 tools/fib_offline/fib_sweep.py \
-        5m CE levels intraday 2024-10-03 2026-08-17 $T $D/SENSEX_CE_trail_max4.csv
+        5m CE levels intraday 2024-10-03 2026-09-30 $T $D/SENSEX_CE_trail_max4.csv
     SYMBOL=SENSEX TRAIL=0 MAX_BUYS=0 python3 tools/fib_offline/fib_sweep.py \
-        5m PE levels intraday 2024-10-03 2026-08-17 $T $D/SENSEX_PE_fixed_max0.csv
+        5m PE levels intraday 2024-10-03 2026-09-30 $T $D/SENSEX_PE_fixed_max0.csv
     FIB_SWEEP_DIR=tools/fib_offline/runs python3 tools/tearsheet/build_fib_report.py
 
 TRAIL and MAX_BUYS did not exist as knobs before that date, so a plain run of
@@ -457,7 +458,7 @@ def _auto_row(label: str, b: dict | None, cap: float) -> str:
 
 
 def auto_section() -> str:
-    """The auto mother, measured on the same 23 months as the book above.
+    """The auto mother, measured on the same months as the book above.
 
     Omitted when the chain sweep's CSVs are not on this machine, so the sheet
     still builds; it never prints a figure it did not compute.
@@ -554,7 +555,11 @@ def side_block(b: dict, side: str, index: str = "NIFTY") -> str:
 
 
 # ── the page ──────────────────────────────────────────────────────────
-months = 23
+# Calendar months the book spans, both ends counted (Oct 2024 -> Aug 2026 was
+# the "23" this used to be typed as; it went stale when the book was extended).
+_y1, _m1 = (int(x) for x in str(ALL["first"])[:7].split("-"))
+_y2, _m2 = (int(x) for x in str(ALL["last"])[:7].split("-"))
+months = (_y2 - _y1) * 12 + _m2 - _m1 + 1
 page = f"""<title>PhilForge Fib Boundary Tearsheet</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -571,14 +576,14 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
     <h1>{
     t(
-        "Fib Boundary &mdash; Lone &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY &amp; SENSEX, 23 Months",
-        "Fib Boundary &mdash; Lone &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY &amp; SENSEX, 23 மாதங்கள்",
+        f"Fib Boundary &mdash; Lone &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY &amp; SENSEX, {months} Months",
+        f"Fib Boundary &mdash; Lone &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY &amp; SENSEX, {months} மாதங்கள்",
     )
 }</h1>
     <p class="lede">{
     t(
-        "The one configuration that finished green over 23 months of blind mothers, on the call book. Your mother candle on the 5-minute chart; auto trendlines and stacked fibs; every level of every fib is a rung (Lone); a touch collects and the two-red turn buys one lot of the ATM&minus;2 call; out by 15:15 on the mother's own day; the exit is a trailing target &mdash; reaching the target arms a trail and the basket is sold when a 1-minute close gives back one fib span from the best price since. At most four buys a round, Rs 75,000 ladder cap, nearest expiry at least four days out. NIFTY (lot 25 &rarr; 75 &rarr; 65, strike step 50) and SENSEX (lot 10 &rarr; 20, strike step 100), each priced from its own real recorded option minutes. <strong>Puts are not traded in this configuration</strong> &mdash; the same rules on the put book lost money on the same walk, and that is stated below rather than hidden.",
-        "23 மாத blind mother-களில் பச்சையாக முடிந்த ஒரே அமைப்பு, கால் புத்தகத்தில். 5-நிமிட chart-இல் உங்கள் mother candle; தானியங்கி trendlines, அடுக்கிய fibs; ஒவ்வொரு fib-இன் ஒவ்வொரு level-உம் ஒரு rung (Lone); ஒரு touch சேகரிக்கும், இரு-சிவப்பு திருப்பம் ATM&minus;2 கால்-இல் ஒரு lot வாங்கும்; mother-இன் அன்றே 15:15-க்குள் வெளியே; வெளியேற்றம் trailing target. ஒரு round-க்கு அதிகபட்சம் நான்கு வாங்கல்கள், &#8377;75,000 ladder cap, குறைந்தது நான்கு நாள் expiry. NIFTY (lot 25 &rarr; 75 &rarr; 65) மற்றும் SENSEX (lot 10 &rarr; 20), ஒவ்வொன்றும் அதன் சொந்த option நிமிடங்களில் விலை. <strong>இந்த அமைப்பில் புட் வர்த்தகம் இல்லை</strong> &mdash; அதே விதிகள் புட் புத்தகத்தில் அதே நடையில் நஷ்டம்; அது கீழே மறைக்காமல் சொல்லப்பட்டுள்ளது.",
+        f"The one configuration that finished green over {months} months of blind mothers, on the call book. Your mother candle on the 5-minute chart; auto trendlines and stacked fibs; every level of every fib is a rung (Lone); a touch collects and the two-red turn buys one lot of the ATM&minus;2 call; out by 15:15 on the mother's own day; the exit is a trailing target &mdash; reaching the target arms a trail and the basket is sold when a 1-minute close gives back one fib span from the best price since. At most four buys a round, Rs 75,000 ladder cap, nearest expiry at least four days out. NIFTY (lot 25 &rarr; 75 &rarr; 65, strike step 50) and SENSEX (lot 10 &rarr; 20, strike step 100), each priced from its own real recorded option minutes. <strong>Puts are not traded in this configuration</strong> &mdash; the same rules on the put book lost money on the same walk, and that is stated below rather than hidden.",
+        f"{months} மாத blind mother-களில் பச்சையாக முடிந்த ஒரே அமைப்பு, கால் புத்தகத்தில். 5-நிமிட chart-இல் உங்கள் mother candle; தானியங்கி trendlines, அடுக்கிய fibs; ஒவ்வொரு fib-இன் ஒவ்வொரு level-உம் ஒரு rung (Lone); ஒரு touch சேகரிக்கும், இரு-சிவப்பு திருப்பம் ATM&minus;2 கால்-இல் ஒரு lot வாங்கும்; mother-இன் அன்றே 15:15-க்குள் வெளியே; வெளியேற்றம் trailing target. ஒரு round-க்கு அதிகபட்சம் நான்கு வாங்கல்கள், &#8377;75,000 ladder cap, குறைந்தது நான்கு நாள் expiry. NIFTY (lot 25 &rarr; 75 &rarr; 65) மற்றும் SENSEX (lot 10 &rarr; 20), ஒவ்வொன்றும் அதன் சொந்த option நிமிடங்களில் விலை. <strong>இந்த அமைப்பில் புட் வர்த்தகம் இல்லை</strong> &mdash; அதே விதிகள் புட் புத்தகத்தில் அதே நடையில் நஷ்டம்; அது கீழே மறைக்காமல் சொல்லப்பட்டுள்ளது.",
     )
 }</p>
     <div class="document-meta" aria-label="Document metadata">
@@ -683,8 +688,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</h2>
   <p>{
     t(
-        f"The same rules were replayed on puts (Buy PE, ATM+2) over the same 23 months and lost on both indices. NIFTY: {PE['trades']} campaigns, {PE['wins']} won / {PE['losses']} lost, net {r(PE['net'])}, worst day {r(PE['worst']['net']) if PE['worst'] else '—'}. SENSEX: {SXPE['trades']} campaigns, {SXPE['wins']} won / {SXPE['losses']} lost, net {r(SXPE['net'])}, worst day {r(SXPE['worst']['net']) if SXPE['worst'] else '—'}. Every other put variant measured (fixed target, deeper first rung at L4 or L8, carrying overnight) lost as well. So this sheet, and the recommendation it stands for, is calls only.",
-        f"அதே விதிகள் புட்-இல் (Buy PE, ATM+2) அதே 23 மாதங்களில் replay, இரு குறியீடுகளிலும் நஷ்டம். NIFTY: {PE['trades']} campaign-கள், {PE['wins']} வெற்றி / {PE['losses']} நஷ்டம், நிகர {r(PE['net'])}. SENSEX: {SXPE['trades']} campaign-கள், {SXPE['wins']} / {SXPE['losses']}, நிகர {r(SXPE['net'])}. அளந்த ஒவ்வொரு புட் மாற்றமும் நஷ்டம். எனவே இந்த அறிக்கையும் பரிந்துரையும் கால் மட்டும்.",
+        f"The same rules were replayed on puts (Buy PE, ATM+2) over the same {months} months and lost on both indices. NIFTY: {PE['trades']} campaigns, {PE['wins']} won / {PE['losses']} lost, net {r(PE['net'])}, worst day {r(PE['worst']['net']) if PE['worst'] else '—'}. SENSEX: {SXPE['trades']} campaigns, {SXPE['wins']} won / {SXPE['losses']} lost, net {r(SXPE['net'])}, worst day {r(SXPE['worst']['net']) if SXPE['worst'] else '—'}. Every other put variant measured (fixed target, deeper first rung at L4 or L8, carrying overnight) lost as well. So this sheet, and the recommendation it stands for, is calls only.",
+        f"அதே விதிகள் புட்-இல் (Buy PE, ATM+2) அதே {months} மாதங்களில் replay, இரு குறியீடுகளிலும் நஷ்டம். NIFTY: {PE['trades']} campaign-கள், {PE['wins']} வெற்றி / {PE['losses']} நஷ்டம், நிகர {r(PE['net'])}. SENSEX: {SXPE['trades']} campaign-கள், {SXPE['wins']} / {SXPE['losses']}, நிகர {r(SXPE['net'])}. அளந்த ஒவ்வொரு புட் மாற்றமும் நஷ்டம். எனவே இந்த அறிக்கையும் பரிந்துரையும் கால் மட்டும்.",
     )
 }</p>
 </div>
