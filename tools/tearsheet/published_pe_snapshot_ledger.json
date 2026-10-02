@@ -1,18 +1,18 @@
 {
  "range": [
   "2021-01-01",
-  "2026-08-31"
+  "2026-09-30"
  ],
- "bars": 522205,
- "trades": 578,
- "wins": 279,
- "net": 612147.44,
+ "bars": 532330,
+ "trades": 594,
+ "wins": 290,
+ "net": 818884.45,
  "exit_reasons": {
-  "Signal": 448,
-  "StopLoss": 106,
-  "SquareOff": 24
+  "Signal": 459,
+  "StopLoss": 108,
+  "SquareOff": 27
  },
- "selector": "served=578 gaps={'no_store': 0, 'no_month': 0, 'no_bar': 0, 'no_candidate': 0}",
+ "selector": "served=594 gaps={'no_store': 0, 'no_month': 0, 'no_bar': 0, 'no_candidate': 0}",
  "trade_keys": [
   "2021-01-05 10:20|NIFTY 14300 PE|2021-01-05 11:05|-16685.34",
   "2021-01-14 09:20|NIFTY 14800 PE|2021-01-14 11:05|-8379.71",
@@ -591,14 +591,30 @@
   "2026-08-13 09:30|NIFTY 24600 PE|2026-08-13 12:00|-27016.47",
   "2026-08-14 09:20|NIFTY 24600 PE|2026-08-14 09:35|-4902.43",
   "2026-08-17 09:20|NIFTY 24550 PE|2026-08-17 10:20|19229.44",
-  "2026-08-18 09:20|NIFTY 24500 PE|2026-08-18 09:40|4412.55"
+  "2026-08-18 09:20|NIFTY 24500 PE|2026-08-18 09:40|4412.55",
+  "2026-08-21 09:25|NIFTY 24500 PE|2026-08-21 09:40|-5900.8",
+  "2026-08-25 09:25|NIFTY 24450 PE|2026-08-25 09:50|15041.12",
+  "2026-08-27 09:25|NIFTY 24500 PE|2026-08-27 11:15|37815.69",
+  "2026-08-28 09:20|NIFTY 24400 PE|2026-08-28 09:40|-26508.25",
+  "2026-08-31 09:20|NIFTY 24300 PE|2026-08-31 09:40|9994.74",
+  "2026-09-01 09:20|NIFTY 24300 PE|2026-09-01 10:50|-29552.82",
+  "2026-09-07 09:20|NIFTY 24100 PE|2026-09-07 09:50|5719.31",
+  "2026-09-08 09:20|NIFTY 23950 PE|2026-09-08 09:25|9006.38",
+  "2026-09-10 09:25|NIFTY 23700 PE|2026-09-10 15:10|17474.69",
+  "2026-09-11 09:20|NIFTY 23500 PE|2026-09-11 11:10|-38854.24",
+  "2026-09-15 10:55|NIFTY 23600 PE|2026-09-15 13:30|34084.39",
+  "2026-09-22 10:40|NIFTY 23650 PE|2026-09-22 12:40|33482.37",
+  "2026-09-24 09:20|NIFTY 23450 PE|2026-09-24 15:10|63379.92",
+  "2026-09-25 09:20|NIFTY 23350 PE|2026-09-25 14:00|-27413.59",
+  "2026-09-28 09:20|NIFTY 23200 PE|2026-09-28 15:10|75251.05",
+  "2026-09-29 09:20|NIFTY 22950 PE|2026-09-29 09:25|33717.05"
  ],
  "capital": {
-  "trades": 578,
-  "avg_per_trade": 66960,
-  "median_per_trade": 61442,
-  "max_single_trade": 156581,
-  "peak_deployed": 156581
+  "trades": 594,
+  "avg_per_trade": 68909,
+  "median_per_trade": 62958,
+  "max_single_trade": 171438,
+  "peak_deployed": 171438
  },
  "trades_full": [
   {
@@ -7535,6 +7551,198 @@
    "exit_price": 271.92,
    "pnl": 4412.55,
    "fees": 339.29,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-08-21 09:25",
+   "exit_time": "2026-08-21 09:40",
+   "option_type": "PE",
+   "strike": "NIFTY 24500 PE",
+   "qty": 520,
+   "entry_price": 242.76,
+   "exit_price": 231.97,
+   "pnl": -5900.8,
+   "fees": 287.29,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-08-25 09:25",
+   "exit_time": "2026-08-25 09:50",
+   "option_type": "PE",
+   "strike": "NIFTY 24450 PE",
+   "qty": 585,
+   "entry_price": 268.21,
+   "exit_price": 294.52,
+   "pnl": 15041.12,
+   "fees": 351.63,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-08-27 09:25",
+   "exit_time": "2026-08-27 11:15",
+   "option_type": "PE",
+   "strike": "NIFTY 24500 PE",
+   "qty": 520,
+   "entry_price": 246.27,
+   "exit_price": 319.61,
+   "pnl": 37815.69,
+   "fees": 324.33,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-08-28 09:20",
+   "exit_time": "2026-08-28 09:40",
+   "option_type": "PE",
+   "strike": "NIFTY 24400 PE",
+   "qty": 520,
+   "entry_price": 249.92,
+   "exit_price": 199.48,
+   "pnl": -26508.25,
+   "fees": 277.01,
+   "exit_reason": "StopLoss"
+  },
+  {
+   "entry_time": "2026-08-31 09:20",
+   "exit_time": "2026-08-31 09:40",
+   "option_type": "PE",
+   "strike": "NIFTY 24300 PE",
+   "qty": 520,
+   "entry_price": 240.56,
+   "exit_price": 260.35,
+   "pnl": 9994.74,
+   "fees": 297.93,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-09-01 09:20",
+   "exit_time": "2026-09-01 10:50",
+   "option_type": "PE",
+   "strike": "NIFTY 24300 PE",
+   "qty": 585,
+   "entry_price": 262.05,
+   "exit_price": 212.06,
+   "pnl": -29552.82,
+   "fees": 311.12,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-09-07 09:20",
+   "exit_time": "2026-09-07 09:50",
+   "option_type": "PE",
+   "strike": "NIFTY 24100 PE",
+   "qty": 520,
+   "entry_price": 257.44,
+   "exit_price": 269.03,
+   "pnl": 5719.31,
+   "fees": 308.32,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-09-08 09:20",
+   "exit_time": "2026-09-08 09:25",
+   "option_type": "PE",
+   "strike": "NIFTY 23950 PE",
+   "qty": 585,
+   "entry_price": 250.47,
+   "exit_price": 266.44,
+   "pnl": 9006.38,
+   "fees": 330.69,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-09-10 09:25",
+   "exit_time": "2026-09-10 15:10",
+   "option_type": "PE",
+   "strike": "NIFTY 23700 PE",
+   "qty": 520,
+   "entry_price": 261.55,
+   "exit_price": 295.77,
+   "pnl": 17474.69,
+   "fees": 320.85,
+   "exit_reason": "SquareOff"
+  },
+  {
+   "entry_time": "2026-09-11 09:20",
+   "exit_time": "2026-09-11 11:10",
+   "option_type": "PE",
+   "strike": "NIFTY 23500 PE",
+   "qty": 520,
+   "entry_price": 263.2,
+   "exit_price": 189.01,
+   "pnl": -38854.24,
+   "fees": 278.15,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-09-15 10:55",
+   "exit_time": "2026-09-15 13:30",
+   "option_type": "PE",
+   "strike": "NIFTY 23600 PE",
+   "qty": 585,
+   "entry_price": 267.66,
+   "exit_price": 326.55,
+   "pnl": 34084.39,
+   "fees": 366.02,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-09-22 10:40",
+   "exit_time": "2026-09-22 12:40",
+   "option_type": "PE",
+   "strike": "NIFTY 23650 PE",
+   "qty": 585,
+   "entry_price": 247.27,
+   "exit_price": 305.1,
+   "pnl": 33482.37,
+   "fees": 346.9,
+   "exit_reason": "Signal"
+  },
+  {
+   "entry_time": "2026-09-24 09:20",
+   "exit_time": "2026-09-24 15:10",
+   "option_type": "PE",
+   "strike": "NIFTY 23450 PE",
+   "qty": 520,
+   "entry_price": 235.2,
+   "exit_price": 357.73,
+   "pnl": 63379.92,
+   "fees": 335.32,
+   "exit_reason": "SquareOff"
+  },
+  {
+   "entry_time": "2026-09-25 09:20",
+   "exit_time": "2026-09-25 14:00",
+   "option_type": "PE",
+   "strike": "NIFTY 23350 PE",
+   "qty": 520,
+   "entry_price": 258.49,
+   "exit_price": 206.32,
+   "pnl": -27413.59,
+   "fees": 283.26,
+   "exit_reason": "StopLoss"
+  },
+  {
+   "entry_time": "2026-09-28 09:20",
+   "exit_time": "2026-09-28 15:10",
+   "option_type": "PE",
+   "strike": "NIFTY 23200 PE",
+   "qty": 520,
+   "entry_price": 243.91,
+   "exit_price": 389.3,
+   "pnl": 75251.05,
+   "fees": 351.69,
+   "exit_reason": "SquareOff"
+  },
+  {
+   "entry_time": "2026-09-29 09:20",
+   "exit_time": "2026-09-29 09:25",
+   "option_type": "PE",
+   "strike": "NIFTY 22950 PE",
+   "qty": 650,
+   "entry_price": 263.75,
+   "exit_price": 316.22,
+   "pnl": 33717.05,
+   "fees": 388.97,
    "exit_reason": "Signal"
   }
  ]

@@ -106,6 +106,9 @@ def render(data: dict) -> dict[str, str]:
     regime = data["regime"]["both"]
     dow_name, dow = min(data["by_dow"].items(), key=lambda kv: kv[1]["net"])
     before, after = regime["before"], regime["after"]
+    # November 2024 (the regime change) to the end of the book, both counted.
+    end_y, end_m = (int(x) for x in str(data["window"]["to"])[:7].split("-"))
+    after_months = (end_y - 2024) * 12 + end_m - 11 + 1
 
     net = head["net"]
     lost_months = day["months"] - day["green_months"]
@@ -189,7 +192,7 @@ def render(data: dict) -> dict[str, str]:
         html,
         r"The first \d+ months earned ₹[\d,]+ across \d+ trades —\s*\n?\s*₹[\d,]+ a trade\. The last \d+ months earned ₹[\d,]+ across \d+ — ₹[\d,]+ a trade\.",
         f"The first 46 months earned ₹{inr(before['net'])} across {before['n']} trades —\n        "
-        f"₹{inr(before['avg'])} a trade. The last 21 months earned ₹{inr(after['net'])} across {after['n']} — ₹{inr(after['avg'])} a trade.",
+        f"₹{inr(before['avg'])} a trade. The last {after_months} months earned ₹{inr(after['net'])} across {after['n']} — ₹{inr(after['avg'])} a trade.",
         "regime prose",
     )
 

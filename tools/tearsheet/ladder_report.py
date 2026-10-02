@@ -55,7 +55,20 @@ from rebuild_data import (  # noqa: E402
 )
 
 REPORT = _HERE / "report_data.json"
-YEARS = 5.63  # the window the published per-year figures divide by
+YEARS = 5.63  # the window the published per-year figures divide by, to 2026-08-31
+
+
+def years_to(window_end: str) -> float:
+    """The per-year divisor for a book that ends at `window_end`.
+
+    5.63 is what the published editions divided by for the window ending
+    2026-08-31; a book that runs further divides by that plus the extra time,
+    so the figures for the same five years do not move when a month is added.
+    """
+    extra = (datetime.strptime(str(window_end)[:10], "%Y-%m-%d") - datetime(2026, 8, 31)).days
+    return YEARS + max(0, extra) / 365.25
+
+
 SIZES = (1, 2, 3, 4, 6, 8)
 SLIPS = (0, 6, 10, 14, 25, 50, 100)
 CAPS = (4, 6, 8, 12, 20)
@@ -253,7 +266,7 @@ def build(runs: Path, tag: str, base: dict) -> dict:
                 "dd": round(s_dd),
                 "floor": round(floor),
                 "funded": round(funded),
-                "per_year": round(s_net / YEARS),
+                "per_year": round(s_net / years_to(d["window"]["to"])),
                 "roi": round(100 * s_net / funded),
             }
         )

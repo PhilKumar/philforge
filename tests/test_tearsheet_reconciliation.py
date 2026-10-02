@@ -53,10 +53,17 @@ class ThePublishedFiguresAreUntouched(unittest.TestCase):
         trades, keeps about the same money and falls a little over half as far:
         Rs 20,58,931 over 923 trades became Rs 19,35,081 over 839, with the
         worst fall Rs 3,70,639 -> Rs 2,07,535.
+
+        Re-pinned 02-Oct-2026: the book was extended from August to 30
+        September 2026 on the same rules (Phil: "update the tearsheets with the
+        latest data"). Every trade up to August is unchanged; PE adds 16 trades
+        and Rs 2,06,737, CE adds none (NIFTY sat below its 20-day average).
+        Rs 19,35,081 over 839 trades became Rs 21,41,818 over 855, the worst
+        fall unchanged at Rs 2,07,535.
         """
-        self.assertEqual(DATA["headline"]["combined"]["net"], 1935081.08)
-        self.assertEqual(DATA["headline"]["combined"]["trades"], 839)
-        self.assertIn("₹19,35,081", DOC)
+        self.assertEqual(DATA["headline"]["combined"]["net"], 2141818.09)
+        self.assertEqual(DATA["headline"]["combined"]["trades"], 855)
+        self.assertIn("₹21,41,818", DOC)
         self.assertNotIn("₹12,45,087", DOC.split("Slippage")[0], "the old basis may survive only in the slippage table")
 
     def test_the_document_still_declares_four_lots(self):

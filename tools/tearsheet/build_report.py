@@ -10,6 +10,7 @@ directory, so it can be run from anywhere in the repo.
 import html
 import json
 import pathlib
+from datetime import datetime as _dt
 
 from i18n import LANG_CSS, LANG_JS, t, t_attr
 
@@ -17,6 +18,10 @@ _HERE = pathlib.Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent
 
 D = json.load(open(_HERE / "report_data.json"))
+# Months from November 2024 (the regime change) to the end of the book, both
+# counted. Typed as "21" it went stale the first time the book was extended.
+_end = _dt.strptime(D["window"]["to"][:10], "%Y-%m-%d")
+AFTER_MONTHS = (_end.year - 2024) * 12 + _end.month - 11 + 1
 H = D["headline"]
 BW = D["best_worst"]
 DAY = D["daily"]
@@ -854,8 +859,8 @@ PARA29 = t(
 )
 
 PARA30 = t(
-    f"""<strong>{100 * reg["after"]["net"] / (reg["after"]["net"] + reg["before"]["net"]):.0f}% of the profit comes from the last 21 months</strong>, on {100 * reg["after"]["n"] / (reg["after"]["n"] + reg["before"]["n"]):.0f}% of the trades. Per-trade return went from <span class="num">{r(reg["before"]["avg"])}</span> to <span class="num">{r(reg["after"]["avg"])}</span> &mdash; a <span class="num">{reg["after"]["avg"] / reg["before"]["avg"]:.1f}&times;</span> step, not a drift.""",
-    f"""<strong>கடைசி 21 மாதங்களிலிருந்து லாபத்தில் {100 * reg["after"]["net"] / (reg["after"]["net"] + reg["before"]["net"]):.0f}% வருகிறது</strong>, டிரேடுகளில் {100 * reg["after"]["n"] / (reg["after"]["n"] + reg["before"]["n"]):.0f}% கொண்டு. ஒரு டிரேடுக்கான வருவாய் <span class='num'>{r(reg["before"]["avg"])}</span> என்பதிலிருந்து <span class='num'>{r(reg["after"]["avg"])}</span> ஆக &mdash; <span class='num'>{reg["after"]["avg"] / reg["before"]["avg"]:.1f} மடங்கு</span> படியேற்றம், மெல்லிய நகர்வு அல்ல.""",
+    f"""<strong>{100 * reg["after"]["net"] / (reg["after"]["net"] + reg["before"]["net"]):.0f}% of the profit comes from the last {AFTER_MONTHS} months</strong>, on {100 * reg["after"]["n"] / (reg["after"]["n"] + reg["before"]["n"]):.0f}% of the trades. Per-trade return went from <span class="num">{r(reg["before"]["avg"])}</span> to <span class="num">{r(reg["after"]["avg"])}</span> &mdash; a <span class="num">{reg["after"]["avg"] / reg["before"]["avg"]:.1f}&times;</span> step, not a drift.""",
+    f"""<strong>கடைசி {AFTER_MONTHS} மாதங்களிலிருந்து லாபத்தில் {100 * reg["after"]["net"] / (reg["after"]["net"] + reg["before"]["net"]):.0f}% வருகிறது</strong>, டிரேடுகளில் {100 * reg["after"]["n"] / (reg["after"]["n"] + reg["before"]["n"]):.0f}% கொண்டு. ஒரு டிரேடுக்கான வருவாய் <span class='num'>{r(reg["before"]["avg"])}</span> என்பதிலிருந்து <span class='num'>{r(reg["after"]["avg"])}</span> ஆக &mdash; <span class='num'>{reg["after"]["avg"] / reg["before"]["avg"]:.1f} மடங்கு</span> படியேற்றம், மெல்லிய நகர்வு அல்ல.""",
 )
 
 PARA31 = t(
@@ -1876,7 +1881,7 @@ footer {{ margin-top:52px; padding-top:20px; border-top:1px solid var(--line);
         <tr><th scope="row">Jan 2021 &rarr; Oct 2024</th><td>{reg["before"]["n"]}</td>
           <td>{reg["before"]["win"]}%</td><td class="pos">{r(reg["before"]["net"])}</td>
           <td>{r(reg["before"]["avg"])}</td></tr>
-        <tr><th scope="row">Nov 2024 &rarr; Aug 2026</th><td>{reg["after"]["n"]}</td>
+        <tr><th scope="row">Nov 2024 &rarr; {_dt.strptime(D["window"]["to"][:10], "%Y-%m-%d"):%b %Y}</th><td>{reg["after"]["n"]}</td>
           <td>{reg["after"]["win"]}%</td><td class="pos">{r(reg["after"]["net"])}</td>
           <td>{r(reg["after"]["avg"])}</td></tr>
       </tbody>
