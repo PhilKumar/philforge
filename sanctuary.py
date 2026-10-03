@@ -349,6 +349,9 @@ async def sanctuary_daily(user: dict = Depends(_unlocked_user)):
 # ── Journal ──────────────────────────────────────────────────────
 
 
+MAX_ENTRY_PHOTOS = 100
+
+
 def _clean_entry_fields(payload: dict, partial: bool = False) -> dict:
     fields: dict = {}
     if "entry_date" in payload or not partial:
@@ -371,8 +374,15 @@ def _clean_entry_fields(payload: dict, partial: bool = False) -> dict:
             raise HTTPException(status_code=400, detail="Mood is 1–5")
     if "photos" in payload:
         photos = payload.get("photos") or []
-        if not isinstance(photos, list) or len(photos) > 20:
+        # 20 was too few for a real day: on 03-Oct-2026 a 23-picture entry was
+        # refused as "Bad photos list" after every picture had uploaded fine.
+        if not isinstance(photos, list):
             raise HTTPException(status_code=400, detail="Bad photos list")
+        if len(photos) > MAX_ENTRY_PHOTOS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"An entry holds up to {MAX_ENTRY_PHOTOS} pictures; this one has {len(photos)}",
+            )
         cleaned = []
         for photo in photos:
             file_id = str((photo or {}).get("file") or "")

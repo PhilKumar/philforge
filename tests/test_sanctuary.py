@@ -3727,3 +3727,26 @@ class ThePayIsASettingNotATileTests(unittest.TestCase):
 
     def test_left_to_breathe_still_reads_the_account(self):
         self.assertIn("in the account", self.page)
+
+
+class AFullDayOfPicturesSaves(unittest.TestCase):
+    """03-Oct-2026: a 23-picture entry was refused ("Bad photos list") after
+    every picture had uploaded. The cap is 100 and its refusal says why."""
+
+    def _photos(self, n):
+        return [{"file": f"2026/10/03-{i:016x}.jpg", "caption": ""} for i in range(n)]
+
+    def test_twenty_three_pictures_are_accepted(self):
+        from sanctuary import _clean_entry_fields
+
+        out = _clean_entry_fields({"photos": self._photos(23)}, partial=True)
+        self.assertEqual(len(out["photos"]), 23)
+
+    def test_over_the_cap_says_how_many(self):
+        from fastapi import HTTPException
+
+        from sanctuary import MAX_ENTRY_PHOTOS, _clean_entry_fields
+
+        with self.assertRaises(HTTPException) as caught:
+            _clean_entry_fields({"photos": self._photos(MAX_ENTRY_PHOTOS + 1)}, partial=True)
+        self.assertIn(str(MAX_ENTRY_PHOTOS + 1), caught.exception.detail)
