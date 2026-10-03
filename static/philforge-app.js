@@ -1869,6 +1869,38 @@ let _blueprintHeaderResize = null;
 // header scrolled away, so that band was empty and the document scrolled
 // through it in plain sight. The header is now frozen for the blueprint alone,
 // and the bar is pinned to the header's MEASURED height instead of a guess.
+// FROZEN TOPS (see the CSS block of that name). The nav bar sticks at 0, the
+// active page's title banner at the nav bar's height, and on Assets the Asset
+// View bar under the banner; the blueprint reader's own pinned search bar then
+// sits under all of them. Re-measured on every page change and resize.
+const _FROZEN_BANNER = '.page-section.active-page > :is(.pf-workspace-hero, .oc-hero, .trading-workspace-head)';
+function _frozenTopsActive() {
+  return window.matchMedia('(min-width: 901px) and (min-height: 640px)').matches;
+}
+function _frozenStackHeight() {
+  if (!_frozenTopsActive()) return null;
+  const header = document.querySelector('.header-shell');
+  if (!header) return null;
+  let total = Math.ceil(header.getBoundingClientRect().height);
+  const hero = document.querySelector(_FROZEN_BANNER);
+  if (hero) total += Math.ceil(hero.getBoundingClientRect().height);
+  return total;
+}
+function _syncFrozenTops() {
+  document.body.classList.add('pf-frozen-tops');
+  const root = document.documentElement;
+  const header = document.querySelector('.header-shell');
+  const headerH = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+  root.style.setProperty('--pf-freeze-hero-top', `${headerH}px`);
+  const hero = document.querySelector(_FROZEN_BANNER);
+  const heroH = hero ? Math.ceil(hero.getBoundingClientRect().height) : 0;
+  const gap = hero ? parseFloat(window.getComputedStyle(hero).getPropertyValue('--pf-workspace-gap')) || 14 : 0;
+  root.style.setProperty('--pf-freeze-viewbar-top', `${headerH + heroH + gap}px`);
+  if (document.body.classList.contains('pf-blueprint-open')) _syncBlueprintStickyOffset();
+}
+window.addEventListener('resize', () => _syncFrozenTops());
+document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(_syncFrozenTops));
+
 function _syncBlueprintStickyOffset() {
   const header = document.querySelector('.header-shell');
   const reader = document.getElementById('architecture-reader-view');
@@ -1879,7 +1911,15 @@ function _syncBlueprintStickyOffset() {
   // CEIL, not round: the header's height is fractional, and rounding DOWN
   // leaves the bar a pixel below the header's edge -- a hairline seam the
   // document can be seen sliding through.
-  const offset = Math.max(0, Math.ceil(rect.height + below));
+  let offset = Math.max(0, Math.ceil(rect.height + below));
+  // Under the frozen stack the reader's bar has to clear the banner and the
+  // Asset View bar too, or it would pin behind them.
+  const stack = _frozenStackHeight();
+  const viewbar = document.querySelector('#assets-page .pf-architecture-viewbar');
+  if (stack !== null) {
+    const gap = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--pf-freeze-viewbar-top')) || 0;
+    offset = Math.ceil(gap + (viewbar ? viewbar.getBoundingClientRect().height : 0));
+  }
   // Inline, and on the shell INSIDE the shadow root: the shadow stylesheet sets
   // --reader-sticky-top on .reader-shell itself, so a value merely inherited
   // from the host would lose to it. An inline property wins.
@@ -1900,6 +1940,51 @@ function _setBlueprintFrozenHeader(on) {
   if (!_blueprintHeaderResize) {
     _blueprintHeaderResize = () => _syncBlueprintStickyOffset();
     window.addEventListener('resize', _blueprintHeaderResize);
+  }
+}
+
+// THE TEARSHEET'S FROZEN TOP. Phil, 2026-10-03, on the Assets tab: "Freeze
+// while scrolling down" -- everything from the nav down to the Asset View bar
+// stays where it is and only the tearsheet moves. The sheet is its own framed
+// document that scrolls inside itself, so the frame is sized to end exactly at
+// the bottom of the window: the PAGE then has nothing to scroll, the top cannot
+// leave the screen, and every scroll lands in the document. A window too short
+// to give the document a useful height (under 640px) keeps the old flow.
+let _tearsheetFreezeResize = null;
+const _TEARSHEET_MIN_FRAME = 320;
+function _sizeFrozenTearsheet() {
+  const frame = document.getElementById('assets-tearsheet-frame');
+  if (!frame) return;
+  if (window.innerHeight < 640) {
+    frame.style.removeProperty('height');
+    document.body.classList.remove('pf-tearsheet-frozen');
+    return;
+  }
+  document.body.classList.add('pf-tearsheet-frozen');
+  // Measured from the top of the page, not the viewport, so a page that was
+  // already scrolled when the tab opened still gets the same frame.
+  const top = frame.getBoundingClientRect().top + window.scrollY;
+  const panel = document.getElementById('assets-tearsheet-panel');
+  const below = panel ? parseFloat(window.getComputedStyle(panel).marginBottom) || 0 : 0;
+  const height = Math.max(_TEARSHEET_MIN_FRAME, Math.floor(window.innerHeight - top - below - 14));
+  frame.style.height = `${height}px`;
+  window.scrollTo({ top: 0 });
+}
+function _setTearsheetFrozen(on) {
+  if (!on) {
+    document.body.classList.remove('pf-tearsheet-frozen');
+    document.getElementById('assets-tearsheet-frame')?.style.removeProperty('height');
+    if (_tearsheetFreezeResize) {
+      window.removeEventListener('resize', _tearsheetFreezeResize);
+      _tearsheetFreezeResize = null;
+    }
+    return;
+  }
+  // After layout: the hidden panel has no geometry until this frame paints.
+  requestAnimationFrame(_sizeFrozenTearsheet);
+  if (!_tearsheetFreezeResize) {
+    _tearsheetFreezeResize = () => _sizeFrozenTearsheet();
+    window.addEventListener('resize', _tearsheetFreezeResize);
   }
 }
 
@@ -1949,6 +2034,7 @@ function initArchitecturePage(requestedView = null) {
   }
 
   _setBlueprintFrozenHeader(isBlueprint);
+  _setTearsheetFrozen(isTearsheet);
 
   if (isBlueprint) {
     if (readerStatus) readerStatus.textContent = `Loading ${view === 'cryptoforge' ? 'CryptoForge' : 'PhilForge'} blueprint…`;
@@ -2431,7 +2517,10 @@ async function applyNavState(state) {
   if (page === 'assets-page') initArchitecturePage(state?.architectureView || null);
   // Leaving the blueprint by any other route must give the header back: the
   // frozen top belongs to that one page, and nothing else re-runs the init.
-  else _setBlueprintFrozenHeader(false);
+  else {
+    _setBlueprintFrozenHeader(false);
+    _setTearsheetFrozen(false);
+  }
 }
 
 document.addEventListener('architecture-view-change', (event) => {
@@ -2497,6 +2586,8 @@ function showPage(id, btn, options = {}) {
   const activePage = document.getElementById(id);
   activePage.classList.add('active-page');
   activePage.removeAttribute('aria-hidden');
+  // The banner pinned under the nav bar is this page's, so measure again.
+  requestAnimationFrame(_syncFrozenTops);
   const activeBtn = document.getElementById(NAV_BUTTON_MAP[id] || '') || btn;
   if (activeBtn) {
     activeBtn.classList.add('active');
@@ -2529,7 +2620,10 @@ function showPage(id, btn, options = {}) {
     ensurePortfolioLoaded();
   }
   if (id === 'assets-page') initArchitecturePage(options.historyState?.architectureView || null);
-  else _setBlueprintFrozenHeader(false);
+  else {
+    _setBlueprintFrozenHeader(false);
+    _setTearsheetFrozen(false);
+  }
   // Reload dashboard data when switching to dashboard
   if (id === 'dashboard-page') {
     loadDashboardSummary();

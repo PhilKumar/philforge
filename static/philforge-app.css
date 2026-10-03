@@ -9822,3 +9822,39 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 /* "AF prev close 23,414.30" beside the desk's NIFTY chart buttons -- see _cepePaintPrevClose. */
 .cepe-prevclose { font: 700 10.5px 'JetBrains Mono', monospace; color: var(--muted); background: transparent; border: 1px dashed var(--border); border-radius: 7px; padding: 5px 9px; cursor: copy; white-space: nowrap; }
 .cepe-prevclose:hover { color: var(--text); border-color: var(--accent); }
+
+/* ═══ FROZEN TOPS, EVERY PAGE ═══
+   Phil, 2026-10-03: "In all pages like this... I need to see the top headings
+   viewable and scroll under it. Nothing to change anything inside the pages."
+   The nav bar pins to the top of the window and each page's title banner pins
+   right under it; on Assets the Asset View bar pins under that. Everything
+   else scrolls beneath them. Only positions change -- no page content does.
+   The offsets are measured (philforge-app.js, _syncFrozenTops), because the
+   header and banners have no fixed height. A window too narrow or too short
+   for a pinned stack to leave room for the page keeps the old flow. */
+@media (min-width: 901px) and (min-height: 640px) {
+  body.pf-frozen-tops .header-shell {
+    position: sticky;
+    top: 0;
+    margin-bottom: 0;
+    padding-bottom: 12px;
+    background: var(--bg);
+  }
+  body.pf-frozen-tops .page-section.active-page > :is(.pf-workspace-hero, .oc-hero, .trading-workspace-head) {
+    position: sticky;
+    top: var(--pf-freeze-hero-top, 0px);
+    z-index: 30;
+    background-color: var(--bg);
+    /* Its own gradients are near-opaque; the page colour beneath them makes
+       them fully so, which is the colour that was behind them anyway. */
+  }
+  body.pf-frozen-tops #assets-page.active-page .pf-architecture-viewbar {
+    position: sticky;
+    top: var(--pf-freeze-viewbar-top, 0px);
+    z-index: 29;
+    /* --card is translucent; layered on the page colour it is solid, so the
+       atlas cannot be read through the bar as it slides beneath. */
+    background: linear-gradient(var(--card), var(--card)), var(--bg);
+    box-shadow: 0 -14px 0 var(--bg), 0 10px 18px rgba(2, 6, 14, .22);
+  }
+}
