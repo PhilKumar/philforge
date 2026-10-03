@@ -523,6 +523,39 @@ class AutoMotherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.setting["log"]), 1)
 
 
+class TheCampaignLogKeepsItsOwnClock(unittest.TestCase):
+    """The 45-day log trim ran on the WALL clock: the route test above began
+    failing on 3-Oct-2026 by date alone, and a campaign whose mother was more
+    than 45 days old was trimmed the moment it was logged."""
+
+    def _runtime(self, mother_ts):
+        return _Runtime(
+            {
+                "mother": {"timestamp": mother_ts},
+                "contract": {"strike": 24300, "option_type": "CE"},
+                "status": "CLOSED",
+                "fills": [{"rung": 1}],
+                "exit": {"timestamp": "2026-08-20T10:05:00+05:30", "reason": "trail"},
+                "net_pnl": 10.0,
+            },
+            running=False,
+        )
+
+    def test_the_trim_is_measured_from_the_tick(self):
+        setting = {"log": [{"mother": "2026-05-01T09:15:00+05:30"}]}
+        app_module._candle_auto_log_campaign(
+            setting, self._runtime("2026-08-18T10:00:00+05:30"), datetime(2026, 8, 20, 10, 20, tzinfo=IST)
+        )
+        self.assertEqual([r["mother"] for r in setting["log"]], ["2026-08-18T10:00:00+05:30"])
+
+    def test_an_old_mother_is_still_logged_when_its_campaign_ends(self):
+        setting = {}
+        app_module._candle_auto_log_campaign(
+            setting, self._runtime("2026-06-01T10:00:00+05:30"), datetime(2026, 8, 20, 10, 20, tzinfo=IST)
+        )
+        self.assertEqual(len(setting["log"]), 1)
+
+
 class AutoOneMotherOneTradeTests(unittest.IsolatedAsyncioTestCase):
     """ONE MOTHER, ONE TRADE, however the campaign ended.
 

@@ -13887,8 +13887,16 @@ def _candle_auto_public(setting: dict) -> dict:
     return {k: v for k, v in (setting or {}).items() if not str(k).startswith("_")}
 
 
-def _candle_auto_log_campaign(setting: dict, runtime: _CascadeRuntime) -> None:
-    """Append an ENDED campaign to the chain log, once, and mark when it freed."""
+def _candle_auto_log_campaign(setting: dict, runtime: _CascadeRuntime, now: datetime | None = None) -> None:
+    """Append an ENDED campaign to the chain log, once, and mark when it freed.
+
+    The 45-day trim is measured from the tick's own `now`, never the wall
+    clock. Measured from the wall clock it made the route test fail by date
+    alone -- its 18-Aug-2026 campaign was trimmed the moment it was logged once
+    the real calendar passed 2-Oct -- and a campaign whose mother was older
+    than the window was dropped from the log in the same breath as being
+    added to it.
+    """
     st = runtime.engine.get_status()
     key = str((st.get("mother") or {}).get("timestamp"))
     log = setting.setdefault("log", [])
@@ -13906,8 +13914,10 @@ def _candle_auto_log_campaign(setting: dict, runtime: _CascadeRuntime) -> None:
             "net": st.get("net_pnl"),
         }
     )
-    keep_from = (datetime.now(IST).date() - timedelta(days=_CANDLE_AUTO_LOG_DAYS)).isoformat()
-    setting["log"] = [row for row in log if str(row.get("mother"))[:10] >= keep_from][-200:]
+    keep_from = ((now or datetime.now(IST)).date() - timedelta(days=_CANDLE_AUTO_LOG_DAYS)).isoformat()
+    setting["log"] = [row for row in log if str(row.get("mother"))[:10] >= keep_from or str(row.get("mother")) == key][
+        -200:
+    ]
 
 
 # Every state this step can return that means nothing is wrong. A tick in one
@@ -13975,7 +13985,7 @@ async def _candle_entry_auto_step(
         if not finished:
             return "busy"
         if setting.get("last_mother") == mother_key and not setting.get("_freed_logged") == mother_key:
-            _candle_auto_log_campaign(setting, runtime)
+            _candle_auto_log_campaign(setting, runtime, now)
             exit_row = st.get("exit") or {}
             freed = (
                 exit_row.get("timestamp") or (st.get("latest_closed_candle") or {}).get("timestamp") or now.isoformat()
