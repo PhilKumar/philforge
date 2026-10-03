@@ -1578,8 +1578,8 @@ html[data-theme="dark"]{color-scheme:dark}
     <div class="card composer">
       <div class="section-title">Leave something here today</div>
       <div class="kinds" id="kind-chips"></div>
-      <input class="field" id="c-title" placeholder="A title, if it wants one">
-      <textarea class="field" id="c-body" placeholder="What happened… what you felt… what you want to remember."></textarea>
+      <input class="field" id="c-title" spellcheck="true" autocorrect="on" autocapitalize="sentences" lang="en" placeholder="A title, if it wants one">
+      <textarea class="field" id="c-body" spellcheck="true" autocorrect="on" autocapitalize="sentences" lang="en" placeholder="What happened… what you felt… what you want to remember."></textarea>
       <div class="row">
         <input class="field" type="date" id="c-date" style="max-width:180px">
         <input class="field" id="c-music" placeholder="♪ A song for this memory (name — artist, or a link)">
@@ -1589,6 +1589,7 @@ html[data-theme="dark"]{color-scheme:dark}
         <label class="btn subtle small" style="cursor:pointer">📷 Add pictures
           <input type="file" id="c-file" accept="image/*,.heic,.heif,.avif" multiple class="hidden">
         </label>
+        <button class="btn subtle small" id="c-define" type="button" title="Select a word (or put the cursor in it) to see what it means">📖 Meaning</button>
         <button class="btn" id="c-save">Keep it 🌿</button>
       </div>
     </div>
@@ -1955,6 +1956,32 @@ function modal(innerHtml){
   wrap.addEventListener("click", (e) => { if (e.target === wrap) wrap.remove(); });
   document.body.appendChild(wrap);
   return wrap;
+}
+
+/* ═══ dictionary: the selected word, or the one the cursor sits in ═══
+   Spelling is the browser's own (spellcheck on every journal field); a word's
+   meaning comes from /api/sanctuary/define, so only that one word leaves. */
+function wordAt(field){
+  const v = field.value || "";
+  let a = field.selectionStart ?? 0, b = field.selectionEnd ?? a;
+  if (b > a) return v.slice(a, b).trim();
+  while (a > 0 && /[A-Za-z'-]/.test(v[a - 1])) a--;
+  while (b < v.length && /[A-Za-z'-]/.test(v[b])) b++;
+  return v.slice(a, b).trim();
+}
+async function defineFrom(field){
+  const word = wordAt(field).replace(/^['-]+|['-]+$/g, "");
+  if (!/^[A-Za-z][A-Za-z'-]{0,39}$/.test(word)) return toast("Select a word, or put the cursor inside one 📖");
+  let d;
+  try { d = await api("/api/sanctuary/define?word=" + encodeURIComponent(word)); }
+  catch (err) { return toast(err.message); }
+  const body = d.found
+    ? d.meanings.map((m) => `<p><em>${esc(m.part)}</em> &mdash; ${esc(m.text)}${
+        m.example ? `<br><span style="color:var(--muted)">&ldquo;${esc(m.example)}&rdquo;</span>` : ""}</p>`).join("")
+    : `<p>No meaning found for this word &mdash; check its spelling (the red underline offers fixes).</p>`;
+  const w = modal(`<h4>📖 ${esc(d.word)} ${d.phonetic ? `<span style="color:var(--muted);font-weight:400">${esc(d.phonetic)}</span>` : ""}</h4>
+    ${body}<div class="m-foot"><button class="btn" data-x="ok">Close</button></div>`);
+  w.querySelector('[data-x="ok"]').onclick = () => w.remove();
 }
 
 /* ═══ dates: our own calendar, never the browser's ═══
@@ -3280,12 +3307,14 @@ function editEntry(id){
     <label>Date</label><input class="field" type="date" id="e-date" value="${e.entry_date}">
     <label>Kind</label><select class="field" id="e-kind">${KINDS.map(([k, l]) =>
       `<option value="${k}" ${k === e.kind ? "selected" : ""}>${l}</option>`).join("")}</select>
-    <label>Title</label><input class="field" id="e-title" value="${esc(e.title)}">
-    <label>Words</label><textarea class="field" id="e-body">${esc(e.body)}</textarea>
+    <label>Title</label><input class="field" id="e-title" spellcheck="true" autocorrect="on" autocapitalize="sentences" lang="en" value="${esc(e.title)}">
+    <label>Words</label><textarea class="field" id="e-body" spellcheck="true" autocorrect="on" autocapitalize="sentences" lang="en">${esc(e.body)}</textarea>
+    <button class="btn subtle small" id="e-define" type="button">📖 Meaning</button>
     <label>Music</label><input class="field" id="e-music" value="${esc(e.music)}">
     <div class="m-foot"><button class="btn subtle" id="e-cancel">Leave it</button>
     <button class="btn" id="e-save">Save</button></div>`);
   wrap.querySelector("#e-cancel").onclick = () => wrap.remove();
+  wrap.querySelector("#e-define").onclick = () => defineFrom(wrap.querySelector("#e-body"));
   wrap.querySelector("#e-save").onclick = async () => {
     const tendedTo = wrap.querySelector("#e-date").value;
     await api("/api/sanctuary/journal/" + id, {method: "PUT", body: {
@@ -4598,6 +4627,7 @@ window.addEventListener("resize", () => {
   _refoldAt = setTimeout(() => { if (S.entries && !$("view-journal").classList.contains("hidden")) renderBook(); }, 220);
 });
 $("c-save").onclick = saveEntry;
+$("c-define").onclick = () => defineFrom($("c-body"));
 /* A picture reaches the page three ways: chosen, dragged, or pasted.
    The chooser cannot open a Photos library — macOS keeps that a sealed
    bundle — so dragging a photo straight out of Photos, or copying it and

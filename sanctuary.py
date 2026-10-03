@@ -393,6 +393,67 @@ def _clean_entry_fields(payload: dict, partial: bool = False) -> dict:
     return fields
 
 
+# ── Dictionary ────────────────────────────────────────────────────────
+# Phil, 03-Oct-2026: "spellcheck and dict has to be added for the journal
+# entry while writing". Spelling is the browser's own (the fields ask for it);
+# a word's MEANING is looked up here, so the page needs no third-party host in
+# its CSP. Only the one word he asks about leaves the box, and only when asked.
+_WORD_RE = re.compile(r"^[A-Za-z][A-Za-z'-]{0,39}$")
+_DEFINE_CACHE: dict[str, dict] = {}
+_DEFINE_URL = "https://en.wiktionary.org/api/rest_v1/page/definition/{word}"
+# Wikimedia asks every API client to say who it is.
+_DEFINE_HEADERS = {"User-Agent": "PhilForge-Sanctuary/1.0 (personal journal; https://philforge.in)"}
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain(fragment: str) -> str:
+    return " ".join(html.unescape(_TAG_RE.sub("", str(fragment or ""))).split())
+
+
+def _shape_definition(word: str, payload) -> dict:
+    """The few lines the page shows: up to six English meanings.
+
+    Wiktionary's REST shape: {"en": [{"partOfSpeech", "definitions": [{"definition"
+    (HTML), "examples": [HTML]}]}], other languages under their own codes}. Chosen
+    over dictionaryapi.dev, which was unreachable (522 / timeouts) on 03-Oct-2026.
+    """
+    meanings: list[dict] = []
+    for entry in (payload or {}).get("en", []) if isinstance(payload, dict) else []:
+        part = str((entry or {}).get("partOfSpeech") or "").lower()
+        for d in (entry or {}).get("definitions") or []:
+            text = _plain((d or {}).get("definition"))
+            if text and len(meanings) < 6:
+                examples = (d or {}).get("examples") or []
+                meanings.append(
+                    {"part": part, "text": text[:400], "example": _plain(examples[0])[:300] if examples else ""}
+                )
+    return {"word": word, "found": bool(meanings), "phonetic": "", "meanings": meanings}
+
+
+@router.get("/api/sanctuary/define")
+async def define_word(word: str = "", user: dict = Depends(_unlocked_user)):
+    word = word.strip().lower()
+    if not _WORD_RE.match(word):
+        raise HTTPException(status_code=400, detail="Pick a single word to look up")
+    if word in _DEFINE_CACHE:
+        return _DEFINE_CACHE[word]
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            resp = await client.get(_DEFINE_URL.format(word=word), headers=_DEFINE_HEADERS)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="The dictionary did not answer; try again in a moment")
+    if resp.status_code == 404:
+        out = _shape_definition(word, [])
+    elif resp.status_code != 200:
+        raise HTTPException(status_code=503, detail="The dictionary did not answer; try again in a moment")
+    else:
+        out = _shape_definition(word, resp.json())
+    if len(_DEFINE_CACHE) > 500:
+        _DEFINE_CACHE.clear()
+    _DEFINE_CACHE[word] = out
+    return out
+
+
 @router.get("/api/sanctuary/journal")
 async def journal_list(
     month: str | None = None,

@@ -3750,3 +3750,52 @@ class AFullDayOfPicturesSaves(unittest.TestCase):
         with self.assertRaises(HTTPException) as caught:
             _clean_entry_fields({"photos": self._photos(MAX_ENTRY_PHOTOS + 1)}, partial=True)
         self.assertIn(str(MAX_ENTRY_PHOTOS + 1), caught.exception.detail)
+
+
+class TheJournalSpellsAndDefines(unittest.TestCase):
+    """03-Oct-2026: "spellcheck and dict has to be added for the journal entry"."""
+
+    def test_every_journal_text_field_asks_for_spellcheck(self):
+        import pathlib
+        import re
+
+        html = (pathlib.Path(__file__).resolve().parent.parent / "sanctuary.html").read_text()
+        for field in ("c-title", "c-body", "e-title", "e-body"):
+            tag = re.search(r'<(?:input|textarea)[^>]*id="%s"[^>]*>' % field, html)
+            self.assertIsNotNone(tag, field)
+            self.assertIn('spellcheck="true"', tag.group(0), field)
+        self.assertIn('id="c-define"', html)
+        self.assertIn('id="e-define"', html)
+
+    def test_a_definition_is_shaped_to_a_few_lines(self):
+        from sanctuary import _shape_definition
+
+        payload = {
+            "en": [
+                {
+                    "partOfSpeech": "Adjective",
+                    "definitions": [
+                        {
+                            "definition": '<a rel="mw:WikiLink" href="/wiki/calm">Calm</a> and peaceful &amp; still.',
+                            "examples": ["a <b>serene</b> smile"],
+                        }
+                    ],
+                }
+            ],
+            "fr": [{"partOfSpeech": "Adjective", "definitions": [{"definition": "serein"}]}],
+        }
+        out = _shape_definition("serene", payload)
+        self.assertTrue(out["found"])
+        self.assertEqual(out["meanings"][0]["part"], "adjective")
+        self.assertEqual(out["meanings"][0]["text"], "Calm and peaceful & still.")
+        self.assertEqual(out["meanings"][0]["example"], "a serene smile")
+        self.assertEqual(len(out["meanings"]), 1, "English only")
+        self.assertFalse(_shape_definition("zzqq", {})["found"])
+
+    def test_only_a_single_word_may_be_looked_up(self):
+        from sanctuary import _WORD_RE
+
+        self.assertTrue(_WORD_RE.match("serene"))
+        self.assertTrue(_WORD_RE.match("don't"))
+        for bad in ("two words", "../etc", "", "x" * 41, "1999"):
+            self.assertIsNone(_WORD_RE.match(bad), bad)
