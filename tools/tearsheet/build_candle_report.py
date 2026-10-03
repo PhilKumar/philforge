@@ -10,7 +10,7 @@ TwoRedLadder the Candle Entry tab trades: 5m start, mother = the bar that makes
 the 278-bar high, buys only in the bottom quarter of that box, two red closes
 stepping down then a buy-stop on the first red's close, 5m -> 15m with 1 then
 2 lots, one NIFTY CE ATM-2 on the monthly, a quarter-way target that arms a
-30% give-back trail. 1 Oct 2024 -> 17 Aug 2026, one campaign at a time, real
+30% give-back trail. 1 Oct 2024 -> 30 Sep 2026 (extended 02-Oct-2026), one campaign at a time, real
 recorded premiums, lot 25 / 75 / 65 by date, muhurat session excluded. Nothing
 here is typed by hand.
 
@@ -230,6 +230,11 @@ def book(all_rows: list[dict]) -> dict:
 
 TRAIL_ROWS, FIXED_ROWS, PE_ROWS = load(CE_TRAIL), load(CE_FIXED), load(PE_TRAIL)
 TRAIL, FIXED, PE = book(TRAIL_ROWS), book(FIXED_ROWS), book(PE_ROWS)
+
+# Calendar months the walk spans, both ends counted: Oct 2024 -> the last
+# mother. Typed as "22" it went stale when the book was extended (02-Oct-2026).
+_y2, _m2 = (int(x) for x in TRAIL["last"][:7].split("-"))
+MONTHS = (_y2 - 2024) * 12 + _m2 - 10 + 1
 json.dump(
     {
         k: {kk: vv for kk, vv in b.items() if kk not in ("rows", "best10", "worst10", "best", "worst")}
@@ -480,8 +485,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
 }</p>
     <h1>{
     t(
-        "Candle Entry &mdash; Box Mother &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY, 22 Months",
-        "Candle Entry &mdash; Box Mother &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY, 22 மாதங்கள்",
+        f"Candle Entry &mdash; Box Mother &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY, {MONTHS} Months",
+        f"Candle Entry &mdash; Box Mother &middot; 5m &middot; CE &middot; Trailing &mdash; NIFTY, {MONTHS} மாதங்கள்",
     )
 }</h1>
     <p class="lede">{
@@ -680,14 +685,14 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
   <h2 class="note-h">{t("The put book is NOT traded", "புட் புத்தகம் வர்த்தகம் செய்யப்படுவதில்லை")}</h2>
   <p>{
     t(
-        f"The same rule in a mirror &mdash; the mother is the bar that makes the 278-bar LOW, two GREEN closes stepping up, a sell-stop on the first green's close, a put bought when price breaks back down, the box asking for the top quarter, ATM+2 at each buy, the same one-mother-one-trade rule &mdash; was replayed over the same 22 months: {PE['trades']} campaigns, {PE['wins']} won / {PE['losses']} lost ({PE['win_rate']}%), net {r(PE['net'])}, minus the best five {r(PE['minus_best5'] or 0)}, worst drawdown {r(PE['max_dd'])}. "
+        f"The same rule in a mirror &mdash; the mother is the bar that makes the 278-bar LOW, two GREEN closes stepping up, a sell-stop on the first green's close, a put bought when price breaks back down, the box asking for the top quarter, ATM+2 at each buy, the same one-mother-one-trade rule &mdash; was replayed over the same {MONTHS} months: {PE['trades']} campaigns, {PE['wins']} won / {PE['losses']} lost ({PE['win_rate']}%), net {r(PE['net'])}, minus the best five {r(PE['minus_best5'] or 0)}, worst drawdown {r(PE['max_dd'])}. "
         + (
             "It loses outright."
             if PE["net"] <= 0
             else "Whatever its headline net, it fails the test every book here must pass: without its five best campaigns it is a loss, and its drawdown is many times the call book's."
         )
         + " Every put setting measured (the midpoint, 15m, 1H, fixed exit) was the same or worse. This sheet, and the page, is calls only.",
-        f"அதே விதி கண்ணாடியில் &mdash; 278-bar LOW-ஐ உருவாக்கிய bar mother, மேலேறும் இரண்டு பச்சை close, முதல் பச்சையின் close-இல் sell-stop, விலை கீழே உடைந்தால் புட், box-இன் மேல் கால் பகுதி, ஒவ்வொரு வாங்கலிலும் ATM+2, அதே ஒரு-mother-ஒரு-trade விதி &mdash; அதே 22 மாதங்களில்: {PE['trades']} campaign-கள், {PE['wins']} வெற்றி / {PE['losses']} நஷ்டம் ({PE['win_rate']}%), நிகர {r(PE['net'])}, சிறந்த ஐந்து நீக்கி {r(PE['minus_best5'] or 0)}, அதிகபட்ச இறக்கம் {r(PE['max_dd'])}. "
+        f"அதே விதி கண்ணாடியில் &mdash; 278-bar LOW-ஐ உருவாக்கிய bar mother, மேலேறும் இரண்டு பச்சை close, முதல் பச்சையின் close-இல் sell-stop, விலை கீழே உடைந்தால் புட், box-இன் மேல் கால் பகுதி, ஒவ்வொரு வாங்கலிலும் ATM+2, அதே ஒரு-mother-ஒரு-trade விதி &mdash; அதே {MONTHS} மாதங்களில்: {PE['trades']} campaign-கள், {PE['wins']} வெற்றி / {PE['losses']} நஷ்டம் ({PE['win_rate']}%), நிகர {r(PE['net'])}, சிறந்த ஐந்து நீக்கி {r(PE['minus_best5'] or 0)}, அதிகபட்ச இறக்கம் {r(PE['max_dd'])}. "
         + (
             "அது நேரடியாக நஷ்டம்."
             if PE["net"] <= 0
@@ -743,8 +748,8 @@ table.heat td {{ text-align:right; font-variant-numeric:tabular-nums; }}
   <div class="shead"><h2>{t("Risk register", "ரிஸ்க் பதிவேடு")}</h2></div>
   <p>{
     t(
-        "On the same 22-month walk: puts lose (above); a mother picked at fixed clock times instead of the box high loses on every chart, with or without a fall filter; 1m loses badly (278 one-minute bars is a day and a half, so the box high is just yesterday's high); 15m and 1H produce 3 to 15 campaigns in two years &mdash; too few to mean anything; a target further back than a quarter loses its robustness at once and its drawdown grows thirty-fold; a time stop of 1 to 5 days only turns winners into losses (the slowest campaigns pay the most); a stop loss on the premium did not help; weekly expiry is worse than monthly everywhere. Around the chosen setting the result holds at 278&ndash;350 bars and the bottom fifth to quarter, and falls off at the 30% line and at 200 bars &mdash; it is a hill, not a plateau, and that is stated rather than hidden. This sheet is only the configuration that is switched on.",
-        "அதே 22-மாத நடையில்: புட் நஷ்டம் (மேலே); box high-க்குப் பதில் நிலையான நேரங்களில் mother எல்லா chart-இலும் நஷ்டம்; 1m கடும் நஷ்டம்; 15m, 1H இரண்டு ஆண்டுகளில் 3&ndash;15 campaign-கள் மட்டும்; கால்-பங்கை விடப் பெரிய இலக்கு உறுதியை இழக்கிறது; 1&ndash;5 நாள் time stop வெற்றிகளை நஷ்டமாக்குகிறது; premium stop loss உதவவில்லை; weekly expiry எங்கும் monthly-ஐ விட மோசம். தேர்ந்த அமைப்பைச் சுற்றி 278&ndash;350 bars, கீழ் ஐந்தில்-ஒன்று முதல் கால் வரை நிற்கிறது; 30% கோட்டிலும் 200 bars-இலும் வீழ்கிறது &mdash; அது ஒரு மலை, சமவெளி அல்ல; மறைக்காமல் சொல்லப்பட்டுள்ளது. இந்த அறிக்கை இயக்கத்தில் உள்ள அமைப்பு மட்டுமே.",
+        "On the 22-month walk to August 2026 (measured then, not re-run since): puts lose (above); a mother picked at fixed clock times instead of the box high loses on every chart, with or without a fall filter; 1m loses badly (278 one-minute bars is a day and a half, so the box high is just yesterday's high); 15m and 1H produce 3 to 15 campaigns in two years &mdash; too few to mean anything; a target further back than a quarter loses its robustness at once and its drawdown grows thirty-fold; a time stop of 1 to 5 days only turns winners into losses (the slowest campaigns pay the most); a stop loss on the premium did not help; weekly expiry is worse than monthly everywhere. Around the chosen setting the result holds at 278&ndash;350 bars and the bottom fifth to quarter, and falls off at the 30% line and at 200 bars &mdash; it is a hill, not a plateau, and that is stated rather than hidden. This sheet is only the configuration that is switched on.",
+        "ஆகஸ்ட் 2026 வரையிலான 22-மாத நடையில் (அப்போது அளந்தது, மீண்டும் ஓட்டப்படவில்லை): புட் நஷ்டம் (மேலே); box high-க்குப் பதில் நிலையான நேரங்களில் mother எல்லா chart-இலும் நஷ்டம்; 1m கடும் நஷ்டம்; 15m, 1H இரண்டு ஆண்டுகளில் 3&ndash;15 campaign-கள் மட்டும்; கால்-பங்கை விடப் பெரிய இலக்கு உறுதியை இழக்கிறது; 1&ndash;5 நாள் time stop வெற்றிகளை நஷ்டமாக்குகிறது; premium stop loss உதவவில்லை; weekly expiry எங்கும் monthly-ஐ விட மோசம். தேர்ந்த அமைப்பைச் சுற்றி 278&ndash;350 bars, கீழ் ஐந்தில்-ஒன்று முதல் கால் வரை நிற்கிறது; 30% கோட்டிலும் 200 bars-இலும் வீழ்கிறது &mdash; அது ஒரு மலை, சமவெளி அல்ல; மறைக்காமல் சொல்லப்பட்டுள்ளது. இந்த அறிக்கை இயக்கத்தில் உள்ள அமைப்பு மட்டுமே.",
     )
 }</p>
 </section>

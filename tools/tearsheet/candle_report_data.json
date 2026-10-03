@@ -1,31 +1,31 @@
 {
  "CE_trail": {
-  "avg_deployed": 58752.02,
-  "median_deployed": 44880.0,
+  "avg_deployed": 57871.96,
+  "median_deployed": 43436.25,
   "peak_deployed": 169991.25,
-  "per_buy": 39951.38,
-  "trades": 34,
+  "per_buy": 39716.05,
+  "trades": 35,
   "no_buy": 5,
-  "unpriced": 1,
-  "wins": 28,
+  "unpriced": 2,
+  "wins": 29,
   "losses": 6,
-  "win_rate": 82.4,
-  "net": 223304.79,
-  "gross": 229622.25,
-  "costs": 6317.46,
-  "avg_trade": 6567.79,
-  "avg_win": 8621.57,
+  "win_rate": 82.9,
+  "net": 225813.99,
+  "gross": 232235.25,
+  "costs": 6421.26,
+  "avg_trade": 6451.83,
+  "avg_win": 8410.8,
   "avg_loss": -3016.53,
-  "profit_factor": 13.34,
+  "profit_factor": 13.48,
   "max_dd": -7453.41,
   "dd_from": "2024-10-30",
   "dd_to": "2024-10-30",
-  "return_over_dd": 29.96,
-  "minus_best5": 75406.28,
-  "median_trade": 2921.63,
+  "return_over_dd": 30.3,
+  "minus_best5": 77915.48,
+  "median_trade": 2509.2,
   "first": "2024-10-30",
-  "last": "2026-07-30",
-  "avg_buys": 1.47,
+  "last": "2026-08-24",
+  "avg_buys": 1.46,
   "avg_hold_days": 1.1,
   "max_hold_days": 8.2,
   "curve": [
@@ -164,6 +164,10 @@
    [
     "2026-07-30",
     223304.79
+   ],
+   [
+    "2026-08-24",
+    225813.99
    ]
   ],
   "by_month": {
@@ -185,7 +189,8 @@
    "2026-03": 27469.34,
    "2026-04": 16061.39,
    "2026-05": 6491.24,
-   "2026-07": 27890.14
+   "2026-07": 27890.14,
+   "2026-08": 2509.2
   },
   "by_year": {
    "2024": {
@@ -199,16 +204,16 @@
     "wins": 16
    },
    "2026": {
-    "net": 106353.22,
-    "trades": 11,
-    "wins": 10
+    "net": 108862.42,
+    "trades": 12,
+    "wins": 11
    }
   },
   "by_dow": {
    "Mon": {
-    "net": -896.89,
-    "trades": 1,
-    "wins": 0
+    "net": 1612.31,
+    "trades": 2,
+    "wins": 1
    },
    "Tue": {
     "net": 34430.93,
@@ -233,9 +238,9 @@
   },
   "by_buys": {
    "1": {
-    "net": 27674.3,
-    "trades": 18,
-    "wins": 14
+    "net": 30183.5,
+    "trades": 19,
+    "wins": 15
    },
    "2": {
     "net": 195630.49,
@@ -245,38 +250,38 @@
   },
   "reasons": {
    "trail": {
-    "n": 34,
-    "net": 223304.79
+    "n": 35,
+    "net": 225813.99
    }
   }
  },
  "CE_fixed": {
-  "avg_deployed": 57878.55,
-  "median_deployed": 42186.25,
+  "avg_deployed": 55774.54,
+  "median_deployed": 40026.25,
   "peak_deployed": 169991.25,
-  "per_buy": 39791.51,
-  "trades": 33,
-  "no_buy": 6,
-  "unpriced": 1,
-  "wins": 29,
+  "per_buy": 39042.18,
+  "trades": 35,
+  "no_buy": 5,
+  "unpriced": 2,
+  "wins": 31,
   "losses": 4,
-  "win_rate": 87.9,
-  "net": 218286.21,
-  "gross": 224359.25,
-  "costs": 6073.04,
-  "avg_trade": 6614.73,
-  "avg_win": 7970.47,
+  "win_rate": 88.6,
+  "net": 220412.81,
+  "gross": 226663.5,
+  "costs": 6250.69,
+  "avg_trade": 6297.51,
+  "avg_win": 7524.85,
   "avg_loss": -3214.39,
-  "profit_factor": 17.98,
+  "profit_factor": 18.14,
   "max_dd": -6554.53,
   "dd_from": "2024-10-30",
   "dd_to": "2024-10-30",
-  "return_over_dd": 33.3,
-  "minus_best5": 78584.96,
+  "return_over_dd": 33.63,
+  "minus_best5": 80711.56,
   "median_trade": 1581.83,
   "first": "2024-10-30",
-  "last": "2026-07-17",
-  "avg_buys": 1.45,
+  "last": "2026-08-24",
+  "avg_buys": 1.43,
   "avg_hold_days": 1.0,
   "max_hold_days": 7.0,
   "curve": [
@@ -411,6 +416,14 @@
    [
     "2026-07-17",
     218286.21
+   ],
+   [
+    "2026-07-29",
+    218302.86
+   ],
+   [
+    "2026-08-24",
+    220412.81
    ]
   ],
   "by_month": {
@@ -432,7 +445,8 @@
    "2026-03": 44702.01,
    "2026-04": 12601.24,
    "2026-05": 7114.47,
-   "2026-07": 16509.57
+   "2026-07": 16526.22,
+   "2026-08": 2109.95
   },
   "by_year": {
    "2024": {
@@ -446,16 +460,16 @@
     "wins": 18
    },
    "2026": {
-    "net": 116220.56,
-    "trades": 10,
-    "wins": 9
+    "net": 118347.16,
+    "trades": 12,
+    "wins": 11
    }
   },
   "by_dow": {
    "Mon": {
-    "net": 1962.31,
-    "trades": 2,
-    "wins": 2
+    "net": 4072.26,
+    "trades": 3,
+    "wins": 3
    },
    "Tue": {
     "net": 37623.42,
@@ -463,9 +477,9 @@
     "wins": 4
    },
    "Wed": {
-    "net": 67654.51,
-    "trades": 11,
-    "wins": 8
+    "net": 67671.16,
+    "trades": 12,
+    "wins": 9
    },
    "Thu": {
     "net": 20166.08,
@@ -480,9 +494,9 @@
   },
   "by_buys": {
    "1": {
-    "net": 28543.65,
-    "trades": 18,
-    "wins": 16
+    "net": 30670.25,
+    "trades": 20,
+    "wins": 18
    },
    "2": {
     "net": 189742.56,
@@ -492,39 +506,39 @@
   },
   "reasons": {
    "target": {
-    "n": 33,
-    "net": 218286.21
+    "n": 35,
+    "net": 220412.81
    }
   }
  },
  "PE_trail": {
-  "avg_deployed": 36210.74,
+  "avg_deployed": 37071.23,
   "median_deployed": 24810.0,
   "peak_deployed": 116957.75,
-  "per_buy": 25997.46,
-  "trades": 28,
-  "no_buy": 6,
-  "unpriced": 2,
+  "per_buy": 26221.12,
+  "trades": 29,
+  "no_buy": 7,
+  "unpriced": 1,
   "wins": 19,
-  "losses": 9,
-  "win_rate": 67.9,
-  "net": -53571.55,
-  "gross": -49953.0,
-  "costs": 3618.55,
-  "avg_trade": -1913.27,
+  "losses": 10,
+  "win_rate": 65.5,
+  "net": -85110.46,
+  "gross": -81320.05,
+  "costs": 3790.41,
+  "avg_trade": -2934.84,
   "avg_win": 3716.47,
-  "avg_loss": -13798.27,
-  "profit_factor": 0.57,
+  "avg_loss": -15572.33,
+  "profit_factor": 0.45,
   "max_dd": -117119.2,
   "dd_from": "2026-02-01",
   "dd_to": "2026-04-02",
-  "return_over_dd": -0.46,
-  "minus_best5": -114218.12,
-  "median_trade": 503.58,
+  "return_over_dd": -0.73,
+  "minus_best5": -145757.03,
+  "median_trade": 500.31,
   "first": "2024-11-04",
-  "last": "2026-06-30",
-  "avg_buys": 1.39,
-  "avg_hold_days": 1.9,
+  "last": "2026-07-22",
+  "avg_buys": 1.41,
+  "avg_hold_days": 2.6,
   "max_hold_days": 22.1,
   "curve": [
    [
@@ -638,6 +652,10 @@
    [
     "2026-06-30",
     -53571.55
+   ],
+   [
+    "2026-07-22",
+    -85110.46
    ]
   ],
   "by_month": {
@@ -656,7 +674,8 @@
    "2026-02": 11248.94,
    "2026-04": -115919.18,
    "2026-05": -131.56,
-   "2026-06": 32515.21
+   "2026-06": 32515.21,
+   "2026-07": -31538.91
   },
   "by_year": {
    "2024": {
@@ -670,8 +689,8 @@
     "wins": 11
    },
    "2026": {
-    "net": -72286.59,
-    "trades": 8,
+    "net": -103825.5,
+    "trades": 9,
     "wins": 6
    }
   },
@@ -687,8 +706,8 @@
     "wins": 6
    },
    "Wed": {
-    "net": -2152.6,
-    "trades": 3,
+    "net": -33691.51,
+    "trades": 4,
     "wins": 1
    },
    "Thu": {
@@ -709,15 +728,15 @@
     "wins": 13
    },
    "2": {
-    "net": -72790.46,
-    "trades": 11,
+    "net": -104329.37,
+    "trades": 12,
     "wins": 6
    }
   },
   "reasons": {
    "trail": {
-    "n": 27,
-    "net": 63547.65
+    "n": 28,
+    "net": 32008.74
    },
    "expiry": {
     "n": 1,
