@@ -230,9 +230,15 @@ test('blueprint tools and navigation stay fixed while each document scrolls', as
     // hard-coded 112px that never matched the header's real height (Phil,
     // 2026-08-25: "everything above search bar including the search bar to be
     // freeze"). Any gap here is a seam the document can be read through.
-    const headerBottom = await page.locator('.header-shell')
+    // Since 2026-10-03 the frozen top is the nav bar, the page's banner and the
+    // Asset View bar ("I need to see the top headings viewable and scroll under
+    // it"), so the toolbar pins flush beneath the Asset View bar -- the bottom
+    // of the whole frozen stack -- not beneath the nav bar alone.
+    const headerBottom = await page.locator('#assets-page .pf-architecture-viewbar')
       .evaluate((node) => Math.round(node.getBoundingClientRect().bottom));
     await expect(page.locator('.header-shell')).toHaveCSS('position', 'sticky');
+    await expect(page.locator('#assets-page > .pf-workspace-hero')).toHaveCSS('position', 'sticky');
+    await expect(page.locator('#assets-page .pf-architecture-viewbar')).toHaveCSS('position', 'sticky');
     expect(await page.locator('.header-shell').evaluate((n) => Math.round(n.getBoundingClientRect().top))).toBe(0);
     // No POSITIVE gap: the bar may tuck a sub-pixel under the header, but it must
     // never sit below it, which is where a seam would open.
@@ -241,7 +247,7 @@ test('blueprint tools and navigation stay fixed while each document scrolls', as
     expect(await toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top)))
       .toBeGreaterThanOrEqual(headerBottom - 2);
     const railTop = await rail.evaluate((node) => Math.round(node.getBoundingClientRect().top));
-    expect(railTop).toBeGreaterThan(180);
+    expect(railTop).toBeGreaterThan(headerBottom);
 
     const contentBefore = await reader.locator('.doc-section').nth(2).evaluate((node) => node.getBoundingClientRect().top);
     await page.evaluate(() => { window.scrollBy(0, 520); });

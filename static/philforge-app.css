@@ -9855,6 +9855,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     /* --card is translucent; layered on the page colour it is solid, so the
        atlas cannot be read through the bar as it slides beneath. */
     background: linear-gradient(var(--card), var(--card)), var(--bg);
-    box-shadow: 0 -14px 0 var(--bg), 0 10px 18px rgba(2, 6, 14, .22);
+    /* The strip above covers the whole gap up to the banner (measured 17-18px). */
+    box-shadow: 0 -22px 0 var(--bg), 0 10px 18px rgba(2, 6, 14, .22);
   }
 }
