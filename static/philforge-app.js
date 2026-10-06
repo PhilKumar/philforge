@@ -1874,6 +1874,7 @@ let _blueprintHeaderResize = null;
 // View bar under the banner; the blueprint reader's own pinned search bar then
 // sits under all of them. Re-measured on every page change and resize.
 const _FROZEN_BANNER = '.page-section.active-page > :is(.pf-workspace-hero, .oc-hero, .trading-workspace-head)';
+// querySelector returns the FIRST banner in the page -- the one the CSS pins.
 function _frozenTopsActive() {
   return window.matchMedia('(min-width: 901px) and (min-height: 640px)').matches;
 }

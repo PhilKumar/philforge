@@ -9840,7 +9840,13 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     padding-bottom: 12px;
     background: var(--bg);
   }
-  body.pf-frozen-tops .page-section.active-page > :is(.pf-workspace-hero, .oc-hero, .trading-workspace-head) {
+  /* ONE banner per page pins: the first. Options has two -- the Trading
+     banner, then its own "Options · Pick a strategy" card -- and pinned to the
+     same top the second slid over the first (Phil, 2026-10-06: "it merges and
+     creates chaos"). A later banner scrolls with the page. */
+  body.pf-frozen-tops .page-section.active-page > :is(.pf-workspace-hero, .oc-hero, .trading-workspace-head):not(
+      :is(.pf-workspace-hero, .oc-hero, .trading-workspace-head) ~ *
+    ) {
     position: sticky;
     top: var(--pf-freeze-hero-top, 0px);
     z-index: 30;
