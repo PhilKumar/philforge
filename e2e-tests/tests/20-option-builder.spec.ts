@@ -11,13 +11,22 @@ const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
 const CHAIN = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'option-builder-chain.json'), 'utf8'));
 
+// The fixture's expiries are fixed dates, so the page's clock is held a week
+// before the first: the target date and its steppers read time to expiry, and
+// on a real clock this spec would start failing once 13-Oct-2026 had passed.
+const FIXTURE_NOW = new Date('2026-10-06T11:05:00+05:30');
+
 async function login(page: Page) {
+  await page.clock.setFixedTime(FIXTURE_NOW);
   await page.goto('/app');
   await page.fill('#username-input', USERNAME);
   const pw = page.locator('#password-input');
   if (await pw.isVisible()) { await pw.fill(PIN); await page.click('#unlock-btn'); }
   else { for (const d of PIN.split('')) await page.click(`[data-val="${d}"]`); }
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
+  // The app then restores the page that was open last; a click before that
+  // lands would be undone by it.
+  await page.waitForFunction(() => !!(history.state && (history.state as { page?: string }).page));
 }
 
 async function mockBuilder(page: Page, calls: { method: string; url: string; body: any }[]) {
@@ -98,6 +107,7 @@ test('Option Builder: an iron condor shows the right numbers and a drawn payoff'
 });
 
 test('Option Builder: chain buttons add legs, sliders move the target curve, nothing is sent live without a confirm', async ({ page }) => {
+  test.setTimeout(60_000); // the chain, both sliders, four steppers and both order paths
   const calls: { method: string; url: string; body: any }[] = [];
   await login(page);
   await mockBuilder(page, calls);
@@ -116,6 +126,37 @@ test('Option Builder: chain buttons add legs, sliders move the target curve, not
   await page.locator('#ob-target').evaluate((el: HTMLInputElement) => { el.value = '900'; el.dispatchEvent(new Event('input', { bubbles: true })); });
   await expect(page.locator('#ob-target-label')).not.toHaveText('Today');
   await expect(page.locator('#ob-pnl-table tr.is-spot td').nth(2)).not.toHaveText(before || '');
+
+  // The steppers: the target moves a whole IST hour, IV 0.1 point; Reset is today.
+  await page.click('[data-ob-ana="payoff"]');
+  await page.click('[data-ob-act="reset-sliders"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('Today');
+  // The clock is held at 11:05 IST: + is 12:00, + is 13:00, - is 12:00 again.
+  await page.click('[data-ob-step="target:1"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('06 Oct, 12:00');
+  await page.click('[data-ob-step="target:1"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('06 Oct, 13:00');
+  await page.click('[data-ob-step="target:-1"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('06 Oct, 12:00');
+  await page.click('[data-ob-step="iv:1"]');
+  await page.click('[data-ob-step="iv:1"]');
+  await expect(page.locator('#ob-iv-label')).toHaveText('+0.2 pts');
+  await page.click('[data-ob-step="iv:-1"]');
+  await page.click('[data-ob-step="iv:-1"]');
+  await page.click('[data-ob-step="iv:-1"]');
+  await expect(page.locator('#ob-iv-label')).toHaveText('-0.1 pts');
+  await expect(page.locator('#ob-iv')).toHaveValue('-0.1');
+  await page.click('[data-ob-act="reset-sliders"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('Today');
+  await expect(page.locator('#ob-iv-label')).toHaveText('+0.0 pts');
+
+  // The four left tabs stay inside their panel.
+  const tabsFit = await page.evaluate(() => {
+    const tabs = document.querySelector('.ob-left > .ob-tabs') as HTMLElement;
+    return tabs.scrollWidth <= tabs.clientWidth
+      && tabs.lastElementChild!.getBoundingClientRect().right <= tabs.closest('.ob-left')!.getBoundingClientRect().right;
+  });
+  expect(tabsFit).toBe(true);
 
   // Greeks are summed per strategy.
   await page.click('[data-ob-ana="greeks"]');

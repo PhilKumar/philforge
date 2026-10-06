@@ -234,8 +234,15 @@ test('blueprint tools and navigation stay fixed while each document scrolls', as
     // Asset View bar ("I need to see the top headings viewable and scroll under
     // it"), so the toolbar pins flush beneath the Asset View bar -- the bottom
     // of the whole frozen stack -- not beneath the nav bar alone.
-    const headerBottom = await page.locator('#assets-page .pf-architecture-viewbar')
+    // Since 2026-10-06 the banner folds a frame after the scroll and the stack
+    // under it re-measures, so the stack's bottom is read once that settles.
+    const stackBottom = () => page.locator('#assets-page .pf-architecture-viewbar')
       .evaluate((node) => Math.round(node.getBoundingClientRect().bottom));
+    await expect.poll(async () => {
+      const gap = (await toolbar.evaluate((node) => Math.round(node.getBoundingClientRect().top))) - (await stackBottom());
+      return gap <= 0 && gap >= -2;
+    }).toBe(true);
+    const headerBottom = await stackBottom();
     await expect(page.locator('.header-shell')).toHaveCSS('position', 'sticky');
     await expect(page.locator('#assets-page > .pf-workspace-hero')).toHaveCSS('position', 'sticky');
     await expect(page.locator('#assets-page .pf-architecture-viewbar')).toHaveCSS('position', 'sticky');

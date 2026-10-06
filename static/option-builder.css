@@ -65,6 +65,10 @@
 .ob-tabs button:hover { color: var(--text); }
 .ob-tabs button.is-active { color: var(--text); border-bottom-color: var(--ob-accent); }
 .ob-tabs-inline { margin-bottom: 10px; }
+/* Four tabs in a 320-340px panel: 10px a side ran Portfolios 26px past the
+   panel's edge. They share the row instead, the spare space between them. */
+.ob-left > .ob-tabs { justify-content: space-between; gap: 0; }
+.ob-left > .ob-tabs button { flex: 0 1 auto; min-width: 0; padding-inline: 4px; }
 .ob-hint { margin: 10px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .ob-hint.is-warn { color: var(--warn); }
 .ob-empty { padding: 22px 8px; color: var(--muted); font-size: 12.5px; text-align: center; display: grid; gap: 10px; justify-items: center; }
@@ -235,6 +239,14 @@
 .ob-slider { display: grid; gap: 6px; color: var(--muted); font-size: 11px; }
 .ob-slider b { color: var(--text); font: 600 11px var(--font-mono); margin-left: 6px; }
 .ob-slider input[type=range] { width: 100%; accent-color: var(--ob-accent); }
+.ob-step-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.ob-step {
+  width: 28px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 8px;
+  background: rgba(255,255,255,.04); color: var(--text); font: 600 15px/1 var(--font-mono); cursor: pointer;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+.ob-step:hover { border-color: color-mix(in srgb, var(--ob-accent) 60%, transparent); }
+.ob-step:active { background: color-mix(in srgb, var(--ob-accent) 22%, transparent); }
 
 /* P&L table + greeks */
 .ob-table-scroll { overflow-x: auto; }

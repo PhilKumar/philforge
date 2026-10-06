@@ -33,7 +33,7 @@
     view: 'bullish',
     leftTab: 'readymade',
     anaTab: 'payoff',
-    target: 0,           // 0 = now, 1 = first expiry
+    targetAt: 0,         // the target date's clock time (ms); 0 = now
     ivShift: 0,
     zoom: 1,
     showOI: true,
@@ -299,8 +299,8 @@
                 <span class="ob-zoom"><button type="button" data-ob-act="zoom-out" aria-label="Zoom out">−</button><button type="button" data-ob-act="zoom-in" aria-label="Zoom in">+</button></span>
               </div>
               <div class="ob-sliders">
-                <label class="ob-slider"><span>Target date <b id="ob-target-label">Today</b></span><input type="range" id="ob-target" min="0" max="1000" value="0"></label>
-                <label class="ob-slider"><span>IV change <b id="ob-iv-label">+0.0</b></span><input type="range" id="ob-iv" min="-15" max="15" step="0.5" value="0"></label>
+                <div class="ob-slider"><span>Target date <b id="ob-target-label">Today</b></span><div class="ob-step-row"><button type="button" class="ob-step" data-ob-step="target:-1" title="One hour earlier" aria-label="Target one hour earlier">−</button><input type="range" id="ob-target" min="0" max="1000" value="0" aria-label="Target date"><button type="button" class="ob-step" data-ob-step="target:1" title="One hour later" aria-label="Target one hour later">+</button></div></div>
+                <div class="ob-slider"><span>IV change <b id="ob-iv-label">+0.0</b></span><div class="ob-step-row"><button type="button" class="ob-step" data-ob-step="iv:-1" title="IV 0.1 point lower" aria-label="IV 0.1 point lower">−</button><input type="range" id="ob-iv" min="-15" max="15" step="0.1" value="0" aria-label="IV change"><button type="button" class="ob-step" data-ob-step="iv:1" title="IV 0.1 point higher" aria-label="IV 0.1 point higher">+</button></div></div>
                 <button type="button" class="btn btn-sm" data-ob-act="reset-sliders">Reset</button>
               </div>
             </div>
@@ -560,17 +560,43 @@
   }
 
   // ── analysis: payoff, table, greeks ──────────────────────────────────────
+  // The target is a clock time, so it stays put while the clock runs; it is
+  // read between now and the first expiry.
   function targetMs() {
+    const now = Date.now();
     const first = M.firstExpiryMs(S.legs);
-    if (!first) return Date.now();
-    return Date.now() + (first - Date.now()) * S.target;
+    if (!first || !S.targetAt) return now;
+    return Math.max(now, Math.min(first, S.targetAt));
+  }
+  // The steppers: the target moves to the next or previous whole hour (IST),
+  // never past the first expiry and never before now; IV moves 0.1 point.
+  const HOUR_MS = 3600e3;
+  const IST_MS = 5.5 * HOUR_MS;
+  function stepTarget(dir) {
+    const now = Date.now();
+    const first = M.firstExpiryMs(S.legs);
+    if (!first || first <= now) return;
+    const at = targetMs() + IST_MS;
+    const next = (dir > 0 ? Math.floor(at / HOUR_MS) + 1 : Math.ceil(at / HOUR_MS) - 1) * HOUR_MS - IST_MS;
+    S.targetAt = next <= now ? 0 : Math.min(first, next);
+  }
+  function stepIv(dir) {
+    S.ivShift = Math.max(-15, Math.min(15, Math.round(S.ivShift * 10 + dir) / 10));
+  }
+  function setSliders() {
+    const now = Date.now();
+    const first = M.firstExpiryMs(S.legs);
+    $('#ob-target').value = first > now && S.targetAt ? Math.round(((targetMs() - now) / (first - now)) * 1000) : 0;
+    $('#ob-iv').value = S.ivShift;
   }
   function renderAnalysis() {
     document.querySelectorAll('[data-ob-ana]').forEach((b) => b.classList.toggle('is-active', b.dataset.obAna === S.anaTab));
     document.querySelectorAll('.ob-ana-pane').forEach((p) => { p.hidden = p.dataset.pane !== S.anaTab; });
     document.querySelectorAll('[data-ob-flag]').forEach((el) => { el.checked = !!S[el.dataset.obFlag]; });
     const tgt = targetMs();
-    $('#ob-target-label').textContent = S.target <= 0.001 ? 'Today' : new Date(tgt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) + (S.target >= 0.999 ? ' · expiry' : '');
+    const firstExp = M.firstExpiryMs(S.legs);
+    $('#ob-target-label').textContent = tgt <= Date.now() ? 'Today' : new Date(tgt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) + (firstExp && tgt >= firstExp ? ' · expiry' : '');
+    if (document.activeElement !== $('#ob-target')) setSliders();
     $('#ob-iv-label').textContent = `${S.ivShift >= 0 ? '+' : ''}${S.ivShift.toFixed(1)} pts`;
     $('#ob-product').value = S.product; $('#ob-broker').value = S.broker;
     const held = S.legs.filter((l) => l.enabled && l.source === 'position').length;
@@ -848,13 +874,14 @@
       if (d.obLeft) { S.leftTab = d.obLeft; save(); renderLeft(); if (d.obLeft === 'paper') loadPaper(); return; }
       if (d.obView) { S.view = d.obView; save(); renderLeft(); return; }
       if (d.obAna) { S.anaTab = d.obAna; save(); renderAnalysis(); return; }
+      if (d.obStep) { if (e.detail === 0) stepBy(d.obStep); return; } // a mouse press stepped on pointerdown
       if (d.obTemplate) {
         const tpl = M.TEMPLATES.find((x) => x.id === d.obTemplate);
         const legs = tpl && templateLegsNow(tpl);
         if (!legs) { notify('The chain has not loaded yet.', 'warning'); return; }
         for (const e2 of new Set(legs.map((l) => l.expiry))) if (!chainFor(e2)) { try { await loadChain(e2); } catch (_) { /* priced on the next poll */ } }
         S.legs = legs.map((l) => newLeg(l));
-        S.target = 0; S.ivShift = 0; $('#ob-target').value = 0; $('#ob-iv').value = 0;
+        S.targetAt = 0; S.ivShift = 0; setSliders();
         changed({ margin: true }); return;
       }
       if (d.obAdd) { const [side, type, k] = d.obAdd.split(':'); addLeg(side, type, Number(k)); return; }
@@ -887,7 +914,7 @@
         case 'reprice': for (const l of S.legs) if (l.ltp > 0 && l.source !== 'position') l.entry = l.ltp; changed(); break;
         case 'zoom-in': S.zoom = Math.min(4, S.zoom * 1.35); renderAnalysis(); break;
         case 'zoom-out': S.zoom = Math.max(0.4, S.zoom / 1.35); renderAnalysis(); break;
-        case 'reset-sliders': S.target = 0; S.ivShift = 0; S.zoom = 1; $('#ob-target').value = 0; $('#ob-iv').value = 0; renderAnalysis(); renderStats(); break;
+        case 'reset-sliders': S.targetAt = 0; S.ivShift = 0; S.zoom = 1; setSliders(); renderAnalysis(); renderStats(); break;
         case 'load-positions': await loadPositions(); break;
         case 'analyse-positions': analysePositions(); break;
         case 'paper': await paperTrade(); break;
@@ -914,11 +941,35 @@
     let pending = 0;
     root.addEventListener('input', (e) => {
       if (e.target.id !== 'ob-target' && e.target.id !== 'ob-iv') return;
-      if (e.target.id === 'ob-target') S.target = Number(e.target.value) / 1000;
-      else S.ivShift = Number(e.target.value);
+      if (e.target.id === 'ob-target') {
+        const v = Number(e.target.value) / 1000, now = Date.now(), first = M.firstExpiryMs(S.legs);
+        S.targetAt = v > 0 && first > now ? (v >= 1 ? first : now + (first - now) * v) : 0;
+      } else S.ivShift = Math.round(Number(e.target.value) * 10) / 10;
       cancelAnimationFrame(pending);
       pending = requestAnimationFrame(() => renderAnalysis());
     });
+    // The +/- steppers: one step per press, and stepping on while held.
+    let hold = 0;
+    const stopHold = () => { clearTimeout(hold); hold = 0; };
+    function stepBy(spec) {
+      const [what, dir] = spec.split(':');
+      if (what === 'target') stepTarget(Number(dir)); else stepIv(Number(dir));
+      setSliders();
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(() => renderAnalysis());
+    }
+    root.addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('[data-ob-step]');
+      if (!b || e.button !== 0) return;
+      e.preventDefault(); // no focus ring or text selection from a held press
+      stopHold();
+      stepBy(b.dataset.obStep);
+      const again = (delay) => { hold = setTimeout(() => { stepBy(b.dataset.obStep); again(70); }, delay); };
+      again(420);
+    });
+    root.addEventListener('pointerout', (e) => { if (e.target.closest('[data-ob-step]')) stopHold(); });
+    window.addEventListener('pointerup', stopHold);
+    window.addEventListener('pointercancel', stopHold);
   }
 
   // ── positions, paper, live ───────────────────────────────────────────────

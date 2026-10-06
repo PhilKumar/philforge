@@ -148,6 +148,50 @@ html.pf-glass[data-theme='light'] #portfolio-page #portfolio-paper-monthly .port
 #portfolio-page .portfolio-monthly-trades-table :is(th,td) {
   white-space:nowrap;
 }
+/* THE COMPACT BANNER. Phil, 2026-10-06: "these headings occupy huge space
+   ... completely occupy half of the screen when viewed in a normal laptop ...
+   make it smaller and meaningful without compromising the details". The skin
+   above stacks every banner as one tall column (180-200px), and under the
+   189px nav bar that left a 1440x820 laptop under half its window for the
+   page. On a desktop window a banner is one row again, as the page markup was
+   drawn: title block left, its meta cards or desk tabs right, the art at the
+   end -- every word and tab kept. Desk tabs too wide for the row wrap under
+   the title. Once the page scrolls, the pinned banner folds to a single strip
+   (.pf-hero-folded, set by _foldFrozenBanner in philforge-app.js); scrolled
+   back to the top it shows everything again. Phones and tablets keep the
+   stacked layout. */
+@media (min-width:901px) {
+  html.pf-glass .pf-art-hero {
+    flex-direction:row; flex-wrap:wrap; align-items:center; justify-content:space-between;
+    min-height:0; gap:12px 26px; padding:14px 142px 14px 24px !important;
+  }
+  html.pf-glass .pf-art-hero :is(h1,h2) { font-size:clamp(24px,2vw,30px); line-height:1.08; letter-spacing:-.9px; }
+  html.pf-glass .pf-art-hero p { font-size:12.5px; line-height:1.5; margin-top:4px; }
+  html.pf-glass .pf-art-hero :is(.pf-workspace-eyebrow,.trading-workspace-kicker,.oc-kicker) { margin-bottom:5px; }
+  html.pf-glass .pf-art-hero :is(.pf-workspace-hero-copy,.oc-hero-content) { flex:1 1 320px; }
+  html.pf-glass .pf-art-hero .pf-workspace-hero-meta { flex:0 1 auto; }
+  /* Trading: the title, then its line beside it, then the four desks on a
+     row of their own -- in one row with the title they cut their own words. */
+  html.pf-glass .pf-art-hero .trading-workspace-intro {
+    flex:1 1 100%; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:baseline; column-gap:18px;
+  }
+  html.pf-glass .pf-art-hero .trading-workspace-kicker { grid-column:1 / -1; }
+  html.pf-glass .pf-art-hero .trading-workspace-intro p { margin:0; }
+  html.pf-glass .pf-art-hero .trading-section-tabs { flex:1 1 100%; width:auto; gap:9px; }
+  html.pf-glass .pf-art-hero .trading-section-tab { min-height:50px; padding:7px 11px; }
+  html.pf-glass .pf-art-hero .pf-tab-art { right:-70px; transform:translateY(-50%) scale(.44); }
+  /* Folded: the title and the controls that matter while working. */
+  html.pf-glass .pf-art-hero.pf-hero-folded { min-height:0 !important; padding:8px 96px 8px 22px !important; row-gap:8px; }
+  html.pf-glass .pf-hero-folded :is(.pf-workspace-eyebrow,.trading-workspace-kicker,.oc-kicker,p) { display:none; }
+  html.pf-glass .pf-hero-folded :is(h1,h2) { font-size:21px; }
+  html.pf-glass .pf-hero-folded .trading-workspace-intro { flex:0 0 auto; }
+  html.pf-glass .pf-hero-folded .trading-section-tabs { flex:1 1 0; min-width:0; }
+  html.pf-glass .pf-hero-folded .trading-section-tab { min-height:38px; padding:5px 10px; }
+  html.pf-glass .pf-hero-folded .trading-section-tab small { display:none; }
+  html.pf-glass .pf-hero-folded .trading-section-icon { width:24px; height:24px; flex-basis:24px; }
+  html.pf-glass .pf-hero-folded .pf-workspace-hero-meta > div { padding-block:2px; }
+  html.pf-glass .pf-hero-folded .pf-tab-art { right:-104px; transform:translateY(-50%) scale(.22); }
+}
 @keyframes pf-art-float { 0%,100% { transform:translateY(0) rotate(-1deg); } 50% { transform:translateY(-7px) rotate(1deg); } }
 @keyframes pf-art-ball-orbit { from { offset-distance:0%; } to { offset-distance:100%; } }
 @keyframes pf-light-drift { from { transform:translate3d(-2%,0,0); } to { transform:translate3d(3%,2%,0); } }

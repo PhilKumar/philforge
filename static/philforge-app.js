@@ -1889,8 +1889,79 @@ function _frozenStackHeight() {
   if (hero) total += Math.ceil(hero.getBoundingClientRect().height);
   return total;
 }
+// THE BANNER FOLDS AS THE PAGE SCROLLS. Phil, 2026-10-06: the nav bar and a
+// banner took half a laptop window. Scrolled down, the pinned banner keeps its
+// title and its desk tabs or meta cards and drops the rest (.pf-hero-folded,
+// philforge-glass.css); back at the top it shows everything again. The height
+// it gives up becomes margin under it, so the page never moves: it folds at
+// the moment the content below reaches its folded edge anyway, and with the
+// geometry unchanged there is no jump and no flicker at the threshold.
+const _bannerFold = new WeakMap();
+function _unfoldBanner(hero) {
+  hero.classList.remove('pf-hero-folded');
+  hero.style.removeProperty('margin-bottom');
+}
+function _measureBannerFold(hero) {
+  const full = hero.getBoundingClientRect().height;
+  const gap = parseFloat(window.getComputedStyle(hero).marginBottom) || 0;
+  hero.classList.add('pf-hero-folded');
+  const folded = hero.getBoundingClientRect().height;
+  hero.classList.remove('pf-hero-folded');
+  const size = { width: window.innerWidth, full, folded, gap };
+  _bannerFold.set(hero, size);
+  return size;
+}
+// Returns true when the banner changed state, so the offsets below it re-measure.
+function _foldFrozenBanner(remeasure = false) {
+  const hero = document.querySelector(_FROZEN_BANNER);
+  for (const other of document.querySelectorAll('.pf-hero-folded')) {
+    if (other !== hero || remeasure) _unfoldBanner(other);
+  }
+  if (!hero) return false;
+  if (remeasure) _bannerFold.delete(hero);
+  const wasFolded = hero.classList.contains('pf-hero-folded');
+  // The first thing in the page's flow under the banner: a pinned one would
+  // move with the banner and could not say how far the page has scrolled.
+  let next = hero.nextElementSibling;
+  while (next && (!next.getClientRects().length || /sticky|fixed/.test(window.getComputedStyle(next).position))) {
+    next = next.nextElementSibling;
+  }
+  const header = document.querySelector('.header-shell');
+  // At the top of the page nothing has scrolled under it: nothing to measure.
+  if (window.scrollY <= 0 || !_frozenTopsActive() || !hero.classList.contains('pf-art-hero') || !next || !header) {
+    if (wasFolded) _unfoldBanner(hero);
+    return wasFolded;
+  }
+  let size = _bannerFold.get(hero);
+  if (!size || size.width !== window.innerWidth) {
+    _unfoldBanner(hero);
+    size = _measureBannerFold(hero);
+  }
+  // The page's geometry is the same folded or not, so this test is too.
+  const foldedEdge = header.getBoundingClientRect().bottom + size.folded + size.gap;
+  const fold = size.full - size.folded >= 1 && next.getBoundingClientRect().top <= foldedEdge + 0.5;
+  if (fold && !hero.classList.contains('pf-hero-folded')) {
+    // Measured again at the moment it folds. A margin made from a stale height
+    // (a web font landing after the first measure grows the banner a few
+    // pixels) would move the page, and a moved page can cross the edge back:
+    // the banner would fold and unfold on every frame.
+    size = _measureBannerFold(hero);
+    hero.classList.add('pf-hero-folded');
+    hero.style.setProperty('margin-bottom', `${size.gap + size.full - size.folded}px`, 'important');
+  } else if (!fold) _unfoldBanner(hero);
+  return hero.classList.contains('pf-hero-folded') !== wasFolded;
+}
+let _bannerFoldFrame = 0;
+window.addEventListener('scroll', () => {
+  if (_bannerFoldFrame) return;
+  _bannerFoldFrame = requestAnimationFrame(() => {
+    _bannerFoldFrame = 0;
+    if (_foldFrozenBanner()) _syncFrozenTops();
+  });
+}, { passive: true });
 function _syncFrozenTops() {
   document.body.classList.add('pf-frozen-tops');
+  _foldFrozenBanner();
   const root = document.documentElement;
   const header = document.querySelector('.header-shell');
   const headerH = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
@@ -1901,7 +1972,8 @@ function _syncFrozenTops() {
   root.style.setProperty('--pf-freeze-viewbar-top', `${headerH + heroH + gap}px`);
   if (document.body.classList.contains('pf-blueprint-open')) _syncBlueprintStickyOffset();
 }
-window.addEventListener('resize', () => _syncFrozenTops());
+window.addEventListener('resize', () => { _foldFrozenBanner(true); _syncFrozenTops(); });
+document.fonts?.ready.then(() => { _foldFrozenBanner(true); _syncFrozenTops(); });
 document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(_syncFrozenTops));
 
 function _syncBlueprintStickyOffset() {
