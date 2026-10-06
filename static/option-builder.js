@@ -43,6 +43,12 @@
     margin: null,
     marginNote: '',
     paper: [],
+    portfolios: [],
+    saved: [],
+    pfView: 'portfolios', // or 'saved'
+    openPortfolio: null,
+    portfolioId: null,   // where 'Add to portfolio' sends the strategy
+    naming: null,        // {kind: 'new' | 'rename' | 'save', id?, value}
     positions: null,
     positionNotes: [],
     error: '',
@@ -245,7 +251,7 @@
             <button type="button" data-ob-left="readymade">Ready-made</button>
             <button type="button" data-ob-left="chain">Option chain</button>
             <button type="button" data-ob-left="positions">Positions</button>
-            <button type="button" data-ob-left="paper">Paper</button>
+            <button type="button" data-ob-left="paper">Portfolios</button>
           </div>
           <div class="ob-left-body" id="ob-left-body"></div>
         </aside>
@@ -254,39 +260,12 @@
             <div class="ob-legs-head">
               <div><div class="ob-kicker">Strategy</div><h3 id="ob-strategy-name">Your strategy</h3></div>
               <div class="ob-legs-tools">
+                <button type="button" class="btn btn-sm" data-ob-act="save-start" title="Save these legs to load again later">☆ Save</button>
                 <button type="button" class="btn btn-sm" data-ob-act="reprice" title="Set every entry price to the live LTP">↻ Entries to LTP</button>
                 <button type="button" class="btn btn-sm" data-ob-act="clear">Clear</button>
               </div>
             </div>
             <div id="ob-legs-table"></div>
-          </div>
-          <div class="ob-stats" id="ob-stats"></div>
-          <div class="ob-analysis card">
-            <div class="ob-tabs ob-tabs-inline" role="tablist">
-              <button type="button" data-ob-ana="payoff">Payoff</button>
-              <button type="button" data-ob-ana="table">P&amp;L table</button>
-              <button type="button" data-ob-ana="greeks">Greeks</button>
-            </div>
-            <div class="ob-ana-body">
-              <div class="ob-ana-pane" data-pane="payoff">
-                <div class="ob-chart-wrap"><canvas id="ob-chart" aria-label="Payoff chart"></canvas><div class="ob-tip" id="ob-tip" hidden></div><div class="ob-chart-empty" id="ob-chart-empty">Pick a ready-made strategy, or tap <b>B</b> / <b>S</b> on the option chain.</div></div>
-                <div class="ob-legend">
-                  <span><i class="ob-sw ob-sw-exp"></i>On expiry</span>
-                  <span><i class="ob-sw ob-sw-tgt"></i>On target date</span>
-                  <span><i class="ob-sw ob-sw-spot"></i>Spot</span>
-                  <label class="ob-toggle"><input type="checkbox" data-ob-flag="showSigma"> ±σ range</label>
-                  <label class="ob-toggle"><input type="checkbox" data-ob-flag="showOI"> Open interest</label>
-                  <span class="ob-zoom"><button type="button" data-ob-act="zoom-out" aria-label="Zoom out">−</button><button type="button" data-ob-act="zoom-in" aria-label="Zoom in">+</button></span>
-                </div>
-                <div class="ob-sliders">
-                  <label class="ob-slider"><span>Target date <b id="ob-target-label">Today</b></span><input type="range" id="ob-target" min="0" max="1000" value="0"></label>
-                  <label class="ob-slider"><span>IV change <b id="ob-iv-label">+0.0</b></span><input type="range" id="ob-iv" min="-15" max="15" step="0.5" value="0"></label>
-                  <button type="button" class="btn btn-sm" data-ob-act="reset-sliders">Reset</button>
-                </div>
-              </div>
-              <div class="ob-ana-pane" data-pane="table" id="ob-pnl-table"></div>
-              <div class="ob-ana-pane" data-pane="greeks" id="ob-greeks"></div>
-            </div>
           </div>
           <div class="ob-actions card">
             <div class="ob-action-opts">
@@ -295,11 +274,40 @@
               <span class="ob-action-note" id="ob-action-note"></span>
             </div>
             <div class="ob-action-btns">
-              <button type="button" class="btn" data-ob-act="paper">Paper trade</button>
+              <label class="ob-pf-pick">Portfolio <select id="ob-portfolio" aria-label="Portfolio"></select></label>
+              <button type="button" class="btn" data-ob-act="paper">Add to portfolio</button>
               <button type="button" class="btn ob-live-btn" data-ob-act="live">Place live ▸</button>
             </div>
           </div>
+          <div class="ob-stats" id="ob-stats"></div>
         </section>
+        <div class="ob-analysis card">
+          <div class="ob-tabs ob-tabs-inline" role="tablist">
+            <button type="button" data-ob-ana="payoff">Payoff</button>
+            <button type="button" data-ob-ana="table">P&amp;L table</button>
+            <button type="button" data-ob-ana="greeks">Greeks</button>
+          </div>
+          <div class="ob-ana-body">
+            <div class="ob-ana-pane" data-pane="payoff">
+              <div class="ob-chart-wrap"><canvas id="ob-chart" aria-label="Payoff chart"></canvas><div class="ob-tip" id="ob-tip" hidden></div><div class="ob-chart-empty" id="ob-chart-empty">Pick a ready-made strategy, or tap <b>B</b> / <b>S</b> on the option chain.</div></div>
+              <div class="ob-legend">
+                <span><i class="ob-sw ob-sw-exp"></i>On expiry</span>
+                <span><i class="ob-sw ob-sw-tgt"></i>On target date</span>
+                <span><i class="ob-sw ob-sw-spot"></i>Spot</span>
+                <label class="ob-toggle"><input type="checkbox" data-ob-flag="showSigma"> ±σ range</label>
+                <label class="ob-toggle"><input type="checkbox" data-ob-flag="showOI"> Open interest</label>
+                <span class="ob-zoom"><button type="button" data-ob-act="zoom-out" aria-label="Zoom out">−</button><button type="button" data-ob-act="zoom-in" aria-label="Zoom in">+</button></span>
+              </div>
+              <div class="ob-sliders">
+                <label class="ob-slider"><span>Target date <b id="ob-target-label">Today</b></span><input type="range" id="ob-target" min="0" max="1000" value="0"></label>
+                <label class="ob-slider"><span>IV change <b id="ob-iv-label">+0.0</b></span><input type="range" id="ob-iv" min="-15" max="15" step="0.5" value="0"></label>
+                <button type="button" class="btn btn-sm" data-ob-act="reset-sliders">Reset</button>
+              </div>
+            </div>
+            <div class="ob-ana-pane" data-pane="table" id="ob-pnl-table"></div>
+            <div class="ob-ana-pane" data-pane="greeks" id="ob-greeks"></div>
+          </div>
+        </div>
       </div>`;
     chart.attach($('#ob-chart', root), $('#ob-tip', root));
   }
@@ -436,20 +444,51 @@
     }
     return priced ? total : NaN;
   }
+  function strategyRow(b) {
+    const pnl = basketPnl(b);
+    const legs = b.legs.map((l) => `${l.side === 'BUY' ? 'B' : 'S'} ${l.lots}× ${strikeTxt(l.strike)}${l.option_type}`).join(' · ');
+    return `<div class="ob-paper-row ${b.status}">
+      <div><b>${esc(b.name)}</b><small>${esc(b.underlying)} · ${esc(legs)}</small><small>${esc(String(b.opened_at).slice(0, 16).replace('T', ' '))}${b.closed_at ? ' → ' + esc(String(b.closed_at).slice(11, 16)) + ' · closed' : ''}</small></div>
+      <div class="ob-paper-pnl ${tone(pnl)}">${Number.isFinite(pnl) ? signedInr(pnl) : (b.underlying === S.underlying ? '—' : esc(b.underlying))}</div>
+      <div class="ob-paper-btns">${b.status === 'open'
+        ? `<button type="button" class="btn btn-sm" data-ob-paper-load="${b.id}">Open</button><button type="button" class="btn btn-sm btn-danger" data-ob-paper-close="${b.id}">Close</button>`
+        : `<button type="button" class="btn btn-sm" data-ob-paper-load="${b.id}">Open</button><button type="button" class="btn btn-sm" data-ob-paper-del="${b.id}" aria-label="Remove">×</button>`}</div>
+    </div>`;
+  }
+  function namingRow(kind, placeholder) {
+    const n = S.naming;
+    if (!n || n.kind !== kind) return '';
+    return `<form class="ob-naming" data-ob-naming="${kind}"><input type="text" maxlength="40" value="${esc(n.value || '')}" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}" autofocus><button type="submit" class="btn btn-sm">Save</button><button type="button" class="btn btn-sm" data-ob-act="naming-cancel">Cancel</button></form>`;
+  }
+  // Portfolios: Sensibull-style draft portfolios (folders of paper strategies,
+  // tracked from the prices they were added at) and saved strategies (legs
+  // kept for later, no tracking).
   function paperHtml() {
-    const rows = S.paper.slice().reverse();
-    if (!rows.length) return `<div class="ob-empty"><p>No paper strategies yet. Build one and press <b>Paper trade</b>; it is tracked here at live prices.</p></div>`;
-    return `<div class="ob-paper">${rows.map((b) => {
-      const pnl = basketPnl(b);
-      const legs = b.legs.map((l) => `${l.side === 'BUY' ? 'B' : 'S'} ${l.lots}× ${strikeTxt(l.strike)}${l.option_type}`).join(' · ');
-      return `<div class="ob-paper-row ${b.status}">
-        <div><b>${esc(b.name)}</b><small>${esc(b.underlying)} · ${esc(legs)}</small><small>${esc(String(b.opened_at).slice(0, 16).replace('T', ' '))}${b.closed_at ? ' → ' + esc(String(b.closed_at).slice(11, 16)) : ''}</small></div>
-        <div class="ob-paper-pnl ${tone(pnl)}">${Number.isFinite(pnl) ? signedInr(pnl) : (b.underlying === S.underlying ? '—' : 'switch to ' + esc(b.underlying))}</div>
-        <div class="ob-paper-btns">${b.status === 'open'
-          ? `<button type="button" class="btn btn-sm" data-ob-paper-load="${b.id}">Open</button><button type="button" class="btn btn-sm btn-danger" data-ob-paper-close="${b.id}">Close</button>`
-          : `<button type="button" class="btn btn-sm" data-ob-paper-del="${b.id}" aria-label="Remove">×</button>`}</div>
+    const seg = `<div class="ob-seg"><button type="button" class="${S.pfView === 'portfolios' ? 'is-active' : ''}" data-ob-pfview="portfolios">Draft portfolios</button><button type="button" class="${S.pfView === 'saved' ? 'is-active' : ''}" data-ob-pfview="saved">Saved strategies</button></div>`;
+    if (S.pfView === 'saved') {
+      const list = S.saved.slice().reverse();
+      return seg + `<div class="ob-pf-actions"><button type="button" class="btn btn-sm" data-ob-act="save-start">☆ Save current strategy</button></div>${namingRow('save', 'Strategy name')}
+        ${list.length ? `<div class="ob-paper">${list.map((r) => `<div class="ob-paper-row"><div><b>${esc(r.name)}</b><small>${esc(r.underlying)} · ${esc(r.legs.map((l) => `${l.side === 'BUY' ? 'B' : 'S'} ${l.lots}× ${strikeTxt(l.strike)}${l.option_type}`).join(' · '))}</small><small>saved ${esc(String(r.saved_at).slice(0, 16).replace('T', ' '))}</small></div><div></div><div class="ob-paper-btns"><button type="button" class="btn btn-sm" data-ob-saved-load="${r.id}">Load</button><button type="button" class="btn btn-sm" data-ob-saved-del="${r.id}" aria-label="Remove">×</button></div></div>`).join('')}</div>`
+          : '<div class="ob-empty"><p>Nothing saved yet. Build a strategy and save it here to load it again any day.</p></div>'}`;
+    }
+    const rows = S.portfolios.map((p) => {
+      const mine = S.paper.filter((b) => b.portfolio_id === p.id);
+      const open = mine.filter((b) => b.status === 'open').length;
+      const values = mine.map(basketPnl).filter(Number.isFinite);
+      const total = values.reduce((a, v) => a + v, 0);
+      const expanded = S.openPortfolio === p.id;
+      return `<div class="ob-pf ${expanded ? 'is-open' : ''}">
+        <div class="ob-pf-head" data-ob-pf-toggle="${p.id}" role="button" tabindex="0" aria-expanded="${expanded}">
+          <div><b>${esc(p.name)}</b><small>${mine.length} strateg${mine.length === 1 ? 'y' : 'ies'}${open ? ` · ${open} open` : ''}</small></div>
+          <span class="ob-pf-pnl ${tone(total)}">${mine.length ? signedInr(total) : '0'}</span>
+          <span class="ob-pf-tools"><button type="button" data-ob-pf-rename="${p.id}" aria-label="Rename ${esc(p.name)}" title="Rename">✎</button><button type="button" data-ob-pf-delete="${p.id}" aria-label="Delete ${esc(p.name)}" title="Delete">🗑</button></span>
+        </div>
+        ${S.naming && S.naming.kind === 'rename' && S.naming.id === p.id ? namingRow('rename', 'Portfolio name') : ''}
+        ${expanded ? `<div class="ob-pf-body">${mine.length ? `<div class="ob-paper">${mine.slice().reverse().map(strategyRow).join('')}</div>` : '<p class="ob-hint">Empty. Build a strategy, pick this portfolio below the legs and press <b>Add to portfolio</b>.</p>'}</div>` : ''}
       </div>`;
-    }).join('')}</div>`;
+    }).join('');
+    return seg + `<div class="ob-pf-actions"><button type="button" class="btn btn-sm" data-ob-act="new-portfolio">＋ Create new portfolio</button></div>${namingRow('new', 'New portfolio name')}<div class="ob-pf-list">${rows}</div>
+      <p class="ob-hint">Each strategy is tracked from the prices it was added at; the total is live P&amp;L for open ones plus booked P&amp;L for closed.</p>`;
   }
 
   // ── legs ─────────────────────────────────────────────────────────────────
@@ -614,7 +653,7 @@
       if (!canvas) return;
       const r = canvas.parentElement.getBoundingClientRect();
       dpr = window.devicePixelRatio || 1;
-      W = Math.max(280, r.width); H = Math.max(240, Math.min(440, r.width * 0.5));
+      W = Math.max(280, r.width); H = Math.round(Math.max(260, Math.min(560, r.width * (r.width > 900 ? 0.38 : 0.55))));
       canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     }
@@ -785,9 +824,19 @@
     if (next) { leg.strike = next; leg.entry = 0; }
   }
 
+  function focusNaming() {
+    requestAnimationFrame(() => { const input = document.querySelector('.ob-naming input'); if (input) { input.focus(); input.select(); } });
+  }
+
   function bind(root) {
+    root.addEventListener('submit', (e) => {
+      const form = e.target.closest('[data-ob-naming]');
+      if (!form) return;
+      e.preventDefault();
+      submitNaming(form.dataset.obNaming, form.querySelector('input').value);
+    });
     root.addEventListener('click', async (e) => {
-      const t = e.target.closest('button');
+      const t = e.target.closest('button, [data-ob-pf-toggle]');
       if (!t) return;
       const d = t.dataset;
       if (d.obUnd && d.obUnd !== S.underlying) {
@@ -819,11 +868,22 @@
         else if (d.legAct === 'lots-') leg.lots = Math.max(1, leg.lots - 1);
         changed({ margin: true }); return;
       }
+      if (d.obPfview) { S.pfView = d.obPfview; S.naming = null; renderLeft(); return; }
+      if (d.obPfToggle && !e.target.closest('.ob-pf-tools')) { const id = Number(d.obPfToggle); S.openPortfolio = S.openPortfolio === id ? null : id; renderLeft(); return; }
+      if (d.obPfRename) { const p = S.portfolios.find((x) => x.id === Number(d.obPfRename)); S.naming = { kind: 'rename', id: p.id, value: p.name }; renderLeft(); focusNaming(); return; }
+      if (d.obPfDelete) { deletePortfolio(Number(d.obPfDelete)); return; }
+      if (d.obSavedLoad) { loadSaved(Number(d.obSavedLoad)); return; }
+      if (d.obSavedDel) { try { await api(`/api/option-builder/saved/${d.obSavedDel}`, { method: 'DELETE' }); } catch (err) { notify(err.message, 'error'); } await loadPaper(); return; }
       if (d.obPaperLoad) { openPaper(Number(d.obPaperLoad)); return; }
       if (d.obPaperClose) { closePaper(Number(d.obPaperClose)); return; }
       if (d.obPaperDel) { deletePaper(Number(d.obPaperDel)); return; }
       switch (d.obAct) {
         case 'clear': S.legs = []; S.margin = null; changed(); break;
+        case 'new-portfolio': S.naming = { kind: 'new', value: '' }; S.leftTab = 'paper'; S.pfView = 'portfolios'; renderLeft(); focusNaming(); break;
+        case 'save-start':
+          if (!sendable().length) { notify('Add legs first.', 'warning'); break; }
+          S.naming = { kind: 'save', value: guessName(sendable()) }; S.leftTab = 'paper'; S.pfView = 'saved'; save(); renderLeft(); loadPaper(); focusNaming(); break;
+        case 'naming-cancel': S.naming = null; renderLeft(); break;
         case 'reprice': for (const l of S.legs) if (l.ltp > 0 && l.source !== 'position') l.entry = l.ltp; changed(); break;
         case 'zoom-in': S.zoom = Math.min(4, S.zoom * 1.35); renderAnalysis(); break;
         case 'zoom-out': S.zoom = Math.max(0.4, S.zoom / 1.35); renderAnalysis(); break;
@@ -840,6 +900,7 @@
       if (el.dataset.obFlag) { S[el.dataset.obFlag] = el.checked; save(); renderAnalysis(); return; }
       if (el.id === 'ob-product') { S.product = el.value; save(); queueMargin(); return; }
       if (el.id === 'ob-broker') { S.broker = el.value; save(); return; }
+      if (el.id === 'ob-portfolio') { S.portfolioId = Number(el.value) || null; return; }
       const f = el.dataset.legF; if (!f) return;
       const leg = legOf(el); if (!leg) return;
       if (f === 'enabled') leg.enabled = el.checked;
@@ -883,8 +944,57 @@
     });
   }
   async function loadPaper() {
-    try { S.paper = (await api('/api/option-builder/paper')).baskets || []; } catch (_) { S.paper = []; }
+    try {
+      const body = await api('/api/option-builder/paper');
+      S.paper = body.baskets || []; S.portfolios = body.portfolios || []; S.saved = body.saved || [];
+    } catch (_) { S.paper = []; }
+    if (!S.portfolios.some((p) => p.id === S.portfolioId)) S.portfolioId = S.portfolios[0]?.id ?? null;
+    renderPortfolioPicker();
     if (S.leftTab === 'paper') renderLeft();
+  }
+  function renderPortfolioPicker() {
+    const sel = $('#ob-portfolio');
+    if (!sel) return;
+    sel.innerHTML = S.portfolios.map((p) => `<option value="${p.id}" ${p.id === S.portfolioId ? 'selected' : ''}>${esc(p.name)}</option>`).join('') || '<option value="">Paper</option>';
+  }
+  async function submitNaming(kind, value) {
+    const name = String(value || '').trim();
+    if (!name) { notify('Type a name first.', 'warning'); return; }
+    try {
+      if (kind === 'new') {
+        const body = await api('/api/option-builder/portfolios', { method: 'POST', body: JSON.stringify({ name }) });
+        S.openPortfolio = body.portfolio.id; S.portfolioId = body.portfolio.id;
+      } else if (kind === 'rename') {
+        await api(`/api/option-builder/portfolios/${S.naming.id}`, { method: 'PUT', body: JSON.stringify({ name }) });
+      } else if (kind === 'save') {
+        const legs = sendable();
+        if (!legs.length) { notify('Add legs first.', 'warning'); return; }
+        await api('/api/option-builder/saved', { method: 'POST', body: JSON.stringify({ legs: payloadLegs(legs), name }) });
+        notify(`Saved “${name}”.`, 'success');
+      }
+      S.naming = null;
+      await loadPaper();
+    } catch (err) { notify(err.message, 'error'); }
+  }
+  async function deletePortfolio(id) {
+    const p = S.portfolios.find((x) => x.id === id);
+    if (!p) return;
+    const ok = typeof window.customConfirm === 'function'
+      ? await window.customConfirm(`Delete <b>${esc(p.name)}</b> and its closed strategies? A portfolio with open strategies cannot be deleted.`, { title: 'Delete portfolio?', okText: 'Delete', danger: true })
+      : window.confirm('Delete this portfolio?');
+    if (!ok) return;
+    try { await api(`/api/option-builder/portfolios/${id}`, { method: 'DELETE' }); } catch (err) { notify(err.message, 'error'); }
+    await loadPaper();
+  }
+  function loadSaved(id) {
+    const r = S.saved.find((x) => x.id === id);
+    if (!r) return;
+    if (r.underlying !== S.underlying) { notify(`Switch to ${r.underlying} first.`, 'warning'); return; }
+    const today = new Date().toISOString().slice(0, 10);
+    const stale = r.legs.filter((l) => l.expiry < today).length;
+    S.legs = r.legs.map((l) => newLeg({ side: l.side, type: l.option_type, strike: l.strike, expiry: l.expiry >= today ? l.expiry : S.expiry, lots: l.lots }));
+    changed({ margin: true });
+    if (stale) notify(`${stale} leg${stale > 1 ? 's' : ''} had expired; moved to ${shortDate(S.expiry)}.`, 'warning');
   }
   function sendable() {
     return M.activeLegs(S.legs).filter((l) => l.source !== 'position');
@@ -893,9 +1003,10 @@
     const legs = sendable();
     if (!legs.length) { notify('Add legs first.', 'warning'); return; }
     try {
-      await api('/api/option-builder/paper', { method: 'POST', body: JSON.stringify({ legs: payloadLegs(legs).map((l, i) => ({ ...l, price: legs[i].entry || legs[i].ltp })), name: guessName(legs) }) });
-      notify('Paper strategy opened — tracked in the Paper tab.', 'success');
-      S.leftTab = 'paper'; await loadPaper();
+      const portfolio = S.portfolios.find((p) => p.id === S.portfolioId);
+      await api('/api/option-builder/paper', { method: 'POST', body: JSON.stringify({ legs: payloadLegs(legs).map((l, i) => ({ ...l, price: legs[i].entry || legs[i].ltp })), name: guessName(legs), portfolio_id: S.portfolioId }) });
+      notify(`Added to ${portfolio ? portfolio.name : 'your portfolio'} — tracked at live prices.`, 'success');
+      S.leftTab = 'paper'; S.pfView = 'portfolios'; S.openPortfolio = S.portfolioId; save(); await loadPaper();
     } catch (err) { notify(err.message, 'error'); }
   }
   function openPaper(id) {
@@ -945,7 +1056,7 @@
     render();
     await refresh(S.expiries.length ? undefined : 'expiries');
     if (S.legs.length) queueMargin();
-    if (S.leftTab === 'paper') loadPaper();
+    loadPaper(); // the portfolio picker needs the list on every desk
     schedule();
   }
   function pause() { S.active = false; clearTimeout(S.timer); }

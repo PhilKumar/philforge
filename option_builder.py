@@ -447,3 +447,77 @@ def close_paper_basket(basket: dict, prices: dict[tuple, float], now: datetime) 
         "closed_at": now.isoformat(timespec="seconds"),
         "realised": round(total, 2),
     }
+
+
+# ── portfolios and saved strategies ─────────────────────────────────────────
+# A DRAFT PORTFOLIO is a named folder of paper strategies, each tracked from
+# the prices it was added at (Phil, 2026-10-06, after Sensibull's "Draft
+# Portfolios"). A SAVED STRATEGY is just legs kept for later -- no prices, no
+# tracking. Paper strategies saved before portfolios existed belong to the
+# first portfolio, which is created as "Paper".
+DEFAULT_PORTFOLIO = "Paper"
+MAX_PORTFOLIOS = 30
+MAX_SAVED = 100
+
+
+def portfolio_name(name: Any) -> str:
+    clean = " ".join(str(name or "").split())[:40]
+    if not clean:
+        raise OptionBuilderError("Give the portfolio a name.")
+    return clean
+
+
+def ensure_default_portfolio(book: dict, now: datetime) -> dict:
+    book = dict(book or {})
+    book["portfolios"] = list(book.get("portfolios") or [])
+    book["saved"] = list(book.get("saved") or [])
+    if not book["portfolios"]:
+        book["portfolios"].append({"id": 1, "name": DEFAULT_PORTFOLIO, "created_at": now.isoformat(timespec="seconds")})
+    return book
+
+
+def _next_id(rows: list) -> int:
+    return max([int(r.get("id") or 0) for r in rows] + [0]) + 1
+
+
+def create_portfolio(book: dict, name: Any, now: datetime) -> dict:
+    name = portfolio_name(name)
+    if any(p["name"].lower() == name.lower() for p in book["portfolios"]):
+        raise OptionBuilderError(f"A portfolio called {name} already exists.")
+    if len(book["portfolios"]) >= MAX_PORTFOLIOS:
+        raise OptionBuilderError(f"At most {MAX_PORTFOLIOS} portfolios.")
+    row = {"id": _next_id(book["portfolios"]), "name": name, "created_at": now.isoformat(timespec="seconds")}
+    book["portfolios"].append(row)
+    return row
+
+
+def rename_portfolio(book: dict, portfolio_id: int, name: Any) -> dict:
+    name = portfolio_name(name)
+    row = next((p for p in book["portfolios"] if int(p["id"]) == int(portfolio_id)), None)
+    if row is None:
+        raise OptionBuilderError("That portfolio does not exist.")
+    if any(p is not row and p["name"].lower() == name.lower() for p in book["portfolios"]):
+        raise OptionBuilderError(f"A portfolio called {name} already exists.")
+    row["name"] = name
+    return row
+
+
+def basket_portfolio(basket: dict, book: dict) -> int:
+    """The portfolio a paper strategy sits in (the first one for old rows)."""
+    pid = basket.get("portfolio_id")
+    ids = [int(p["id"]) for p in book["portfolios"]]
+    return int(pid) if pid is not None and int(pid) in ids else ids[0]
+
+
+def save_strategy(book: dict, name: Any, legs: list[dict], now: datetime) -> dict:
+    if len(book["saved"]) >= MAX_SAVED:
+        raise OptionBuilderError(f"At most {MAX_SAVED} saved strategies; remove one first.")
+    row = {
+        "id": _next_id(book["saved"]),
+        "name": (" ".join(str(name or "").split())[:60] or "Strategy"),
+        "underlying": legs[0]["underlying"],
+        "legs": [{k: leg[k] for k in ("strike", "expiry", "option_type", "side", "lots")} for leg in legs],
+        "saved_at": now.isoformat(timespec="seconds"),
+    }
+    book["saved"].append(row)
+    return row

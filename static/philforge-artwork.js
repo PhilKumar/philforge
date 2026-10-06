@@ -8,7 +8,8 @@
     const pages = {
       'dashboard-page': 'dashboard', 'portfolio-page': 'portfolio',
       'options-cascade-page': 'trading', 'stock-terminal-page': 'equity',
-      'scalp-page': 'scalp', 'insights-page': 'insights', 'live-page': 'live',
+      'scalp-page': 'scalp', 'option-builder-page': 'builder', // its own art when Phil makes one
+      'insights-page': 'insights', 'live-page': 'live',
       'builder-page': 'builder', 'charts-page': 'journal',
       'results-page': 'results', 'assets-page': 'assets'
     };

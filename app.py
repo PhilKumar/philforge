@@ -25596,6 +25596,7 @@ import option_builder as _ob
 
 _ob_chains = _ob.ChainCache()
 _OB_PAPER_KEY = "option_builder_paper_{uid}"
+_OB_BOOK_KEY = "option_builder_book_{uid}"
 _ob_paper_lock: Dict[int, asyncio.Lock] = {}
 
 
@@ -25664,6 +25665,11 @@ class OptionBuilderBasketReq(BaseModel):
     legs: list = Field(default_factory=list)
     product: str = Field(default="INTRADAY", max_length=16)
     broker: str = Field(default="dhan", max_length=10)
+    name: str = Field(default="", max_length=60)
+    portfolio_id: Optional[int] = None
+
+
+class OptionBuilderNameReq(BaseModel):
     name: str = Field(default="", max_length=60)
 
 
@@ -25744,9 +25750,106 @@ async def _ob_save_paper(uid: int, rows: list) -> None:
     await _db_mod.set_app_state(_OB_PAPER_KEY.format(uid=uid), json.dumps(open_rows + closed))
 
 
+async def _ob_load_book(uid: int) -> dict:
+    raw = await _db_mod.get_app_state(_OB_BOOK_KEY.format(uid=uid))
+    try:
+        book = json.loads(raw) if raw else {}
+    except Exception:
+        book = {}
+    return _ob.ensure_default_portfolio(book if isinstance(book, dict) else {}, datetime.now(IST))
+
+
+async def _ob_save_book(uid: int, book: dict) -> None:
+    await _db_mod.set_app_state(_OB_BOOK_KEY.format(uid=uid), json.dumps(book))
+
+
 @app.get("/api/option-builder/paper")
 async def option_builder_paper_list(request: Request):
-    return {"status": "ok", "baskets": await _ob_load_paper(_request_user_id(request))}
+    uid = _request_user_id(request)
+    book = await _ob_load_book(uid)
+    baskets = await _ob_load_paper(uid)
+    for basket in baskets:
+        basket["portfolio_id"] = _ob.basket_portfolio(basket, book)
+    return {"status": "ok", "baskets": baskets, "portfolios": book["portfolios"], "saved": book["saved"]}
+
+
+@app.post("/api/option-builder/portfolios")
+async def option_builder_portfolio_create(req: OptionBuilderNameReq, request: Request):
+    uid = _request_user_id(request)
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        book = await _ob_load_book(uid)
+        try:
+            row = _ob.create_portfolio(book, req.name, datetime.now(IST))
+        except _ob.OptionBuilderError as exc:
+            return _ob_refusal(exc)
+        await _ob_save_book(uid, book)
+    return {"status": "ok", "portfolio": row}
+
+
+@app.put("/api/option-builder/portfolios/{portfolio_id}")
+async def option_builder_portfolio_rename(portfolio_id: int, req: OptionBuilderNameReq, request: Request):
+    uid = _request_user_id(request)
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        book = await _ob_load_book(uid)
+        try:
+            row = _ob.rename_portfolio(book, portfolio_id, req.name)
+        except _ob.OptionBuilderError as exc:
+            return _ob_refusal(exc)
+        await _ob_save_book(uid, book)
+    return {"status": "ok", "portfolio": row}
+
+
+@app.delete("/api/option-builder/portfolios/{portfolio_id}")
+async def option_builder_portfolio_delete(portfolio_id: int, request: Request):
+    """Removes a portfolio and its CLOSED strategies. One with an open
+    strategy is refused: closing it is a decision, not a side effect."""
+    uid = _request_user_id(request)
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        book = await _ob_load_book(uid)
+        if not any(int(p["id"]) == portfolio_id for p in book["portfolios"]):
+            return JSONResponse(
+                status_code=404, content={"status": "error", "message": "That portfolio does not exist."}
+            )
+        rows = await _ob_load_paper(uid)
+        mine = [r for r in rows if _ob.basket_portfolio(r, book) == portfolio_id]
+        if any(r.get("status") == "open" for r in mine):
+            return _ob_refusal(_ob.OptionBuilderError("Close this portfolio's open strategies first."))
+        await _ob_save_paper(uid, [r for r in rows if r not in mine])
+        book["portfolios"] = [p for p in book["portfolios"] if int(p["id"]) != portfolio_id]
+        await _ob_save_book(uid, book)
+    return {"status": "ok"}
+
+
+@app.post("/api/option-builder/saved")
+async def option_builder_saved_create(req: OptionBuilderBasketReq, request: Request):
+    uid = _request_user_id(request)
+    try:
+        legs = _ob.normalize_legs(req.legs)
+    except _ob.OptionBuilderError as exc:
+        return _ob_refusal(exc)
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        book = await _ob_load_book(uid)
+        try:
+            row = _ob.save_strategy(book, req.name, legs, datetime.now(IST))
+        except _ob.OptionBuilderError as exc:
+            return _ob_refusal(exc)
+        await _ob_save_book(uid, book)
+    return {"status": "ok", "saved": row}
+
+
+@app.delete("/api/option-builder/saved/{saved_id}")
+async def option_builder_saved_delete(saved_id: int, request: Request):
+    uid = _request_user_id(request)
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        book = await _ob_load_book(uid)
+        kept = [r for r in book["saved"] if int(r.get("id") or 0) != saved_id]
+        if len(kept) == len(book["saved"]):
+            return JSONResponse(
+                status_code=404, content={"status": "error", "message": "That saved strategy does not exist."}
+            )
+        book["saved"] = kept
+        await _ob_save_book(uid, book)
+    return {"status": "ok"}
 
 
 @app.post("/api/option-builder/paper")
@@ -25760,13 +25863,19 @@ async def option_builder_paper_open(req: OptionBuilderBasketReq, request: Reques
     if lot <= 0:
         return _ob_refusal(_ob.OptionBuilderError("The lot size is not known yet -- try again in a moment."))
     async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        book = await _ob_load_book(uid)
+        portfolio_id = int(req.portfolio_id) if req.portfolio_id is not None else int(book["portfolios"][0]["id"])
+        if not any(int(p["id"]) == portfolio_id for p in book["portfolios"]):
+            return _ob_refusal(_ob.OptionBuilderError("That portfolio does not exist."))
         rows = await _ob_load_paper(uid)
         next_id = max([int(r.get("id") or 0) for r in rows] + [0]) + 1
         try:
             basket = _ob.new_paper_basket(next_id, req.name, legs, lot, datetime.now(IST))
         except _ob.OptionBuilderError as exc:
             return _ob_refusal(exc)
+        basket["portfolio_id"] = portfolio_id
         rows.append(basket)
+        await _ob_save_book(uid, book)
         await _ob_save_paper(uid, rows)
     alerter.alert(
         "Option Builder · Paper",

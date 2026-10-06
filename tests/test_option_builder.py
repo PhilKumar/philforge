@@ -470,3 +470,153 @@ class PaperRoutes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Portfolios(unittest.TestCase):
+    """Draft portfolios hold paper strategies; saved strategies are just legs."""
+
+    def setUp(self):
+        self.now = datetime(2026, 10, 6, 16, 0, tzinfo=IST)
+        self.book = ob.ensure_default_portfolio({}, self.now)
+
+    def test_a_new_book_starts_with_paper(self):
+        self.assertEqual([p["name"] for p in self.book["portfolios"]], ["Paper"])
+
+    def test_names_are_unique_ignoring_case_and_trimmed(self):
+        row = ob.create_portfolio(self.book, "  Buying   CPR ", self.now)
+        self.assertEqual((row["id"], row["name"]), (2, "Buying CPR"))
+        with self.assertRaises(ob.OptionBuilderError):
+            ob.create_portfolio(self.book, "buying cpr", self.now)
+        with self.assertRaises(ob.OptionBuilderError):
+            ob.create_portfolio(self.book, "   ", self.now)
+
+    def test_rename(self):
+        ob.create_portfolio(self.book, "Weekly", self.now)
+        ob.rename_portfolio(self.book, 2, "Weekly NIFTY")
+        self.assertEqual(self.book["portfolios"][1]["name"], "Weekly NIFTY")
+        with self.assertRaises(ob.OptionBuilderError):
+            ob.rename_portfolio(self.book, 2, "paper")
+
+    def test_an_old_strategy_belongs_to_the_first_portfolio(self):
+        self.assertEqual(ob.basket_portfolio({"id": 1}, self.book), 1)
+        ob.create_portfolio(self.book, "Two", self.now)
+        self.assertEqual(ob.basket_portfolio({"portfolio_id": 2}, self.book), 2)
+        self.assertEqual(ob.basket_portfolio({"portfolio_id": 99}, self.book), 1)
+
+    def test_a_saved_strategy_keeps_legs_not_prices(self):
+        legs = ob.normalize_legs(
+            [
+                {
+                    "underlying": "NIFTY",
+                    "strike": 25000,
+                    "expiry": "2026-10-13",
+                    "option_type": "CE",
+                    "side": "BUY",
+                    "lots": 2,
+                    "price": 130,
+                }
+            ]
+        )
+        row = ob.save_strategy(self.book, "Morning call", legs, self.now)
+        self.assertEqual(
+            row["legs"], [{"strike": 25000.0, "expiry": "2026-10-13", "option_type": "CE", "side": "BUY", "lots": 2}]
+        )
+        self.assertEqual(row["underlying"], "NIFTY")
+
+
+class PortfolioRoutes(unittest.TestCase):
+    def run_routes(self, steps):
+        store = {}
+
+        async def get_state(key):
+            return store.get(key)
+
+        async def set_state(key, value):
+            store[key] = value
+
+        chain = ob.shape_chain(_raw_chain(), "NIFTY", "2026-10-13", 75)
+        with (
+            patch.object(app_module._db_mod, "get_app_state", get_state),
+            patch.object(app_module._db_mod, "set_app_state", set_state),
+            patch.object(app_module, "_request_user_id", lambda r: 9),
+            patch.object(app_module, "_ob_lot_size", lambda u, e: 75),
+            patch.object(app_module, "_ob_chain", AsyncMock(return_value=chain)),
+            patch.object(app_module.alerter, "alert"),
+        ):
+            return [asyncio.run(step()) for step in steps]
+
+    def test_a_strategy_lands_in_the_chosen_portfolio_and_blocks_its_deletion(self):
+        legs = [
+            {
+                "underlying": "NIFTY",
+                "strike": 25000,
+                "expiry": "2026-10-13",
+                "option_type": "CE",
+                "side": "BUY",
+                "lots": 1,
+                "price": 120,
+            }
+        ]
+        req = app_module.OptionBuilderBasketReq
+        created, opened, refused, listed = self.run_routes(
+            [
+                lambda: app_module.option_builder_portfolio_create(
+                    app_module.OptionBuilderNameReq(name="CPR"), request=None
+                ),
+                lambda: app_module.option_builder_paper_open(req(legs=legs, name="One", portfolio_id=2), request=None),
+                lambda: app_module.option_builder_portfolio_delete(2, request=None),
+                lambda: app_module.option_builder_paper_list(request=None),
+            ]
+        )
+        self.assertEqual(created["portfolio"]["id"], 2)
+        self.assertEqual(opened["basket"]["portfolio_id"], 2)
+        self.assertEqual(refused.status_code, 400)
+        self.assertEqual([p["name"] for p in listed["portfolios"]], ["Paper", "CPR"])
+        self.assertEqual(listed["baskets"][0]["portfolio_id"], 2)
+
+    def test_an_unknown_portfolio_is_refused(self):
+        legs = [
+            {
+                "underlying": "NIFTY",
+                "strike": 25000,
+                "expiry": "2026-10-13",
+                "option_type": "CE",
+                "side": "BUY",
+                "lots": 1,
+                "price": 120,
+            }
+        ]
+        (result,) = self.run_routes(
+            [
+                lambda: app_module.option_builder_paper_open(
+                    app_module.OptionBuilderBasketReq(legs=legs, portfolio_id=7), request=None
+                )
+            ]
+        )
+        self.assertEqual(result.status_code, 400)
+
+    def test_save_then_delete_a_strategy(self):
+        legs = [
+            {
+                "underlying": "NIFTY",
+                "strike": 25000,
+                "expiry": "2026-10-13",
+                "option_type": "PE",
+                "side": "SELL",
+                "lots": 1,
+            }
+        ]
+        saved, listed, deleted, after = self.run_routes(
+            [
+                lambda: app_module.option_builder_saved_create(
+                    app_module.OptionBuilderBasketReq(legs=legs, name="Put sell"), request=None
+                ),
+                lambda: app_module.option_builder_paper_list(request=None),
+                lambda: app_module.option_builder_saved_delete(1, request=None),
+                lambda: app_module.option_builder_paper_list(request=None),
+            ]
+        )
+        self.assertEqual(saved["saved"]["name"], "Put sell")
+        self.assertEqual(len(listed["saved"]), 1)
+        self.assertEqual(deleted["status"], "ok")
+        self.assertEqual(after["saved"], [])

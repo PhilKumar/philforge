@@ -47,10 +47,15 @@
 .ob-error { padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent); border-radius: 12px; background: var(--red-bg); color: var(--red); font-size: 12.5px; }
 
 /* the two columns */
-.ob-grid { display: grid; grid-template-columns: minmax(360px, 430px) minmax(0, 1fr); min-width: 0; gap: var(--ob-gap); align-items: start; }
+.ob-grid { display: grid; grid-template-columns: minmax(320px, 340px) minmax(0, 1fr); min-width: 0; gap: var(--ob-gap); align-items: stretch; }
+/* The payoff takes the whole width under the strategy (Phil, 2026-10-06:
+   "utilise the space on the left to extend the payoff panel fully"). */
+.ob-analysis { grid-column: 1 / -1; }
 .ob-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ob-gap); min-width: 0; }
-.ob-left { position: sticky; top: calc(var(--pf-freeze-viewbar-top, 0px) + 8px); max-height: calc(100vh - var(--pf-freeze-viewbar-top, 0px) - 24px); display: flex; flex-direction: column; min-height: 0; }
-.ob-left-body { overflow: auto; min-height: 0; margin: 0 -6px; padding: 0 6px; }
+/* The left panel never sets the row's height: its body has no intrinsic
+   height, so the strategy column decides and the panel scrolls within it. */
+.ob-left { display: flex; flex-direction: column; min-height: 440px; }
+.ob-left-body { flex: 1 1 0; height: 0; overflow: auto; min-height: 0; margin: 0 -6px; padding: 0 6px; }
 
 .ob-tabs { display: flex; gap: 2px; margin: -2px 0 12px; border-bottom: 1px solid var(--border); }
 .ob-tabs button {
@@ -67,14 +72,14 @@
 .ob-empty-legs { padding: 12px; }
 
 /* ready-made */
-.ob-templates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.ob-templates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
 .ob-template {
-  display: grid; gap: 6px; padding: 9px 9px 8px; border: 1px solid var(--border); border-radius: 12px;
-  background: rgba(255,255,255,.025); color: var(--text); cursor: pointer; text-align: left; font: 600 11.5px var(--font-body);
+  display: grid; gap: 4px; padding: 7px 8px 6px; border: 1px solid var(--border); border-radius: 10px;
+  background: rgba(255,255,255,.025); color: var(--text); cursor: pointer; text-align: left; font: 600 11px var(--font-body);
   transition: transform .15s ease, border-color .15s ease, background .15s ease;
 }
 .ob-template:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--ob-accent) 50%, transparent); background: color-mix(in srgb, var(--ob-accent) 8%, transparent); }
-.ob-mini { width: 100%; height: 46px; display: block; }
+.ob-mini { width: 100%; height: 30px; display: block; }
 .ob-mini path, .ob-mini line { vector-effect: non-scaling-stroke; }
 .ob-mini-zero { stroke: rgba(148,163,184,.35); stroke-width: 1; stroke-dasharray: 2 3; }
 .ob-mini-up { fill: color-mix(in srgb, var(--green) 22%, transparent); }
@@ -128,6 +133,31 @@
 .ob-paper-row small { color: var(--muted); font: 9.5px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ob-paper-pnl { font: 700 12.5px var(--font-mono); }
 .ob-paper-btns { display: flex; gap: 4px; }
+
+/* portfolios + saved strategies */
+.ob-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.025); }
+.ob-seg button { padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 600 11.5px var(--font-body); cursor: pointer; }
+.ob-seg button.is-active { color: var(--text); background: color-mix(in srgb, var(--ob-accent) 22%, transparent); }
+.ob-pf-actions { margin: 10px 0 8px; }
+.ob-naming { display: flex; gap: 6px; margin: 0 0 10px; }
+#ob-root .ob-naming input { flex: 1; min-width: 0; height: 30px; min-height: 0; margin: 0; padding: 4px 9px; border: 1px solid color-mix(in srgb, var(--ob-accent) 55%, var(--border)); border-radius: 8px; background: rgba(255,255,255,.04); color: var(--text); font: 12.5px var(--font-body); }
+.ob-pf-list { display: grid; gap: 6px; }
+.ob-pf { border: 1px solid var(--border); border-radius: 11px; background: rgba(255,255,255,.02); }
+.ob-pf.is-open { border-color: color-mix(in srgb, var(--ob-accent) 45%, var(--border)); }
+.ob-pf-head { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 10px 11px; cursor: pointer; }
+.ob-pf-head > div { display: grid; gap: 2px; min-width: 0; }
+.ob-pf-head b { font: 700 13px var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ob-pf-head small { color: var(--muted); font: 10px var(--font-mono); }
+.ob-pf-pnl { font: 700 13px var(--font-mono); }
+.ob-pf-tools { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .15s ease; }
+.ob-pf-head:hover .ob-pf-tools, .ob-pf-head:focus-within .ob-pf-tools, .ob-pf.is-open .ob-pf-tools { opacity: 1; }
+.ob-pf-tools button { width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
+.ob-pf-tools button:hover { color: var(--text); background: rgba(255,255,255,.06); }
+.ob-pf .ob-naming { margin: 0 11px 10px; }
+.ob-pf-body { padding: 0 8px 8px; }
+.ob-pf-pick { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; }
+.ob-pf-pick select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.04); color: var(--text); font: 12px var(--font-body); max-width: 150px; }
+@media (hover: none) { .ob-pf-tools { opacity: 1; } }
 
 /* legs */
 .ob-legs-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 10px; }
@@ -230,7 +260,7 @@
 .ob-action-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; color: var(--muted); font-size: 11.5px; }
 .ob-action-opts select { margin-left: 6px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.04); color: var(--text); font: 12px var(--font-body); }
 .ob-action-note { color: var(--purple); font-size: 11px; }
-.ob-action-btns { display: flex; gap: 8px; }
+.ob-action-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ob-live-btn {
   --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.22) 0%, rgba(185,38,38,0.42) 100%);
   --btn-color: #fecaca; --btn-border: rgba(248,113,113,0.55); font-weight: 800;
@@ -246,7 +276,8 @@
 /* narrower screens: one column, the chain stops being sticky */
 @media (max-width: 1180px) {
   .ob-grid { grid-template-columns: minmax(0, 1fr); }
-  .ob-left { position: static; max-height: none; }
+  .ob-left { min-height: 0; }
+  .ob-left-body { flex: none; height: auto; max-height: 62vh; }
   .ob-chain-scroll { max-height: 60vh; overflow: auto; }
   .ob-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -66,6 +66,13 @@ test('Option Builder: an iron condor shows the right numbers and a drawn payoff'
   await expect(page.locator('.ob-stat').nth(2)).toContainText('·'); // two breakevens
   await expect(page.locator('.ob-stat').nth(6)).toContainText('₹41,250');
 
+  // The payoff spans the whole desk, under the ready-made panel too.
+  const widths = await page.evaluate(() => [
+    document.querySelector('.ob-analysis')!.getBoundingClientRect().width,
+    document.querySelector('.ob-grid')!.getBoundingClientRect().width,
+  ]);
+  expect(widths[0]).toBeCloseTo(widths[1], 0);
+
   // Dhan's margin was asked for the whole basket at once, hedges included.
   const margin = calls.find((c) => c.url.endsWith('/margin'));
   expect(margin?.body.legs).toHaveLength(4);
@@ -81,9 +88,11 @@ test('Option Builder: an iron condor shows the right numbers and a drawn payoff'
 
   // Hover reads the P&L at that price.
   await expect(page.locator('#ob-tip')).toBeHidden();
-  await page.locator('#ob-chart').scrollIntoViewIfNeeded();
+  // Bottom of the chart in view: the frozen header and banner cover the top
+  // of a short window, and the pointer must land on the canvas itself.
+  await page.locator('#ob-chart').evaluate((el) => el.scrollIntoView({ block: 'end' }));
   const box = (await page.locator('#ob-chart').boundingBox())!;
-  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.8);
   await expect(page.locator('#ob-tip')).toBeVisible();
   await expect(page.locator('#ob-tip')).toContainText('On expiry');
 });
