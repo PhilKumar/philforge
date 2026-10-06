@@ -4459,6 +4459,16 @@
           </div>
         </details>
 
+        <!-- Broker: Dhan places a Super Order; Zerodha an entry plus a resting stop -->
+        <div class="scalp-broker-row" style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: 0.4px;">BROKER</span>
+          <input type="hidden" id="scalp-broker" value="dhan">
+          <div id="scalp-broker-toggle" class="scalp-toggle compact" style="width: 146px; flex-shrink: 0;">
+            <button type="button" class="scalp-toggle-btn active" data-value="dhan" onclick="setScalpBroker('dhan')"><span>Dhan</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="zerodha" onclick="setScalpBroker('zerodha')"><span>Zerodha</span></button>
+          </div>
+        </div>
+
         <!-- Mode + BUY/SELL -->
         <div class="scalp-entry-actions" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
           <input type="hidden" id="scalp-mode" value="paper">
@@ -4469,7 +4479,7 @@
           <button class="read-only-lock btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
           <button class="read-only-lock btn" onclick="submitScalpEntry('SELL')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.28) 0%, rgba(185,38,38,0.48) 100%); --btn-color: #f87171; --btn-border: rgba(248,113,113,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▼ SELL</button>
         </div>
-        <div class="scalp-live-note">Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.</div>
+        <div class="scalp-live-note" id="scalp-live-note">Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.</div>
         <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
       </div>
       <div class="ocp-pane ocp-pane-live">

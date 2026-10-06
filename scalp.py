@@ -61,8 +61,20 @@ SCALP_DEFAULT_SL_PREMIUM = 100.0
 SCALP_DEFAULT_TARGET_PCT = 25.0
 SCALP_DEFAULT_SL_PCT = 25.0
 
+# The brokers a scalp can be sent to. Dhan trades as one Super Order. Zerodha
+# has no such order (it withdrew bracket orders in 2020), so a Zerodha scalp is
+# an entry, then a stop-limit resting at Zerodha as the net, while the target
+# is watched here. A target is NOT rested at Zerodha too: two exit orders for
+# one position can let the second fill as a fresh SHORT.
+SCALP_BROKERS = ("dhan", "zerodha")
 
-def resolve_scalp_exit_prices(transaction_type, premium, target_premium, sl_premium):
+
+def normalize_scalp_broker(broker: str | None) -> str:
+    name = str(broker or "").strip().lower()
+    return name if name in SCALP_BROKERS else "dhan"
+
+
+def resolve_scalp_exit_prices(transaction_type, premium, target_premium, sl_premium, broker="Dhan"):
     """The target and stop a Super Order can actually carry, or why it cannot.
 
     Dhan refuses the WHOLE order -- entry included -- when the target is not on
@@ -99,7 +111,7 @@ def resolve_scalp_exit_prices(transaction_type, premium, target_premium, sl_prem
             stop,
             (
                 f"The option is trading at Rs {premium:,.2f}. A {side} target of Rs {target:,.2f} is not {word} it, "
-                f"so Dhan would refuse the whole order. Set the target {word} Rs {premium:,.2f}."
+                f"so {broker} would refuse the whole order. Set the target {word} Rs {premium:,.2f}."
             ),
         )
     if (buying and stop >= premium) or (not buying and stop <= premium):
@@ -108,7 +120,7 @@ def resolve_scalp_exit_prices(transaction_type, premium, target_premium, sl_prem
             stop,
             (
                 f"The option is trading at Rs {premium:,.2f}. A {side} stop of Rs {stop:,.2f} is not {other} it, "
-                f"so Dhan would refuse the whole order. Set the stop {other} Rs {premium:,.2f}."
+                f"so {broker} would refuse the whole order. Set the stop {other} Rs {premium:,.2f}."
             ),
         )
     return target, stop, None
@@ -156,9 +168,11 @@ class ScalpTrade:
         # Stop-limit entry: wait for premium to enter [limit_price, limit_max] before placing order
         entry_limit_price: float = 0.0,
         entry_limit_max: float = 0.0,
+        broker: str = "dhan",
     ):
         self.trade_id = trade_id
         self.mode = mode
+        self.broker = normalize_scalp_broker(broker)
         self.underlying = underlying
         self.strike = strike
         self.option_type = option_type
@@ -240,6 +254,8 @@ class ScalpTrade:
         pnl = self._compute_pnl(current_prem)
 
         # For live Super Orders, broker-native TP/SL manages premium exits.
+        # A Zerodha scalp keeps both checks here: its stop rests at Zerodha
+        # too, and `_close_trade` asks Zerodha whether that stop filled first.
         if not (self.mode == "live" and self.super_order_id):
             if self.transaction_type == "BUY":
                 # Target: price reached or exceeded
@@ -291,6 +307,7 @@ class ScalpTrade:
             "pnl": round(self._compute_pnl(self.current_premium), 2) if self.status != "pending" else 0.0,
             "status": self.status,
             "mode": self.mode,
+            "broker": self.broker,
             "entry_limit_price": self.entry_limit_price,
             "entry_limit_max": self.entry_limit_max,
             "broker_order_model": self.broker_order_model,
@@ -312,8 +329,12 @@ class ScalpEngine:
     • Falls back to REST `get_option_ltp` every 2s if no WS feed.
     """
 
-    def __init__(self, dhan_client, market_feed=None, on_trade_close=None):
+    def __init__(self, dhan_client, market_feed=None, on_trade_close=None, zerodha_client=None):
+        # Dhan prices every scalp (the feed and quotes are Dhan's) and places
+        # the Dhan ones. `zerodha` only places, cancels and reads orders for
+        # the trades sent to Zerodha.
         self.dhan = dhan_client
+        self.zerodha = zerodha_client
         self.feed = market_feed  # LiveMarketFeed instance or None
         self.on_trade_close = on_trade_close  # callback(trade_dict) for persistence
 
@@ -329,6 +350,18 @@ class ScalpEngine:
         self._ltp_backoff_until_mono: float = 0.0
         self._ltp_backoff_delay_sec: float = 0.0
         self._ltp_last_rate_limit_log_mono: float = 0.0
+
+    def _orders_for(self, trade: "ScalpTrade"):
+        """The client that holds this trade's orders."""
+        if getattr(trade, "broker", "dhan") == "zerodha":
+            if self.zerodha is None:
+                raise ConnectionError("Zerodha is not connected. Log in to Zerodha from Settings first.")
+            return self.zerodha
+        return self.dhan
+
+    @staticmethod
+    def _is_zerodha_trade(trade: "ScalpTrade") -> bool:
+        return trade.mode == "live" and getattr(trade, "broker", "dhan") == "zerodha"
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -371,6 +404,7 @@ class ScalpEngine:
         mode: str = "live",  # "live" or "paper"
         entry_limit_price: float = 0.0,
         entry_limit_max: float = 0.0,
+        broker: str = "dhan",
     ) -> Dict[str, Any]:
         """Place a broker order (or simulate in paper mode) and register the scalp trade.
         If entry_limit_price and entry_limit_max are set, the trade goes into 'pending' state
@@ -391,6 +425,9 @@ class ScalpEngine:
             return {"status": "error", "message": "Stop-limit entry requires both premium boundaries"}
         quantity = lots * lot_size
         product_type = _normalize_scalp_product_type(product_type)
+        broker = normalize_scalp_broker(broker)
+        if mode == "live" and broker == "zerodha" and self.zerodha is None:
+            return {"status": "error", "message": "Log in to Zerodha from Settings first."}
         if mode == "live":
             # A stop-limit entry fills at its TRIGGER, not at today's price, so
             # its exits are judged when that trigger arrives -- here only the
@@ -426,6 +463,7 @@ class ScalpEngine:
                 mode=mode,
                 entry_limit_price=lo,
                 entry_limit_max=hi,
+                broker=broker,
             )
             self.open_trades[self._trade_counter] = trade
             self._sync_marketfeed_throttle()
@@ -495,61 +533,69 @@ class ScalpEngine:
                 if _attempt == 0:
                     await asyncio.sleep(0.3)
             target_premium, sl_premium, problem = resolve_scalp_exit_prices(
-                transaction_type, quote, typed_target, typed_sl
+                transaction_type, quote, typed_target, typed_sl, broker="Zerodha" if broker == "zerodha" else "Dhan"
             )
             if problem:
                 self._log("warn", f"❌ Entry refused before the broker saw it: {problem}")
                 return {"status": "error", "message": problem}
 
-            # Place broker-native Super Order so TP and SL live inside Dhan.
-            try:
-                result = self.dhan.place_super_order(
-                    underlying=underlying,
-                    strike_price=strike,
-                    option_type=option_type,
-                    expiry=expiry,
-                    transaction_type=transaction_type,
-                    quantity=quantity,
-                    target_price=target_premium,
-                    stop_loss_price=sl_premium,
-                    order_type=order_type,
-                    product_type=product_type,
-                    tag="AF_SCALP_SO",
+            if broker == "zerodha":
+                order_id, order_status, problem = await self._place_zerodha_entry(
+                    underlying, strike, option_type, expiry, transaction_type, quantity, product_type, quote
                 )
-                order_id = result.get("orderId", "")
-                order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
-                if order_status in ("REJECTED", "CANCELLED", "FAILED"):
-                    reason = result.get("remarks", result.get("message", result.get("rejectedReason", "Unknown")))
+                if problem:
+                    return {"status": "error", "message": problem}
+                entry_premium = quote
+            else:
+                # Place broker-native Super Order so TP and SL live inside Dhan.
+                try:
+                    result = self.dhan.place_super_order(
+                        underlying=underlying,
+                        strike_price=strike,
+                        option_type=option_type,
+                        expiry=expiry,
+                        transaction_type=transaction_type,
+                        quantity=quantity,
+                        target_price=target_premium,
+                        stop_loss_price=sl_premium,
+                        order_type=order_type,
+                        product_type=product_type,
+                        tag="AF_SCALP_SO",
+                    )
+                    order_id = result.get("orderId", "")
+                    order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
+                    if order_status in ("REJECTED", "CANCELLED", "FAILED"):
+                        reason = result.get("remarks", result.get("message", result.get("rejectedReason", "Unknown")))
+                        self._log(
+                            "error",
+                            f"❌ Super Order rejected: {transaction_type} {underlying} {strike}{option_type} "
+                            f"exp={expiry} qty={quantity} | quoted=₹{quote:.2f} target=₹{target_premium} "
+                            f"SL=₹{sl_premium} {order_type}/{product_type} | {reason}",
+                        )
+                        return {"status": "error", "message": f"Super Order rejected by broker: {reason}"}
+                    if not order_id:
+                        self._log("error", f"❌ Super Order returned no orderId: {result}")
+                        return {"status": "error", "message": f"No orderId returned: {result}"}
+                except Exception as e:
+                    # A REFUSED ORDER MUST LEAVE A TRACE. This returned the broker's
+                    # words to the browser and wrote nothing here, so a rejection
+                    # Phil saw on screen could not be found on the server at all
+                    # (2026-09-23: DH-906 "Profit Price Should be greater than Order
+                    # price", invisible in the journal). The numbers we sent are
+                    # what make it answerable, so they are in the line.
                     self._log(
                         "error",
-                        f"❌ Super Order rejected: {transaction_type} {underlying} {strike}{option_type} "
+                        f"❌ Super Order placement failed: {transaction_type} {underlying} {strike}{option_type} "
                         f"exp={expiry} qty={quantity} | quoted=₹{quote:.2f} target=₹{target_premium} "
-                        f"SL=₹{sl_premium} {order_type}/{product_type} | {reason}",
+                        f"SL=₹{sl_premium} {order_type}/{product_type} | {e}",
                     )
-                    return {"status": "error", "message": f"Super Order rejected by broker: {reason}"}
-                if not order_id:
-                    self._log("error", f"❌ Super Order returned no orderId: {result}")
-                    return {"status": "error", "message": f"No orderId returned: {result}"}
-            except Exception as e:
-                # A REFUSED ORDER MUST LEAVE A TRACE. This returned the broker's
-                # words to the browser and wrote nothing here, so a rejection
-                # Phil saw on screen could not be found on the server at all
-                # (2026-09-23: DH-906 "Profit Price Should be greater than Order
-                # price", invisible in the journal). The numbers we sent are
-                # what make it answerable, so they are in the line.
-                self._log(
-                    "error",
-                    f"❌ Super Order placement failed: {transaction_type} {underlying} {strike}{option_type} "
-                    f"exp={expiry} qty={quantity} | quoted=₹{quote:.2f} target=₹{target_premium} "
-                    f"SL=₹{sl_premium} {order_type}/{product_type} | {e}",
-                )
-                return {"status": "error", "message": str(e)}
+                    return {"status": "error", "message": str(e)}
 
-            # Use a live premium snapshot for immediate UI feedback; sync later replaces it with actual fill.
-            try:
-                entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
-            except Exception:
-                entry_premium = 0.0
+                # Use a live premium snapshot for immediate UI feedback; sync later replaces it with actual fill.
+                try:
+                    entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
+                except Exception:
+                    entry_premium = 0.0
 
         self._trade_counter += 1
         trade = ScalpTrade(
@@ -572,13 +618,19 @@ class ScalpEngine:
             sqoff_time=sqoff_time,
             order_id=order_id,
             mode=mode,
+            broker=broker,
         )
-        if mode == "live":
+        if mode == "live" and broker == "zerodha":
+            trade.broker_order_model = "zerodha"
+        elif mode == "live":
             trade.broker_order_model = "super"
             trade.super_order_id = str(order_id)
             trade.super_order_status = order_status
         self.open_trades[self._trade_counter] = trade
         self._sync_marketfeed_throttle()
+        if self._is_zerodha_trade(trade):
+            # Confirm the fill, then rest the stop at Zerodha.
+            self._schedule_broker_sync(trade.trade_id)
 
         # Subscribe to WS feed if available
         if self.feed:
@@ -593,7 +645,8 @@ class ScalpEngine:
         self._log(
             "entry",
             f"{mode_label}✅ SCALP ENTER: {transaction_type} {underlying} {strike}{option_type} "
-            f"@ ₹{entry_premium:.2f} | product={product_type} | orderId={order_id} "
+            f"@ ₹{entry_premium:.2f} | product={product_type} | orderId={order_id}"
+            f"{' | Zerodha' if broker == 'zerodha' and mode == 'live' else ''} "
             f"| target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
 
@@ -601,6 +654,47 @@ class ScalpEngine:
             self.start()
 
         return {"status": "ok", "trade_id": self._trade_counter, "trade": trade.to_dict()}
+
+    async def _place_zerodha_entry(
+        self, underlying, strike, option_type, expiry, transaction_type, quantity, product_type, quote
+    ) -> tuple[str, str, str]:
+        """Send a scalp's entry to Zerodha. Returns (order_id, status, problem).
+
+        A MARKET order: Kite fills it inside its own protection band
+        (`market_protection=-1`, set by the client), so the aggressive-limit
+        workaround Dhan needs is not needed here. The stop goes in only after
+        the fill is confirmed (`_verify_fill_and_sync_broker_orders`).
+        """
+        try:
+            result = await asyncio.to_thread(
+                self.zerodha.place_option_order,
+                underlying=underlying,
+                strike_price=strike,
+                option_type=option_type,
+                expiry=expiry,
+                transaction_type=transaction_type,
+                quantity=quantity,
+                order_type="MARKET",
+                product_type=product_type,
+                tag="AF_SCALP_Z",
+            )
+        except Exception as e:
+            self._log(
+                "error",
+                f"❌ Zerodha entry failed: {transaction_type} {underlying} {strike}{option_type} "
+                f"exp={expiry} qty={quantity} | quoted=₹{quote:.2f} {product_type} | {e}",
+            )
+            return "", "", str(e)
+        problem = self._broker_order_error(result)
+        if problem:
+            self._log(
+                "error",
+                f"❌ Zerodha refused the entry: {transaction_type} {underlying} {strike}{option_type} "
+                f"exp={expiry} qty={quantity} | {problem}",
+            )
+            return "", "", f"Zerodha refused the order: {problem}"
+        status = str(result.get("orderStatus", result.get("status", ""))).upper()
+        return str(result.get("orderId", "")), status, ""
 
     async def exit_trade(self, trade_id: int, reason: str = "manual") -> Dict[str, Any]:
         """Manually exit an open scalp trade."""
@@ -762,6 +856,10 @@ class ScalpEngine:
                     await self._sync_super_orders()
                 except Exception as e:
                     self._log("error", f"Super Order monitor sync failed: {e}")
+                try:
+                    await self._sync_zerodha_stops()
+                except Exception as e:
+                    self._log("error", f"Zerodha stop monitor sync failed: {e}")
             if now_mono - _last_position_sync > SCALP_POSITION_SYNC_INTERVAL_SEC:
                 _last_position_sync = now_mono
                 try:
@@ -828,6 +926,22 @@ class ScalpEngine:
             order_id = "PAPER"
             order_status = "TRADED"
             entry_premium = trade.current_premium
+        elif self._is_zerodha_trade(trade):
+            order_id, order_status, problem = await self._place_zerodha_entry(
+                trade.underlying,
+                trade.strike,
+                trade.option_type,
+                trade.expiry,
+                trade.transaction_type,
+                trade.quantity,
+                trade.product_type,
+                trade.current_premium,
+            )
+            if problem:
+                self.open_trades.pop(tid, None)
+                self._sync_marketfeed_throttle()
+                return
+            entry_premium = trade.current_premium
         else:
             # Place broker-native Super Order once the local trigger range is hit.
             try:
@@ -878,7 +992,9 @@ class ScalpEngine:
         trade.entry_premium = entry_premium
         trade.entry_time = _now_ist()
         trade.current_premium = entry_premium
-        if trade.mode == "live":
+        if self._is_zerodha_trade(trade):
+            trade.broker_order_model = "zerodha"
+        elif trade.mode == "live":
             trade.broker_order_model = "super"
             trade.super_order_id = str(order_id)
             trade.super_order_status = order_status
@@ -901,6 +1017,8 @@ class ScalpEngine:
             f"{trade.strike}{trade.option_type} @ ₹{entry_premium:.2f} | orderId={order_id} "
             f"| product={trade.product_type} | target=₹{trade.target_premium or 'none'} SL=₹{trade.sl_premium or 'none'}",
         )
+        if self._is_zerodha_trade(trade):
+            self._schedule_broker_sync(tid)
 
     @staticmethod
     def _is_super_order_trade(trade: ScalpTrade) -> bool:
@@ -954,16 +1072,35 @@ class ScalpEngine:
         return flat
 
     async def _sync_broker_positions(self):
-        live_trades = [t for t in self.open_trades.values() if t.status == "open" and t.mode == "live"]
-        if not live_trades:
-            return
+        """A live scalp whose position has gone from ITS broker was exited there.
+
+        Each trade is checked against the broker that holds it: a Zerodha
+        position is never in Dhan's book, and reading it there would close
+        every Zerodha scalp as "exited outside PhilForge" 15s after entry.
+        """
+        live = [t for t in self.open_trades.values() if t.status == "open" and t.mode == "live"]
+        dhan_trades = [t for t in live if not self._is_zerodha_trade(t)]
+        zerodha_trades = [t for t in live if self._is_zerodha_trade(t)]
+        if dhan_trades:
+            await self._sync_positions_with(
+                dhan_trades, lambda: self.dhan.get_positions_cached(SCALP_POSITION_CACHE_TTL_SEC)
+            )
+        if zerodha_trades and self.zerodha is not None:
+            await self._sync_positions_with(zerodha_trades, self.zerodha.get_positions)
+
+    async def _sync_positions_with(self, live_trades: list, read_positions):
         try:
-            positions = await asyncio.to_thread(self.dhan.get_positions_cached, SCALP_POSITION_CACHE_TTL_SEC)
+            positions = await asyncio.to_thread(read_positions)
         except Exception as e:
             self._log("error", f"Broker position sync failed: {e}")
             return
 
         position_rows = self._flatten_positions(positions)
+        if any(not self._position_security_id(pos) and self._position_net_qty(pos) != 0 for pos in position_rows):
+            # An open position we cannot name (a Zerodha symbol missing from
+            # Dhan's scrip master) may be one of ours: closing on a guess
+            # would book a live trade as exited. Wait for a readable book.
+            return
         open_security_ids = {
             self._position_security_id(pos)
             for pos in position_rows
@@ -1134,7 +1271,7 @@ class ScalpEngine:
         if self._is_super_order_trade(trade):
             return
         needs_sl = trade.sl_premium > 0 and not trade.broker_sl_order_id
-        needs_tp = trade.target_premium > 0 and not trade.broker_tp_order_id
+        needs_tp = trade.target_premium > 0 and not trade.broker_tp_order_id and not self._is_zerodha_trade(trade)
         if not (needs_sl or needs_tp):
             return
         task = self._broker_sync_tasks.get(trade_id)
@@ -1149,7 +1286,7 @@ class ScalpEngine:
             if not trade or trade.mode != "live" or not trade.order_id:
                 return
 
-            fill = await asyncio.to_thread(self.dhan.verify_order_fill, trade.order_id, 20, 1.0)
+            fill = await asyncio.to_thread(self._orders_for(trade).verify_order_fill, trade.order_id, 20, 1.0)
             trade = self.open_trades.get(trade_id)
             if not trade or trade.status != "open":
                 return
@@ -1234,6 +1371,9 @@ class ScalpEngine:
         if trade.mode != "live" or not trade.entry_premium:
             return
         exit_txn = "SELL" if trade.transaction_type == "BUY" else "BUY"
+        client = self._orders_for(trade)
+        if self._is_zerodha_trade(trade):
+            place_tp = False  # the target is watched here; see SCALP_BROKERS
 
         # ── SL order (Stop-Loss Limit on broker) ──
         if place_sl and trade.sl_premium > 0 and not trade.broker_sl_order_id:
@@ -1243,7 +1383,7 @@ class ScalpEngine:
                 else:
                     sl_price = round(trade.sl_premium * 1.05, 2)
                 result = await asyncio.to_thread(
-                    self.dhan.place_option_order,
+                    client.place_option_order,
                     underlying=trade.underlying,
                     strike_price=trade.strike,
                     option_type=trade.option_type,
@@ -1258,7 +1398,13 @@ class ScalpEngine:
                 )
                 err = self._broker_order_error(result)
                 oid = result.get("orderId", "")
-                if oid and not err:
+                if oid and not err and (trade.status == "closed" or trade.trade_id not in self.open_trades):
+                    # The trade closed while this stop was on its way. A stop
+                    # left resting on a flat position is a live SELL that can
+                    # open a short, so it is withdrawn at once.
+                    await asyncio.to_thread(client.cancel_order, str(oid))
+                    self._log("info", f"🚫 Stop {oid} withdrawn: its trade closed while it was being placed")
+                elif oid and not err:
                     trade.broker_sl_order_id = str(oid)
                     self._log("info", f"🛡️ Broker SL placed: {exit_txn} trigger=₹{trade.sl_premium} orderId={oid}")
                 else:
@@ -1270,7 +1416,7 @@ class ScalpEngine:
         if place_tp and trade.target_premium > 0 and not trade.broker_tp_order_id:
             try:
                 result = await asyncio.to_thread(
-                    self.dhan.place_option_order,
+                    client.place_option_order,
                     underlying=trade.underlying,
                     strike_price=trade.strike,
                     option_type=trade.option_type,
@@ -1297,7 +1443,7 @@ class ScalpEngine:
 
         async def _cancel_one(label: str, oid_attr: str, oid: str):
             try:
-                await asyncio.to_thread(self.dhan.cancel_order, oid)
+                await asyncio.to_thread(self._orders_for(trade).cancel_order, oid)
                 self._log("info", f"🚫 Broker {label} cancelled: orderId={oid}")
             except Exception as e:
                 self._log("error", f"Broker {label} cancel failed ({oid}): {e}")
@@ -1387,7 +1533,7 @@ class ScalpEngine:
                 else:
                     sl_price = round(new_sl * 1.05, 2)
                 await asyncio.to_thread(
-                    self.dhan.modify_order,
+                    self._orders_for(trade).modify_order,
                     order_id=trade.broker_sl_order_id,
                     price=sl_price,
                     trigger_price=new_sl,
@@ -1399,6 +1545,10 @@ class ScalpEngine:
         elif new_sl is not None and new_sl > 0 and not trade.broker_sl_order_id:
             await self._place_broker_sl_tp(trade, place_sl=True, place_tp=False)
 
+        if self._is_zerodha_trade(trade):
+            if new_tp is not None:
+                self._log("info", f"🎯 Target now ₹{new_tp} — watched here, not rested at Zerodha")
+            return errors
         if new_tp is not None and trade.broker_tp_order_id:
             try:
                 await asyncio.to_thread(
@@ -1603,6 +1753,53 @@ class ScalpEngine:
                 self._enter_ltp_backoff(e)
             return 0.0
 
+    async def _stop_fill_price(self, trade: ScalpTrade, order_id: str) -> float:
+        """The price a broker stop filled at, or 0.0 if it has not filled."""
+        try:
+            row = await asyncio.to_thread(self._orders_for(trade).get_order_status, order_id)
+        except Exception as e:
+            self._log("error", f"Could not read stop order {order_id}: {e}")
+            return 0.0
+        if str((row or {}).get("orderStatus", "")).upper() != "TRADED":
+            return 0.0
+        return float(row.get("averageTradedPrice") or 0.0) or float(trade.sl_premium or 0.0)
+
+    async def _sync_zerodha_stops(self):
+        """Close a Zerodha scalp whose resting stop has filled at Zerodha.
+
+        Run BEFORE the position sync, so a stop that fired is booked as a stop
+        and not as a manual exit (the mislabel that once frightened Phil).
+        """
+        trades = [
+            t
+            for t in self.open_trades.values()
+            if t.status == "open" and self._is_zerodha_trade(t) and t.broker_sl_order_id
+        ]
+        for trade in trades:
+            if trade.trade_id not in self.open_trades:
+                continue
+            try:
+                row = await asyncio.to_thread(self._orders_for(trade).get_order_status, trade.broker_sl_order_id)
+            except Exception as e:
+                self._log("error", f"Zerodha stop check failed: {e}")
+                return
+            status = str((row or {}).get("orderStatus", "")).upper()
+            if status == "TRADED":
+                price = float(row.get("averageTradedPrice") or 0.0) or trade.sl_premium
+                oid = trade.broker_sl_order_id
+                trade.broker_sl_order_id = ""
+                await self._close_trade(
+                    trade, "sl_hit", skip_broker_exit=True, exit_prem_override=price, exit_order_id_override=oid
+                )
+            elif status in ("REJECTED", "CANCELLED"):
+                reason = row.get("rejectionReason") or status.lower()
+                self._log(
+                    "error",
+                    f"⚠️ Zerodha stop {trade.broker_sl_order_id} is {status}: {reason} — the stop is now watched "
+                    f"here only",
+                )
+                trade.broker_sl_order_id = ""
+
     async def _close_trade(
         self,
         trade: ScalpTrade,
@@ -1679,38 +1876,52 @@ class ScalpEngine:
                     self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
                 exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
         else:
+            stop_fill = 0.0
+            stop_oid = trade.broker_sl_order_id
             if self._is_super_order_trade(trade):
                 await self._cancel_super_order(trade)
             elif trade.broker_sl_order_id or trade.broker_tp_order_id:
                 await self._cancel_broker_orders(trade)
-            try:
-                # Use LIMIT order with aggressive fill price — Dhan converts
-                # F&O MARKET orders to LIMIT with a bad price buffer for SELLs,
-                # causing exit orders to hang as pending instead of filling.
-                ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium
-                if exit_txn == "SELL":
-                    # Sell at 5% below LTP to guarantee immediate fill
-                    exit_price = round(max(0.05, ltp * 0.95), 2)
-                else:
-                    # Buy at 5% above LTP to guarantee immediate fill
-                    exit_price = round(ltp * 1.05, 2)
-                self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp})")
-                result = self.dhan.place_option_order(
-                    underlying=trade.underlying,
-                    strike_price=trade.strike,
-                    option_type=trade.option_type,
-                    expiry=trade.expiry,
-                    transaction_type=exit_txn,
-                    quantity=trade.quantity,
-                    order_type="LIMIT",
-                    product_type=trade.product_type,
-                    price=exit_price,
-                    tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
-                )
-                exit_order_id = result.get("orderId", "")
-            except Exception as e:
-                self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
-            exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                if self._is_zerodha_trade(trade) and stop_oid:
+                    stop_fill = await self._stop_fill_price(trade, stop_oid)
+            if stop_fill > 0:
+                # The stop resting at Zerodha filled before it could be
+                # cancelled: the position is already flat, and a second SELL
+                # now would open a short.
+                self._log("info", f"🛡️ Zerodha stop had already filled @ ₹{stop_fill:.2f} — no exit order sent")
+                reason = "sl_hit"
+                exit_order_id = stop_oid
+                exit_prem = stop_fill
+            else:
+                try:
+                    # Use LIMIT order with aggressive fill price — Dhan converts
+                    # F&O MARKET orders to LIMIT with a bad price buffer for SELLs,
+                    # causing exit orders to hang as pending instead of filling.
+                    ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                    if exit_txn == "SELL":
+                        # Sell at 5% below LTP to guarantee immediate fill
+                        exit_price = round(max(0.05, ltp * 0.95), 2)
+                    else:
+                        # Buy at 5% above LTP to guarantee immediate fill
+                        exit_price = round(ltp * 1.05, 2)
+                    self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp})")
+                    result = self._orders_for(trade).place_option_order(
+                        underlying=trade.underlying,
+                        strike_price=trade.strike,
+                        option_type=trade.option_type,
+                        expiry=trade.expiry,
+                        transaction_type=exit_txn,
+                        quantity=trade.quantity,
+                        order_type="LIMIT",
+                        product_type=trade.product_type,
+                        price=exit_price,
+                        tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
+                    )
+                    exit_order_id = result.get("orderId", "")
+                except Exception as e:
+                    self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
+
+                exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
         pnl = trade._compute_pnl(exit_prem)
 
         trade.exit_time = _now_ist()

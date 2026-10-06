@@ -3717,6 +3717,7 @@ def _restore_scalp_trade_from_payload(payload: dict):
             mode=str(payload.get("mode") or "paper"),
             entry_limit_price=float(payload.get("entry_limit_price") or 0),
             entry_limit_max=float(payload.get("entry_limit_max") or 0),
+            broker=str(payload.get("broker") or "dhan"),
         )
         trade.current_premium = float(payload.get("current_premium") or trade.entry_premium or 0)
         trade.status = "pending" if status == "pending" else "open"
@@ -3900,6 +3901,7 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
             scalp_raw = await _db_mod.get_app_state(_scalp_open_state_key(user_id))
             if scalp_raw:
                 scalp = _get_scalp_engine(user_id, broker_client)
+                _attach_scalp_zerodha(scalp, user)
                 if await _restore_scalp_open_state(user_id, scalp):
                     restored["scalp"] += 1
             if await _restore_cascade_open_state(user_id, broker_client) is not None:
@@ -4511,7 +4513,39 @@ def _hand_zerodha_token_to_running_books(user_id: int, access_token: str, token_
             client._access_token = access_token
             client.token_saved_at = token_at
             handed += 1
+    scalp = _scalp_engines.get(int(user_id))
+    client = getattr(scalp, "zerodha", None)
+    if isinstance(client, _zerodha.ZerodhaClient):
+        client._access_token = access_token
+        client.token_saved_at = token_at
+        handed += 1
     return handed
+
+
+def _attach_scalp_zerodha(eng, user: dict | None, *, require_today: bool = False) -> tuple[bool, str]:
+    """Give the Scalp engine this user's Zerodha client, when there is one.
+
+    Exits, stop moves and restores need it as much as entries do: a Zerodha
+    scalp whose engine has no Zerodha client cannot cancel its own stop. A
+    restored trade takes yesterday's token, as the CE/PE books do; the morning
+    login hands the new one over (`_hand_zerodha_token_to_running_books`).
+    """
+    if eng is None:
+        return False, "missing"
+    client, source = _user_zerodha_client(user, require_today=require_today)
+    if client is None:
+        return False, source
+    eng.zerodha = client
+    return True, "zerodha"
+
+
+async def _attach_scalp_zerodha_for_request(eng, request: Request) -> None:
+    """Before an exit, kill or stop move: a Zerodha scalp needs its client."""
+    trades = (getattr(eng, "open_trades", None) or {}).values()
+    if not any(getattr(t, "broker", "dhan") == "zerodha" and t.mode == "live" for t in trades):
+        return
+    user = getattr(request.state, "current_user", None) or await _auth_mod.get_current_user(request)
+    _attach_scalp_zerodha(eng, user)
 
 
 def _book_broker_missing_message(user: dict | None, source: str) -> str:
@@ -24716,6 +24750,7 @@ async def stop_scalp_engine(request: Request):
     user_id = _request_user_id(request)
     eng = _get_scalp_engine(user_id)
     await _restore_scalp_open_state(user_id, eng)
+    await _attach_scalp_zerodha_for_request(eng, request)
     sqoff = await _square_off_scalp_engine_trades(eng)
     if not sqoff.get("ok"):
         return {
@@ -24750,6 +24785,7 @@ class ScalpEntryReq(BaseModel):
     mode: str = Field(default="live", min_length=4, max_length=5)
     entry_limit_price: float = Field(default=0.0, ge=0, le=1_000_000)
     entry_limit_max: float = Field(default=0.0, ge=0, le=1_000_000)
+    broker: str = Field(default="dhan", max_length=10)
 
 
 _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
@@ -24776,6 +24812,9 @@ def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
         raise HTTPException(status_code=400, detail="Scalp product must be INTRADAY or MARGIN")
     if req.mode not in {"paper", "live"}:
         raise HTTPException(status_code=400, detail="Scalp mode must be paper or live")
+    req.broker = str(req.broker or "dhan").strip().lower()
+    if req.broker not in {"dhan", "zerodha"}:
+        raise HTTPException(status_code=400, detail="Scalp broker must be Dhan or Zerodha")
     try:
         expiry_date = date.fromisoformat(req.expiry)
     except ValueError as exc:
@@ -24808,11 +24847,18 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
         _last_scalp_entry_ts[user_id] = now
         broker_client = None
+        user = None
         if str(req.mode or "live").lower() == "live":
+            # Dhan prices every scalp, the Zerodha ones included, so a Dhan
+            # connection is needed either way.
             user, broker_client, source = await _request_broker_context(request)
             if not broker_client:
                 return {"status": "error", "message": _broker_not_configured_message(user, source)}
         eng = _get_scalp_engine(user_id, broker_client=broker_client)
+        if req.mode == "live" and req.broker == "zerodha":
+            attached, z_source = _attach_scalp_zerodha(eng, user, require_today=True)
+            if not attached:
+                return {"status": "error", "message": _book_broker_missing_message(user, z_source)}
         try:
             product_type = req.product_type
             result = await eng.enter_trade(
@@ -24834,7 +24880,9 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                 mode=req.mode,
                 entry_limit_price=req.entry_limit_price,
                 entry_limit_max=req.entry_limit_max,
+                broker=req.broker,
             )
+            broker_line = "\nBroker: Zerodha" if req.broker == "zerodha" and req.mode == "live" else ""
             if result.get("status") == "error":
                 alerter.alert(
                     "Scalp Entry Failed",
@@ -24857,7 +24905,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                         "Scalp Entry",
                         f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
                         f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-                        f"Entry: \u20b9{entry_p:.2f} | Product: {product_type} | Mode: {req.mode}",
+                        f"Entry: \u20b9{entry_p:.2f} | Product: {product_type} | Mode: {req.mode}{broker_line}",
                         level="info",
                     )
                 await _save_scalp_open_state(user_id, eng, force=True)
@@ -24877,6 +24925,7 @@ async def scalp_exit(trade_id: int, request: Request):
     eng = _get_scalp_engine(user_id)
     try:
         await _restore_scalp_open_state(user_id, eng)
+        await _attach_scalp_zerodha_for_request(eng, request)
         result = await eng.exit_trade(trade_id, reason="manual")
         if result.get("status") == "error":
             alerter.alert("Scalp Exit Failed", f"Trade ID: {trade_id}\nError: {result.get('message', 'unknown')}")
@@ -24894,6 +24943,7 @@ async def scalp_kill_all(request: Request):
     eng = _get_scalp_engine(user_id)
     try:
         await _restore_scalp_open_state(user_id, eng)
+        await _attach_scalp_zerodha_for_request(eng, request)
         result = await eng.kill_all_trades()
         closed = result.get("closed", 0)
         if closed > 0:
@@ -24921,6 +24971,7 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
     user_id = _request_user_id(request)
     eng = _get_scalp_engine(user_id)
     await _restore_scalp_open_state(user_id, eng)
+    await _attach_scalp_zerodha_for_request(eng, request)
     result = await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
     await _save_scalp_open_state(user_id, eng, force=True)
     _notify_scalp_ws()

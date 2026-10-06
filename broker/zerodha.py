@@ -431,6 +431,35 @@ class ZerodhaClient:
         # get_order_status, exactly as it does with Dhan.
         return {"orderId": str(order_id), "orderStatus": ""}
 
+    def modify_order(
+        self,
+        order_id: str,
+        order_type: str = None,
+        quantity: int = None,
+        price: float = None,
+        trigger_price: float = None,
+    ) -> dict:
+        """Move a resting order (Scalp moves its stop with this). Dhan's call,
+        Dhan's answer shape; option ticks are 0.05 on NFO and BFO alike."""
+        form: dict = {}
+        if order_type:
+            kite_type = _ORDER_TYPE.get(str(order_type).upper())
+            if not kite_type:
+                raise DhanOrderError("Order modify", 400, f"Order type {order_type!r} is not supported on Zerodha")
+            form["order_type"] = kite_type
+        if quantity:
+            form["quantity"] = int(quantity)
+        if price is not None:
+            form["price"] = round_to_tick(float(price or 0), 0.05)
+        if trigger_price is not None:
+            form["trigger_price"] = round_to_tick(float(trigger_price or 0), 0.05)
+        resp, body = self._call("PUT", f"/orders/regular/{order_id}", data=form)
+        if resp.status_code != 200 or body.get("status") != "success":
+            raise DhanOrderError(
+                "Order modify", resp.status_code, str(body.get("message") or "Zerodha refused the change"), body
+            )
+        return {"orderId": str(order_id), "orderStatus": "TRANSIT", "broker": "zerodha"}
+
     def get_order_status(self, order_id: str) -> dict:
         if not str(order_id or "").strip():
             return {"orderStatus": "UNKNOWN", "message": "no order id"}

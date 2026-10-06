@@ -12636,6 +12636,7 @@ function _readScalpFormState() {
     sl_prem: read('scalp-sl-prem'),
     target_prem: read('scalp-target-prem'),
     mode: read('scalp-mode') || 'paper',
+    broker: read('scalp-broker') || 'dhan',
     entry_limit_price: read('scalp-limit-price'),
     entry_limit_max: read('scalp-limit-max'),
   };
@@ -12677,8 +12678,10 @@ async function _restoreScalpFormState() {
     _applyScalpFieldValue('scalp-product-type', saved.product_type);
     _applyScalpFieldValue('scalp-option-type', saved.option_type);
     _applyScalpFieldValue('scalp-mode', saved.mode);
+    _applyScalpFieldValue('scalp-broker', saved.broker);
     _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
     _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
+    _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
     _applyScalpFieldValue('scalp-lots', saved.lots);
     _applyScalpFieldValue('scalp-sl-rs', saved.sl_rs);
     _applyScalpFieldValue('scalp-target-rs', saved.target_rs);
@@ -12696,6 +12699,7 @@ async function _restoreScalpFormState() {
 async function initScalpPage() {
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
+  _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
   await _restoreScalpFormState();
   _updateScalpExitRulesNote();
   _scalpFormInitialized = true;
@@ -12728,7 +12732,28 @@ function _syncScalpToggleGroup(groupId, inputId) {
   });
 }
 
+// Dhan carries the target and stop inside one Super Order. Zerodha has no
+// such order, so there the stop rests at Zerodha and PhilForge watches the
+// target -- the note says which, so a live order is never a surprise.
+function _updateScalpBrokerNote() {
+  const note = document.getElementById('scalp-live-note');
+  if (!note) return;
+  note.innerHTML = document.getElementById('scalp-broker')?.value === 'zerodha'
+    ? 'Live on Zerodha: your <strong>SL Premium</strong> rests at Zerodha as a stop order; PhilForge watches the <strong>Target Premium</strong> and exits when it is hit. Log in to Zerodha from Settings each morning.'
+    : 'Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.';
+}
+
+function setScalpBroker(value) {
+  const input = document.getElementById('scalp-broker');
+  if (!input || input.value === value) return;
+  input.value = value;
+  _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
+  _updateScalpBrokerNote();
+  _persistScalpFormState();
+}
+
 function _updateScalpExitRulesNote() {
+  _updateScalpBrokerNote();
   const note = document.getElementById('scalp-exit-rules-note');
   const mode = document.getElementById('scalp-mode')?.value;
   if (!note) return;
@@ -13015,6 +13040,7 @@ const _SCALP_FORM_IDS = new Set([
   'scalp-sl-prem',
   'scalp-target-prem',
   'scalp-mode',
+  'scalp-broker',
   'scalp-limit-price',
   'scalp-limit-max',
 ]);
@@ -13092,6 +13118,7 @@ async function submitScalpEntry(direction) {
       sl_premium: parseFloat(document.getElementById('scalp-sl-prem').value) || 0,
       sqoff_time: '',
       mode: document.getElementById('scalp-mode').value,
+      broker: document.getElementById('scalp-broker')?.value || 'dhan',
       entry_limit_price: parseFloat(document.getElementById('scalp-limit-price').value) || 0,
       entry_limit_max: parseFloat(document.getElementById('scalp-limit-max').value) || 0,
     };
@@ -13517,9 +13544,12 @@ function _buildScalpActiveRow(t) {
     </tr>`;
   }
   const hasBrokerOrders = t.super_order_id || t.broker_sl_order_id || t.broker_tp_order_id;
-  const brokerBadge = hasBrokerOrders
+  const onZerodha = t.broker === 'zerodha' && t.mode === 'live';
+  const brokerBadge = (onZerodha
+    ? ` <span title="Zerodha${t.broker_sl_order_id ? ' · stop resting at Zerodha' : ' · stop not yet at Zerodha'} · target watched by PhilForge" style="font-size:9px;color:rgba(96,165,250,0.85);font-weight:700;">ZERODHA</span>`
+    : '') + (hasBrokerOrders
     ? ` <span title="${t.super_order_id ? 'Dhan Super Order active' : 'SL/TP placed on broker'}" style="font-size:9px;color:rgba(52,211,153,0.7);font-weight:700;">${t.super_order_id ? 'SO' : '🛡️'}</span>`
-    : '';
+    : '');
   return `<tr data-tid="${t.trade_id}" data-status="open" style="border-bottom:1px solid rgba(255,255,255,0.03);">
     <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')}${_scalpLotsBadge(t)} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${_scalpProductBadge(t.product_type)}${brokerBadge}</td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
