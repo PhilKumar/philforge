@@ -8,7 +8,7 @@
     const pages = {
       'dashboard-page': 'dashboard', 'portfolio-page': 'portfolio',
       'options-cascade-page': 'trading', 'stock-terminal-page': 'equity',
-      'scalp-page': 'scalp', 'option-builder-page': 'builder', // its own art when Phil makes one
+      'scalp-page': 'scalp', 'option-builder-page': 'option-builder',
       'insights-page': 'insights', 'live-page': 'live',
       'builder-page': 'builder', 'charts-page': 'journal',
       'results-page': 'results', 'assets-page': 'assets'
