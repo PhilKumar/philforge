@@ -41,8 +41,10 @@ class FrozenHeaderTests(unittest.TestCase):
     def test_the_class_is_turned_on_for_the_blueprint_and_off_elsewhere(self):
         self.assertIn("document.body.classList.toggle('pf-blueprint-open'", APP_JS)
         self.assertIn("_setBlueprintFrozenHeader(isBlueprint);", APP_JS)
-        # Leaving by any other route must release it -- both navigation paths.
-        self.assertEqual(APP_JS.count("else _setBlueprintFrozenHeader(false);"), 2)
+        # Leaving by any other route must release it -- both navigation paths,
+        # which now also release the frozen tearsheet.
+        release = "else {\n    _setBlueprintFrozenHeader(false);\n    _setTearsheetFrozen(false);\n  }"
+        self.assertEqual(APP_JS.count(release), 2)
 
     def test_the_bar_is_pinned_to_the_measured_header_height(self):
         body = APP_JS.split("function _syncBlueprintStickyOffset()")[1].split("\n}")[0]
