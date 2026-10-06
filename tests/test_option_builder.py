@@ -147,6 +147,18 @@ class DhanIsAskedSparingly(unittest.TestCase):
         self.assertEqual(len(self.client.calls), 1)
 
 
+class AnExpiryEndsAtItsClose(unittest.TestCase):
+    def test_todays_expiry_is_offered_until_1530_ist(self):
+        exps = ["2026-10-06", "2026-10-13"]
+        morning = datetime(2026, 10, 6, 15, 29, tzinfo=IST)
+        evening = datetime(2026, 10, 6, 15, 30, tzinfo=IST)
+        self.assertEqual(ob.open_expiries(exps, morning), exps)
+        self.assertEqual(ob.open_expiries(exps, evening), ["2026-10-13"])
+
+    def test_a_past_expiry_is_never_offered(self):
+        self.assertEqual(ob.open_expiries(["2026-10-01"], datetime(2026, 10, 6, 9, 0, tzinfo=IST)), [])
+
+
 class LegsAndOrders(unittest.TestCase):
     def leg(self, **over):
         base = {

@@ -155,6 +155,19 @@ def shape_chain(raw: dict, underlying: str, expiry: str, lot_size: int = 0) -> d
     }
 
 
+EXPIRY_CLOSE = (15, 30)
+
+
+def open_expiries(expiries: list, now: datetime | None = None) -> list:
+    """Expiries still tradable. Dhan keeps listing today's expiry after the
+    15:30 close (6-Oct-2026: the page opened on contracts that had expired,
+    ATM IV 2.7%), so an expiry drops off at its own close, not at midnight."""
+    moment = now or datetime.now(IST)
+    today = moment.date().isoformat()
+    closed = (moment.hour, moment.minute) >= EXPIRY_CLOSE
+    return [e for e in expiries if e > today or (e == today and not closed)]
+
+
 class ChainCache:
     """Option chains, at most one Dhan request per chain per TTL, ≥3s apart."""
 
@@ -210,13 +223,11 @@ class ChainCache:
         underlying = normalize_underlying(underlying)
         hit = self._expiries.get(underlying)
         if hit and self._clock() - hit[0] < EXPIRY_TTL_SEC:
-            return hit[1]
+            return open_expiries(hit[1])
         spec = UNDERLYINGS[underlying]
         found = self._paced(lambda: client.get_option_chain_expiries(spec["scrip"], spec["seg"]))
-        today = datetime.now(IST).date().isoformat()
-        found = sorted(e for e in found if e >= today)
-        self._expiries[underlying] = (self._clock(), found)
-        return found
+        self._expiries[underlying] = (self._clock(), sorted(found))
+        return open_expiries(sorted(found))
 
 
 # ── legs ────────────────────────────────────────────────────────────────────
