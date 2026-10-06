@@ -1702,6 +1702,7 @@ const NAV_BUTTON_MAP = {
   'live-page': 'nav-live',
   'stock-terminal-page': 'nav-trading',
   'scalp-page': 'nav-trading',
+  'option-builder-page': 'nav-trading',
   'options-cascade-page': 'nav-trading',
   'charts-page': 'nav-charts',
   'insights-page': 'nav-insights',
@@ -1711,6 +1712,7 @@ const NAV_BUTTON_MAP = {
 const TRADING_SECTION_BY_PAGE = {
   'stock-terminal-page': 'equity',
   'scalp-page': 'scalp',
+  'option-builder-page': 'builder',
   'options-cascade-page': 'cascade',
 };
 const TRADING_PAGE_BY_SECTION = Object.fromEntries(
@@ -2492,6 +2494,8 @@ document.addEventListener('click', (event) => {
       ? 'initOptionsCascadePage'
       : page === 'scalp-page'
         ? 'initScalpPage'
+        : page === 'option-builder-page'
+        ? 'initOptionBuilderPage'
         : page === 'stock-terminal-page'
           ? 'initStockTerminalPage'
           : navEl.getAttribute('data-pf-after-nav');
@@ -2507,6 +2511,7 @@ async function applyNavState(state) {
   if (page === 'stock-terminal-page') initStockTerminalPage();
   if (page === 'insights-page') initInsightsPage();
   if (page === 'scalp-page') initScalpPage();
+  if (page === 'option-builder-page' && typeof window.initOptionBuilderPage === 'function') window.initOptionBuilderPage();
   if (page === 'options-cascade-page') initOptionsCascadePage();
   if (page === 'charts-page') initChartsPage();
   if (page === 'results-page' && typeof state?.publishedRun === 'string' && state.publishedRun) {
@@ -2606,6 +2611,8 @@ function showPage(id, btn, options = {}) {
   // Stop scalp polling when leaving scalp page
   if (id !== 'scalp-page' && _scalpPollTimer) { clearInterval(_scalpPollTimer); _scalpPollTimer = null; }
   if (id !== 'scalp-page' && _scalpLTPTimer) { clearInterval(_scalpLTPTimer); _scalpLTPTimer = null; }
+  // The Option Builder polls Dhan's chain only while it is on screen.
+  if (id !== 'option-builder-page' && window.PFOptionBuilder) window.PFOptionBuilder.pause();
   if (id !== 'options-cascade-page' && _fibBoundaryPollTimer) { clearInterval(_fibBoundaryPollTimer); _fibBoundaryPollTimer = null; }
   if (id !== 'portfolio-page') stopPortfolioRefresh();
   // Start/stop builder preview polling

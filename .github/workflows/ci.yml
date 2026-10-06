@@ -70,6 +70,8 @@ jobs:
           node --check static/philforge-appearance.js
           node --check static/philforge-theme.js
           node --check static/philforge-app.js
+          node --check static/option-builder-math.js
+          node --check static/option-builder.js
           node --check static/philforge-login.js
           node --check static/study_lounge.js
           node --check static/market_movers.js
@@ -128,6 +130,8 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_cascade_fib_boundary_routes.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_hybrid_premium_lookup.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_fib_backtest_route_e2e.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_option_builder.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_option_builder_math.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_image_uploads.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_journal_validation.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_request_security.py'

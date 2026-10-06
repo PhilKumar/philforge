@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="/static/philforge-light-actions.css?v=__ASSET_VERSION__">
 <link rel="stylesheet" href="/static/philforge-theme.css?v=__ASSET_VERSION__">
 <link rel="stylesheet" href="/static/insights-panels.css?v=__ASSET_VERSION__">
+<link rel="stylesheet" href="/static/option-builder.css?v=__ASSET_VERSION__">
 <style>
   /* The status line each panel lost with its standalone topbar. Shell-owned on
      purpose: it uses the app's chips, not the pages' bespoke ones. */
@@ -1563,6 +1564,10 @@
         <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
         <span><strong>Scalp</strong><small>Fast option desk</small></span>
       </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
+        <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>
+        <span><strong>Option Builder</strong><small>Strategy payoff · live chain</small></span>
+      </button>
       <button id="nav-terminal" class="trading-section-tab is-active" type="button" role="tab" aria-selected="true" data-pf-trading-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
         <span class="trading-section-icon trading-section-icon-equity" aria-hidden="true">◰</span>
         <span><strong>Equity</strong><small>Nifty 200 + BEES</small></span>
@@ -2453,6 +2458,10 @@
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-page" data-pf-after-nav="initScalpPage">
         <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
         <span><strong>Scalp</strong><small>Fast option desk</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
+        <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>
+        <span><strong>Option Builder</strong><small>Strategy payoff · live chain</small></span>
       </button>
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
         <span class="trading-section-icon trading-section-icon-equity" aria-hidden="true">◰</span>
@@ -4262,6 +4271,10 @@
         <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
         <span><strong>Scalp</strong><small>Fast option desk</small></span>
       </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
+        <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>
+        <span><strong>Option Builder</strong><small>Strategy payoff · live chain</small></span>
+      </button>
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
         <span class="trading-section-icon trading-section-icon-equity" aria-hidden="true">◰</span>
         <span><strong>Equity</strong><small>Nifty 200 + BEES</small></span>
@@ -4533,6 +4546,41 @@
     </div>
   </div>
 
+</div>
+
+<!-- ═══ OPTION BUILDER ═══
+     A multi-leg strategy desk on the live Dhan chain (Phil, 2026-10-06: "a page
+     like sensibull, options trader page in dhan ... according to our philforge
+     style"). Everything inside #ob-root is drawn by static/option-builder.js;
+     the numbers come from static/option-builder-math.js and /api/option-builder. -->
+<div id="option-builder-page" class="page-section pf-unified-page">
+  <section class="trading-workspace-head" data-trading-current="builder" aria-labelledby="trading-title-builder">
+    <i class="pf-hero-rail" aria-hidden="true"></i>
+    <div class="trading-workspace-intro">
+      <div class="trading-workspace-kicker">Execution workspace</div>
+      <h1 id="trading-title-builder">Trading</h1>
+      <p>Choose the desk that matches the trade you want to manage.</p>
+    </div>
+    <div class="trading-section-tabs" role="tablist" aria-label="Trading sections">
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage">
+        <span class="trading-section-icon trading-section-icon-cascade" aria-hidden="true">↗</span>
+        <span><strong>Options</strong><small>Structured campaigns</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-page" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
+        <span><strong>Scalp</strong><small>Fast option desk</small></span>
+      </button>
+      <button id="nav-option-builder" class="trading-section-tab is-active" type="button" role="tab" aria-selected="true" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
+        <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>
+        <span><strong>Option Builder</strong><small>Strategy payoff · live chain</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
+        <span class="trading-section-icon trading-section-icon-equity" aria-hidden="true">◰</span>
+        <span><strong>Equity</strong><small>Nifty 200 + BEES</small></span>
+      </button>
+    </div>
+  </section>
+  <div id="ob-root" class="ob-root" aria-live="polite"></div>
 </div>
 
 <!-- ═══ ARCHITECTURE ═══ -->
@@ -5078,5 +5126,7 @@
 <script src="/static/philforge-cascade-scanner.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-two-red.js?v=__ASSET_VERSION__"></script>
 <script src="/static/philforge-bench-chart.js?v=__ASSET_VERSION__"></script>
+<script src="/static/option-builder-math.js?v=__ASSET_VERSION__"></script>
+<script src="/static/option-builder.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>

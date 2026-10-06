@@ -453,6 +453,7 @@ test('Trading defaults to Cascade and remembers its last desk and page views', a
   await expect(page.locator('#options-cascade-page .trading-section-tab strong')).toHaveText([
     'Options',
     'Scalp',
+    'Option Builder',
     'Equity',
   ]);
 

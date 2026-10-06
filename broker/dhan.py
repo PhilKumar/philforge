@@ -2377,6 +2377,64 @@ class DhanClient:
             raise Exception(f"LTP fetch failed: {resp.text}")
         return resp.json().get("data", {})
 
+    # ── Option chain + basket margin (the Option Builder's data) ──
+    # Dhan allows ONE unique option-chain request every 3 seconds per account;
+    # option_builder.py caches and single-flights them so every viewer of the
+    # same chain costs one call.
+    def get_option_chain(self, underlying_scrip: int, underlying_seg: str, expiry: str) -> dict:
+        """The full chain for one expiry: {"last_price": spot, "oc": {strike: {"ce": {...}, "pe": {...}}}}."""
+        resp = _request_with_retry(
+            "POST",
+            f"{self.base_url}/v2/optionchain",
+            headers=self.headers,
+            json={"UnderlyingScrip": int(underlying_scrip), "UnderlyingSeg": underlying_seg, "Expiry": expiry},
+            timeout=10,
+            max_retries=1,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Option chain failed ({resp.status_code}): {resp.text[:200]}")
+        return (resp.json() or {}).get("data") or {}
+
+    def get_option_chain_expiries(self, underlying_scrip: int, underlying_seg: str) -> list:
+        resp = _request_with_retry(
+            "POST",
+            f"{self.base_url}/v2/optionchain/expirylist",
+            headers=self.headers,
+            json={"UnderlyingScrip": int(underlying_scrip), "UnderlyingSeg": underlying_seg},
+            timeout=10,
+            max_retries=1,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Expiry list failed ({resp.status_code}): {resp.text[:200]}")
+        return [str(x) for x in ((resp.json() or {}).get("data") or [])]
+
+    def get_basket_margin(self, scrip_list: list, *, include_positions: bool = False) -> dict:
+        """Dhan's margin for several orders together -- hedge benefit included,
+        which a sum of single-order margins would miss entirely."""
+        resp = _request_with_retry(
+            "POST",
+            f"{self.base_url}/v2/margincalculator/multi",
+            headers=self.headers,
+            json={
+                "includePosition": bool(include_positions),
+                "includeOrders": False,
+                "dhanClientId": self.client_id,
+                "scripList": scrip_list,
+            },
+            timeout=10,
+            max_retries=1,
+            allow_token_refresh=self._allow_token_refresh,
+            refresh_token_func=self.refresh_access_token,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Margin calculator failed ({resp.status_code}): {resp.text[:200]}")
+        body = resp.json() or {}
+        return body.get("data", body) if isinstance(body, dict) else {}
+
     def get_ohlc_multi(self, segments: dict) -> dict:
         """Get OHLC + LTP across multiple exchange segments in ONE API call.
         Uses /v2/marketfeed/ohlc — returns last_price + ohlc{open,close,high,low}.

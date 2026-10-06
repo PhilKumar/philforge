@@ -223,6 +223,9 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("DELETE", re.compile(r"^/api/orders/[^/]+$"), "broker_order"),
     ("POST", re.compile(r"^/api/terminal/order$"), "broker_order"),
     ("POST", re.compile(r"^/api/terminal/gtt$"), "broker_order"),
+    # A live Option Builder basket is several real orders at once: one confirm
+    # per basket, never per leg.
+    ("POST", re.compile(r"^/api/option-builder/execute$"), "broker_order"),
     ("DELETE", re.compile(r"^/api/terminal/forever/[^/]+$"), "broker_order"),
     # FIB BOUNDARY IS NOT HERE ANY MORE. Phil, 2026-08-15: "No need... just give
     # a toggle from paper to live and live to paper like scalp page." Its live

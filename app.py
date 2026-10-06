@@ -25584,6 +25584,329 @@ async def get_expiry_list(symbol: str):
         return {"status": "error", "msg": str(e)}
 
 
+# ══════════════════════════════════════════════════════════════
+#  OPTION BUILDER — a multi-leg strategy desk on the live chain
+# ══════════════════════════════════════════════════════════════
+# Phil, 2026-10-06: a page "like sensibull, options trader page in dhan ... in
+# our philforge style ... data synced with everything". The chain, greeks, OI
+# and margin come from Dhan through option_builder.py; the payoff is drawn in
+# the browser. Paper baskets live per user in app_state; live baskets are real
+# orders, one authenticator confirm per basket (auth: broker_order).
+import option_builder as _ob
+
+_ob_chains = _ob.ChainCache()
+_OB_PAPER_KEY = "option_builder_paper_{uid}"
+_ob_paper_lock: Dict[int, asyncio.Lock] = {}
+
+
+def _ob_lot_size(underlying: str, expiry: str) -> int:
+    try:
+        ScripMaster.ensure_loaded()
+        return int(ScripMaster.get_lot_size(underlying, expiry) or 0)
+    except Exception:
+        return 0
+
+
+async def _ob_chain(client, underlying: str, expiry: str) -> dict:
+    lot = await asyncio.to_thread(_ob_lot_size, underlying, expiry)
+    return await asyncio.to_thread(_ob_chains.get, client, underlying, expiry, lot)
+
+
+def _ob_refusal(exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
+
+
+@app.get("/api/option-builder/expiries")
+async def option_builder_expiries(request: Request, underlying: str = "NIFTY"):
+    user, client, source = await _request_broker_context(request)
+    if client is None:
+        return JSONResponse(
+            status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
+        )
+    try:
+        found = await asyncio.to_thread(_ob_chains.expiries, client, underlying)
+    except _ob.OptionBuilderError as exc:
+        return _ob_refusal(exc)
+    except Exception as exc:
+        return JSONResponse(
+            status_code=502, content={"status": "error", "message": f"Dhan did not send the expiries: {exc}"}
+        )
+    return {"status": "ok", "underlying": underlying.upper(), "expiries": found}
+
+
+@app.get("/api/option-builder/chain")
+async def option_builder_chain(request: Request, underlying: str = "NIFTY", expiry: str = ""):
+    user, client, source = await _request_broker_context(request)
+    if client is None:
+        return JSONResponse(
+            status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
+        )
+    try:
+        if not expiry:
+            found = await asyncio.to_thread(_ob_chains.expiries, client, underlying)
+            if not found:
+                return _ob_refusal(_ob.OptionBuilderError("Dhan lists no open expiries for this underlying."))
+            expiry = found[0]
+        date.fromisoformat(expiry)
+        chain = await _ob_chain(client, underlying, expiry)
+    except _ob.OptionBuilderError as exc:
+        return _ob_refusal(exc)
+    except ValueError:
+        return _ob_refusal(_ob.OptionBuilderError("The expiry must be a date like 2026-10-13."))
+    except Exception as exc:
+        return JSONResponse(
+            status_code=502, content={"status": "error", "message": f"Dhan did not send the chain: {exc}"}
+        )
+    return {"status": "ok", "session_open": _ob.nse_session_open(), **chain}
+
+
+class OptionBuilderBasketReq(BaseModel):
+    legs: list = Field(default_factory=list)
+    product: str = Field(default="INTRADAY", max_length=16)
+    broker: str = Field(default="dhan", max_length=10)
+    name: str = Field(default="", max_length=60)
+
+
+@app.post("/api/option-builder/margin")
+async def option_builder_margin(req: OptionBuilderBasketReq, request: Request):
+    """Dhan's margin for the whole basket at once, hedge benefit included."""
+    user, client, source = await _request_broker_context(request)
+    if client is None:
+        return JSONResponse(
+            status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
+        )
+    try:
+        legs = _ob.normalize_legs(req.legs)
+    except _ob.OptionBuilderError as exc:
+        return _ob_refusal(exc)
+    lot = await asyncio.to_thread(_ob_lot_size, legs[0]["underlying"], legs[0]["expiry"])
+    if lot <= 0:
+        return _ob_refusal(_ob.OptionBuilderError("The lot size is not known yet -- try again in a moment."))
+    for leg in legs:
+        if not leg["security_id"]:
+            leg["security_id"] = str(
+                await asyncio.to_thread(
+                    ScripMaster.lookup, leg["underlying"], int(leg["strike"]), leg["expiry"], leg["option_type"]
+                )
+                or ""
+            )
+    if any(not leg["security_id"] for leg in legs):
+        return _ob_refusal(_ob.OptionBuilderError("One leg is not a listed contract."))
+    try:
+        raw = await asyncio.to_thread(client.get_basket_margin, _ob.margin_scrip_list(legs, lot, req.product))
+        funds = await asyncio.to_thread(client.get_funds_cached) if hasattr(client, "get_funds_cached") else {}
+    except Exception as exc:
+        return JSONResponse(
+            status_code=502, content={"status": "error", "message": f"Dhan's margin calculator did not answer: {exc}"}
+        )
+    margin = _ob.shape_margin(raw)
+    available = float((funds or {}).get("availabelBalance") or (funds or {}).get("availableBalance") or 0.0)
+    return {"status": "ok", "lot_size": lot, **margin, "available": available}
+
+
+@app.get("/api/option-builder/positions")
+async def option_builder_positions(request: Request, underlying: str = ""):
+    """Open option positions at both brokers, as builder legs."""
+    user, client, _source = await _request_broker_context(request)
+    legs: list = []
+    notes: list = []
+    if client is not None:
+        try:
+            rows = await asyncio.to_thread(client.get_positions)
+            legs += _ob.legs_from_dhan_positions(rows if isinstance(rows, list) else [])
+        except Exception as exc:
+            notes.append(f"Dhan positions could not be read: {exc}")
+    z_client, _z = _user_zerodha_client(user, require_today=True)
+    if z_client is not None:
+        try:
+            rows = await asyncio.to_thread(z_client.get_positions)
+            legs += _ob.legs_from_zerodha_positions(rows, _zerodha.KiteInstruments.key_for_symbol)
+        except Exception as exc:
+            notes.append(f"Zerodha positions could not be read: {exc}")
+    if underlying:
+        legs = [leg for leg in legs if leg["underlying"] == underlying.upper()]
+    return {"status": "ok", "legs": legs, "notes": notes}
+
+
+async def _ob_load_paper(uid: int) -> list:
+    raw = await _db_mod.get_app_state(_OB_PAPER_KEY.format(uid=uid))
+    try:
+        rows = json.loads(raw) if raw else []
+    except Exception:
+        rows = []
+    return rows if isinstance(rows, list) else []
+
+
+async def _ob_save_paper(uid: int, rows: list) -> None:
+    # Closed baskets are history: the newest 200 are kept.
+    open_rows = [r for r in rows if r.get("status") == "open"]
+    closed = [r for r in rows if r.get("status") != "open"][-200:]
+    await _db_mod.set_app_state(_OB_PAPER_KEY.format(uid=uid), json.dumps(open_rows + closed))
+
+
+@app.get("/api/option-builder/paper")
+async def option_builder_paper_list(request: Request):
+    return {"status": "ok", "baskets": await _ob_load_paper(_request_user_id(request))}
+
+
+@app.post("/api/option-builder/paper")
+async def option_builder_paper_open(req: OptionBuilderBasketReq, request: Request):
+    uid = _request_user_id(request)
+    try:
+        legs = _ob.normalize_legs(req.legs)
+    except _ob.OptionBuilderError as exc:
+        return _ob_refusal(exc)
+    lot = await asyncio.to_thread(_ob_lot_size, legs[0]["underlying"], legs[0]["expiry"])
+    if lot <= 0:
+        return _ob_refusal(_ob.OptionBuilderError("The lot size is not known yet -- try again in a moment."))
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        rows = await _ob_load_paper(uid)
+        next_id = max([int(r.get("id") or 0) for r in rows] + [0]) + 1
+        try:
+            basket = _ob.new_paper_basket(next_id, req.name, legs, lot, datetime.now(IST))
+        except _ob.OptionBuilderError as exc:
+            return _ob_refusal(exc)
+        rows.append(basket)
+        await _ob_save_paper(uid, rows)
+    alerter.alert(
+        "Option Builder · Paper",
+        f"{basket['name']} opened on {basket['underlying']} · {len(legs)} leg(s)",
+        level="info",
+    )
+    return {"status": "ok", "basket": basket}
+
+
+@app.post("/api/option-builder/paper/{basket_id}/close")
+async def option_builder_paper_close(basket_id: int, request: Request):
+    uid = _request_user_id(request)
+    user, client, source = await _request_broker_context(request)
+    if client is None:
+        return JSONResponse(
+            status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
+        )
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        rows = await _ob_load_paper(uid)
+        basket = next((r for r in rows if int(r.get("id") or 0) == basket_id and r.get("status") == "open"), None)
+        if basket is None:
+            return JSONResponse(
+                status_code=404, content={"status": "error", "message": "That paper strategy is not open."}
+            )
+        prices = {}
+        try:
+            for expiry in sorted({leg["expiry"] for leg in basket["legs"]}):
+                chain = await _ob_chain(client, basket["underlying"], expiry)
+                for leg in basket["legs"]:
+                    if leg["expiry"] == expiry:
+                        quote = _ob.quote_for(chain, leg["strike"], leg["option_type"])
+                        prices[(leg["strike"], leg["option_type"], expiry)] = (quote or {}).get("ltp", 0.0)
+            closed = _ob.close_paper_basket(basket, prices, datetime.now(IST))
+        except _ob.OptionBuilderError as exc:
+            return _ob_refusal(exc)
+        except Exception as exc:
+            return JSONResponse(
+                status_code=502, content={"status": "error", "message": f"No prices to close at: {exc}"}
+            )
+        rows = [closed if r is basket else r for r in rows]
+        await _ob_save_paper(uid, rows)
+    pnl = closed["realised"]
+    alerter.alert(
+        "Option Builder · Paper closed",
+        f"{closed['name']} on {closed['underlying']}: {'+' if pnl >= 0 else ''}₹{pnl:,.2f}",
+        level="info" if pnl >= 0 else "error",
+    )
+    return {"status": "ok", "basket": closed}
+
+
+@app.delete("/api/option-builder/paper/{basket_id}")
+async def option_builder_paper_delete(basket_id: int, request: Request):
+    """Removes a CLOSED paper basket from the list. An open one must be closed."""
+    uid = _request_user_id(request)
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        rows = await _ob_load_paper(uid)
+        kept = [r for r in rows if not (int(r.get("id") or 0) == basket_id and r.get("status") != "open")]
+        if len(kept) == len(rows):
+            return JSONResponse(
+                status_code=404, content={"status": "error", "message": "Only a closed paper strategy can be removed."}
+            )
+        await _ob_save_paper(uid, kept)
+    return {"status": "ok"}
+
+
+@app.post("/api/option-builder/execute")
+async def option_builder_execute(req: OptionBuilderBasketReq, request: Request):
+    """Send the basket to the broker as real orders, BUY legs first.
+
+    A failed BUY stops the basket before any SELL goes out: a short leg left
+    without its hedge is the one outcome a spread exists to prevent.
+    """
+    try:
+        legs = _ob.normalize_legs(req.legs)
+    except _ob.OptionBuilderError as exc:
+        return _ob_refusal(exc)
+    broker_name = str(req.broker or "dhan").lower()
+    user, dhan_client, source = await _request_broker_context(request)
+    if dhan_client is None:
+        return JSONResponse(
+            status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
+        )
+    order_client = dhan_client
+    if broker_name == "zerodha":
+        order_client, z_source = _user_zerodha_client(user, require_today=True)
+        if order_client is None:
+            return JSONResponse(
+                status_code=400, content={"status": "error", "message": _book_broker_missing_message(user, z_source)}
+            )
+    lot = await asyncio.to_thread(_ob_lot_size, legs[0]["underlying"], legs[0]["expiry"])
+    if lot <= 0:
+        return _ob_refusal(_ob.OptionBuilderError("The lot size is not known yet -- try again in a moment."))
+    product = "MARGIN" if str(req.product).upper() in ("MARGIN", "NRML") else "INTRADAY"
+    chains: dict = {}
+    results: list = []
+    stopped = ""
+    for leg in _ob.basket_order(legs):
+        if stopped:
+            results.append({**leg, "status": "not_sent", "message": stopped})
+            continue
+        try:
+            if leg["expiry"] not in chains:
+                chains[leg["expiry"]] = await _ob_chain(dhan_client, leg["underlying"], leg["expiry"])
+            quote = _ob.quote_for(chains[leg["expiry"]], leg["strike"], leg["option_type"])
+            price = _ob.entry_price(leg, quote)
+            answer = await asyncio.to_thread(
+                order_client.place_option_order,
+                underlying=leg["underlying"],
+                strike_price=int(leg["strike"]),
+                option_type=leg["option_type"],
+                expiry=leg["expiry"],
+                transaction_type=leg["side"],
+                quantity=int(leg["lots"]) * lot,
+                order_type="LIMIT",
+                product_type=product,
+                price=price,
+                tag="AF_OPT_BUILDER",
+            )
+            status = str(answer.get("orderStatus") or answer.get("status") or "").upper()
+            if not answer.get("orderId") or status in ("REJECTED", "FAILED", "CANCELLED"):
+                raise RuntimeError(answer.get("remarks") or answer.get("message") or status or "no order id")
+            results.append({**leg, "status": "sent", "order_id": str(answer["orderId"]), "limit": price})
+        except Exception as exc:
+            results.append({**leg, "status": "failed", "message": str(exc)})
+            if leg["side"] == "BUY":
+                stopped = "Not sent: a BUY leg failed, so the SELL legs were held back to avoid a naked short."
+    sent = sum(1 for r in results if r["status"] == "sent")
+    lines = [
+        f"{r['side']} {r['lots']}×{lot} {r['underlying']} {r['strike']:g}{r['option_type']} {r['expiry']}: "
+        f"{r['status']}{' @ ≤₹' + format(r['limit'], '.2f') if r.get('limit') else ''}"
+        for r in results
+    ]
+    alerter.alert(
+        "Option Builder · LIVE basket",
+        f"{req.name or 'Strategy'} via {broker_name.title()} · {sent}/{len(results)} sent\n" + "\n".join(lines),
+        level="info" if sent == len(results) else "error",
+    )
+    return {"status": "ok" if sent == len(results) else "partial", "sent": sent, "results": results, "lot_size": lot}
+
+
 def _refresh_recent_charges(history: dict, user_id: int, broker_client: DhanClient | None = None):
     """Re-fetch today & yesterday from Dhan historical API to fill in charges.
 

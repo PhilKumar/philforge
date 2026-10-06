@@ -4087,6 +4087,21 @@
   .trading-section-icon-equity { color: #4ade80; }
   .trading-section-icon-scalp { color: #22d3ee; }
   .trading-section-icon-cascade { color: #fbbf24; }
+  .trading-section-icon-builder { color: #a78bfa; }
+  .trading-workspace-head[data-trading-current="builder"] { --trading-local-accent: #8b5cf6; }
+  /* Four desks since the Option Builder joined; Insights keeps its own count. */
+  @media (min-width: 621px) {
+    .trading-section-tabs:has(> .trading-section-tab:nth-child(4)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  /* The glass skin wraps the tabs with flex; four would leave one alone on a
+     row, so below 800px they pair up two by two there as well. */
+  @media (max-width: 800px) {
+    html.pf-glass .trading-section-tabs:has(> .trading-section-tab:nth-child(4)) > .trading-section-tab { flex: 1 1 calc(50% - 8px); }
+  }
+  /* On a phone four desks sit two by two -- no taller than three in a column was. */
+  @media (max-width: 620px) {
+    .trading-section-tabs:has(> .trading-section-tab:nth-child(4)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   /* Insights uses the same desk selector, so its two views tint here too. */
   .trading-section-icon-heatmap { color: #f97362; }
   .trading-section-icon-study { color: #7dd3fc; }
