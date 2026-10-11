@@ -14595,6 +14595,36 @@ function updateBrokerUI(status, text, dotColor, btnLabel) {
   if (refreshBtn) refreshBtn.style.display = (dotColor === 'red' || dotColor === 'orange') ? '' : 'none';
 }
 
+// Zerodha's line in the Broker Status card (Phil, 2026-10-11: "Why only
+// Dhan?"). Shown once a Kite app is saved: green when today's session
+// answers, orange with a Log in button when the morning login has not
+// happened, red when Zerodha cannot be reached. Asked on load and on Recheck,
+// not on the 30-second Dhan heartbeat: a Kite session changes once a day.
+async function refreshZerodhaBrokerLine() {
+  const row = document.getElementById('broker-zerodha-row');
+  const dot = document.getElementById('broker-zerodha-dot');
+  const text = document.getElementById('broker-zerodha-text');
+  const login = document.getElementById('broker-zerodha-login');
+  if (!row || !dot || !text || !login) return null;
+  let data = null;
+  try {
+    const res = await fetch('/api/zerodha/status');
+    data = res.ok ? await res.json() : null;
+  } catch (e) { data = null; }
+  if (!data || !data.configured) { row.hidden = true; return data; }
+  row.hidden = false;
+  const state = data.connected
+    ? ['Zerodha Connected', 'var(--green)', false]
+    : !data.logged_in_today
+      ? ['Zerodha · login needed', 'orange', true]
+      : ['Zerodha not reachable', 'red', false];
+  text.textContent = state[0];
+  text.title = data.connected ? '' : (data.reason || '');
+  dot.style.backgroundColor = state[1];
+  login.hidden = !state[2];
+  return data;
+}
+
 async function checkBrokerStatus(silent) {
   // The broker probe is refused for a read-only account, and treating that
   // refusal as an answer would paint the owner's healthy broker red and raise
@@ -14605,6 +14635,7 @@ async function checkBrokerStatus(silent) {
     return false;
   };
   if (isReadOnlyAccount()) return showReadOnlyBroker();
+  refreshZerodhaBrokerLine();
   try {
     const res = await fetch('/api/broker/check', { method: 'POST' });
     // Belt and braces: if the role arrived late and we asked anyway, the

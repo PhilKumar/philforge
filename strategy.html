@@ -308,6 +308,12 @@
           <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
           <span id="broker-text" style="font-weight: 600; font-size: 14px;">Checking...</span>
         </div>
+        <!-- The second broker's line; shown once a Kite app is saved. -->
+        <div id="broker-zerodha-row" hidden style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+          <span id="broker-zerodha-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
+          <span id="broker-zerodha-text" style="font-weight: 600; font-size: 14px;">Zerodha</span>
+          <button type="button" id="broker-zerodha-login" onclick="loginZerodha()" hidden class="dash-broker-login">Log in</button>
+        </div>
         <div style="display: flex; gap: 6px; margin-top: 10px;">
           <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; flex: 1;">Check</button>
           <button id="broker-refresh-btn" onclick="refreshToken()" class="read-only-lock btn" style="font-size: 11px; padding: 6px 10px; display: none; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.35) 100%); --btn-border: rgba(245,158,11,0.4); --btn-color: rgb(245,158,11);" title="Regenerate Dhan access token">⟳ Token</button>

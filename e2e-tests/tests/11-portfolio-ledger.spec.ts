@@ -175,3 +175,25 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   await expect(page.locator('#portfolio-zerodha-note')).toContainText('Log in to Zerodha');
   await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('—');
 });
+
+test('Broker Status names Zerodha too once a Kite app is saved', async ({ page }) => {
+  await login(page);
+  await page.click('#nav-dashboard');
+  await expect(page.locator('#dash-broker-summary-card')).toBeVisible();
+  await expect(page.locator('#broker-zerodha-row')).toBeHidden(); // no Kite app: Dhan alone, as before
+
+  await page.route('**/api/zerodha/status', route => route.fulfill({
+    json: { status: 'ok', configured: true, logged_in_today: true, connected: true, name: 'Test', available: 1000 },
+  }));
+  await page.click('#broker-toggle-btn');
+  await expect(page.locator('#broker-zerodha-text')).toHaveText('Zerodha Connected');
+  await expect(page.locator('#broker-zerodha-login')).toBeHidden();
+
+  // The morning after: saved, but today's login has not happened.
+  await page.route('**/api/zerodha/status', route => route.fulfill({
+    json: { status: 'ok', configured: true, logged_in_today: false, connected: false, reason: 'Log in to Zerodha' },
+  }));
+  await page.click('#broker-toggle-btn');
+  await expect(page.locator('#broker-zerodha-text')).toHaveText('Zerodha · login needed');
+  await expect(page.locator('#broker-zerodha-login')).toBeVisible();
+});

@@ -3296,6 +3296,13 @@
     background: #fff;
   }
   .mfa-enrollment-box a { color: #67e8f9; font-size: 12px; }
+  /* Broker Status card: Zerodha's line, and its "Log in" for the morning. */
+  #broker-zerodha-row[hidden], .dash-broker-login[hidden] { display: none !important; }
+  .dash-broker-login {
+    margin-left: auto; padding: 3px 9px; border: 1px solid rgba(251, 146, 60, .45); border-radius: 7px;
+    background: rgba(249, 115, 22, .12); color: #fb923c; font: 700 11px var(--font-body); cursor: pointer;
+  }
+  .dash-broker-login:hover { background: rgba(249, 115, 22, .2); }
   .settings-section {
     background: linear-gradient(155deg, rgba(18,26,42,0.58) 0%, rgba(12,18,32,0.46) 100%);
     border: 1px solid rgba(255,255,255,0.08);

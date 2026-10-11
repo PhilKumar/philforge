@@ -140,6 +140,7 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else if (path === '/api/zerodha/portfolio') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
     else if (path === '/api/zerodha/history') await route.fulfill({ json: { status: 'ok', configured: false, daily: {} } });
+    else if (path === '/api/zerodha/status') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
     // Insights panels. Both used to be their own pages; inside the tab they
     // call the same two endpoints, and the strict table has to know them or
     // opening the tab throws.

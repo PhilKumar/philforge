@@ -682,3 +682,26 @@ class ZerodhasOwnLedger(unittest.TestCase):
             self.assertIn(
                 "'/api/zerodha/history'", (root / "e2e-tests" / "tests" / spec).read_text(encoding="utf-8"), spec
             )
+
+
+class TheBrokerStatusCardNamesBothBrokers(unittest.TestCase):
+    """Phil, 2026-10-11, on the Dashboard card that said only "Dhan Connected":
+    "Why only Dhan?" """
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_the_card_has_zerodhas_line_and_the_check_fills_it(self):
+        html = (self.ROOT / "strategy.html").read_text(encoding="utf-8")
+        card = html.split('id="dash-broker-summary-card"')[1].split("</div>\n    </div>")[0]
+        for needle in ('id="broker-zerodha-row" hidden', 'id="broker-zerodha-text"', 'onclick="loginZerodha()"'):
+            self.assertIn(needle, card)
+        js = (self.ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
+        check = js.split("async function checkBrokerStatus(")[1].split("\nasync function toggleBroker")[0]
+        self.assertIn("refreshZerodhaBrokerLine();", check)
+        # After the read-only return: a viewer is never asked about Zerodha.
+        self.assertLess(check.index("return showReadOnlyBroker();"), check.index("refreshZerodhaBrokerLine();"))
+
+    def test_every_page_load_asks_so_both_offline_mock_tables_answer(self):
+        for spec in ("01-smoke.spec.ts", "02-fib-backtest.spec.ts"):
+            text = (self.ROOT / "e2e-tests" / "tests" / spec).read_text(encoding="utf-8")
+            self.assertIn("'/api/zerodha/status'", text, spec)
