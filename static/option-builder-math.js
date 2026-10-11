@@ -274,7 +274,46 @@
     }));
   }
 
+  /* THE MARKET CLOCK. The target-date steppers walk the session, not the wall
+     clock: 09:15, each whole hour, 15:30, then the next trading day's 09:15.
+     An hour on a Sunday is not a step anyone can trade -- the first place a
+     weekend's decay can be seen is Monday's open (Phil, 2026-10-11: "it has to
+     go straight to Monday 9:15"). `isClosedDay('YYYY-MM-DD')` is the site's
+     holiday calendar; without one only weekends are closed. */
+  const DAY_MS = 86400000;
+  const SESSION_MARKS_MIN = [9 * 60 + 15, 600, 660, 720, 780, 840, 900, 15 * 60 + 30];
+  function istDayStartMs(ms) {
+    const shifted = ms + IST_OFFSET_MIN * 60000;
+    return shifted - (((shifted % DAY_MS) + DAY_MS) % DAY_MS) - IST_OFFSET_MIN * 60000;
+  }
+  function istDateKey(ms) {
+    return new Date(ms + IST_OFFSET_MIN * 60000).toISOString().slice(0, 10);
+  }
+  function isTradingDay(dayStartMs, isClosedDay) {
+    const dow = new Date(dayStartMs + IST_OFFSET_MIN * 60000).getUTCDay();
+    if (dow === 0 || dow === 6) return false;
+    return !(typeof isClosedDay === 'function' && isClosedDay(istDateKey(dayStartMs)));
+  }
+  function sessionMark(fromMs, dir, isClosedDay) {
+    let day = istDayStartMs(fromMs);
+    for (let i = 0; i < 30; i += 1, day += dir * DAY_MS) {
+      if (!isTradingDay(day, isClosedDay)) continue;
+      const marks = SESSION_MARKS_MIN.map((min) => day + min * 60000);
+      if (dir > 0) {
+        const next = marks.find((mark) => mark > fromMs + 30000);
+        if (next !== undefined) return next;
+      } else {
+        const prev = marks.filter((mark) => mark < fromMs - 30000).pop();
+        if (prev !== undefined) return prev;
+      }
+    }
+    return fromMs + dir * 3600000;
+  }
+  const nextSessionMark = (fromMs, isClosedDay) => sessionMark(fromMs, 1, isClosedDay);
+  const prevSessionMark = (fromMs, isClosedDay) => sessionMark(fromMs, -1, isClosedDay);
+
   return {
+    nextSessionMark, prevSessionMark,
     RISK_FREE, normCdf, bsPrice, bsGreeks, expiryCloseMs, yearsBetween, intrinsic,
     legValue, pnlAt, firstExpiryMs, sameExpiry, priceRange, series, expiryStats,
     probabilityOfProfit, netPremium, currentPnl, positionGreeks, sigmaBands,

@@ -105,4 +105,25 @@ check('expiry close is 15:30 IST', M.expiryCloseMs('2026-10-13') === Date.UTC(20
   check('calendar stats approximate', st.exact === false && Number.isFinite(st.maxProfit), JSON.stringify(st));
 }
 
+// The market clock the target-date steppers walk (Phil, 2026-10-11: from a
+// Sunday, + "has to go straight to Monday 9:15").
+{
+  const ist = (y, m, d, h, min) => Date.UTC(y, m - 1, d, h, min) - 330 * 60000;
+  const at = (ms) => new Date(ms + 330 * 60000).toISOString().slice(0, 16).replace('T', ' ');
+  const next = (ms, closed) => at(M.nextSessionMark(ms, closed));
+  const prev = (ms, closed) => at(M.prevSessionMark(ms, closed));
+  check('Sunday afternoon steps to Monday open', next(ist(2026, 10, 11, 15, 42)) === '2026-10-12 09:15', next(ist(2026, 10, 11, 15, 42)));
+  check('before the open steps to the open', next(ist(2026, 10, 12, 7, 0)) === '2026-10-12 09:15', next(ist(2026, 10, 12, 7, 0)));
+  check('the open steps to the first whole hour', next(ist(2026, 10, 12, 9, 15)) === '2026-10-12 10:00', next(ist(2026, 10, 12, 9, 15)));
+  check('mid-session steps to the next whole hour', next(ist(2026, 10, 12, 11, 20)) === '2026-10-12 12:00', next(ist(2026, 10, 12, 11, 20)));
+  check('15:00 steps to the close', next(ist(2026, 10, 12, 15, 0)) === '2026-10-12 15:30', next(ist(2026, 10, 12, 15, 0)));
+  check('the close steps to the next open', next(ist(2026, 10, 12, 15, 30)) === '2026-10-13 09:15', next(ist(2026, 10, 12, 15, 30)));
+  check('Friday close steps over the weekend', next(ist(2026, 10, 9, 15, 30)) === '2026-10-12 09:15', next(ist(2026, 10, 9, 15, 30)));
+  const holiday = (key) => key === '2026-10-12';
+  check('a holiday is skipped', next(ist(2026, 10, 11, 15, 42), holiday) === '2026-10-13 09:15', next(ist(2026, 10, 11, 15, 42), holiday));
+  check('back from the open is the previous close', prev(ist(2026, 10, 12, 9, 15)) === '2026-10-09 15:30', prev(ist(2026, 10, 12, 9, 15)));
+  check('back from 10:00 is the open', prev(ist(2026, 10, 12, 10, 0)) === '2026-10-12 09:15', prev(ist(2026, 10, 12, 10, 0)));
+  check('back from a Sunday is Friday close', prev(ist(2026, 10, 11, 15, 42)) === '2026-10-09 15:30', prev(ist(2026, 10, 11, 15, 42)));
+}
+
 console.log(JSON.stringify(results));

@@ -173,3 +173,40 @@ test('Option Builder: chain buttons add legs, sliders move the target curve, not
   await page.click('[data-ob-act="paper"]');
   await expect.poll(() => calls.find((c) => c.url.endsWith('/paper') && c.method === 'POST')?.body.legs.length).toBe(2);
 });
+
+test('Option Builder: from a weekend the target steps straight to the next open, and a name being typed survives a refresh', async ({ page }) => {
+  const calls: { method: string; url: string; body: any }[] = [];
+  await login(page);
+  await mockBuilder(page, calls);
+  await openBuilder(page);
+  await page.click('[data-ob-view="neutral"]');
+  await page.click('[data-ob-template="short-straddle"]');
+  await expect(page.locator('#ob-legs-table tbody tr')).toHaveCount(2);
+
+  // Sunday 11-Oct-2026, 15:00 IST. An hour later is still Sunday: the first
+  // step is Monday's open, where the weekend's decay shows.
+  await page.clock.setFixedTime(new Date('2026-10-11T15:00:00+05:30'));
+  await page.click('[data-ob-act="reset-sliders"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('Today');
+  await page.click('[data-ob-step="target:1"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('12 Oct, 09:15');
+  await page.click('[data-ob-step="target:1"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('12 Oct, 10:00');
+  await page.click('[data-ob-step="target:-1"]');
+  await page.click('[data-ob-step="target:-1"]');
+  await expect(page.locator('#ob-target-label')).toHaveText('Today'); // Friday's close is behind us
+
+  // A portfolio name being typed is not put back by the price refresh.
+  await page.click('[data-ob-left="paper"]');
+  await page.click('[data-ob-act="new-portfolio"]');
+  const name = page.locator('#ob-left-body .ob-naming input');
+  await name.fill('Swing ideas');
+  const chains = () => calls.filter((c) => c.url.endsWith('/chain')).length;
+  const before = chains();
+  await page.locator('[data-ob-exp]').first().evaluate((el) => (el as HTMLElement).click()); // a refresh, as the poll does
+  await expect.poll(chains).toBeGreaterThan(before);
+  await expect(name).toHaveValue('Swing ideas');
+  await name.press('End');
+  await name.pressSequentially(' 2');
+  await expect(name).toHaveValue('Swing ideas 2');
+});

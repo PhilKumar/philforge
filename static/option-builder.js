@@ -299,7 +299,7 @@
                 <span class="ob-zoom"><button type="button" data-ob-act="zoom-out" aria-label="Zoom out">−</button><button type="button" data-ob-act="zoom-in" aria-label="Zoom in">+</button></span>
               </div>
               <div class="ob-sliders">
-                <div class="ob-slider"><span>Target date <b id="ob-target-label">Today</b></span><div class="ob-step-row"><button type="button" class="ob-step" data-ob-step="target:-1" title="One hour earlier" aria-label="Target one hour earlier">−</button><input type="range" id="ob-target" min="0" max="1000" value="0" aria-label="Target date"><button type="button" class="ob-step" data-ob-step="target:1" title="One hour later" aria-label="Target one hour later">+</button></div></div>
+                <div class="ob-slider"><span>Target date <b id="ob-target-label">Today</b></span><div class="ob-step-row"><button type="button" class="ob-step" data-ob-step="target:-1" title="Previous market hour" aria-label="Target to the previous market hour">−</button><input type="range" id="ob-target" min="0" max="1000" value="0" aria-label="Target date"><button type="button" class="ob-step" data-ob-step="target:1" title="Next market hour (skips nights, weekends and holidays)" aria-label="Target to the next market hour">+</button></div></div>
                 <div class="ob-slider"><span>IV change <b id="ob-iv-label">+0.0</b></span><div class="ob-step-row"><button type="button" class="ob-step" data-ob-step="iv:-1" title="IV 0.1 point lower" aria-label="IV 0.1 point lower">−</button><input type="range" id="ob-iv" min="-15" max="15" step="0.1" value="0" aria-label="IV change"><button type="button" class="ob-step" data-ob-step="iv:1" title="IV 0.1 point higher" aria-label="IV 0.1 point higher">+</button></div></div>
                 <button type="button" class="btn btn-sm" data-ob-act="reset-sliders">Reset</button>
               </div>
@@ -316,7 +316,13 @@
     const root = document.getElementById('ob-root');
     if (!root) return;
     if (!S.built) { buildShell(root); S.built = true; bind(root); }
-    renderTop(); renderLeft(); renderLegs(); renderStats(); renderAnalysis();
+    // A name being typed is left alone: the price refresh redrew the panel
+    // every few seconds and put the old name back under the cursor (Phil,
+    // 2026-10-11: "not able to edit the name more than 2 sec").
+    renderTop(); if (!namingOpen()) renderLeft(); renderLegs(); renderStats(); renderAnalysis();
+  }
+  function namingOpen() {
+    return !!(S.naming && document.querySelector('#ob-left-body .ob-naming input'));
   }
 
   function renderTop() {
@@ -341,6 +347,14 @@
   function renderLeft() {
     document.querySelectorAll('[data-ob-left]').forEach((b) => b.classList.toggle('is-active', b.dataset.obLeft === S.leftTab));
     const body = $('#ob-left-body');
+    // A redraw that does happen while a name is open (the list arriving from
+    // the server) keeps what was typed, the focus and the caret.
+    const typing = document.activeElement && document.activeElement.matches('.ob-naming input')
+      ? { start: document.activeElement.selectionStart, end: document.activeElement.selectionEnd } : null;
+    if (typing) requestAnimationFrame(() => {
+      const input = body.querySelector('.ob-naming input');
+      if (input && document.activeElement !== input) { input.focus(); try { input.setSelectionRange(typing.start, typing.end); } catch (_) { /* not a text field */ } }
+    });
     if (S.leftTab === 'readymade') body.innerHTML = readymadeHtml();
     else if (S.leftTab === 'chain') { body.innerHTML = chainHtml(); centreChain(body); }
     else if (S.leftTab === 'positions') body.innerHTML = positionsHtml();
@@ -568,16 +582,15 @@
     if (!first || !S.targetAt) return now;
     return Math.max(now, Math.min(first, S.targetAt));
   }
-  // The steppers: the target moves to the next or previous whole hour (IST),
-  // never past the first expiry and never before now; IV moves 0.1 point.
-  const HOUR_MS = 3600e3;
-  const IST_MS = 5.5 * HOUR_MS;
+  // The steppers walk the market's clock (option-builder-math.js): 09:15, each
+  // whole hour, 15:30, then the next trading day's open -- never past the
+  // first expiry and never before now. IV moves 0.1 point.
+  const closedDay = (key) => typeof window.isClosedMarketDay === 'function' && window.isClosedMarketDay(key);
   function stepTarget(dir) {
     const now = Date.now();
     const first = M.firstExpiryMs(S.legs);
     if (!first || first <= now) return;
-    const at = targetMs() + IST_MS;
-    const next = (dir > 0 ? Math.floor(at / HOUR_MS) + 1 : Math.ceil(at / HOUR_MS) - 1) * HOUR_MS - IST_MS;
+    const next = dir > 0 ? M.nextSessionMark(targetMs(), closedDay) : M.prevSessionMark(targetMs(), closedDay);
     S.targetAt = next <= now ? 0 : Math.min(first, next);
   }
   function stepIv(dir) {
@@ -850,8 +863,11 @@
     if (next) { leg.strike = next; leg.entry = 0; }
   }
 
+  // At once, not on the next frame: a frame that ran late selected the whole
+  // name again after typing had begun, and the next key replaced it.
   function focusNaming() {
-    requestAnimationFrame(() => { const input = document.querySelector('.ob-naming input'); if (input) { input.focus(); input.select(); } });
+    const input = document.querySelector('.ob-naming input');
+    if (input) { input.focus(); input.select(); }
   }
 
   function bind(root) {
@@ -940,6 +956,7 @@
     // sliders redraw on every frame they move, without touching the network
     let pending = 0;
     root.addEventListener('input', (e) => {
+      if (e.target.matches('.ob-naming input')) { if (S.naming) S.naming.value = e.target.value; return; }
       if (e.target.id !== 'ob-target' && e.target.id !== 'ob-iv') return;
       if (e.target.id === 'ob-target') {
         const v = Number(e.target.value) / 1000, now = Date.now(), first = M.firstExpiryMs(S.legs);
