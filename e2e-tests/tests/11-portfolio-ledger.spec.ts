@@ -14,6 +14,9 @@ async function login(page: Page) {
     for (const digit of PIN.split('')) await page.click(`[data-val="${digit}"]`);
   }
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
+  // The app then restores the page that was open last; a click on Portfolio
+  // before that lands is undone by it (the page went back to the Dashboard).
+  await page.waitForFunction(() => !!(history.state && (history.state as { page?: string }).page));
 }
 
 test('Portfolio uses the compact Cascade-style capital ledger', async ({ page }) => {
@@ -134,6 +137,9 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   await expect(page.locator('#portfolio-zerodha-row')).toBeVisible();
   await expect(page.locator('#portfolio-dhan-tag')).toBeVisible();
   await expect(page.locator('#portfolio-zerodha-id')).toHaveText('AB1234');
+  await expect(page.locator('#portfolio-capital-count')).toHaveText('2 accounts · 8 live metrics');
+  await expect(page.locator('#portfolio-dhan-tag .pf-broker-dhan')).toHaveText('Dhan');
+  await expect(page.locator('#portfolio-zerodha-row .pf-broker-zerodha')).toHaveText('Zerodha');
   await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('₹152340.50');
   await expect(page.locator('#portfolio-zerodha-pnl')).toHaveText('₹-1250.75');
   await expect(page.locator('#portfolio-zerodha-trades')).toHaveText('3');

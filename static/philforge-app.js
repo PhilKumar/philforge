@@ -18414,6 +18414,8 @@ function renderPortfolioZerodha(data) {
   const show = !!(data && data.configured);
   row.hidden = !show;
   dhanTag.hidden = !show;
+  const count = document.getElementById('portfolio-capital-count');
+  if (count) count.textContent = show ? '2 accounts · 8 live metrics' : '4 live metrics';
   if (!show) return;
   const set = (id, text, color = '') => {
     const el = document.getElementById(id);
