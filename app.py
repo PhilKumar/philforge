@@ -8412,6 +8412,108 @@ def _zerodha_portfolio_summary(funds: dict, positions: list, trades: list) -> di
     }
 
 
+# ── Zerodha's own day-by-day ledger ────────────────────────────
+# Kite answers for the current day only: there is no trade history to ask for,
+# as there is at Dhan. So each day Zerodha traded is written down here, from
+# the day the row first appeared on the Portfolio page (2026-10-11), and the
+# Zerodha month panel reads these. A day is recorded whenever the Portfolio
+# page asks, and once more after the close so a day nobody looked at is kept.
+_ZERODHA_CLOSE_SNAPSHOT_AFTER = dt_time(15, 35)
+_zerodha_closed_on: dict[int, date] = {}
+
+
+def _zerodha_history_key(user_id: int) -> str:
+    return f"zerodha_trade_history:{int(user_id)}"
+
+
+def _zerodha_day_entry(positions: list, trades: list, charges: dict | None) -> dict | None:
+    """One day at Zerodha, in the shape the Portfolio month panel reads.
+
+    None when nothing traded. `charges` is None when Kite could not say what
+    the orders cost: the day is then kept gross, and says so.
+    """
+    summary = _zerodha_portfolio_summary({}, positions, trades)
+    fills = len(trades or [])
+    if not fills and abs(summary["day_pnl"]) < 0.005:
+        return None
+    total_costs = round(float((charges or {}).get("total") or 0.0), 2)
+    brokerage = round(float((charges or {}).get("brokerage") or 0.0), 2)
+    return {
+        "broker": "zerodha",
+        "real_pnl": summary["day_pnl"],
+        "real_net_pnl": round(summary["day_pnl"] - total_costs, 2),
+        "real_charges": round(max(0.0, total_costs - brokerage), 2),
+        "real_brokerage": brokerage,
+        "real_total_costs": total_costs,
+        "real_trades": summary["trades_today"],
+        "real_order_count": summary["trades_today"],
+        "real_trade_legs": fills,
+        "charges_known": charges is not None,
+    }
+
+
+async def _load_zerodha_history(user_id: int) -> dict:
+    try:
+        history = json.loads(await _db_mod.get_app_state(_zerodha_history_key(user_id)) or "{}")
+    except Exception:
+        history = {}
+    return history if isinstance(history, dict) else {}
+
+
+async def _record_zerodha_day(
+    user_id: int, client, positions: list | None = None, trades: list | None = None
+) -> dict | None:
+    """Write today's Zerodha result into the ledger; returns the entry."""
+    if positions is None or trades is None:
+        positions, trades = await asyncio.gather(
+            asyncio.to_thread(client.get_positions), asyncio.to_thread(client.get_trades)
+        )
+    charges = None
+    if trades:
+        try:
+            charges = await asyncio.to_thread(client.get_order_charges)
+        except Exception as exc:
+            _logger.warning("[ZERODHA] charges for today's orders unavailable: %s", exc)
+    entry = _zerodha_day_entry(positions, trades, charges)
+    if entry is None:
+        return None
+    today = datetime.now(IST).date().isoformat()
+    history = await _load_zerodha_history(user_id)
+    if history.get(today) != entry:
+        history[today] = entry
+        await _db_mod.set_app_state(_zerodha_history_key(user_id), json.dumps(history, sort_keys=True))
+    return entry
+
+
+async def _snapshot_zerodha_closes(now: datetime) -> int:
+    """After the close, keep the day for every account logged in to Zerodha
+    today -- once per account per day."""
+    if now.weekday() >= 5 or now.time() < _ZERODHA_CLOSE_SNAPSHOT_AFTER:
+        return 0
+    kept = 0
+    for row in await _db_mod.list_users():
+        user_id = int(row["id"])
+        if _zerodha_closed_on.get(user_id) == now.date():
+            continue
+        # The list carries no Kite fields; the full row does.
+        client, _source = _user_zerodha_client(await _db_mod.get_user_by_id(user_id))
+        if not client:
+            continue
+        await _record_zerodha_day(user_id, client)
+        _zerodha_closed_on[user_id] = now.date()
+        kept += 1
+    return kept
+
+
+@app.get("/api/zerodha/history")
+async def zerodha_history(request: Request):
+    """The days recorded at Zerodha, for the Portfolio month panel."""
+    user = await _auth_mod.get_current_user(request)
+    profile = _zerodha_profile_payload(user)
+    daily = await _load_zerodha_history(int(user["id"])) if profile["configured"] else {}
+    return {"status": "ok", "configured": profile["configured"], "user_id": profile["user_id"], "daily": daily}
+
+
 @app.get("/api/zerodha/portfolio")
 async def zerodha_portfolio(request: Request):
     """Funds, today's P&L and today's orders at Zerodha, for the Portfolio page.
@@ -8439,6 +8541,10 @@ async def zerodha_portfolio(request: Request):
         )
     except Exception as exc:
         return {**base, "connected": False, "reason": str(exc)[:200]}
+    try:
+        await _record_zerodha_day(int(user["id"]), client, positions, trades)
+    except Exception as exc:
+        _logger.warning("[ZERODHA] today's ledger entry was not written: %s", exc)
     return {**base, "connected": True, **_zerodha_portfolio_summary(funds, positions, trades)}
 
 
@@ -26719,6 +26825,7 @@ async def _run_zerodha_login_reminder_loop() -> None:
                         level="warn",
                     )
                     _zerodha_reminded_on.add(now.date())
+            await _snapshot_zerodha_closes(now)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

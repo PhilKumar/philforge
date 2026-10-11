@@ -1421,7 +1421,7 @@
       </div>
       <em>4 live metrics</em>
     </header>
-    <div class="portfolio-broker-tag" id="portfolio-dhan-tag" hidden><b>Dhan</b></div>
+    <div class="portfolio-broker-tag" id="portfolio-dhan-tag" hidden><b class="pf-broker-chip pf-broker-dhan">Dhan</b></div>
     <div class="portfolio-capital-grid">
       <article class="portfolio-capital-metric">
         <div class="portfolio-metric-label">Available Balance</div>
@@ -1446,7 +1446,7 @@
     </div>
     <!-- The second broker's own row; shown once a Kite app is saved. -->
     <div id="portfolio-zerodha-row" hidden>
-      <div class="portfolio-broker-tag"><b>Zerodha</b><span id="portfolio-zerodha-id"></span><em id="portfolio-zerodha-note"></em></div>
+      <div class="portfolio-broker-tag"><b class="pf-broker-chip pf-broker-zerodha">Zerodha</b><span id="portfolio-zerodha-id"></span><em id="portfolio-zerodha-note"></em></div>
       <div class="portfolio-capital-grid">
         <article class="portfolio-capital-metric">
           <div class="portfolio-metric-label">Available Balance</div>
@@ -1472,7 +1472,9 @@
     </div>
   </section>
 
-  <!-- Paper Trade P&L + Monthly P&L side-by-side -->
+  <!-- Paper Trade P&L + Monthly P&L side-by-side. With a Zerodha app saved
+       the two brokers' months sit side by side and Paper drops beneath them
+       (the grid gets .has-zerodha; the order is set in the stylesheet). -->
   <div class="portfolio-book-grid" id="portfolio-dual-grid">
 
   <!-- Paper Trade P&L Summary -->
@@ -1510,7 +1512,7 @@
   <section class="card portfolio-book-card portfolio-monthly-book">
     <header class="portfolio-book-head">
       <div>
-        <h3>Monthly Profit &amp; Loss</h3>
+        <h3><b class="pf-broker-chip pf-broker-dhan" id="portfolio-monthly-dhan-chip" hidden>Dhan</b>Monthly Profit &amp; Loss</h3>
         <p>Realised execution by trading day</p>
       </div>
       <!-- The site's own square control, the one every chart toolbar wears.
@@ -1526,6 +1528,25 @@
     <div id="portfolio-monthly-grid"></div>
     <!-- Trades for month: day-by-day table -->
     <div id="portfolio-monthly-trades" style="margin-top: 18px; overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+  </section>
+
+  <!-- Zerodha's month. Kite keeps no history, so this is built from the days
+       PhilForge has recorded since the account was connected. -->
+  <section class="card portfolio-book-card portfolio-monthly-book portfolio-zerodha-book" id="portfolio-zerodha-book" hidden>
+    <header class="portfolio-book-head">
+      <div>
+        <h3><b class="pf-broker-chip pf-broker-zerodha">Zerodha</b>Monthly Profit &amp; Loss</h3>
+        <p>Recorded by PhilForge from each trading day</p>
+      </div>
+      <div class="portfolio-month-controls" aria-label="Choose portfolio month">
+        <button type="button" onclick="changeMonthlyMonth(-1)" class="terminal-cascade-chart-control" aria-label="Previous month">&#9664;</button>
+        <span id="portfolio-zerodha-monthly-label"></span>
+        <button type="button" onclick="changeMonthlyMonth(1)" class="terminal-cascade-chart-control" aria-label="Next month">&#9654;</button>
+      </div>
+    </header>
+    <div id="portfolio-zerodha-monthly-summary"></div>
+    <div id="portfolio-zerodha-monthly-grid"></div>
+    <div id="portfolio-zerodha-monthly-trades" style="margin-top: 18px; overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
   </section>
 
   </div><!-- end dual-column grid -->

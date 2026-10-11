@@ -35,7 +35,8 @@ test('Portfolio uses the compact Cascade-style capital ledger', async ({ page })
       ledgerHeight: ledger.getBoundingClientRect().height,
       maxMetricHeight: Math.max(...metrics.map(metric => metric.getBoundingClientRect().height)),
       valueFontSize: getComputedStyle(firstValue).fontSize,
-      bookCardCount: document.querySelectorAll('#portfolio-page .portfolio-book-card').length,
+      // Zerodha's month panel is in the page too, hidden until a Kite app is saved.
+      bookCardCount: [...document.querySelectorAll('#portfolio-page .portfolio-book-card')].filter(card => card.getClientRects().length > 0).length,
       paperMetricCount: document.querySelectorAll('#portfolio-page .portfolio-paper-metric').length,
       bookPadding: getComputedStyle(bookCard).paddingTop,
       legacySummaryCards: document.querySelectorAll('#portfolio-page .pf-summary-card').length,
@@ -103,6 +104,25 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   // No Kite app: one untagged row, as before.
   await expect(page.locator('#portfolio-zerodha-row')).toBeHidden();
   await expect(page.locator('#portfolio-dhan-tag')).toBeHidden();
+  await expect(page.locator('#portfolio-zerodha-book')).toBeHidden();
+  await expect(page.locator('#portfolio-monthly-dhan-chip')).toBeHidden();
+
+  // The days PhilForge has recorded at Zerodha, in the month on screen.
+  await page.waitForFunction(() => !!(window as unknown as { _currentMonthlyView?: string })._currentMonthlyView);
+  const month = await page.evaluate(() => (window as unknown as { _currentMonthlyView: string })._currentMonthlyView);
+  const tradingDays = await page.evaluate((ym) => {
+    const w = window as unknown as { isClosedMarketDay: (d: string) => boolean };
+    return Array.from({ length: 28 }, (_, i) => `${ym}-${String(i + 1).padStart(2, '0')}`).filter(d => !w.isClosedMarketDay(d)).slice(0, 2);
+  }, month);
+  await page.route('**/api/zerodha/history', route => route.fulfill({
+    json: {
+      status: 'ok', configured: true, user_id: 'AB1234',
+      daily: {
+        [tradingDays[0]]: { broker: 'zerodha', real_pnl: 2600, real_net_pnl: 2480.25, real_charges: 79.75, real_brokerage: 40, real_total_costs: 119.75, real_trades: 2, real_order_count: 2, real_trade_legs: 2, charges_known: true },
+        [tradingDays[1]]: { broker: 'zerodha', real_pnl: -900, real_net_pnl: -1010.5, real_charges: 70.5, real_brokerage: 40, real_total_costs: 110.5, real_trades: 2, real_order_count: 2, real_trade_legs: 2, charges_known: true },
+      },
+    },
+  }));
 
   await page.route('**/api/zerodha/portfolio', route => route.fulfill({
     json: {
@@ -118,6 +138,28 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   await expect(page.locator('#portfolio-zerodha-pnl')).toHaveText('₹-1250.75');
   await expect(page.locator('#portfolio-zerodha-trades')).toHaveText('3');
   await expect(page.locator('#portfolio-zerodha-open')).toHaveText('1');
+
+  // Each broker's month sits beside the other, tagged; Paper drops beneath.
+  await expect(page.locator('#portfolio-zerodha-book')).toBeVisible();
+  await expect(page.locator('#portfolio-monthly-dhan-chip')).toHaveText('Dhan');
+  await expect(page.locator('#portfolio-zerodha-book .pf-broker-zerodha')).toHaveText('Zerodha');
+  await expect(page.locator('#portfolio-zerodha-monthly-grid .portfolio-monthly-day')).toHaveCount(2);
+  await expect(page.locator('#portfolio-zerodha-monthly-summary')).toContainText('₹ 1469.75'); // 2480.25 - 1010.50
+  await expect(page.locator('#portfolio-zerodha-monthly-summary')).toContainText('1/2');
+  const layout = await page.evaluate(() => {
+    const top = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    const dhan = top('#portfolio-dual-grid > .portfolio-monthly-book:not(.portfolio-zerodha-book)');
+    const zerodha = top('#portfolio-zerodha-book');
+    const paper = top('#portfolio-dual-grid > .portfolio-paper-book');
+    const chip = (sel: string) => getComputedStyle(document.querySelector(sel)!).color;
+    return {
+      sideBySide: Math.abs(dhan.top - zerodha.top) < 2 && dhan.right <= zerodha.left,
+      paperBelow: paper.top >= Math.max(dhan.bottom, zerodha.bottom) - 1,
+      paperFullWidth: paper.width > dhan.width * 1.8,
+      differentColours: chip('#portfolio-zerodha-book .pf-broker-zerodha') !== chip('#portfolio-monthly-dhan-chip'),
+    };
+  });
+  expect(layout).toEqual({ sideBySide: true, paperBelow: true, paperFullWidth: true, differentColours: true });
 
   // Saved but not logged in today: the row stays and says what to do.
   await page.route('**/api/zerodha/portfolio', route => route.fulfill({

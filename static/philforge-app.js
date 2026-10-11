@@ -18434,6 +18434,25 @@ function renderPortfolioZerodha(data) {
   set('portfolio-zerodha-open', String(Number(data.open_positions || 0)));
 }
 
+// Zerodha's month panel. Kite has no trade history, so the days come from
+// PhilForge's own record of each one (GET /api/zerodha/history).
+async function loadPortfolioZerodhaMonth(configured) {
+  const book = document.getElementById('portfolio-zerodha-book');
+  const dualGrid = document.getElementById('portfolio-dual-grid');
+  const dhanChip = document.getElementById('portfolio-monthly-dhan-chip');
+  if (!book || !dualGrid || !dhanChip) return;
+  book.hidden = !configured;
+  dhanChip.hidden = !configured;
+  dualGrid.classList.toggle('has-zerodha', configured);
+  if (!configured) { window._portfolioZerodhaDaily = {}; return; }
+  try {
+    const data = await fetch('/api/zerodha/history').then(r => r.json());
+    window._portfolioZerodhaDaily = (data && data.daily) || {};
+  } catch (e) {
+    window._portfolioZerodhaDaily = window._portfolioZerodhaDaily || {};
+  }
+}
+
 async function loadPortfolioData() {
   try {
     // Fetch all data sources — each with individual error handling
@@ -18461,7 +18480,10 @@ async function loadPortfolioData() {
       fetch('/api/zerodha/portfolio').then(r => r.json()),
     ]);
 
-    renderPortfolioZerodha(results[7].status === 'fulfilled' ? results[7].value : null);
+    const zerodhaNow = results[7].status === 'fulfilled' ? results[7].value : null;
+    renderPortfolioZerodha(zerodhaNow);
+    // Asked for after the row above: that call writes today into the ledger.
+    await loadPortfolioZerodhaMonth(!!(zerodhaNow && zerodhaNow.configured));
     if (results[0].status === 'fulfilled') brokerData = results[0].value;
     if (results[1].status === 'fulfilled') tradesData = results[1].value;
     if (results[2].status === 'fulfilled') paperData = results[2].value;
@@ -19058,18 +19080,33 @@ function changeMonthlyMonth(delta) {
   renderMonthlyDailyGrid();
 }
 
+// One broker's month: the summary, the day tiles and the "Trades for month"
+// table. Dhan's and Zerodha's panels are the same drawing over two ledgers.
+const PORTFOLIO_MONTH_PANELS = {
+  dhan: { prefix: 'portfolio-monthly', daily: () => window._portfolioDaily || {}, todayCount: () => Number(window._portfolioTodayDisplayTradeCount || 0) || 0 },
+  zerodha: { prefix: 'portfolio-zerodha-monthly', daily: () => window._portfolioZerodhaDaily || {}, todayCount: () => 0 },
+};
+
 function renderMonthlyDailyGrid() {
+  const dayEntries = _renderPortfolioMonthPanel(PORTFOLIO_MONTH_PANELS.dhan);
+  if (document.getElementById('portfolio-zerodha-book') && !document.getElementById('portfolio-zerodha-book').hidden) {
+    _renderPortfolioMonthPanel(PORTFOLIO_MONTH_PANELS.zerodha);
+  }
+  _renderPortfolioPaperMonth(dayEntries);
+}
+
+function _renderPortfolioMonthPanel(panel) {
   const ym = window._currentMonthlyView;
   const [year, month] = ym.split('-').map(Number);
   const monthName = MONTH_NAMES_SHORT[month - 1] + ' ' + year;
   const todayDateStr = getMarketDateKey(new Date());
-  const todayDisplayTradeCount = Number(window._portfolioTodayDisplayTradeCount || 0) || 0;
+  const todayDisplayTradeCount = panel.todayCount();
 
-  document.getElementById('portfolio-monthly-label').textContent = monthName;
-  const grid = document.getElementById('portfolio-monthly-grid');
-  const summaryEl = document.getElementById('portfolio-monthly-summary');
+  document.getElementById(`${panel.prefix}-label`).textContent = monthName;
+  const grid = document.getElementById(`${panel.prefix}-grid`);
+  const summaryEl = document.getElementById(`${panel.prefix}-summary`);
 
-  const daily = window._portfolioDaily || {};
+  const daily = panel.daily();
 
   // Get all days in this month that have data
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -19194,7 +19231,7 @@ function renderMonthlyDailyGrid() {
   }
 
   // ── Trades for month: day-by-day breakdown table (like Dhan) ──
-  const tradesTableEl = document.getElementById('portfolio-monthly-trades');
+  const tradesTableEl = document.getElementById(`${panel.prefix}-trades`);
   if (realDayEntries.length > 0) {
     const totalMonthTrades = realDayEntries.reduce((sum, entry) => sum + Number(entry.displayTradeCount || 0), 0);
     let tableHtml = `<table class="portfolio-monthly-trades-table">
@@ -19243,7 +19280,13 @@ function renderMonthlyDailyGrid() {
   } else {
     tradesTableEl.innerHTML = '';
   }
+  return dayEntries;
+}
 
+function _renderPortfolioPaperMonth(dayEntries) {
+  const ym = window._currentMonthlyView;
+  const [year, month] = ym.split('-').map(Number);
+  const monthName = MONTH_NAMES_SHORT[month - 1] + ' ' + year;
   // ── Paper P&L breakdown → left card ──
   const paperMonthEl = document.getElementById('portfolio-paper-monthly');
   if (paperMonthEl) {

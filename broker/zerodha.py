@@ -298,11 +298,12 @@ class ZerodhaClient:
     def token_is_current(self, now: datetime | None = None) -> bool:
         return self._is_configured() and token_is_current(self.token_saved_at, now)
 
-    def _call(self, method: str, path: str, *, params=None, data=None, timeout: float = 10.0):
+    def _call(self, method: str, path: str, *, params=None, data=None, json=None, timeout: float = 10.0):
         if not self._is_configured():
             raise ConnectionError("Zerodha is not connected. Log in to Zerodha from Settings first.")
+        extra = {"json": json} if json is not None else {}
         resp = self._http.request(
-            method, f"{KITE_API}{path}", headers=self.headers, params=params, data=data, timeout=timeout
+            method, f"{KITE_API}{path}", headers=self.headers, params=params, data=data, timeout=timeout, **extra
         )
         body = _json(resp)
         if resp.status_code == 403 and body.get("error_type") == "TokenException":
@@ -586,6 +587,40 @@ class ZerodhaClient:
             "utilizedAmount": float((data.get("utilised") or {}).get("debits") or 0.0),
             "broker": "zerodha",
         }
+
+    def get_order_charges(self) -> dict:
+        """What today's filled orders cost, from Kite's own contract-note
+        calculator: `total` is everything, `brokerage` the broker's part of it."""
+        orders = [
+            row
+            for row in (self._get_data("/orders") or [])
+            if str(row.get("status") or "").upper() == "COMPLETE" and int(row.get("filled_quantity") or 0) > 0
+        ]
+        if not orders:
+            return {"total": 0.0, "brokerage": 0.0}
+        body = [
+            {
+                "order_id": str(row.get("order_id") or ""),
+                "exchange": str(row.get("exchange") or ""),
+                "tradingsymbol": str(row.get("tradingsymbol") or ""),
+                "transaction_type": str(row.get("transaction_type") or ""),
+                "variety": str(row.get("variety") or "regular"),
+                "product": str(row.get("product") or ""),
+                "order_type": str(row.get("order_type") or ""),
+                "quantity": int(row.get("filled_quantity") or 0),
+                "average_price": float(row.get("average_price") or 0.0),
+            }
+            for row in orders
+        ]
+        resp, payload = self._call("POST", "/charges/orders", json=body)
+        if resp.status_code != 200 or payload.get("status") == "error":
+            raise RuntimeError(f"Zerodha /charges/orders failed ({resp.status_code}): {payload.get('message', '')}")
+        total = brokerage = 0.0
+        for row in payload.get("data") or []:
+            charges = row.get("charges") or {}
+            total += float(charges.get("total") or 0.0)
+            brokerage += float(charges.get("brokerage") or 0.0)
+        return {"total": round(total, 2), "brokerage": round(brokerage, 2)}
 
     # ── prices ────────────────────────────────────────────────
     def get_ltp_prices(self, security_ids: list, exchange_segment: str = "NSE_FNO") -> dict:

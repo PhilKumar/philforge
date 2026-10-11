@@ -47,9 +47,11 @@ class FakeKite:
         self.routes = routes
         self.calls = []
 
-    def request(self, method, url, headers=None, params=None, data=None, timeout=None):
+    def request(self, method, url, headers=None, params=None, data=None, timeout=None, json=None):
         path = url.replace(zerodha.KITE_API, "")
-        self.calls.append({"method": method, "path": path, "params": params, "data": data, "headers": headers})
+        self.calls.append(
+            {"method": method, "path": path, "params": params, "data": data, "headers": headers, "json": json}
+        )
         answer = self.routes.get((method, path))
         if answer is None:
             return FakeResponse(404, {"status": "error", "message": "no route"})
@@ -567,4 +569,116 @@ class ZerodhasRowOnThePortfolioPage(unittest.TestCase):
         for spec in ("01-smoke.spec.ts", "02-fib-backtest.spec.ts"):
             self.assertIn(
                 "'/api/zerodha/portfolio'", (root / "e2e-tests" / "tests" / spec).read_text(encoding="utf-8"), spec
+            )
+
+
+class ZerodhasOwnLedger(unittest.TestCase):
+    """Kite keeps today only, so each Zerodha day is written down by PhilForge
+    (Phil, 2026-10-11: a Zerodha month panel beside Dhan's)."""
+
+    USER = 99904
+
+    def test_a_day_is_gross_less_what_kite_says_the_orders_cost(self):
+        entry = app._zerodha_day_entry(
+            [{"netQty": 0, "dayPnl": 2600.0}],
+            [{"orderId": "1"}, {"orderId": "2"}],
+            {"total": 119.75, "brokerage": 40.0},
+        )
+        self.assertEqual(
+            {k: entry[k] for k in ("real_pnl", "real_net_pnl", "real_charges", "real_brokerage", "real_trades")},
+            {
+                "real_pnl": 2600.0,
+                "real_net_pnl": 2480.25,
+                "real_charges": 79.75,
+                "real_brokerage": 40.0,
+                "real_trades": 2,
+            },
+        )
+        self.assertTrue(entry["charges_known"])
+
+    def test_a_day_with_no_trade_is_not_recorded_and_unknown_costs_say_so(self):
+        self.assertIsNone(app._zerodha_day_entry([{"netQty": 0, "dayPnl": 0.0}], [], None))
+        entry = app._zerodha_day_entry([{"netQty": 0, "dayPnl": -300.0}], [{"orderId": "9"}], None)
+        self.assertEqual((entry["real_net_pnl"], entry["charges_known"]), (-300.0, False))
+
+    def test_charges_come_from_kites_calculator_for_filled_orders_only(self):
+        client, fake = _client(
+            {
+                ("GET", "/orders"): (
+                    200,
+                    {
+                        "status": "success",
+                        "data": [
+                            {
+                                "order_id": "1",
+                                "status": "COMPLETE",
+                                "filled_quantity": 65,
+                                "average_price": 250.5,
+                                "exchange": "NFO",
+                                "tradingsymbol": SYMBOL,
+                                "transaction_type": "BUY",
+                                "variety": "regular",
+                                "product": "MIS",
+                                "order_type": "MARKET",
+                            },
+                            {"order_id": "2", "status": "REJECTED", "filled_quantity": 0},
+                        ],
+                    },
+                ),
+                ("POST", "/charges/orders"): (
+                    200,
+                    {"status": "success", "data": [{"charges": {"total": 59.875, "brokerage": 20.0}}]},
+                ),
+            }
+        )
+        self.assertEqual(client.get_order_charges(), {"total": 59.88, "brokerage": 20.0})
+        sent = [c for c in fake.calls if c["path"] == "/charges/orders"][0]["json"]
+        self.assertEqual([(o["order_id"], o["quantity"], o["average_price"]) for o in sent], [("1", 65, 250.5)])
+
+    def test_recording_writes_today_once_and_reads_back(self):
+        from unittest import mock
+
+        class Kite:
+            def get_order_charges(self):
+                return {"total": 100.0, "brokerage": 40.0}
+
+        store: dict = {}
+        writes: list = []
+
+        async def get_state(key):
+            return store.get(key)
+
+        async def set_state(key, value):
+            writes.append(key)
+            store[key] = value
+
+        async def run():
+            day = ([{"netQty": 0, "dayPnl": 500.0}], [{"orderId": "1"}])
+            first = await app._record_zerodha_day(self.USER, Kite(), *day)
+            await app._record_zerodha_day(self.USER, Kite(), *day)  # the page asks again a minute later
+            return first, await app._load_zerodha_history(self.USER)
+
+        with (
+            mock.patch.object(app._db_mod, "get_app_state", get_state),
+            mock.patch.object(app._db_mod, "set_app_state", set_state),
+        ):
+            entry, history = asyncio.run(run())
+        today = datetime.now(IST).date().isoformat()
+        self.assertEqual(entry["real_net_pnl"], 400.0)
+        self.assertEqual(history, {today: entry})
+        self.assertEqual(writes, [app._zerodha_history_key(self.USER)])  # unchanged: not written twice
+
+    def test_the_close_is_kept_by_the_loop_that_survives_a_deploy(self):
+        body = SRC.split("async def _run_zerodha_login_reminder_loop(")[1].split("\n# ──")[0]
+        self.assertIn("await _snapshot_zerodha_closes(now)", body)
+        early = datetime(2026, 10, 12, 15, 0, tzinfo=IST)
+        self.assertEqual(asyncio.run(app._snapshot_zerodha_closes(early)), 0)  # before 15:35
+        sunday = datetime(2026, 10, 11, 16, 0, tzinfo=IST)
+        self.assertEqual(asyncio.run(app._snapshot_zerodha_closes(sunday)), 0)
+
+    def test_both_offline_mock_tables_answer_the_history_route(self):
+        root = Path(__file__).resolve().parent.parent
+        for spec in ("01-smoke.spec.ts", "02-fib-backtest.spec.ts"):
+            self.assertIn(
+                "'/api/zerodha/history'", (root / "e2e-tests" / "tests" / spec).read_text(encoding="utf-8"), spec
             )

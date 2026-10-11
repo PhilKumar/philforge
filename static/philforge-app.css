@@ -4344,7 +4344,7 @@
   }
   [data-theme="light"] #portfolio-page div[style*="background: rgba(0,0,0,0.15)"],
   [data-theme="light"] #portfolio-page div[style*="background: rgba(0,0,0,0.1)"],
-  [data-theme="light"] #portfolio-monthly-summary {
+  [data-theme="light"] :is(#portfolio-monthly-summary, #portfolio-zerodha-monthly-summary) {
     background: linear-gradient(160deg, rgba(255,255,255,0.98), rgba(248,250,252,0.95)) !important;
     border: 1px solid rgba(15,23,42,0.08);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 8px 20px -18px rgba(15,23,42,0.28);
@@ -7901,12 +7901,12 @@ input:focus, select:focus {
   padding: 18px !important;
   margin-bottom: var(--pf-workspace-gap) !important;
 }
-#portfolio-page :is(#portfolio-monthly-summary, #portfolio-paper-meta),
+#portfolio-page :is(#portfolio-monthly-summary, #portfolio-zerodha-monthly-summary, #portfolio-paper-meta),
 #portfolio-page #portfolio-paper-status,
 #portfolio-page #portfolio-paper-symbol {
   border-radius: 10px;
 }
-#portfolio-page :is(#portfolio-monthly-trades, #portfolio-yearly-grid, #portfolio-paper-runs, div[style*="overflow-x: auto"] table) {
+#portfolio-page :is(#portfolio-monthly-trades, #portfolio-zerodha-monthly-trades, #portfolio-yearly-grid, #portfolio-paper-runs, div[style*="overflow-x: auto"] table) {
   border-radius: 12px;
 }
 
@@ -8064,7 +8064,29 @@ input:focus, select:focus {
   color: var(--muted);
   font: 500 10px var(--font-mono);
 }
-#portfolio-page .portfolio-broker-tag b { color: var(--text); font: 800 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+/* WHOSE ACCOUNT. Phil, 2026-10-11: "a small diff between these 2 accounts
+   like a tag or an orange text". Dhan wears the site's teal, Zerodha orange,
+   on the capital rows and on each month panel. */
+#portfolio-page .pf-broker-chip {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 3px 7px;
+  border: 1px solid;
+  border-radius: 6px;
+  font: 800 9px var(--font-mono);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+#portfolio-page .pf-broker-chip[hidden] { display: none; }
+#portfolio-page .pf-broker-dhan { color: #5eead4; border-color: rgba(94, 234, 212, .38); background: rgba(20, 184, 166, .12); }
+#portfolio-page .pf-broker-zerodha { color: #fb923c; border-color: rgba(251, 146, 60, .42); background: rgba(249, 115, 22, .12); }
+[data-theme="light"] #portfolio-page .pf-broker-dhan { color: #0f766e; }
+[data-theme="light"] #portfolio-page .pf-broker-zerodha { color: #c2410c; }
+#portfolio-page .portfolio-zerodha-book { border-top-color: rgba(251, 146, 60, .45) !important; }
+#portfolio-page .portfolio-zerodha-book[hidden] { display: none; }
+/* Both brokers' months side by side, Paper beneath them across the page. */
+#portfolio-page #portfolio-dual-grid.has-zerodha > .portfolio-paper-book { order: 3; grid-column: 1 / -1; }
 #portfolio-page .portfolio-broker-tag em { margin-left: auto; font-style: normal; color: var(--warn); }
 #portfolio-page #portfolio-zerodha-row { border-top: 1px solid rgba(148, 163, 184, .12); }
 #portfolio-page :is(.portfolio-broker-tag, #portfolio-zerodha-row)[hidden] { display: none; }
@@ -8258,13 +8280,13 @@ input:focus, select:focus {
   font-size: 9px;
 }
 
-#portfolio-page #portfolio-monthly-label {
+#portfolio-page :is(#portfolio-monthly-label, #portfolio-zerodha-monthly-label) {
   color: var(--text);
   font: 700 10px var(--font-mono);
   text-align: center;
 }
 
-#portfolio-page #portfolio-monthly-summary {
+#portfolio-page :is(#portfolio-monthly-summary, #portfolio-zerodha-monthly-summary) {
   min-height: 42px;
   margin-bottom: 8px !important;
   padding: 9px 10px !important;
@@ -8274,23 +8296,23 @@ input:focus, select:focus {
   font-size: 10px !important;
 }
 
-#portfolio-page #portfolio-monthly-summary > div:first-child {
+#portfolio-page :is(#portfolio-monthly-summary, #portfolio-zerodha-monthly-summary) > div:first-child {
   gap: 8px 18px !important;
 }
 
-#portfolio-page #portfolio-monthly-grid {
+#portfolio-page :is(#portfolio-monthly-grid, #portfolio-zerodha-monthly-grid) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   gap: 6px;
 }
 
-#portfolio-page :is(#portfolio-monthly-grid, #portfolio-paper-monthly) div[style*="border: 1px"] {
+#portfolio-page :is(#portfolio-monthly-grid, #portfolio-zerodha-monthly-grid, #portfolio-paper-monthly) div[style*="border: 1px"] {
   border-color: rgba(148, 163, 184, .10) !important;
   background: rgba(9, 15, 28, .48) !important;
   box-shadow: none !important;
 }
 
-#portfolio-page #portfolio-monthly-trades {
+#portfolio-page :is(#portfolio-monthly-trades, #portfolio-zerodha-monthly-trades) {
   margin-top: 10px !important;
 }
 
@@ -8313,7 +8335,7 @@ input:focus, select:focus {
 }
 
 [data-theme="light"] #portfolio-page :is(.portfolio-capital-metric, .portfolio-paper-metric),
-[data-theme="light"] #portfolio-page :is(#portfolio-paper-meta, #portfolio-monthly-summary) {
+[data-theme="light"] #portfolio-page :is(#portfolio-paper-meta, #portfolio-monthly-summary, #portfolio-zerodha-monthly-summary) {
   border-color: rgba(15, 23, 42, .08);
   background: rgba(255, 255, 255, .72) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88);

@@ -150,6 +150,7 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else if (path === '/api/zerodha/portfolio') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
+    else if (path === '/api/zerodha/history') await route.fulfill({ json: { status: 'ok', configured: false, daily: {} } });
     // Asked on every load so a replay that cost several Dhan round trips
     // survives a redraw of the panel. No saved run is the normal answer.
     else if (path === '/api/fib-boundary/backtests/latest') await route.fulfill({ json: { status: 'ok', run: null } });
