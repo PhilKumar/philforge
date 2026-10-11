@@ -8392,6 +8392,56 @@ async def zerodha_status(request: Request):
     }
 
 
+def _zerodha_portfolio_summary(funds: dict, positions: list, trades: list) -> dict:
+    """Zerodha's row on the Portfolio page, from the account in Dhan's words."""
+    day_pnl = 0.0
+    open_positions = 0
+    for row in positions or []:
+        if "dayPnl" in row:
+            day_pnl += float(row.get("dayPnl") or 0.0)
+        else:
+            day_pnl += float(row.get("realizedProfit") or 0.0) + float(row.get("unrealizedProfit") or 0.0)
+        if int(row.get("netQty") or 0) != 0:
+            open_positions += 1
+    order_ids = {str(row.get("orderId")) for row in trades or [] if row.get("orderId")}
+    return {
+        "available": round(float((funds or {}).get("availabelBalance") or 0.0), 2),
+        "day_pnl": round(day_pnl, 2),
+        "trades_today": len(order_ids) or len(trades or []),
+        "open_positions": open_positions,
+    }
+
+
+@app.get("/api/zerodha/portfolio")
+async def zerodha_portfolio(request: Request):
+    """Funds, today's P&L and today's orders at Zerodha, for the Portfolio page.
+
+    Kite keeps only the current day's fills, so this is today alone. A viewer
+    is answered from their own account, which has no Kite app: the row stays
+    hidden for them.
+    """
+    user = await _auth_mod.get_current_user(request)
+    profile = _zerodha_profile_payload(user)
+    base = {
+        "status": "ok",
+        "configured": profile["configured"],
+        "logged_in_today": profile["logged_in_today"],
+        "user_id": profile["user_id"],
+    }
+    client, source = _user_zerodha_client(user)
+    if not client:
+        return {**base, "connected": False, "reason": _book_broker_missing_message(user, source)}
+    try:
+        funds, positions, trades = await asyncio.gather(
+            asyncio.to_thread(client.get_funds),
+            asyncio.to_thread(client.get_positions),
+            asyncio.to_thread(client.get_trades),
+        )
+    except Exception as exc:
+        return {**base, "connected": False, "reason": str(exc)[:200]}
+    return {**base, "connected": True, **_zerodha_portfolio_summary(funds, positions, trades)}
+
+
 def _runtime_owner_ids() -> set[int]:
     return (
         set(paper_engines)

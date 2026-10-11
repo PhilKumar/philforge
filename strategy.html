@@ -1421,6 +1421,7 @@
       </div>
       <em>4 live metrics</em>
     </header>
+    <div class="portfolio-broker-tag" id="portfolio-dhan-tag" hidden><b>Dhan</b></div>
     <div class="portfolio-capital-grid">
       <article class="portfolio-capital-metric">
         <div class="portfolio-metric-label">Available Balance</div>
@@ -1442,6 +1443,32 @@
         <div class="portfolio-metric-value positive" id="portfolio-win-rate">0%</div>
         <div class="portfolio-metric-note">Profitable closed trades</div>
       </article>
+    </div>
+    <!-- The second broker's own row; shown once a Kite app is saved. -->
+    <div id="portfolio-zerodha-row" hidden>
+      <div class="portfolio-broker-tag"><b>Zerodha</b><span id="portfolio-zerodha-id"></span><em id="portfolio-zerodha-note"></em></div>
+      <div class="portfolio-capital-grid">
+        <article class="portfolio-capital-metric">
+          <div class="portfolio-metric-label">Available Balance</div>
+          <div class="portfolio-metric-value accent" id="portfolio-zerodha-balance">—</div>
+          <div class="portfolio-metric-note">Funds available at Zerodha</div>
+        </article>
+        <article class="portfolio-capital-metric">
+          <div class="portfolio-metric-label">Today's P&amp;L</div>
+          <div class="portfolio-metric-value" id="portfolio-zerodha-pnl">—</div>
+          <div class="portfolio-metric-note">Booked and open, as Zerodha reports it</div>
+        </article>
+        <article class="portfolio-capital-metric">
+          <div class="portfolio-metric-label">Trades Today</div>
+          <div class="portfolio-metric-value secondary" id="portfolio-zerodha-trades">—</div>
+          <div class="portfolio-metric-note">Orders filled today</div>
+        </article>
+        <article class="portfolio-capital-metric">
+          <div class="portfolio-metric-label">Open Positions</div>
+          <div class="portfolio-metric-value" id="portfolio-zerodha-open">—</div>
+          <div class="portfolio-metric-note">Held right now</div>
+        </article>
+      </div>
     </div>
   </section>
 

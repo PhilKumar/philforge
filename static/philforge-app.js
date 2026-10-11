@@ -18404,6 +18404,36 @@ function round2(n) { return Math.round(n * 100) / 100; }
 // ══════════════════════════════════════════════════════════════
 //  PORTFOLIO / PROFILE PAGE
 // ══════════════════════════════════════════════════════════════
+// Zerodha's own row on the Portfolio page: shown once a Kite app is saved, with
+// the Dhan row tagged so it is plain whose money each row is. Kite keeps only
+// the current day's fills, so this row is today alone.
+function renderPortfolioZerodha(data) {
+  const row = document.getElementById('portfolio-zerodha-row');
+  const dhanTag = document.getElementById('portfolio-dhan-tag');
+  if (!row || !dhanTag) return;
+  const show = !!(data && data.configured);
+  row.hidden = !show;
+  dhanTag.hidden = !show;
+  if (!show) return;
+  const set = (id, text, color = '') => {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.style.color = color;
+  };
+  set('portfolio-zerodha-id', data.user_id || '');
+  if (!data.connected) {
+    set('portfolio-zerodha-note', data.logged_in_today ? (data.reason || 'Zerodha did not answer') : 'Log in to Zerodha for today (Account Settings)');
+    ['portfolio-zerodha-balance', 'portfolio-zerodha-pnl', 'portfolio-zerodha-trades', 'portfolio-zerodha-open'].forEach(id => set(id, '—'));
+    return;
+  }
+  const pnl = Number(data.day_pnl || 0);
+  set('portfolio-zerodha-note', '');
+  set('portfolio-zerodha-balance', pfMoney(Number(data.available || 0)));
+  set('portfolio-zerodha-pnl', pfMoney(pnl), pfMoneyTone(pnl >= 0 ? 'var(--success)' : 'var(--danger)'));
+  set('portfolio-zerodha-trades', String(Number(data.trades_today || 0)));
+  set('portfolio-zerodha-open', String(Number(data.open_positions || 0)));
+}
+
 async function loadPortfolioData() {
   try {
     // Fetch all data sources — each with individual error handling
@@ -18428,8 +18458,10 @@ async function loadPortfolioData() {
       fetch('/api/positions').then(r => r.json()),
       fetch('/api/portfolio/history').then(r => r.json()),
       fetch('/api/engines/all').then(r => r.json()),
+      fetch('/api/zerodha/portfolio').then(r => r.json()),
     ]);
 
+    renderPortfolioZerodha(results[7].status === 'fulfilled' ? results[7].value : null);
     if (results[0].status === 'fulfilled') brokerData = results[0].value;
     if (results[1].status === 'fulfilled') tradesData = results[1].value;
     if (results[2].status === 'fulfilled') paperData = results[2].value;

@@ -552,6 +552,8 @@ class ZerodhaClient:
                     "productType": str(row.get("product") or ""),
                     "realizedProfit": float(row.get("realised") or 0.0),
                     "unrealizedProfit": float(row.get("unrealised") or 0.0),
+                    # Kite's own net figure for the position, booked and open together.
+                    "dayPnl": float(row.get("pnl") or 0.0),
                 }
             )
         return rows

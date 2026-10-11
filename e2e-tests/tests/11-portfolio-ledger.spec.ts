@@ -24,7 +24,9 @@ test('Portfolio uses the compact Cascade-style capital ledger', async ({ page })
   const desktop = await page.evaluate(() => {
     const ledger = document.querySelector<HTMLElement>('#portfolio-page .portfolio-capital-ledger')!;
     const grid = document.querySelector<HTMLElement>('#portfolio-page .portfolio-capital-grid')!;
-    const metrics = [...document.querySelectorAll<HTMLElement>('#portfolio-page .portfolio-capital-metric')];
+    // The Zerodha row is in the page but hidden until a Kite app is saved.
+    const metrics = [...document.querySelectorAll<HTMLElement>('#portfolio-page .portfolio-capital-metric')]
+      .filter(metric => metric.getClientRects().length > 0);
     const bookCard = document.querySelector<HTMLElement>('#portfolio-page .portfolio-book-card')!;
     const firstValue = document.querySelector<HTMLElement>('#portfolio-balance')!;
     return {
@@ -92,4 +94,36 @@ test('Monthly real-trades ledger keeps every financial value on one line', async
     };
   });
   expect(layout).toEqual({ scrolls: true, unbroken: true });
+});
+
+test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ page }) => {
+  await login(page);
+  await page.click('#nav-portfolio');
+  await expect(page.locator('#portfolio-page')).toBeVisible();
+  // No Kite app: one untagged row, as before.
+  await expect(page.locator('#portfolio-zerodha-row')).toBeHidden();
+  await expect(page.locator('#portfolio-dhan-tag')).toBeHidden();
+
+  await page.route('**/api/zerodha/portfolio', route => route.fulfill({
+    json: {
+      status: 'ok', configured: true, logged_in_today: true, connected: true, user_id: 'AB1234',
+      available: 152340.5, day_pnl: -1250.75, trades_today: 3, open_positions: 1,
+    },
+  }));
+  await page.evaluate(() => (window as unknown as { loadPortfolioData: () => Promise<void> }).loadPortfolioData());
+  await expect(page.locator('#portfolio-zerodha-row')).toBeVisible();
+  await expect(page.locator('#portfolio-dhan-tag')).toBeVisible();
+  await expect(page.locator('#portfolio-zerodha-id')).toHaveText('AB1234');
+  await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('₹152340.50');
+  await expect(page.locator('#portfolio-zerodha-pnl')).toHaveText('₹-1250.75');
+  await expect(page.locator('#portfolio-zerodha-trades')).toHaveText('3');
+  await expect(page.locator('#portfolio-zerodha-open')).toHaveText('1');
+
+  // Saved but not logged in today: the row stays and says what to do.
+  await page.route('**/api/zerodha/portfolio', route => route.fulfill({
+    json: { status: 'ok', configured: true, logged_in_today: false, connected: false, user_id: 'AB1234', reason: 'login needed' },
+  }));
+  await page.evaluate(() => (window as unknown as { loadPortfolioData: () => Promise<void> }).loadPortfolioData());
+  await expect(page.locator('#portfolio-zerodha-note')).toContainText('Log in to Zerodha');
+  await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('—');
 });

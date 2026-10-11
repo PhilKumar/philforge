@@ -531,3 +531,40 @@ class TheKiteAppCanBeSavedWhileDhanBooksRun(unittest.TestCase):
         render = js.split("function renderZerodhaProfile(")[1].split("\nasync function saveZerodhaSettings")[0]
         self.assertIn("z.manage_locked", render)
         self.assertNotIn("broker.manage_locked", render)
+
+
+class ZerodhasRowOnThePortfolioPage(unittest.TestCase):
+    """Phil, 2026-10-11: "Portfolio page only shows Dhan profile... how can we
+    make here the zerodha as well?" """
+
+    def test_the_summary_adds_up_the_account(self):
+        summary = app._zerodha_portfolio_summary(
+            {"availabelBalance": 152340.456},
+            [
+                {"netQty": 65, "dayPnl": -500.25, "realizedProfit": 0.0, "unrealizedProfit": -500.25},
+                {"netQty": 0, "dayPnl": 1750.5, "realizedProfit": 1750.5, "unrealizedProfit": 0.0},
+            ],
+            [{"orderId": "1"}, {"orderId": "1"}, {"orderId": "2"}],
+        )
+        self.assertEqual(summary, {"available": 152340.46, "day_pnl": 1250.25, "trades_today": 2, "open_positions": 1})
+
+    def test_without_kites_net_figure_it_adds_booked_and_open(self):
+        summary = app._zerodha_portfolio_summary(
+            {}, [{"netQty": 0, "realizedProfit": 300.0, "unrealizedProfit": 20.0}], []
+        )
+        self.assertEqual((summary["day_pnl"], summary["trades_today"], summary["available"]), (320.0, 0, 0.0))
+
+    def test_the_route_is_not_shared_with_viewers(self):
+        import auth
+
+        self.assertFalse(any("/api/zerodha/portfolio".startswith(p) for p in auth.VIEWER_SHARED_READ_PREFIXES))
+
+    def test_the_page_asks_for_it_and_both_offline_mock_tables_answer(self):
+        root = Path(__file__).resolve().parent.parent
+        self.assertIn(
+            "fetch('/api/zerodha/portfolio')", (root / "static" / "philforge-app.js").read_text(encoding="utf-8")
+        )
+        for spec in ("01-smoke.spec.ts", "02-fib-backtest.spec.ts"):
+            self.assertIn(
+                "'/api/zerodha/portfolio'", (root / "e2e-tests" / "tests" / spec).read_text(encoding="utf-8"), spec
+            )

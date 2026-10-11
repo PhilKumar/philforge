@@ -8055,6 +8055,20 @@ input:focus, select:focus {
   padding: 10px;
 }
 
+/* One row per broker once Zerodha is set up; the tag says whose money it is. */
+#portfolio-page .portfolio-broker-tag {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 13px 0;
+  color: var(--muted);
+  font: 500 10px var(--font-mono);
+}
+#portfolio-page .portfolio-broker-tag b { color: var(--text); font: 800 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+#portfolio-page .portfolio-broker-tag em { margin-left: auto; font-style: normal; color: var(--warn); }
+#portfolio-page #portfolio-zerodha-row { border-top: 1px solid rgba(148, 163, 184, .12); }
+#portfolio-page :is(.portfolio-broker-tag, #portfolio-zerodha-row)[hidden] { display: none; }
+
 #portfolio-page .portfolio-capital-metric,
 #portfolio-page .portfolio-paper-metric {
   min-width: 0;
