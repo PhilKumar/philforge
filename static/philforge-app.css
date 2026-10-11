@@ -3296,14 +3296,14 @@
     background: #fff;
   }
   .mfa-enrollment-box a { color: #67e8f9; font-size: 12px; }
-  /* Broker Status card: Zerodha's line, and its "Log in" for the morning. */
-  #broker-zerodha-row[hidden], .dash-broker-login[hidden] { display: none !important; }
-  .dash-broker-lines { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; margin-top: 2px; }
-  .dash-broker-login {
-    margin-left: 2px; padding: 3px 9px; border: 1px solid rgba(251, 146, 60, .45); border-radius: 7px;
-    background: rgba(249, 115, 22, .12); color: #fb923c; font: 700 11px var(--font-body); cursor: pointer;
-  }
-  .dash-broker-login:hover { background: rgba(249, 115, 22, .2); }
+  /* Broker Status card: a column per broker, each with its own button. */
+  .dash-broker-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; margin-top: 2px; }
+  .dash-broker-col { display: grid; gap: 10px; min-width: 0; align-content: start; }
+  .dash-broker-col[hidden] { display: none !important; }
+  .dash-broker-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .dash-broker-line > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Orange when the day's login is what is needed, so it does not read as one more Recheck. */
+  #broker-zerodha-btn[data-action="login"] { color: #fb923c !important; border-color: rgba(251,146,60,.55) !important; }
   .settings-section {
     background: linear-gradient(155deg, rgba(18,26,42,0.58) 0%, rgba(12,18,32,0.46) 100%);
     border: 1px solid rgba(255,255,255,0.08);

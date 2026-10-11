@@ -176,31 +176,51 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('—');
 });
 
-test('Broker Status names Zerodha too once a Kite app is saved', async ({ page }) => {
+test('Broker Status gives each broker its own column and its own button', async ({ page }) => {
   await login(page);
   await page.click('#nav-dashboard');
   await expect(page.locator('#dash-broker-summary-card')).toBeVisible();
+  // The page's own check on load asks both brokers; let it finish first.
+  await expect(page.locator('#broker-text')).not.toHaveText('Checking...');
+  await page.waitForLoadState('networkidle');
   await expect(page.locator('#broker-zerodha-row')).toBeHidden(); // no Kite app: Dhan alone, as before
 
+  const asked: string[] = [];
+  page.on('request', (r) => { const p = new URL(r.url()).pathname; if (p === '/api/zerodha/status' || p === '/api/broker/check') asked.push(p); });
   await page.route('**/api/zerodha/status', route => route.fulfill({
     json: { status: 'ok', configured: true, logged_in_today: true, connected: true, name: 'Test', available: 1000 },
   }));
-  await page.click('#broker-toggle-btn');
+  await page.evaluate(() => (window as unknown as { refreshZerodhaBrokerLine: () => Promise<unknown> }).refreshZerodhaBrokerLine());
   await expect(page.locator('#broker-zerodha-text')).toHaveText('Zerodha Connected');
-  await expect(page.locator('#broker-zerodha-login')).toBeHidden();
-  // Side by side: the same line, Dhan on the left.
-  const lines = await page.evaluate(() => {
-    const dhan = document.getElementById('broker-text')!.getBoundingClientRect();
-    const zerodha = document.getElementById('broker-zerodha-text')!.getBoundingClientRect();
-    return { sameLine: Math.abs(dhan.top - zerodha.top) < 2, dhanFirst: dhan.right < zerodha.left };
+  await expect(page.locator('#broker-zerodha-btn')).toHaveText('Recheck');
+  // Side by side: the two names on one line, the two buttons on the next.
+  const layout = await page.evaluate(() => {
+    const box = (id: string) => document.getElementById(id)!.getBoundingClientRect();
+    const [dhan, zerodha, dhanBtn, zerodhaBtn] = ['broker-text', 'broker-zerodha-text', 'broker-toggle-btn', 'broker-zerodha-btn'].map(box);
+    return {
+      namesOnOneLine: Math.abs(dhan.top - zerodha.top) < 2 && dhan.right < zerodha.left,
+      buttonsOnOneLine: Math.abs(dhanBtn.top - zerodhaBtn.top) < 2 && dhanBtn.right <= zerodhaBtn.left,
+      buttonsUnderNames: dhanBtn.top > dhan.bottom,
+    };
   });
-  expect(lines).toEqual({ sameLine: true, dhanFirst: true });
+  expect(layout).toEqual({ namesOnOneLine: true, buttonsOnOneLine: true, buttonsUnderNames: true });
 
-  // The morning after: saved, but today's login has not happened.
+  // Each button checks its own broker and no other.
+  asked.length = 0;
+  await page.click('#broker-zerodha-btn');
+  await expect(page.locator('#broker-zerodha-btn')).toHaveText('Recheck');
+  expect(asked).toEqual(['/api/zerodha/status']);
+  asked.length = 0;
+  await page.click('#broker-toggle-btn');
+  await expect(page.locator('#broker-toggle-btn')).not.toHaveText('Checking...');
+  expect(asked).toEqual(['/api/broker/check']);
+
+  // The morning after: saved, but today's login has not happened -- the button is Log in.
   await page.route('**/api/zerodha/status', route => route.fulfill({
     json: { status: 'ok', configured: true, logged_in_today: false, connected: false, reason: 'Log in to Zerodha' },
   }));
-  await page.click('#broker-toggle-btn');
+  await page.click('#broker-zerodha-btn');
   await expect(page.locator('#broker-zerodha-text')).toHaveText('Zerodha · login needed');
-  await expect(page.locator('#broker-zerodha-login')).toBeVisible();
+  await expect(page.locator('#broker-zerodha-btn')).toHaveText('Log in');
+  await expect(page.locator('#broker-zerodha-btn')).toHaveAttribute('data-action', 'login');
 });

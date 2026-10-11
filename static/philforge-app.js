@@ -14595,34 +14595,51 @@ function updateBrokerUI(status, text, dotColor, btnLabel) {
   if (refreshBtn) refreshBtn.style.display = (dotColor === 'red' || dotColor === 'orange') ? '' : 'none';
 }
 
-// Zerodha's line in the Broker Status card (Phil, 2026-10-11: "Why only
-// Dhan?"). Shown once a Kite app is saved: green when today's session
-// answers, orange with a Log in button when the morning login has not
-// happened, red when Zerodha cannot be reached. Asked on load and on Recheck,
-// not on the 30-second Dhan heartbeat: a Kite session changes once a day.
+// Zerodha's column in the Broker Status card (Phil, 2026-10-11: "Why only
+// Dhan?", then "give 2 separate buttons"). Shown once a Kite app is saved:
+// green when today's session answers, orange when the morning login has not
+// happened -- its button is then Log in -- and red when Zerodha cannot be
+// reached. Asked on load and by its own button, not on Dhan's 30-second
+// heartbeat: a Kite session changes once a day.
 async function refreshZerodhaBrokerLine() {
-  const row = document.getElementById('broker-zerodha-row');
+  const col = document.getElementById('broker-zerodha-row');
   const dot = document.getElementById('broker-zerodha-dot');
   const text = document.getElementById('broker-zerodha-text');
-  const login = document.getElementById('broker-zerodha-login');
-  if (!row || !dot || !text || !login) return null;
+  const btn = document.getElementById('broker-zerodha-btn');
+  if (!col || !dot || !text || !btn) return null;
   let data = null;
   try {
     const res = await fetch('/api/zerodha/status');
     data = res.ok ? await res.json() : null;
   } catch (e) { data = null; }
-  if (!data || !data.configured) { row.hidden = true; return data; }
-  row.hidden = false;
-  const state = data.connected
-    ? ['Zerodha Connected', 'var(--green)', false]
+  if (!data || !data.configured) { col.hidden = true; return data; }
+  col.hidden = false;
+  const [label, colour, button, action] = data.connected
+    ? ['Zerodha Connected', 'var(--green)', 'Recheck', 'check']
     : !data.logged_in_today
-      ? ['Zerodha · login needed', 'orange', true]
-      : ['Zerodha not reachable', 'red', false];
-  text.textContent = state[0];
+      ? ['Zerodha · login needed', 'orange', 'Log in', 'login']
+      : ['Zerodha not reachable', 'red', 'Retry', 'check'];
+  text.textContent = label;
   text.title = data.connected ? '' : (data.reason || '');
-  dot.style.backgroundColor = state[1];
-  login.hidden = !state[2];
+  dot.style.backgroundColor = colour;
+  btn.textContent = button;
+  btn.dataset.action = action;
   return data;
+}
+
+async function toggleZerodhaBroker() {
+  const btn = document.getElementById('broker-zerodha-btn');
+  if (!btn) return;
+  if (btn.dataset.action === 'login') { loginZerodha(); return; }
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+  try {
+    const data = await refreshZerodhaBrokerLine();
+    if (data && data.connected) toast('Zerodha connection verified', 'success');
+    else toast((data && data.reason) || 'Zerodha is not connected', 'warn');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function checkBrokerStatus(silent) {
@@ -14635,7 +14652,8 @@ async function checkBrokerStatus(silent) {
     return false;
   };
   if (isReadOnlyAccount()) return showReadOnlyBroker();
-  refreshZerodhaBrokerLine();
+  // The page's own check on load covers both brokers; Dhan's button is Dhan's.
+  if (silent) refreshZerodhaBrokerLine();
   try {
     const res = await fetch('/api/broker/check', { method: 'POST' });
     // Belt and braces: if the role arrived late and we asked anyway, the

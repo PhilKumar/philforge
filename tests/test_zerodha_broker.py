@@ -693,11 +693,13 @@ class TheBrokerStatusCardNamesBothBrokers(unittest.TestCase):
     def test_the_card_has_zerodhas_line_and_the_check_fills_it(self):
         html = (self.ROOT / "strategy.html").read_text(encoding="utf-8")
         card = html.split('id="dash-broker-summary-card"')[1].split("</div>\n    </div>")[0]
-        for needle in ('id="broker-zerodha-row" hidden', 'id="broker-zerodha-text"', 'onclick="loginZerodha()"'):
+        for needle in ('id="broker-zerodha-row" hidden', 'id="broker-zerodha-text"', 'onclick="toggleZerodhaBroker()"'):
             self.assertIn(needle, card)
+        self.assertIn('onclick="toggleBroker()"', card)  # two buttons, one per broker
         js = (self.ROOT / "static" / "philforge-app.js").read_text(encoding="utf-8")
         check = js.split("async function checkBrokerStatus(")[1].split("\nasync function toggleBroker")[0]
-        self.assertIn("refreshZerodhaBrokerLine();", check)
+        # On load only: pressed by hand, Dhan's button checks Dhan alone.
+        self.assertIn("if (silent) refreshZerodhaBrokerLine();", check)
         # After the read-only return: a viewer is never asked about Zerodha.
         self.assertLess(check.index("return showReadOnlyBroker();"), check.index("refreshZerodhaBrokerLine();"))
 
