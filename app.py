@@ -4298,6 +4298,8 @@ def _build_execution_ip_status(user: dict | None, broker_client: DhanClient | No
         "check_ready": bool(broker_client and client_id and access_token),
         "server_public_ip": "",
         "dhan_saved_ip": "",
+        "dhan_other_ip": "",
+        "dhan_ip_slot": "",
         "dhan_detected_ip": "",
         "dhan_ip_match_status": "",
         "orders_allowed": None,
@@ -4322,11 +4324,28 @@ def _build_execution_ip_status(user: dict | None, broker_client: DhanClient | No
         status["warning"] = server_error
 
     dhan_payload, dhan_error = _get_cached_dhan_saved_ip_payload(broker_client)
-    status["dhan_saved_ip"] = _clean_ip_literal(
+    primary_ip = _clean_ip_literal(
         dhan_payload.get("primaryIP") or dhan_payload.get("savedIp") or _extract_ip_from_payload(dhan_payload)
     )
+    secondary_ip = _clean_ip_literal(dhan_payload.get("secondaryIP") or dhan_payload.get("secondaryIp"))
     status["dhan_detected_ip"] = _clean_ip_literal(dhan_payload.get("detectedIP"))
     status["dhan_ip_match_status"] = str(dhan_payload.get("ipMatchStatus") or "").strip().upper()
+    # Dhan keeps TWO static IPs and takes orders from either. Read against the
+    # first one alone, an account whose server sits in the second slot was
+    # shown a red "IP MISMATCH" while Dhan itself said SECONDARY_MATCH and
+    # orders allowed (Phil's account, 2026-10-11). The IP shown as saved is the
+    # one the server is matched on; the other slot is reported beside it.
+    via_secondary = status["dhan_ip_match_status"] == "SECONDARY_MATCH" or bool(
+        secondary_ip and secondary_ip in {status["dhan_detected_ip"], server_public_ip} and primary_ip != secondary_ip
+    )
+    if via_secondary:
+        status["dhan_saved_ip"] = secondary_ip or status["dhan_detected_ip"] or server_public_ip
+        status["dhan_other_ip"] = primary_ip
+        status["dhan_ip_slot"] = "secondary"
+    else:
+        status["dhan_saved_ip"] = primary_ip
+        status["dhan_other_ip"] = secondary_ip
+        status["dhan_ip_slot"] = "primary" if primary_ip else ""
     if "ordersAllowed" in dhan_payload:
         try:
             status["orders_allowed"] = bool(dhan_payload.get("ordersAllowed"))
@@ -4338,7 +4357,10 @@ def _build_execution_ip_status(user: dict | None, broker_client: DhanClient | No
         status["error"] = "Dhan did not return a whitelisted IP for this account."
 
     if status["dhan_ip_match_status"]:
-        status["match"] = status["dhan_ip_match_status"] == "MATCH" and status["orders_allowed"] is not False
+        status["match"] = (
+            status["dhan_ip_match_status"] in {"MATCH", "PRIMARY_MATCH", "SECONDARY_MATCH"}
+            and status["orders_allowed"] is not False
+        )
     else:
         status["match"] = bool(
             status["server_public_ip"]

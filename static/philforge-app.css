@@ -3238,9 +3238,27 @@
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
     gap: 18px;
   }
-  .account-modal-panel {
-    width: 820px;
-    max-width: min(820px, 92vw);
+  /* ACCOUNT SETTINGS, TIDIED. Phil, 2026-10-11: "the fields are congested".
+     A long IPv6 ran out of its tile and across the Zerodha card, the Zerodha
+     card was too narrow for two buttons a row, and the short cards sat beside
+     one tall one with a hole under them. The window is wider, the tall
+     Profile + Broker card takes the left and the short cards stack on the
+     right, values wrap inside their tiles, and every row of actions is an
+     even two-column grid. */
+  .account-modal-panel { width: 1000px; max-width: min(1000px, 94vw); }
+  #account-modal .settings-meta-card { min-width: 0; }
+  #account-modal .settings-meta-value { overflow-wrap: anywhere; line-height: 1.4; }
+  #account-modal .settings-actions-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+  #account-modal .settings-actions-row .btn { width: 100%; margin: 0; justify-content: center; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* .btn sets its own display, which beat the hidden attribute: "Verify &
+     Enable" and "Disable Authenticator" showed when they were meant not to. */
+  #account-modal .btn[hidden] { display: none !important; }
+  #account-modal .settings-section input::placeholder { font-size: 12px; letter-spacing: 0; }
+  @media (min-width: 901px) {
+    #account-modal .settings-shell { grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); align-items: start; }
+    #account-modal .settings-shell > .settings-section:first-child { grid-row: span 3; }
+    #account-modal .settings-shell > .settings-section:nth-child(n+5) { grid-column: 1 / -1; }
+    #account-modal .settings-shell > .settings-section:nth-child(n+5) .settings-actions-row { grid-template-columns: repeat(auto-fit, minmax(170px, 240px)); }
   }
   .action-auth-panel {
     width: 440px;

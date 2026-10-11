@@ -4871,7 +4871,7 @@
             <div class="settings-meta-value" id="account-ip-server" style="font-family:'JetBrains Mono',monospace;font-size:12px;">—</div>
           </div>
           <div class="settings-meta-card">
-            <div class="settings-meta-label">Dhan Saved IP</div>
+            <div class="settings-meta-label" id="account-ip-dhan-label">Dhan Saved IP</div>
             <div class="settings-meta-value" id="account-ip-dhan" style="font-family:'JetBrains Mono',monospace;font-size:12px;">—</div>
           </div>
           <div class="settings-meta-card">
@@ -4895,17 +4895,17 @@
           </div>
           <div>
             <label for="account-broker-token">Access Token</label>
-            <input type="text" id="account-broker-token" class="mono-field" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep the saved token">
+            <input type="text" id="account-broker-token" class="mono-field" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep saved">
           </div>
         </div>
         <div class="modal-grid" style="margin-top:-4px;">
           <div>
             <label for="account-broker-pin">Dhan PIN</label>
-            <input type="password" id="account-broker-pin" class="mono-field" autocomplete="new-password" spellcheck="false" placeholder="Optional: save for token auto-refresh">
+            <input type="password" id="account-broker-pin" class="mono-field" autocomplete="new-password" spellcheck="false" placeholder="Optional, for auto-refresh">
           </div>
           <div>
             <label for="account-broker-totp">TOTP Secret</label>
-            <input type="password" id="account-broker-totp" class="mono-field" autocomplete="off" spellcheck="false" placeholder="Optional: save for token auto-refresh">
+            <input type="password" id="account-broker-totp" class="mono-field" autocomplete="off" spellcheck="false" placeholder="Optional, for auto-refresh">
           </div>
         </div>
         <div class="settings-hint" id="account-broker-hint">

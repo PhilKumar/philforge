@@ -787,7 +787,11 @@ async function loadExecutionIpStatus(silent = true) {
 
     const checkedAt = formatDateTimeLabel(data.checked_at);
     if (data.match) {
-      hintEl.innerHTML = `Dhan static-IP check passed for this account. Checked ${escapeHtml(checkedAt)}.`;
+      // Dhan keeps two static IPs; say so when the server is on the second.
+      const other = data.dhan_ip_slot === 'secondary' && data.dhan_other_ip
+        ? ` Matched on the second IP saved in Dhan; the first slot holds <strong>${escapeHtml(data.dhan_other_ip)}</strong>, which is not used.`
+        : '';
+      hintEl.innerHTML = `Dhan static-IP check passed for this account.${other} Checked ${escapeHtml(checkedAt)}.`;
     } else if (data.orders_allowed === false && data.dhan_detected_ip && data.dhan_saved_ip) {
       hintEl.innerHTML = `Dhan is currently seeing <strong>${escapeHtml(data.dhan_detected_ip)}</strong> for outbound orders, but this account has <strong>${escapeHtml(data.dhan_saved_ip)}</strong> saved. This usually means the server is reaching Dhan over IPv6 while the whitelisted static IP is IPv4. Checked ${escapeHtml(checkedAt)}.`;
     } else if (data.server_public_ip && data.dhan_saved_ip) {
