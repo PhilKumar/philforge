@@ -262,6 +262,9 @@ class GapCarryPaper:
                 return
             order_id = str(receipt.get("order_id") or "") or None
             bracket_id = str(receipt.get("bracket_order_id") or "") or None
+            if receipt.get("note"):
+                # e.g. Zerodha, where no stop can ride inside the entry.
+                self.notes.append(f"{session}: {receipt['note']}")
             if receipt.get("traded_premium"):
                 traded = float(receipt["traded_premium"])
             if receipt.get("traded_quantity"):
@@ -282,6 +285,14 @@ class GapCarryPaper:
         )
         self._status = HOLDING
         self.started_at = self.started_at or entry_ts
+
+    @property
+    def broker(self) -> str:
+        """Whose account this campaign's orders go to: "dhan" or "zerodha".
+        Empty on paper, which sends nothing anywhere."""
+        if self.executor is None:
+            return ""
+        return str(getattr(self.executor, "broker_label", "") or "Dhan").lower()
 
     def _price(self, when: datetime, strike: int, side: str, expiry: date) -> Optional[float]:
         if self.option_premium_lookup is None:
@@ -423,7 +434,18 @@ class GapCarryPaper:
         if status == "REJECTED":
             self.notes.append("broker rejected the exit; it will be tried again")
             return None
-        self.frozen_reason = f"exit outcome unknown at Dhan (order {receipt.get('order_id')})"
+        if status == "NOT_SENT":
+            # No session to send it through (Zerodha before the day's login).
+            # Nothing is working at the broker and the leg is still held, so
+            # this is tried again on the next mark -- said once, not every two
+            # seconds of the exit window.
+            note = f"exit NOT sent -- {receipt.get('message') or 'no broker session'}; it will be tried again"
+            if not self.notes or self.notes[-1] != note:
+                self.notes.append(note)
+            return None
+        self.frozen_reason = (
+            f"exit outcome unknown at {self.broker.title() or 'Dhan'} (order {receipt.get('order_id')})"
+        )
         self.notes.append(self.frozen_reason)
         return None
 
@@ -476,6 +498,8 @@ class GapCarryPaper:
         return {
             "strategy": "gap_carry",
             "status": self._status,
+            # "dhan" or "zerodha" when live; "" on paper.
+            "broker": self.broker,
             "timeframe": self.config.timeframe,
             # What the next carry will buy, and on how much banked profit.
             "ladder": {
@@ -526,6 +550,9 @@ class GapCarryPaper:
             # be saved, so without this a restart brought a LIVE campaign back
             # as paper -- and its 09:20 exit would have sold nothing at Dhan.
             "mode": "live" if self.executor is not None else "paper",
+            # And through WHOM: a campaign bought at Zerodha that came back
+            # holding a Dhan executor would sell nothing it owns.
+            "broker": self.broker,
             "status": self._status,
             "config": {
                 "timeframe": self.config.timeframe,

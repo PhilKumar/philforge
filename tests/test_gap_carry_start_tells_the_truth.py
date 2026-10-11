@@ -48,7 +48,8 @@ class ThePageRepeatsWhatItWasTold(unittest.TestCase):
     def test_the_message_follows_the_response(self):
         block = JS.split("async function startGapCarryPaper()")[1][:2600]
         self.assertIn("String(data.mode || '').toLowerCase() === 'live'", block)
-        self.assertIn("LIVE carry started.", block)
+        # Since 2026-10-11 the message also says which broker, when it is Zerodha.
+        self.assertIn("`LIVE carry started${onBroker}.`", block)
 
     def test_it_does_not_read_the_form_for_this(self):
         """The form is what was ASKED for; the response is what happened."""

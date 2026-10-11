@@ -260,10 +260,23 @@ def _key_to_dhan_id(key: str) -> str:
     return str(ScripMaster._options_cache.get(key) or "")
 
 
+class ZerodhaSessionError(ConnectionError):
+    """There is no Kite session to send anything through: no login yet today,
+    or the 06:00 lapse. NOTHING WAS SENT -- unlike a timeout, where an order
+    may be working. A caller can try again after the login instead of
+    freezing as it must for an unknown outcome."""
+
+    nothing_sent = True
+
+
 class ZerodhaClient:
     """Kite Connect, answering the calls `engine/live.py` makes of `DhanClient`."""
 
     broker_name = "Zerodha"
+    # Kite has no order that carries its own stop and is retired with the
+    # position, which is what Dhan's Super Order is. The shared option executor
+    # reads this and sends a plain buy here (engine/options_live_executor.py).
+    supports_super_order = False
 
     def __init__(  # nosec B107 - empty defaults mean "not connected", not a password
         self,
@@ -300,14 +313,14 @@ class ZerodhaClient:
 
     def _call(self, method: str, path: str, *, params=None, data=None, json=None, timeout: float = 10.0):
         if not self._is_configured():
-            raise ConnectionError("Zerodha is not connected. Log in to Zerodha from Settings first.")
+            raise ZerodhaSessionError("Zerodha is not connected. Log in to Zerodha from Settings first.")
         extra = {"json": json} if json is not None else {}
         resp = self._http.request(
             method, f"{KITE_API}{path}", headers=self.headers, params=params, data=data, timeout=timeout, **extra
         )
         body = _json(resp)
         if resp.status_code == 403 and body.get("error_type") == "TokenException":
-            raise ConnectionError("Zerodha session has expired. Log in to Zerodha again (it lapses daily at 6 AM).")
+            raise ZerodhaSessionError("Zerodha session has expired. Log in to Zerodha again (it lapses daily at 6 AM).")
         return resp, body
 
     def _get_data(self, path: str, *, params=None, timeout: float = 10.0):
@@ -384,9 +397,13 @@ class ZerodhaClient:
                 "Zerodha returned a transient response after order submission; reconcile the order book before retrying."
             )
         if resp.status_code != 200 or body.get("status") != "success":
-            raise DhanOrderError(
+            refusal = DhanOrderError(
                 "Order placement", resp.status_code, str(body.get("message") or "Zerodha rejected the order"), body
             )
+            # Kite ANSWERED, and said no: no order exists. Marked so a caller
+            # can tell this from a submission whose fate is unknown.
+            refusal.rejected = True
+            raise refusal
         order_id = str((body.get("data") or {}).get("order_id") or "")
         return {"orderId": order_id, "orderStatus": "TRANSIT", "broker": "zerodha"}
 

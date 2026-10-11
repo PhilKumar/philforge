@@ -82,7 +82,9 @@ class TheRestoreBringsItBackLive(unittest.TestCase):
             patch.object(app_module, "_gap_carry_history_lookup", _history),
             patch.object(app_module, "_reconcile_shared_live_orders", _reconcile),
             patch.object(app_module, "_gap_carry_live_open", lambda: live_open),
-            patch.object(app_module, "_gap_carry_executor", lambda broker, mode: ("LIVE-EXECUTOR", mode)),
+            patch.object(
+                app_module, "_gap_carry_executor", lambda broker, mode, order_broker=None: ("LIVE-EXECUTOR", mode)
+            ),
             patch.object(app_module, "CascadeOptionsAdapter", lambda *a, **k: None),
         ):
             return asyncio.run(app_module._restore_gap_carry_open_state(1, object(), activate=False))

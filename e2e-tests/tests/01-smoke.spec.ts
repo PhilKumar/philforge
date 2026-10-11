@@ -943,6 +943,45 @@ test('A held Candle Entry basket shows what it is worth right now', async ({ pag
 // before this one mocked `not_started`, so the suite had never once seen a
 // RUNNING carry -- and a campaign that had started left the button reading
 // "Start paper carry" over an empty right-hand pane.
+// Phil, 2026-10-11: Gap Carry on Zerodha too. The choice appears once a Kite
+// app is saved, and whichever broker is chosen is what the start and the Auto
+// switch send -- so real money cannot leave through an account nobody picked.
+test('Gap Carry offers Zerodha once it is set up, and sends the broker chosen', async ({ page }) => {
+  await login(page);
+  const idle = { status: 'not_started', mode: 'paper', live_available: true, auto: {}, timeframes: ['5m', '15m'] };
+  await page.route('**/api/gap-carry/paper/status', route => route.fulfill({ json: idle }));
+  await openTradingSection(page, 'cascade');
+  await page.click('#oc-tabbtn-gapcarry');
+  // No Kite app: there is only Dhan and nothing to choose.
+  await expect(page.locator('#oc-gap-broker-row')).toBeHidden();
+
+  await page.evaluate(() => {
+    const w = window as unknown as { _syncGapCarryBrokerRow: () => void };
+    // eslint-disable-next-line no-eval
+    (0, eval)('_userProfile = { ...(_userProfile || {}), broker: { ...((_userProfile || {}).broker || {}), zerodha: { configured: true } } }');
+    w._syncGapCarryBrokerRow();
+  });
+  await expect(page.locator('#oc-gap-broker-row')).toBeVisible();
+  await expect(page.locator('#oc-gap-broker')).toHaveValue('dhan');
+  await expect(page.locator('#oc-gap-broker-note')).toContainText('30% stop');
+
+  await page.click('#oc-gap-broker-toggle [data-value="zerodha"]');
+  await expect(page.locator('#oc-gap-broker')).toHaveValue('zerodha');
+  await expect(page.locator('#oc-gap-broker-note')).toContainText('No stop rests at Zerodha');
+  await expect(page.locator('#oc-gap-broker-note')).toContainText('before 09:15');
+
+  const started: Record<string, unknown>[] = [];
+  await page.route('**/api/gap-carry/paper/start', async route => {
+    started.push(JSON.parse(route.request().postData() || '{}'));
+    await route.fulfill({ json: { status: 'started', mode: 'live', campaign: { strategy: 'gap_carry', status: 'WAITING', broker: 'zerodha', running: true, notes: [], history: [] } } });
+  });
+  await page.click('#oc-gap-mode-toggle [data-value="live"]');
+  await page.click('#oc-gap-start');
+  await expect.poll(() => started.length).toBe(1);
+  expect(started[0]).toMatchObject({ mode: 'live', broker: 'zerodha' });
+  await expect(page.locator('#oc-gap-status')).toContainText('LIVE carry started on Zerodha');
+});
+
 test('A started Gap Carry says so on the button and fills the right pane', async ({ page }) => {
   await login(page);
   const waiting = {
@@ -1872,13 +1911,14 @@ test('Gap Carry Auto shows the saved LIVE mode and saves a mode change', async (
   // To paper: saved at once, no confirm needed to take money OFF the table.
   await page.click('#oc-gap-mode-toggle [data-value="paper"]');
   await expect.poll(() => posted.length).toBe(1);
-  expect(posted[0]).toEqual({ enabled: true, mode: 'paper' });
+  // The broker rides along; with no Kite app saved it is Dhan, as it always was.
+  expect(posted[0]).toEqual({ enabled: true, mode: 'paper', broker: 'dhan' });
   await expect(page.locator('#oc-gap-auto-card')).toContainText('paper');
 
   // Back to live: real money is confirmed first, then saved.
   await page.click('#oc-gap-mode-toggle [data-value="live"]');
   await page.click('#confirm-ok-btn');
   await expect.poll(() => posted.length).toBe(2);
-  expect(posted[1]).toEqual({ enabled: true, mode: 'live' });
+  expect(posted[1]).toEqual({ enabled: true, mode: 'live', broker: 'dhan' });
   await expect(page.locator('#oc-gap-mode')).toHaveValue('live');
 });

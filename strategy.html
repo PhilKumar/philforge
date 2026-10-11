@@ -3531,6 +3531,17 @@
             <button id="oc-gap-stop" class="read-only-lock btn btn-sm cascade-options-control is-danger" type="button" data-pf-action="killGapCarryPaper" style="display:none;">■ Kill &amp; close</button>
           </div>
         </div>
+        <!-- Whose account a LIVE carry trades through. Shown once a Kite app
+             is saved; without one there is only Dhan and nothing to choose. -->
+        <div id="oc-gap-broker-row" class="ocp-broker-row" hidden>
+          <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;">Live orders through</label>
+          <input type="hidden" id="oc-gap-broker" value="dhan">
+          <div id="oc-gap-broker-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Broker for live orders">
+            <button type="button" class="read-only-lock scalp-toggle-btn active" data-value="dhan" data-tone="paper" data-pf-action="setGapCarryBroker" role="radio" aria-checked="true"><span>Dhan</span></button>
+            <button type="button" class="read-only-lock scalp-toggle-btn" data-value="zerodha" data-tone="paper" data-pf-action="setGapCarryBroker" role="radio" aria-checked="false"><span>Zerodha</span></button>
+          </div>
+          <span id="oc-gap-broker-note" class="ocp-broker-note"></span>
+        </div>
         <details id="oc-gap-advanced" class="ocp-advanced">
           <summary><span class="ocp-advanced-title">Advanced</span><span id="oc-gap-advanced-state" class="ocp-advanced-state">rule as measured</span></summary>
           <div class="ocp-advanced-body">

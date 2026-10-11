@@ -2426,6 +2426,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'loadGapCarryChart',
   'toggleGapCarryBacktestChart',
   'setGapCarryMode',
+  'setGapCarryBroker',
   'setGapCarryAuto',
   'setGapCarryExpiry',
   'setGapCarryRsi',
@@ -4445,6 +4446,7 @@ window.loadGapCarryChart = loadGapCarryChart;
 window.hideGapCarryChart = hideGapCarryChart;
 window.toggleGapCarryBacktestChart = toggleGapCarryBacktestChart;
 window.setGapCarryMode = setGapCarryMode;
+window.setGapCarryBroker = setGapCarryBroker;
 window.setGapCarryAuto = setGapCarryAuto;
 window.setGapCarryExpiry = setGapCarryExpiry;
 window.setGapCarryRsi = setGapCarryRsi;
@@ -4544,11 +4546,74 @@ function _syncGapCarryRecipe() {
     start.textContent = (document.getElementById('oc-gap-mode')?.value === 'live')
       ? '▶ Start LIVE carry' : '▶ Start paper carry';
   }
+  _syncGapCarryBrokerRow();
   const state = _cascadeOptionsEl('oc-gap-advanced-state');
   if (state) {
     const measured = p.rsi_threshold === 70 && p.strike_offset_steps === 4 && p.lots === 1
       && p.entry_time === '15:10' && p.exit_time === '09:20' && p.expiry_rule === 'weekly';
     state.textContent = measured ? 'rule as measured' : 'changed from the measured rule';
+  }
+}
+
+// WHOSE ACCOUNT A LIVE CARRY TRADES THROUGH (Phil, 2026-10-11: Gap Carry on
+// Zerodha too). The switch shows once a Kite app is saved. Quotes and candles
+// stay Dhan's; only the orders move. At Zerodha no stop rests overnight -- it
+// has no order tied to the position -- and the day's login is needed before
+// the 09:20 exit, both said beside the switch.
+function _gapCarryBroker() {
+  return document.getElementById('oc-gap-broker')?.value === 'zerodha' ? 'zerodha' : 'dhan';
+}
+function _gapCarryBrokerName(value = _gapCarryBroker()) {
+  return value === 'zerodha' ? 'Zerodha' : 'Dhan';
+}
+function _syncGapCarryBrokerRow() {
+  const row = document.getElementById('oc-gap-broker-row');
+  if (!row) return;
+  const configured = !!(_userProfile && _userProfile.broker && _userProfile.broker.zerodha && _userProfile.broker.zerodha.configured);
+  // Never hide a choice that is in force: a carry already on Zerodha stays visible.
+  row.hidden = !(configured || _gapCarryBroker() === 'zerodha');
+  const note = document.getElementById('oc-gap-broker-note');
+  if (note) {
+    note.textContent = _gapCarryBroker() === 'zerodha'
+      ? 'Orders go to Zerodha; prices still come from Dhan. No stop rests at Zerodha overnight. Log in to Zerodha before 09:15 each day, or the 09:20 exit waits for it.'
+      : 'Orders go to Dhan, with the 30% stop resting inside the entry.';
+  }
+}
+let _gapCarryBrokerInFlight = false;
+async function setGapCarryBroker(_event, button) {
+  const wanted = button?.dataset?.value === 'zerodha' ? 'zerodha' : 'dhan';
+  const previous = _gapCarryBroker();
+  const autoLive = !!(_lastGapCarryAuto && _lastGapCarryAuto.enabled) && document.getElementById('oc-gap-mode')?.value === 'live';
+  if (!autoLive) {
+    _ocpSetSwitch('oc-gap-broker', 'oc-gap-broker-toggle', wanted);
+    _syncGapCarryBrokerRow();
+    return;
+  }
+  if (wanted === previous || _gapCarryBrokerInFlight) return;
+  const confirmed = await customConfirm(
+    `Auto will buy and sell REAL NIFTY options with your ${_gapCarryBrokerName(wanted)} money every session: 15:10 in, 09:20 out.`,
+    { title: `Move LIVE Auto carry to ${_gapCarryBrokerName(wanted)}`, icon: ICO.warn(28), okText: `Use ${_gapCarryBrokerName(wanted)}`, danger: true },
+  );
+  if (!confirmed) return;
+  _gapCarryBrokerInFlight = true;
+  _ocpSetSwitch('oc-gap-broker', 'oc-gap-broker-toggle', wanted);
+  try {
+    const response = await fetch('/api/gap-carry/auto', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, mode: 'live', broker: wanted }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The broker could not be changed.'));
+    _renderGapCarryAuto(data.auto || {});
+    _setGapCarryFormStatus(`Auto carry now trades through ${_gapCarryBrokerName(wanted)}. A carry already held stays where it was bought.`, 'success');
+  } catch (error) {
+    _ocpSetSwitch('oc-gap-broker', 'oc-gap-broker-toggle', previous);
+    _setGapCarryFormStatus(error.message || 'The broker could not be changed.', 'error');
+  } finally {
+    _gapCarryBrokerInFlight = false;
+    _syncGapCarryBrokerRow();
   }
 }
 
@@ -4568,7 +4633,7 @@ async function setGapCarryMode(_event, button) {
   if (wanted === previous || _gapCarryModeInFlight) return;
   if (wanted === 'live') {
     const confirmed = await customConfirm(
-      'Auto will buy and sell REAL NIFTY options with your Dhan money every session: 15:10 in, 09:20 out.',
+      `Auto will buy and sell REAL NIFTY options with your ${_gapCarryBrokerName()} money every session: 15:10 in, 09:20 out.`,
       { title: 'Switch Auto carry to LIVE', icon: ICO.warn(28), okText: 'Go LIVE', danger: true },
     );
     if (!confirmed) return;
@@ -4580,7 +4645,7 @@ async function setGapCarryMode(_event, button) {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: true, mode: wanted }),
+      body: JSON.stringify({ enabled: true, mode: wanted, broker: _gapCarryBroker() }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The Auto mode could not be changed.'));
@@ -4633,7 +4698,7 @@ async function setGapCarryAuto(_event, button) {
   if (wanted === previous) return;
   if (wanted === 'on' && document.getElementById('oc-gap-mode')?.value === 'live') {
     const confirmed = await customConfirm(
-      'Auto will buy and sell REAL NIFTY options with your Dhan money every session: 15:10 in, 09:20 out.',
+      `Auto will buy and sell REAL NIFTY options with your ${_gapCarryBrokerName()} money every session: 15:10 in, 09:20 out.`,
       { title: 'Turn on LIVE Auto carry', icon: ICO.warn(28), okText: 'Go LIVE', danger: true },
     );
     if (!confirmed) return;
@@ -4645,7 +4710,7 @@ async function setGapCarryAuto(_event, button) {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: wanted === 'on', mode: document.getElementById('oc-gap-mode')?.value || 'paper' }),
+      body: JSON.stringify({ enabled: wanted === 'on', mode: document.getElementById('oc-gap-mode')?.value || 'paper', broker: _gapCarryBroker() }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'ok') throw new Error(_apiErrorMessage(data, 'The auto switch could not be changed.'));
@@ -4668,7 +4733,7 @@ async function startGapCarryPaper() {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ..._gapCarryPayload(), mode: document.getElementById('oc-gap-mode')?.value || 'paper' }),
+      body: JSON.stringify({ ..._gapCarryPayload(), mode: document.getElementById('oc-gap-mode')?.value || 'paper', broker: _gapCarryBroker() }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status !== 'started') throw new Error(_apiErrorMessage(data, 'The campaign could not be started.'));
@@ -4676,7 +4741,8 @@ async function startGapCarryPaper() {
     // Say which mode the SERVER started, not which the form asked for. The two
     // disagreed: a live start replied "paper" and this line said so, so the one
     // message that has to distinguish real money from a simulation could not.
-    const started = String(data.mode || '').toLowerCase() === 'live' ? 'LIVE carry started.' : 'Paper carry started.';
+    const onBroker = (data.campaign && data.campaign.broker) === 'zerodha' ? ' on Zerodha' : '';
+    const started = String(data.mode || '').toLowerCase() === 'live' ? `LIVE carry started${onBroker}.` : 'Paper carry started.';
     // Gap Carry enters at 15:10 and sells the next morning. Started outside
     // that window it is correctly idle, and saying so beats a message about
     // pricing a contract it is not pricing.
@@ -4768,7 +4834,11 @@ function _renderGapCarryAuto(auto) {
   const autoLive = String(auto.mode || '').toLowerCase() === 'live';
   // The switch shows what the SERVER will trade, not whatever the page loaded with.
   if (!_gapCarryModeInFlight) _ocpSetSwitch('oc-gap-mode', 'oc-gap-mode-toggle', autoLive ? 'live' : 'paper');
-  const bits = [`<strong>Auto carry is on · ${autoLive ? 'LIVE' : 'paper'}.</strong> 15:10 in; a carry that opens down is cut at 09:15, otherwise 09:20 out.`];
+  // ... and through whom: a live Auto's broker is the server's, not the page's.
+  const autoBroker = autoLive && String(auto.broker || '').toLowerCase() === 'zerodha' ? 'zerodha' : 'dhan';
+  if (autoLive && !_gapCarryBrokerInFlight) _ocpSetSwitch('oc-gap-broker', 'oc-gap-broker-toggle', autoBroker);
+  _syncGapCarryBrokerRow();
+  const bits = [`<strong>Auto carry is on · ${autoLive ? `LIVE · ${_gapCarryBrokerName(autoBroker)}` : 'paper'}.</strong> 15:10 in; a carry that opens down is cut at 09:15, otherwise 09:20 out.`];
   if (auto.state) bits.push(`State: <code>${String(auto.state)}</code>`);
   if (auto.entry_day) bits.push(`Last entry checked: ${String(auto.entry_day)}`);
   if (auto.alert) bits.push(`<span style="color:var(--danger);">${String(auto.alert)}</span>`);

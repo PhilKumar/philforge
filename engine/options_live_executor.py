@@ -154,6 +154,25 @@ class OptionsLiveExecutor:
         # question in a second instead of twenty.
         self.verify_wait_sec = 20
 
+    # ── the broker behind it ────────────────────────────────────────────────
+
+    @property
+    def broker_label(self) -> str:
+        """Whose account the orders go to, for the notes a person reads."""
+        return str(getattr(self.broker, "broker_name", "") or "Dhan")
+
+    @property
+    def brackets(self) -> bool:
+        """Can this broker carry a stop inside the entry (a Dhan Super Order)?
+
+        Zerodha cannot: it has no order that is retired with the position, and
+        the nearest thing that lasts a night, a GTT, is not tied to the holding
+        -- one left behind after the exit would sell an option no longer held.
+        Phil, 2026-10-11: on Zerodha a carry rests NO stop; these strategies
+        only buy options, so the premium paid is the most a night can lose.
+        """
+        return bool(getattr(self.broker, "supports_super_order", True))
+
     # ── guards ──────────────────────────────────────────────────────────────
 
     def _availability_guard(self) -> None:
@@ -266,8 +285,24 @@ class OptionsLiveExecutor:
         See BRACKET_PLACEHOLDER_TARGET_MULTIPLE.
         """
         self._guard()
-        bracketed = False
-        if stop_price:
+        try:
+            order = self._send_buy(strike, expiry, option_type, quantity, premium, stop_price)
+        except Exception as exc:
+            if getattr(exc, "nothing_sent", False):
+                # No session to send through (Zerodha before the day's login).
+                # Nothing is working at the broker, so this is a refusal the
+                # next trigger can retry -- not an unknown that must freeze.
+                raise ExecutionRefused(f"{self.broker_label} took no order: {exc}") from exc
+            if getattr(exc, "rejected", False):
+                # The broker answered and said no (funds, a bad contract):
+                # nothing is working there either, so this too can be retried.
+                raise OrderRejected(f"{self.broker_label} refused the buy: {exc}") from exc
+            raise
+        bracketed = bool(stop_price) and self.brackets
+        return self._settle_buy(order, quantity, bracketed, wanted_stop=bool(stop_price))
+
+    def _send_buy(self, strike, expiry, option_type, quantity, premium, stop_price):
+        if stop_price and self.brackets:
             order = self.broker.place_super_order(
                 underlying=self.symbol,
                 strike_price=int(strike),
@@ -281,7 +316,6 @@ class OptionsLiveExecutor:
                 product_type=self.product_type,
                 tag=f"{self.tag}_SO",
             )
-            bracketed = True
         else:
             order = self.broker.place_option_order(
                 underlying=self.symbol,
@@ -293,6 +327,9 @@ class OptionsLiveExecutor:
                 product_type=self.product_type,
                 tag=f"{self.tag}_BUY",
             )
+        return order
+
+    def _settle_buy(self, order, quantity, bracketed: bool, *, wanted_stop: bool) -> dict:
         refused = _placement_error(order)
         if refused:
             # Dhan answered 200 and still said no. Scalp learned this one the
@@ -300,7 +337,7 @@ class OptionsLiveExecutor:
             # walks on to the fill check, comes back UNKNOWN and freezes the
             # strategy -- when in fact nothing is working and the next trigger
             # could simply try again.
-            raise OrderRejected(f"Dhan refused the buy: {refused}")
+            raise OrderRejected(f"{self.broker_label} refused the buy: {refused}")
         order_id = order.get("orderId") if isinstance(order, dict) else getattr(order, "order_id", None)
         # The acknowledgement is not the fill. What the book carries has to be
         # what Dhan actually traded, or every rupee downstream is an estimate.
@@ -325,9 +362,14 @@ class OptionsLiveExecutor:
             }
             if bracketed:
                 receipt["bracket_order_id"] = str(order_id)
+            elif wanted_stop:
+                # Said out loud, so the book never implies a stop that is not there.
+                receipt["note"] = f"no stop rests at {self.broker_label}: it has no order tied to the position"
             return receipt
         if status in ("REJECTED", "CANCELLED") and int(outcome.get("filled_qty") or 0) == 0:
-            raise OrderRejected(f"Dhan {status.lower()} the buy: {outcome.get('message') or 'no reason given'}")
+            raise OrderRejected(
+                f"{self.broker_label} {status.lower()} the buy: {outcome.get('message') or 'no reason given'}"
+            )
         raise RuntimeError(
             f"buy outcome unresolved (status={status}, filled={outcome.get('filled_qty') or 0}): "
             f"{outcome.get('message') or 'no detail'}"
@@ -336,16 +378,25 @@ class OptionsLiveExecutor:
     def sell(self, *, when, strike, expiry, option_type, quantity) -> dict:
         """Close one leg at market, and say plainly what became of it."""
         self._availability_guard()
-        order = self.broker.place_option_order(
-            underlying=self.symbol,
-            strike_price=float(strike),
-            option_type=str(option_type),
-            expiry=self._expiry_str(expiry),
-            transaction_type="SELL",
-            quantity=int(quantity),
-            product_type=self.product_type,
-            tag=f"{self.tag}_EXIT",
-        )
+        try:
+            order = self.broker.place_option_order(
+                underlying=self.symbol,
+                strike_price=float(strike),
+                option_type=str(option_type),
+                expiry=self._expiry_str(expiry),
+                transaction_type="SELL",
+                quantity=int(quantity),
+                product_type=self.product_type,
+                tag=f"{self.tag}_EXIT",
+            )
+        except Exception as exc:
+            if getattr(exc, "nothing_sent", False):
+                # No session, so no order: the position is still held and the
+                # next mark tries again once the login has happened.
+                return {"order_id": "", "mode": "live", "status": "NOT_SENT", "avg_price": None, "message": str(exc)}
+            if getattr(exc, "rejected", False):
+                return {"order_id": "", "mode": "live", "status": "REJECTED", "avg_price": None, "message": str(exc)}
+            raise
         refused = _placement_error(order)
         if refused:
             return {"order_id": "", "mode": "live", "status": "REJECTED", "avg_price": None, "message": refused}

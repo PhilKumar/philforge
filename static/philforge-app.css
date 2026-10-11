@@ -6390,6 +6390,11 @@ body.terminal-cascade-chart-open { overflow: hidden; }
    desk, stacking on a phone. Everything else is behind the Advanced fold. */
 .ocp-essentials { display:grid; grid-template-columns: 170px 150px 190px minmax(200px,1fr) auto; gap:10px 12px; align-items:end; margin-top:12px; }
 .ocp-essentials .ocp-field { min-width:0; }
+/* Gap Carry: which broker a live carry trades through (once Zerodha is set up). */
+.ocp-broker-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:10px; }
+.ocp-broker-row[hidden] { display:none; }
+.ocp-broker-row .scalp-toggle { width:220px; max-width:100%; }
+.ocp-broker-note { color:var(--muted); font-size:11px; line-height:1.45; flex:1 1 260px; }
 .ocp-essentials .ocp-field-actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:0; }
 @media (max-width: 1180px) { .ocp-essentials { grid-template-columns: 160px 140px 170px minmax(0,1fr); } .ocp-essentials .ocp-field-actions { grid-column: 1 / -1; } }
 @media (max-width: 900px) { .ocp-essentials { grid-template-columns: repeat(2, minmax(0,1fr)); } .ocp-essentials .ocp-field-when { grid-column: 1 / -1; } }

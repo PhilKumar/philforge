@@ -185,7 +185,8 @@ class PayloadShapeTests(unittest.TestCase):
         """If these drift, the replay stops describing what Start would trade."""
         start = set(app_module.GapCarryPaperStartPayload.model_fields)
         back = set(app_module.GapCarryBacktestPayload.model_fields)
-        self.assertEqual(start - {"mode"}, back - {"lookback_days"})
+        # mode and broker say WHERE a carry's orders go, not what it trades.
+        self.assertEqual(start - {"mode", "broker"}, back - {"lookback_days"})
 
     def test_defaults_are_the_measured_configuration(self):
         p = app_module.GapCarryPaperStartPayload()

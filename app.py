@@ -4416,6 +4416,9 @@ def _user_zerodha_settings_lock(user_id: int) -> tuple[bool, str]:
         for trade in getattr(eng, "open_trades", {}).values()
     ):
         return True, "Close live Zerodha scalp trades before changing the Kite app."
+    carry = _gap_carry_engines.get(int(user_id))
+    if _gap_carry_on_zerodha(carry) and (getattr(carry, "running", False) or carry.engine.has_open_position):
+        return True, "Stop the Gap Carry running on Zerodha before changing the Kite app."
     return False, ""
 
 
@@ -4558,6 +4561,13 @@ def _hand_zerodha_token_to_running_books(user_id: int, access_token: str, token_
     scalp = _scalp_engines.get(int(user_id))
     client = getattr(scalp, "zerodha", None)
     if isinstance(client, _zerodha.ZerodhaClient):
+        client._access_token = access_token
+        client.token_saved_at = token_at
+        handed += 1
+    # A Gap Carry held overnight at Zerodha sells at 09:20 on THIS token.
+    carry = _gap_carry_engines.get(int(user_id))
+    if _gap_carry_on_zerodha(carry):
+        client = carry.engine.executor.broker
         client._access_token = access_token
         client.token_saved_at = token_at
         handed += 1
@@ -5594,6 +5604,8 @@ class GapCarryPaperStartPayload(BaseModel):
     exit_time: str = "09:20"
     expiry_rule: str = "weekly"
     mode: str = "paper"
+    # Whose account a LIVE carry trades through. Paper sends nothing anywhere.
+    broker: str = "dhan"
 
 
 class GapCarryBacktestPayload(BaseModel):
@@ -5618,6 +5630,7 @@ class GapCarryBacktestPayload(BaseModel):
 class GapCarryAutoPayload(BaseModel):
     enabled: bool = Field(default=True)
     mode: str = Field(default="paper")
+    broker: str = Field(default="dhan")
 
 
 class CandleEntryAutoPayload(BaseModel):
@@ -8367,6 +8380,10 @@ async def zerodha_callback(request: Request):
         zerodha_token_at=token_at,
     )
     _hand_zerodha_token_to_running_books(int(user["id"]), access_token, token_at)
+    try:
+        await _gap_carry_after_zerodha_login(int(user["id"]))
+    except Exception as exc:  # the login itself has succeeded; say so and carry on
+        _logger.warning("[GAP CARRY] post-login position check failed for user %s: %s", user["id"], exc)
     return RedirectResponse("/app?zerodha=ok", status_code=303)
 
 
@@ -14516,11 +14533,29 @@ def _gap_carry_live_open() -> bool:
     return bool(_OPTIONS_LIVE_EXECUTION_ENABLED or live_execution_open("PF_GAP_CARRY"))
 
 
-def _gap_carry_executor(broker: DhanClient, mode: str):
-    """The one place a Gap Carry campaign gets its order path, start or restore."""
+def _gap_carry_executor(broker: DhanClient, mode: str, order_broker=None):
+    """The one place a Gap Carry campaign gets its order path, start or restore.
+
+    `broker` is Dhan: every quote and candle comes from it. `order_broker` is
+    where the ORDERS go when that is somewhere else -- a Zerodha client for a
+    carry started on Zerodha -- and Dhan otherwise.
+    """
     if mode != "live":
         return None
-    return build_executor(broker, "NIFTY", mode="live", armed=True, product_type="MARGIN", tag="PF_GAP_CARRY")
+    return build_executor(
+        order_broker or broker, "NIFTY", mode="live", armed=True, product_type="MARGIN", tag="PF_GAP_CARRY"
+    )
+
+
+def _gap_carry_broker_name(value) -> str:
+    """ "zerodha" only when it says exactly that; anything else is Dhan, so a
+    typo or an old saved state can never move a carry to another account."""
+    return "zerodha" if str(value or "").strip().lower() == "zerodha" else "dhan"
+
+
+def _gap_carry_on_zerodha(runtime) -> bool:
+    executor = getattr(getattr(runtime, "engine", None), "executor", None)
+    return isinstance(getattr(executor, "broker", None), _zerodha.ZerodhaClient)
 
 
 def _gap_carry_saved_mode(saved: Mapping[str, Any]) -> str:
@@ -14730,6 +14765,51 @@ async def _save_gap_carry_open_state(user_id: int, *, force: bool = False) -> No
             _logger.warning("[GAP CARRY] could not bank closed nights for user %s: %s", user_id, exc)
 
 
+# Carries restored on a stale Zerodha token: their position check is owed.
+_gap_carry_reconcile_pending: set[int] = set()
+# Accounts whose Auto carry is LIVE on Zerodha with no login yet today, kept
+# current by the auto loop so the morning reminder can name them.
+_gap_carry_zerodha_login_missing: set[int] = set()
+
+
+async def _gap_carry_after_zerodha_login(user_id: int) -> None:
+    """The day's Zerodha login has just happened: ask the position question a
+    restart could not ask, and freeze if the account disagrees."""
+    uid = int(user_id)
+    _gap_carry_zerodha_login_missing.discard(uid)
+    if uid not in _gap_carry_reconcile_pending:
+        return
+    _gap_carry_reconcile_pending.discard(uid)
+    runtime = _gap_carry_engines.get(uid)
+    if runtime is None or not _gap_carry_on_zerodha(runtime):
+        return
+    pos = runtime.engine.position
+    if pos is None or not pos.order_id:
+        return
+    frozen = await _reconcile_shared_live_orders(
+        "GAP CARRY",
+        runtime.engine.executor.broker,
+        symbol="NIFTY",
+        legs=[
+            {
+                "order_id": pos.order_id,
+                "bracket_order_id": pos.bracket_order_id,
+                "strike": pos.strike,
+                "expiry": pos.expiry.isoformat(),
+                "option_type": pos.side,
+                "quantity": pos.quantity,
+            }
+        ],
+    )
+    if frozen:
+        runtime.engine.frozen_reason = frozen.replace("Dhan", "Zerodha")
+        runtime.engine.notes.append(runtime.engine.frozen_reason)
+        runtime.running = False
+        if runtime.task is not None:
+            runtime.task.cancel()
+    await _save_gap_carry_open_state(uid, force=True)
+
+
 async def _restore_gap_carry_open_state(
     user_id: int, broker: DhanClient | None, *, activate: bool = True
 ) -> _CascadeRuntime | None:
@@ -14758,9 +14838,21 @@ async def _restore_gap_carry_open_state(
         # executor at all -- shown as paper, and unable to sell a real leg.
         saved_mode = _gap_carry_saved_mode(saved)
         live_refused = False
+        # ... and through the SAME broker. A carry bought at Zerodha comes
+        # back holding a Zerodha client -- on yesterday's token if the day's
+        # login has not happened yet, exactly as the CE/PE books do; the login
+        # hands it the new one. Brought back on Dhan it would try to sell, at
+        # Dhan, a position that is in the other account.
+        order_broker = None
+        zerodha_gone = False
+        if saved_mode == "live" and _gap_carry_broker_name(saved.get("broker")) == "zerodha":
+            order_broker, _z_source = _user_zerodha_client(
+                await _db_mod.get_user_by_id(int(user_id)), require_today=False
+            )
+            zerodha_gone = order_broker is None
         if saved_mode == "live":
-            if _gap_carry_live_open():
-                engine.executor = _gap_carry_executor(broker, "live")
+            if _gap_carry_live_open() and not zerodha_gone:
+                engine.executor = _gap_carry_executor(broker, "live", order_broker)
             else:
                 live_refused = True
         engine.banked_before = _gap_carry_banked_before(await _gap_carry_bank(int(user_id), saved_mode), engine)
@@ -14778,33 +14870,49 @@ async def _restore_gap_carry_open_state(
         # Ask Dhan before ticking: the one moment local state may quietly
         # disagree with the account is right after being away.
         pos = engine.position
-        frozen = await _reconcile_shared_live_orders(
-            "GAP CARRY",
-            broker,
-            symbol="NIFTY",
-            legs=(
-                [
-                    {
-                        "order_id": pos.order_id,
-                        "bracket_order_id": pos.bracket_order_id,
-                        "strike": pos.strike,
-                        "expiry": pos.expiry.isoformat(),
-                        "option_type": pos.side,
-                        "quantity": pos.quantity,
-                    }
-                ]
-                if pos is not None and pos.order_id
-                else []
-            ),
+        # The account that HOLDS the leg is the one to ask. Before the day's
+        # Zerodha login it cannot answer, and "could not read the book" would
+        # freeze a carry that is perfectly well -- on the morning it has to be
+        # sold. So the question waits for the login (`_gap_carry_after_zerodha_login`).
+        ask_later = order_broker is not None and not order_broker.token_is_current()
+        if ask_later and pos is not None and pos.order_id:
+            _gap_carry_reconcile_pending.add(int(user_id))
+            engine.notes.append("restart: the Zerodha position is checked once today's Zerodha login has happened")
+        frozen = (
+            None
+            if ask_later
+            else await _reconcile_shared_live_orders(
+                "GAP CARRY",
+                order_broker or broker,
+                symbol="NIFTY",
+                legs=(
+                    [
+                        {
+                            "order_id": pos.order_id,
+                            "bracket_order_id": pos.bracket_order_id,
+                            "strike": pos.strike,
+                            "expiry": pos.expiry.isoformat(),
+                            "option_type": pos.side,
+                            "quantity": pos.quantity,
+                        }
+                    ]
+                    if pos is not None and pos.order_id
+                    else []
+                ),
+            )
         )
         if frozen:
-            engine.frozen_reason = frozen
+            # The shared reconcile speaks of Dhan; name the account actually asked.
+            engine.frozen_reason = frozen.replace("Dhan", "Zerodha") if order_broker is not None else frozen
             running = False
         if live_refused:
             # Never quietly continue a live campaign on paper: a paper exit
             # would book a sale while the real leg stays in the account.
             engine.frozen_reason = (
-                "This campaign was LIVE, but live trading is switched off on the server; "
+                "This campaign was LIVE on Zerodha, but the Zerodha app is no longer saved; "
+                "it is held, not continued on paper. Check the Zerodha position."
+                if zerodha_gone
+                else "This campaign was LIVE, but live trading is switched off on the server; "
                 "it is held, not continued on paper. Check the Dhan position."
             )
             running = False
@@ -14872,12 +14980,22 @@ async def _start_gap_carry_campaign(user_id: int, payload, *, broker_client: Dha
     # Anything that is not exactly "live" is paper. A typo must fall to the
     # safe side, never to the side that places real orders.
     trade_mode = "live" if trade_mode == "live" else "paper"
+    # WHOSE ACCOUNT. A live carry on Zerodha sends its orders there and still
+    # reads every quote and candle from Dhan. It needs TODAY's Zerodha login
+    # to start: a carry that cannot place its 15:10 buy is refused now, out
+    # loud, not at 15:10 with nobody watching.
+    order_broker = None
+    if trade_mode == "live" and _gap_carry_broker_name(getattr(payload, "broker", "dhan")) == "zerodha":
+        owner = await _db_mod.get_user_by_id(int(user_id))
+        order_broker, z_source = _user_zerodha_client(owner, require_today=True)
+        if order_broker is None:
+            raise HTTPException(status_code=503, detail=_book_broker_missing_message(owner, z_source))
     engine = _gap_carry_paper.GapCarryPaper(
         config=config,
         option_premium_lookup=_gap_carry_premium_lookup(broker_client, await _gap_carry_history_lookup(broker_client)),
         expiry_lookup=_gap_carry_expiry_lookup(broker_client, expiry_rule),
         lot_size_lookup=_gap_carry_lot_size_lookup(broker_client),
-        executor=_gap_carry_executor(broker_client, trade_mode),
+        executor=_gap_carry_executor(broker_client, trade_mode, order_broker),
     )
     # Sized on what this book has banked in this mode, BEFORE the first candle
     # is read -- a start at 15:11 decides the night on that very ingest.
@@ -15104,7 +15222,32 @@ async def _gap_carry_auto_step(user, setting: dict, *, now: datetime | None = No
         setting["entry_day"] = today
         await _save_gap_carry_auto(uid)
         return "start-failed"
-    payload = SimpleNamespace(**_GAP_CARRY_AUTO_RULE, mode=auto_mode)
+    auto_broker = _gap_carry_broker_name(setting.get("broker")) if auto_mode == "live" else "dhan"
+    if auto_broker == "zerodha":
+        # The FULL row: the list the loop walks carries no Kite fields, and
+        # asked of that, every account looks as if it had no Zerodha app.
+        owner = await _db_mod.get_user_by_id(uid)
+        z_client, z_source = _user_zerodha_client(owner, require_today=True)
+        if z_client is None:
+            # NOT a skipped day: the login may happen a minute from now, so the
+            # entry is tried again on every tick until the give-up time. Said
+            # once on the phone and kept on the banner meanwhile.
+            _gap_carry_zerodha_login_missing.add(uid)
+            setting["last_error"] = (
+                "Auto is set to Zerodha but " + _book_broker_missing_message(owner, z_source) + " Nothing bought yet."
+            )
+            if setting.get("alert") != f"zerodha-login:{today}":
+                setting["alert"] = f"zerodha-login:{today}"
+                alerter.alert(
+                    "Gap Carry: log in to Zerodha",
+                    "Auto carry is LIVE on Zerodha and today's Zerodha login has not happened, so the 15:10 "
+                    "entry cannot be placed. Log in to Zerodha now; it is retried until the entry window closes.",
+                    level="warn",
+                )
+            await _save_gap_carry_auto(uid)
+            return "waiting-for-zerodha-login"
+        _gap_carry_zerodha_login_missing.discard(uid)
+    payload = SimpleNamespace(**_GAP_CARRY_AUTO_RULE, mode=auto_mode, broker=auto_broker)
     try:
         await _start_gap_carry_campaign(uid, payload, broker_client=broker_client)
     except HTTPException as exc:
@@ -15651,10 +15794,19 @@ async def gap_carry_auto(payload: GapCarryAutoPayload, request: Request):
     mode = _gap_carry_trade_mode(payload.mode) if payload.enabled else "paper"
     user_id = _request_user_id(request)
     setting = await _gap_carry_auto_settings(user_id)
+    # Auto on Zerodha needs a Kite app to exist; the day's login is asked for
+    # at the entry clock, where a missing one is said out loud and retried.
+    auto_broker = _gap_carry_broker_name(payload.broker) if (payload.enabled and mode == "live") else "dhan"
+    if auto_broker == "zerodha":
+        owner = await _db_mod.get_user_by_id(int(user_id))
+        if not _zerodha_profile_payload(owner)["configured"]:
+            raise HTTPException(status_code=400, detail=_book_broker_missing_message(owner, "zerodha_missing"))
     setting["enabled"] = bool(payload.enabled)
     # The VALIDATED mode, never the raw payload: a disabled toggle must not
     # park mode="live" in app_state for a later enable to inherit.
     setting["mode"] = mode
+    setting["broker"] = auto_broker
+    _gap_carry_zerodha_login_missing.discard(int(user_id))
     setting["rule"] = dict(_GAP_CARRY_AUTO_RULE)
     setting["changed_at"] = datetime.now(IST).isoformat()
     if payload.enabled:
@@ -26511,7 +26663,43 @@ def _zerodha_books_waiting_for_login(now: datetime | None = None) -> list[str]:
                 continue
             if not client.token_is_current(now):
                 waiting.append(str(run_id))
-    return sorted(waiting)
+    # Gap Carry on Zerodha: a carry held overnight cannot be sold at 09:20
+    # without the day's login, and an Auto carry cannot buy at 15:10 without it.
+    for uid, runtime in list(_gap_carry_engines.items()):
+        if not _gap_carry_on_zerodha(runtime):
+            continue
+        if not (getattr(runtime, "running", False) or runtime.engine.has_open_position):
+            continue
+        if not runtime.engine.executor.broker.token_is_current(now):
+            waiting.append("Gap Carry")
+            _gap_carry_zerodha_login_missing.discard(uid)
+    if _gap_carry_zerodha_login_missing:
+        waiting.append("Gap Carry Auto")
+    return sorted(set(waiting))
+
+
+async def _refresh_gap_carry_zerodha_login_missing() -> None:
+    """Which accounts have Auto carry LIVE on Zerodha and no login yet today.
+
+    Asked here, before the open, because the auto loop sleeps until the session
+    starts -- and by then the reminder's window has passed.
+    """
+    for row in await _db_mod.list_users():
+        uid = int(row["id"])
+        setting = await _gap_carry_auto_settings(uid)
+        wants = (
+            bool(setting.get("enabled"))
+            and str(setting.get("mode") or "").lower() == "live"
+            and _gap_carry_broker_name(setting.get("broker")) == "zerodha"
+        )
+        if not wants:
+            _gap_carry_zerodha_login_missing.discard(uid)
+            continue
+        client, _source = _user_zerodha_client(await _db_mod.get_user_by_id(uid), require_today=True)
+        if client is None:
+            _gap_carry_zerodha_login_missing.add(uid)
+        else:
+            _gap_carry_zerodha_login_missing.discard(uid)
 
 
 def _zerodha_reminder_due(now: datetime) -> bool:
@@ -26816,6 +27004,7 @@ async def _run_zerodha_login_reminder_loop() -> None:
         try:
             now = datetime.now(IST)
             if _zerodha_reminder_due(now):
+                await _refresh_gap_carry_zerodha_login_missing()
                 waiting = _zerodha_books_waiting_for_login(now)
                 if waiting:
                     alerter.alert(

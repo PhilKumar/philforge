@@ -132,6 +132,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_fib_backtest_route_e2e.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_option_builder.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_option_builder_math.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_on_zerodha.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_image_uploads.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_journal_validation.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_request_security.py'
