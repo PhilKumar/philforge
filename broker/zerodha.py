@@ -15,7 +15,7 @@ WHAT KITE DOES DIFFERENTLY, and where it is handled here:
   * A MARKET order over the API must carry `market_protection`; -1 lets Kite
     choose the band.
   * Orders are accepted only from the static IP registered on the Kite
-    developer console -- the same 13.205.229.208 Dhan uses.
+    developer console -- the same 13.205.6.8 Dhan uses (the EC2 server since 18-Sep-2026).
   * `tag` is at most 20 characters.
 
 This file never logs a token, a secret or a request_token.
