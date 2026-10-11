@@ -489,3 +489,45 @@ class OneSavedStrategyIsOneLiveBook(unittest.TestCase):
             start.index("_live_book_running_same_strategy("),
             start.index("await _sync_saved_strategy_from_runtime("),
         )
+
+
+class TheKiteAppCanBeSavedWhileDhanBooksRun(unittest.TestCase):
+    """Phil, 2026-10-11: "login to zerodha button and save button both are not
+    working". Saving the Kite app used the Dhan-credentials lock, and the CE/PE
+    books run every day -- so Zerodha could never be set up at all."""
+
+    USER = 99903
+
+    def _with_book(self, client, run_id):
+        engine = LiveEngine(client, run_id=run_id)
+        engine.running = True
+        bucket = app._registry_bucket(app.live_engines, self.USER)
+        bucket[run_id] = engine
+        self.addCleanup(bucket.pop, run_id, None)
+        return engine
+
+    def test_a_running_dhan_book_locks_dhan_but_not_zerodha(self):
+        self._with_book(object(), "D_ONLY")
+        self.assertTrue(app._user_broker_settings_lock(self.USER)[0])
+        self.assertEqual(app._user_zerodha_settings_lock(self.USER), (False, ""))
+        self.assertFalse(app._zerodha_profile_payload({"id": self.USER})["manage_locked"])
+
+    def test_a_running_zerodha_book_locks_the_kite_app(self):
+        self._with_book(zerodha.ZerodhaClient("k", "t"), "Z_LIVE")
+        locked, reason = app._user_zerodha_settings_lock(self.USER)
+        self.assertTrue(locked)
+        self.assertIn("Zerodha", reason)
+
+    def test_a_stopped_zerodha_book_does_not(self):
+        self._with_book(zerodha.ZerodhaClient("k", "t"), "Z_OFF").running = False
+        self.assertFalse(app._user_zerodha_settings_lock(self.USER)[0])
+
+    def test_both_routes_ask_the_zerodha_lock_and_the_page_reads_it(self):
+        for route in ("async def update_own_zerodha_settings(", "async def clear_own_zerodha_settings("):
+            body = SRC.split(route)[1].split("\n@app.")[0]
+            self.assertIn("_user_zerodha_settings_lock(", body)
+            self.assertNotIn("_user_broker_settings_lock(", body)
+        js = (Path(__file__).resolve().parent.parent / "static" / "philforge-app.js").read_text(encoding="utf-8")
+        render = js.split("function renderZerodhaProfile(")[1].split("\nasync function saveZerodhaSettings")[0]
+        self.assertIn("z.manage_locked", render)
+        self.assertNotIn("broker.manage_locked", render)

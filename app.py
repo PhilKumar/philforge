@@ -4377,6 +4377,26 @@ def _user_broker_settings_lock(user_id: int) -> tuple[bool, str]:
     return False, ""
 
 
+def _user_zerodha_settings_lock(user_id: int) -> tuple[bool, str]:
+    """The Kite app cannot change under a book that is trading through it.
+
+    A live book on Dhan does not care which Kite app is saved. Until
+    2026-10-11 this used the Dhan lock above, so with the CE/PE books running
+    every day the Save button was dead for good and Zerodha could never be set
+    up (Phil: "login to zerodha button and save button both are not working").
+    """
+    for engine in _registry_bucket(live_engines, int(user_id)).values():
+        if getattr(engine, "running", False) and isinstance(getattr(engine, "dhan", None), _zerodha.ZerodhaClient):
+            return True, "Stop the live books trading through Zerodha before changing the Kite app."
+    eng = _scalp_engines.get(int(user_id))
+    if eng and any(
+        getattr(trade, "broker", "dhan") == "zerodha" and _trade_mode_value(trade) == "live"
+        for trade in getattr(eng, "open_trades", {}).values()
+    ):
+        return True, "Close live Zerodha scalp trades before changing the Kite app."
+    return False, ""
+
+
 def _broker_profile_payload(user: dict | None) -> dict:
     client_id, access_token, pin, totp = _user_broker_credentials(user)
     _, source = _resolve_user_broker_client(user)
@@ -4558,7 +4578,10 @@ def _book_broker_missing_message(user: dict | None, source: str) -> str:
 
 def _zerodha_profile_payload(user: dict | None) -> dict:
     fields = _user_zerodha_fields(user)
+    locked, lock_reason = _user_zerodha_settings_lock(int(user["id"])) if user else (False, "")
     return {
+        "manage_locked": locked,
+        "manage_lock_reason": lock_reason,
         "configured": bool(fields["api_key"] and fields["api_secret"]),
         "api_key_masked": _mask_value(fields["api_key"]),
         "secret_saved": bool(fields["api_secret"]),
@@ -8242,7 +8265,7 @@ async def clear_own_broker_settings(request: Request):
 async def update_own_zerodha_settings(request: Request):
     """Save the Kite Connect app's API key and secret for the current user."""
     user = await _auth_mod.get_current_user(request)
-    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    locked, reason = _user_zerodha_settings_lock(int(user["id"]))
     if locked:
         raise HTTPException(status_code=409, detail=reason)
     if not _auth_mod.encryption_enabled():
@@ -8272,7 +8295,7 @@ async def update_own_zerodha_settings(request: Request):
 @app.delete("/api/user/zerodha")
 async def clear_own_zerodha_settings(request: Request):
     user = await _auth_mod.get_current_user(request)
-    locked, reason = _user_broker_settings_lock(int(user["id"]))
+    locked, reason = _user_zerodha_settings_lock(int(user["id"]))
     if locked:
         raise HTTPException(status_code=409, detail=reason)
     cleared = {f"zerodha_{key}": "" for key in ("api_key", "api_secret", "access_token", "user_id", "token_at")}

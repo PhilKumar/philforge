@@ -1202,10 +1202,16 @@ function renderZerodhaProfile(broker) {
     applyStatusChip(chip, 'Login Needed', 'danger');
     line.textContent = `Key ${z.api_key_masked || ''} saved. Log in to Zerodha before 09:15 — Zerodha books cannot trade until you do.`;
   }
-  const locked = !!(broker && (broker.manage_locked || !broker.encryption_ready));
-  document.getElementById('account-zerodha-save-btn').disabled = locked;
-  document.getElementById('account-zerodha-clear-btn').disabled = locked;
-  document.getElementById('account-zerodha-login-btn').disabled = !z.configured;
+  // Its own lock: a live book on Dhan does not stop the Kite app being saved.
+  const locked = !!(z.manage_locked || (broker && !broker.encryption_ready));
+  for (const id of ['account-zerodha-save-btn', 'account-zerodha-clear-btn']) {
+    const btn = document.getElementById(id);
+    btn.disabled = locked;
+    btn.title = z.manage_locked ? (z.manage_lock_reason || '') : '';
+  }
+  const login = document.getElementById('account-zerodha-login-btn');
+  login.disabled = !z.configured;
+  login.title = z.configured ? '' : 'Save the Kite API key and secret first.';
 }
 
 async function saveZerodhaSettings() {
