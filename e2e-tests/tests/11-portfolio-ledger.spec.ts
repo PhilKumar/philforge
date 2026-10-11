@@ -188,6 +188,13 @@ test('Broker Status names Zerodha too once a Kite app is saved', async ({ page }
   await page.click('#broker-toggle-btn');
   await expect(page.locator('#broker-zerodha-text')).toHaveText('Zerodha Connected');
   await expect(page.locator('#broker-zerodha-login')).toBeHidden();
+  // Side by side: the same line, Dhan on the left.
+  const lines = await page.evaluate(() => {
+    const dhan = document.getElementById('broker-text')!.getBoundingClientRect();
+    const zerodha = document.getElementById('broker-zerodha-text')!.getBoundingClientRect();
+    return { sameLine: Math.abs(dhan.top - zerodha.top) < 2, dhanFirst: dhan.right < zerodha.left };
+  });
+  expect(lines).toEqual({ sameLine: true, dhanFirst: true });
 
   // The morning after: saved, but today's login has not happened.
   await page.route('**/api/zerodha/status', route => route.fulfill({

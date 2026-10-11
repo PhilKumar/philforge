@@ -304,15 +304,19 @@
       </div>
       <div id="dash-broker-summary-card" class="stat-box dash-summary-mini">
         <div class="stat-label">Broker Status</div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
-          <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
-          <span id="broker-text" style="font-weight: 600; font-size: 14px;">Checking...</span>
-        </div>
-        <!-- The second broker's line; shown once a Kite app is saved. -->
-        <div id="broker-zerodha-row" hidden style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
-          <span id="broker-zerodha-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
-          <span id="broker-zerodha-text" style="font-weight: 600; font-size: 14px;">Zerodha</span>
-          <button type="button" id="broker-zerodha-login" onclick="loginZerodha()" hidden class="dash-broker-login">Log in</button>
+        <!-- Both brokers on one line (Phil, 2026-10-11: "make it side by
+             side"); they wrap only when the card is too narrow for both. -->
+        <div class="dash-broker-lines">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
+            <span id="broker-text" style="font-weight: 600; font-size: 14px; white-space: nowrap;">Checking...</span>
+          </div>
+          <!-- The second broker; shown once a Kite app is saved. -->
+          <div id="broker-zerodha-row" hidden style="display: flex; align-items: center; gap: 8px;">
+            <span id="broker-zerodha-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
+            <span id="broker-zerodha-text" style="font-weight: 600; font-size: 14px; white-space: nowrap;">Zerodha</span>
+            <button type="button" id="broker-zerodha-login" onclick="loginZerodha()" hidden class="dash-broker-login">Log in</button>
+          </div>
         </div>
         <div style="display: flex; gap: 6px; margin-top: 10px;">
           <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; flex: 1;">Check</button>
