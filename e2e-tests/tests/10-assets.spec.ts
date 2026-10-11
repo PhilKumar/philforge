@@ -236,6 +236,10 @@ test('blueprint tools and navigation stay fixed while each document scrolls', as
     // of the whole frozen stack -- not beneath the nav bar alone.
     // Since 2026-10-06 the banner folds a frame after the scroll and the stack
     // under it re-measures, so the stack's bottom is read once that settles.
+    // The fold itself is waited for: the unfolded stack is flush too, so a
+    // check for "flush" alone can settle on it and then measure the old height
+    // (CI, 2026-10-11: expected >= 392, the folded stack ended at 328).
+    await expect(page.locator('#assets-page > .pf-workspace-hero')).toHaveClass(/pf-hero-folded/);
     const stackBottom = () => page.locator('#assets-page .pf-architecture-viewbar')
       .evaluate((node) => Math.round(node.getBoundingClientRect().bottom));
     await expect.poll(async () => {
