@@ -26063,10 +26063,8 @@ async def option_builder_margin(req: OptionBuilderBasketReq, request: Request):
     return {"status": "ok", "lot_size": lot, **margin, "available": available}
 
 
-@app.get("/api/option-builder/positions")
-async def option_builder_positions(request: Request, underlying: str = ""):
-    """Open option positions at both brokers, as builder legs."""
-    user, client, _source = await _request_broker_context(request)
+async def _ob_held_legs(user: dict | None, client) -> tuple[list, list]:
+    """Open option positions at both brokers as builder legs, each with its key."""
     legs: list = []
     notes: list = []
     if client is not None:
@@ -26082,9 +26080,114 @@ async def option_builder_positions(request: Request, underlying: str = ""):
             legs += _ob.legs_from_zerodha_positions(rows, _zerodha.KiteInstruments.key_for_symbol)
         except Exception as exc:
             notes.append(f"Zerodha positions could not be read: {exc}")
+    return [{**leg, "key": _ob.position_key(leg)} for leg in legs], notes
+
+
+@app.get("/api/option-builder/positions")
+async def option_builder_positions(request: Request, underlying: str = ""):
+    """Open option positions at both brokers, as builder legs."""
+    user, client, _source = await _request_broker_context(request)
+    legs, notes = await _ob_held_legs(user, client)
     if underlying:
         legs = [leg for leg in legs if leg["underlying"] == underlying.upper()]
     return {"status": "ok", "legs": legs, "notes": notes}
+
+
+class OptionBuilderExitReq(BaseModel):
+    keys: list = Field(default_factory=list)
+
+
+# A second exit for the same position inside this window is refused: the first
+# order may not have filled yet, the broker would still show the position, and
+# a repeat would open the opposite one.
+OB_EXIT_REPEAT_SEC = 20.0
+_ob_exit_lock: dict[int, asyncio.Lock] = {}
+_ob_exit_sent: dict[tuple[int, str], float] = {}
+
+
+@app.post("/api/option-builder/exit")
+async def option_builder_exit(req: OptionBuilderExitReq, request: Request):
+    """Close held option positions at the broker. It can only close.
+
+    The request names positions; the side and the quantity are read from the
+    broker here (`_ob.exit_orders`). Nothing in it can open a position, which
+    is why this route is not a protected action and `execute` is.
+    """
+    user, dhan_client, _source = await _request_broker_context(request)
+    uid = int((user or {}).get("id") or 0)
+    async with _ob_exit_lock.setdefault(uid, asyncio.Lock()):
+        held, notes = await _ob_held_legs(user, dhan_client)
+        try:
+            orders = _ob.exit_orders(held, req.keys)
+        except _ob.OptionBuilderError as exc:
+            return _ob_refusal(_ob.OptionBuilderError(" ".join([str(exc)] + notes)))
+        clients = {"dhan": dhan_client, "zerodha": _user_zerodha_client(user, require_today=True)[0]}
+        results: list = []
+        stopped = ""
+        for leg in orders:
+            if stopped:
+                results.append({**leg, "status": "not_sent", "message": stopped})
+                continue
+            waited = time.monotonic() - _ob_exit_sent.get((uid, leg["key"]), float("-inf"))
+            if waited < OB_EXIT_REPEAT_SEC:
+                results.append(
+                    {
+                        **leg,
+                        "status": "not_sent",
+                        "message": f"An exit for this was sent {int(waited)}s ago. "
+                        "Check the order book before sending another.",
+                    }
+                )
+                continue
+            try:
+                order_client = clients.get(leg["broker"])
+                if order_client is None:
+                    raise RuntimeError(f"{leg['broker'].title()} is not connected.")
+                quote = None
+                if dhan_client is not None:
+                    try:
+                        chain = await _ob_chain(dhan_client, leg["underlying"], leg["expiry"])
+                        quote = _ob.quote_for(chain, leg["strike"], leg["option_type"])
+                    except Exception:
+                        quote = None
+                # No quote to price a limit from: an exit goes at market rather than not at all.
+                priced = any(float((quote or {}).get(k) or 0) > 0 for k in ("ltp", "bid", "ask"))
+                price = _ob.entry_price(leg, quote) if priced else 0.0
+                answer = await asyncio.to_thread(
+                    order_client.place_option_order,
+                    underlying=leg["underlying"],
+                    strike_price=int(leg["strike"]),
+                    option_type=leg["option_type"],
+                    expiry=leg["expiry"],
+                    transaction_type=leg["side"],
+                    quantity=int(leg["quantity"]),
+                    order_type="LIMIT" if priced else "MARKET",
+                    product_type=leg["product"] or "INTRADAY",
+                    price=price,
+                    tag="AF_OPT_BUILDER",
+                )
+                status = str(answer.get("orderStatus") or answer.get("status") or "").upper()
+                if not answer.get("orderId") or status in ("REJECTED", "FAILED", "CANCELLED"):
+                    raise RuntimeError(answer.get("remarks") or answer.get("message") or status or "no order id")
+                _ob_exit_sent[(uid, leg["key"])] = time.monotonic()
+                results.append({**leg, "status": "sent", "order_id": str(answer["orderId"]), "limit": price})
+            except Exception as exc:
+                results.append({**leg, "status": "failed", "message": str(exc)})
+                if leg["side"] == "BUY":
+                    stopped = "Not sent: a short could not be bought back, so the longs that hedge it were kept."
+    sent = sum(1 for r in results if r["status"] == "sent")
+    lines = [
+        f"{r['side']} {r['quantity']} {r['underlying']} {r['strike']:g}{r['option_type']} {r['expiry']} "
+        f"({r['broker']}): {r['status']}"
+        f"{' @ ' + ('≤' if r['side'] == 'BUY' else '≥') + '₹' + format(r['limit'], '.2f') if r.get('limit') else ''}"
+        for r in results
+    ]
+    alerter.alert(
+        "Option Builder · LIVE exit",
+        f"{sent}/{len(results)} sent\n" + "\n".join(lines),
+        level="info" if sent == len(results) else "error",
+    )
+    return {"status": "ok" if sent == len(results) else "partial", "sent": sent, "results": results}
 
 
 async def _ob_load_paper(uid: int) -> list:

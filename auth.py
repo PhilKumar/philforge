@@ -242,6 +242,10 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # code cost him the price he wanted. POST /api/live/exit-position keeps the
     # signed-in session, the viewer block and its own confirm click. Starting
     # and stopping a live book still challenge.
+    # The Option Builder's POST /api/option-builder/exit is off it for the same
+    # reason, and can be: it only names held positions, and the server sends
+    # the opposite side for exactly what the broker shows. `execute`, which
+    # can open anything, stays above.
     ("PUT", re.compile(r"^/api/user/broker$"), "broker_credentials"),
     ("DELETE", re.compile(r"^/api/user/broker$"), "broker_credentials"),
     ("PUT", re.compile(r"^/api/user/zerodha$"), "broker_credentials"),

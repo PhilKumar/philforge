@@ -443,9 +443,12 @@
     const mine = S.positions.filter((p) => p.underlying === S.underlying);
     const notes = S.positionNotes.map((n) => `<p class="ob-hint is-warn">${esc(n)}</p>`).join('');
     if (!mine.length) return `<div class="ob-empty"><p>No open ${S.underlying} option positions.</p><button type="button" class="btn btn-sm" data-ob-act="load-positions">Refresh</button></div>${notes}`;
-    return `<div class="ob-pos-list">${mine.map((p) => `<div class="ob-pos"><span class="ob-side ${p.side === 'BUY' ? 'is-buy' : 'is-sell'}">${p.side === 'BUY' ? 'B' : 'S'}</span><b>${strikeTxt(p.strike)} ${p.option_type}</b><small>${shortDate(p.expiry)} · ${p.quantity} qty · ${p.broker}</small><span>@ ${price(p.price)}</span></div>`).join('')}</div>
-      <div class="ob-row-btns"><button type="button" class="btn" data-ob-act="analyse-positions">Analyse these</button><button type="button" class="btn btn-sm" data-ob-act="load-positions">Refresh</button></div>
-      <p class="ob-hint">Analysed positions are marked <b>HELD</b> and are never re-sent as orders.</p>${notes}`;
+    const exitBtn = (p) => (exitSentAgo(p.key) < EXIT_REPEAT_MS
+      ? '<button type="button" class="btn btn-sm ob-pos-exit" disabled>Exit sent</button>'
+      : `<button type="button" class="btn btn-sm btn-danger ob-pos-exit" data-ob-exit="${esc(p.key || '')}">Exit</button>`);
+    return `<div class="ob-pos-list">${mine.map((p) => `<div class="ob-pos"><span class="ob-side ${p.side === 'BUY' ? 'is-buy' : 'is-sell'}">${p.side === 'BUY' ? 'B' : 'S'}</span><b>${strikeTxt(p.strike)} ${p.option_type}</b><small>${shortDate(p.expiry)} · ${p.quantity} qty · ${p.broker}</small><span>@ ${price(p.price)}</span>${exitBtn(p)}</div>`).join('')}</div>
+      <div class="ob-row-btns"><button type="button" class="btn" data-ob-act="analyse-positions">Analyse these</button><button type="button" class="btn btn-sm" data-ob-act="load-positions">Refresh</button>${mine.length > 1 ? '<button type="button" class="btn btn-sm btn-danger" data-ob-act="exit-all">Exit all</button>' : ''}</div>
+      <p class="ob-hint">Analysed positions are marked <b>HELD</b> and are never re-sent as orders. <b>Exit</b> closes a position at the broker: the opposite side, for exactly what is held.</p>${notes}`;
   }
 
   function basketPnl(b) {
@@ -919,6 +922,7 @@
       if (d.obSavedDel) { try { await api(`/api/option-builder/saved/${d.obSavedDel}`, { method: 'DELETE' }); } catch (err) { notify(err.message, 'error'); } await loadPaper(); return; }
       if (d.obPaperLoad) { openPaper(Number(d.obPaperLoad)); return; }
       if (d.obPaperClose) { closePaper(Number(d.obPaperClose)); return; }
+      if (d.obExit) { exitPositions([d.obExit]); return; }
       if (d.obPaperDel) { deletePaper(Number(d.obPaperDel)); return; }
       switch (d.obAct) {
         case 'clear': S.legs = []; S.margin = null; changed(); break;
@@ -933,6 +937,7 @@
         case 'reset-sliders': S.targetAt = 0; S.ivShift = 0; S.zoom = 1; setSliders(); renderAnalysis(); renderStats(); break;
         case 'load-positions': await loadPositions(); break;
         case 'analyse-positions': analysePositions(); break;
+        case 'exit-all': await exitPositions((S.positions || []).filter((p) => p.underlying === S.underlying).map((p) => p.key)); break;
         case 'paper': await paperTrade(); break;
         case 'live': await placeLive(); break;
         default: break;
@@ -996,6 +1001,37 @@
       S.positions = body.legs || []; S.positionNotes = body.notes || [];
     } catch (err) { S.positions = []; S.positionNotes = [err.message]; }
     renderLeft();
+  }
+  // An exit just sent may not have filled: the broker still shows the position,
+  // and a second exit would open the opposite one. The server refuses a repeat
+  // for 20 seconds; the row says so instead of offering the button.
+  const EXIT_REPEAT_MS = 20000;
+  const exitSent = {};
+  function exitSentAgo(key) { return Date.now() - (exitSent[key] || 0); }
+  async function exitPositions(keys) {
+    const picked = (S.positions || []).filter((p) => p.key && keys.includes(p.key) && exitSentAgo(p.key) >= EXIT_REPEAT_MS);
+    if (!picked.length) return;
+    // Shorts are bought back before the longs that hedge them are sold.
+    const ordered = picked.filter((p) => p.side === 'SELL').concat(picked.filter((p) => p.side === 'BUY'));
+    const rows = ordered.map((p) => `<div style="display:flex;gap:10px;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);white-space:nowrap"><b style="color:${p.side === 'SELL' ? 'var(--green)' : 'var(--red)'}">${p.side === 'SELL' ? 'BUY' : 'SELL'}</b><span>${p.quantity} qty · ${esc(p.underlying)} ${strikeTxt(p.strike)} ${p.option_type} · ${shortDate(p.expiry)}</span><span>${esc(p.broker)}</span></div>`).join('');
+    const msg = `<div style="font-size:12.5px;line-height:1.5">
+      <p style="margin:0 0 8px">Real orders, now. Each closes the whole position it names and nothing more.</p>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;text-align:left">${rows}</div></div>`;
+    const ok = typeof window.customConfirm === 'function'
+      ? await window.customConfirm(msg, { title: `Exit ${ordered.length} position${ordered.length > 1 ? 's' : ''}?`, okText: 'Exit now', danger: true })
+      : window.confirm('Exit these positions?');
+    if (!ok) return;
+    try {
+      const body = await api('/api/option-builder/exit', { method: 'POST', body: JSON.stringify({ keys: ordered.map((p) => p.key) }) });
+      for (const r of body.results) if (r.status === 'sent') exitSent[r.key] = Date.now();
+      const failed = body.results.filter((r) => r.status !== 'sent');
+      if (!failed.length) notify(body.sent > 1 ? `All ${body.sent} exits sent.` : 'Exit sent.', 'success');
+      else notify(`${body.sent} sent, ${failed.length} not: ${failed[0].message || failed[0].status}`, 'error');
+    } catch (err) { notify(err.message, 'error'); }
+    renderLeft();
+    // The fill takes a moment to reach the position book.
+    setTimeout(loadPositions, 2500);
+    setTimeout(() => { if (S.leftTab === 'positions') renderLeft(); }, EXIT_REPEAT_MS + 200);
   }
   function analysePositions() {
     const lot = lotSize();

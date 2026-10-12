@@ -210,3 +210,58 @@ test('Option Builder: from a weekend the target steps straight to the next open,
   await name.pressSequentially(' 2');
   await expect(name).toHaveValue('Swing ideas 2');
 });
+
+test('Option Builder: Exit closes a held position on one confirm, with no code asked, and is not offered twice', async ({ page }) => {
+  const calls: { method: string; url: string; body: any }[] = [];
+  await login(page);
+  await mockBuilder(page, calls);
+  const leg = (broker: string, strike: number, side: string, product: string) => ({
+    key: `${broker}|NIFTY|${strike}|2026-10-13|PE|${product}`,
+    underlying: 'NIFTY', strike, expiry: '2026-10-13', option_type: 'PE', side, quantity: 75, price: 100, broker, product,
+  });
+  const held = [leg('zerodha', 24900, 'BUY', 'MIS'), leg('dhan', 25000, 'SELL', 'INTRADAY')];
+  await page.route('**/api/option-builder/positions**', (route) => route.fulfill({ json: { status: 'ok', legs: held, notes: [] } }));
+  await page.route('**/api/option-builder/exit', async (route) => {
+    const body = JSON.parse(route.request().postData() as string);
+    calls.push({ method: 'POST', url: '/api/option-builder/exit', body });
+    await route.fulfill({ json: { status: 'ok', sent: body.keys.length, results: body.keys.map((key: string) => ({ key, status: 'sent' })) } });
+  });
+  await openBuilder(page);
+  await page.click('[data-ob-left="positions"]');
+  await page.click('[data-ob-act="load-positions"]');
+  await expect(page.locator('.ob-pos')).toHaveCount(2);
+  const exits = () => calls.filter((c) => c.url.endsWith('/exit'));
+
+  // The button sits inside its row.
+  const fits = await page.locator('.ob-pos').first().evaluate((row) => {
+    const btn = row.querySelector('.ob-pos-exit')!.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    return btn.right <= box.right && btn.left >= box.left && row.scrollWidth <= row.clientWidth;
+  });
+  expect(fits).toBe(true);
+
+  // Cancelling sends nothing.
+  await page.click(`[data-ob-exit="${held[1].key}"]`);
+  await expect(page.locator('#confirm-title')).toHaveText('Exit 1 position?');
+  await expect(page.locator('#confirm-message')).toContainText('BUY'); // the short is bought back
+  await page.locator('#confirm-modal').getByRole('button', { name: /cancel/i }).click();
+  expect(exits()).toHaveLength(0);
+
+  // One confirm, and the request only names the position: no side, no size.
+  await page.click(`[data-ob-exit="${held[1].key}"]`);
+  await page.locator('#confirm-modal').getByRole('button', { name: 'Exit now' }).click();
+  await expect.poll(() => exits().length).toBe(1);
+  expect(exits()[0].body).toEqual({ keys: [held[1].key] });
+  await expect(page.locator('#action-auth-modal')).toBeHidden();
+  const sentRow = page.locator('.ob-pos').nth(1).locator('.ob-pos-exit');
+  await expect(sentRow).toHaveText('Exit sent');
+  await expect(sentRow).toBeDisabled();
+
+  // Exit all leaves out the one just sent.
+  await page.click('[data-ob-act="exit-all"]');
+  await expect(page.locator('#confirm-title')).toHaveText('Exit 1 position?');
+  await page.locator('#confirm-modal').getByRole('button', { name: 'Exit now' }).click();
+  await expect.poll(() => exits().length).toBe(2);
+  expect(exits()[1].body).toEqual({ keys: [held[0].key] });
+  expect(calls.some((c) => c.url.endsWith('/execute'))).toBe(false);
+});

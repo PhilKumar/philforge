@@ -400,6 +400,49 @@ def legs_from_zerodha_positions(rows: list[dict], key_for_symbol: Callable[[str,
     return legs
 
 
+MAX_EXIT_POSITIONS = 40
+
+
+def position_key(leg: dict) -> str:
+    """One held position, named so the page can ask for exactly that one."""
+    return "|".join(
+        (
+            str(leg.get("broker") or ""),
+            str(leg.get("underlying") or ""),
+            f"{_num(leg.get('strike')):g}",
+            str(leg.get("expiry") or ""),
+            str(leg.get("option_type") or ""),
+            str(leg.get("product") or "").upper(),
+        )
+    )
+
+
+def exit_orders(held: list[dict], keys: Any) -> list[dict]:
+    """The orders that close the named positions, and nothing else.
+
+    The request only NAMES positions. Side and quantity are read off the
+    broker's own book -- the opposite side, for exactly what is held -- so
+    this can flatten a position and can never open or enlarge one. That is
+    why an exit costs no authenticator code and a new basket does.
+
+    Buys first, as in `basket_order`: a short is bought back before the long
+    that hedges it is sold.
+    """
+    wanted = {str(key) for key in keys} if isinstance(keys, list) else set()
+    if not wanted:
+        raise OptionBuilderError("Pick a position to exit.")
+    if len(wanted) > MAX_EXIT_POSITIONS:
+        raise OptionBuilderError(f"At most {MAX_EXIT_POSITIONS} positions can be exited at once.")
+    orders = []
+    for leg in held or []:
+        key = position_key(leg)
+        if key in wanted and int(leg.get("quantity") or 0) > 0:
+            orders.append({**leg, "key": key, "side": "SELL" if leg["side"] == "BUY" else "BUY"})
+    if not orders:
+        raise OptionBuilderError("That position is no longer open at the broker.")
+    return basket_order(orders)
+
+
 # ── paper baskets ───────────────────────────────────────────────────────────
 def leg_pnl(leg: dict, ltp: float, lot_size: int) -> float:
     sign = 1 if leg["side"] == "BUY" else -1

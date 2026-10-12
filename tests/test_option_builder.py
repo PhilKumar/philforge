@@ -407,6 +407,138 @@ class TheLiveBasket(unittest.TestCase):
         self.assertEqual(result.status_code, 400)
 
 
+def _held(side="SELL", strike=25000, option_type="PE", quantity=150, broker="dhan", product="INTRADAY"):
+    return {
+        "underlying": "NIFTY",
+        "strike": float(strike),
+        "expiry": "2026-10-13",
+        "option_type": option_type,
+        "side": side,
+        "quantity": quantity,
+        "price": 100.0,
+        "security_id": "1",
+        "broker": broker,
+        "product": product,
+    }
+
+
+class AnExitOnlyCloses(unittest.TestCase):
+    """The request names positions; the broker's book decides side and size."""
+
+    def test_the_order_is_the_opposite_side_for_exactly_what_is_held(self):
+        held = [_held("SELL", 25000, quantity=150), _held("BUY", 24900, quantity=75)]
+        orders = ob.exit_orders(held, [ob.position_key(held[0])])
+        self.assertEqual([(o["side"], o["strike"], o["quantity"]) for o in orders], [("BUY", 25000.0, 150)])
+
+    def test_shorts_are_bought_back_before_the_hedge_is_sold(self):
+        held = [_held("BUY", 24900, quantity=75), _held("SELL", 25000, quantity=75)]
+        orders = ob.exit_orders(held, [ob.position_key(leg) for leg in held])
+        self.assertEqual([o["side"] for o in orders], ["BUY", "SELL"])
+
+    def test_a_position_that_is_not_held_cannot_be_exited(self):
+        held = [_held("SELL", 25000)]
+        for keys in ([], ["dhan|NIFTY|26000|2026-10-13|CE|INTRADAY"], "dhan", None):
+            with self.assertRaises(ob.OptionBuilderError):
+                ob.exit_orders(held, keys)
+
+    def test_the_same_contract_in_two_products_is_two_positions(self):
+        held = [_held(product="INTRADAY", quantity=75), _held(product="MARGIN", quantity=150)]
+        orders = ob.exit_orders(held, [ob.position_key(held[1])])
+        self.assertEqual([(o["product"], o["quantity"]) for o in orders], [("MARGIN", 150)])
+
+    def test_each_broker_keeps_its_own_position(self):
+        held = [_held(broker="dhan", quantity=75), _held(broker="zerodha", product="MIS", quantity=150)]
+        orders = ob.exit_orders(held, [ob.position_key(held[1])])
+        self.assertEqual([(o["broker"], o["quantity"]) for o in orders], [("zerodha", 150)])
+
+
+class TheLiveExit(unittest.TestCase):
+    """POST /api/option-builder/exit, with both brokers faked."""
+
+    def setUp(self):
+        app_module._ob_exit_sent.clear()
+
+    def run_exit(self, held, keys, dhan=None, zerodha=None, chain="real"):
+        if chain == "real":
+            chain = ob.shape_chain(_raw_chain(), "NIFTY", "2026-10-13", 75)
+        keyed = [{**leg, "key": ob.position_key(leg)} for leg in held]
+        with (
+            patch.object(app_module, "_request_broker_context", AsyncMock(return_value=({"id": 1}, dhan, "user"))),
+            patch.object(app_module, "_user_zerodha_client", lambda user, require_today=False: (zerodha, "user")),
+            patch.object(app_module, "_ob_held_legs", AsyncMock(return_value=(keyed, []))),
+            patch.object(app_module, "_ob_chain", AsyncMock(return_value=chain)),
+            patch.object(app_module.alerter, "alert") as alert,
+        ):
+            req = app_module.OptionBuilderExitReq(keys=keys)
+            result = asyncio.run(app_module.option_builder_exit(req, request=None))
+        return result, alert
+
+    def test_the_position_is_closed_in_its_own_product_at_its_own_broker(self):
+        captured = []
+
+        class Spy(Broker):
+            def place_option_order(self, **kw):
+                captured.append(kw)
+                return super().place_option_order(**kw)
+
+        dhan, zerodha = Broker(), Spy()
+        held = [_held("BUY", 24900, quantity=150, broker="zerodha", product="NRML")]
+        result, alert = self.run_exit(held, [ob.position_key(held[0])], dhan=dhan, zerodha=zerodha)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(dhan.sent, [])
+        self.assertEqual(zerodha.sent, [("SELL", 24900, "PE")])
+        self.assertEqual((captured[0]["quantity"], captured[0]["product_type"]), (150, "NRML"))
+        self.assertEqual(captured[0]["order_type"], "LIMIT")
+        self.assertEqual(captured[0]["price"], ob.entry_price({"side": "SELL"}, {"bid": 79.5, "ltp": 80.0}))
+        alert.assert_called_once()
+
+    def test_a_request_cannot_choose_the_side_or_the_size(self):
+        dhan = Broker()
+        held = [_held("SELL", 25000, quantity=75)]
+        result, _ = self.run_exit(held, ["dhan|NIFTY|25100|2026-10-13|CE|INTRADAY"], dhan=dhan)
+        self.assertEqual(result.status_code, 400)
+        self.assertEqual(dhan.sent, [])
+
+    def test_a_second_exit_for_the_same_position_is_held_back(self):
+        dhan = Broker()
+        held = [_held("SELL", 25000, quantity=75)]
+        keys = [ob.position_key(held[0])]
+        self.run_exit(held, keys, dhan=dhan)
+        again, _ = self.run_exit(held, keys, dhan=dhan)
+        self.assertEqual(len(dhan.sent), 1)
+        self.assertEqual(again["results"][0]["status"], "not_sent")
+        self.assertIn("sent", again["results"][0]["message"])
+
+    def test_a_short_that_cannot_be_bought_back_keeps_its_hedge(self):
+        dhan = Broker(fail_on={("BUY", 25000, "PE")})
+        held = [_held("BUY", 24900, quantity=75), _held("SELL", 25000, quantity=75)]
+        result, alert = self.run_exit(held, [ob.position_key(leg) for leg in held], dhan=dhan)
+        self.assertEqual(dhan.sent, [("BUY", 25000, "PE")])
+        self.assertEqual(
+            {(r["side"], r["status"]) for r in result["results"]}, {("BUY", "failed"), ("SELL", "not_sent")}
+        )
+        self.assertEqual(alert.call_args.kwargs.get("level"), "error")
+        self.assertEqual(app_module._ob_exit_sent, {})
+
+    def test_with_no_quote_the_exit_goes_at_market(self):
+        captured = []
+
+        class Spy(Broker):
+            def place_option_order(self, **kw):
+                captured.append(kw)
+                return super().place_option_order(**kw)
+
+        held = [_held("BUY", 24900, quantity=75)]
+        self.run_exit(held, [ob.position_key(held[0])], dhan=Spy(), chain={"rows": []})
+        self.assertEqual((captured[0]["order_type"], captured[0]["price"]), ("MARKET", 0.0))
+
+    def test_a_broker_that_is_not_connected_fails_that_leg_in_words(self):
+        held = [_held("BUY", 24900, quantity=75, broker="zerodha", product="MIS")]
+        result, _ = self.run_exit(held, [ob.position_key(held[0])], dhan=Broker(), zerodha=None)
+        self.assertEqual(result["results"][0]["status"], "failed")
+        self.assertIn("Zerodha is not connected", result["results"][0]["message"])
+
+
 class TheBasketIsAProtectedAction(unittest.TestCase):
     def test_execute_needs_the_authenticator(self):
         import auth
@@ -422,6 +554,13 @@ class TheBasketIsAProtectedAction(unittest.TestCase):
             ("POST", "/api/option-builder/paper"),
         ):
             self.assertIsNone(auth.classify_sensitive_action(method, path))
+
+    def test_an_exit_does_not_and_a_viewer_still_cannot(self):
+        import auth
+
+        # Phil, 2026-10-12: a code at the exit cost him the price he wanted.
+        self.assertIsNone(auth.classify_sensitive_action("POST", "/api/option-builder/exit"))
+        self.assertFalse(auth.viewer_may_call("POST", "/api/option-builder/exit"))
 
 
 class PaperRoutes(unittest.TestCase):
