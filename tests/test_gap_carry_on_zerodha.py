@@ -463,7 +463,14 @@ class ThePageOffersTheChoice(unittest.TestCase):
 
     def test_the_switch_is_hidden_until_a_kite_app_is_saved(self):
         self.assertIn('id="oc-gap-broker-row" class="ocp-broker-row" hidden', self.HTML)
-        self.assertIn('data-value="zerodha" data-tone="paper" data-pf-action="setGapCarryBroker"', self.HTML)
+        self.assertIn('data-value="zerodha" data-tone="zerodha" data-pf-action="setGapCarryBroker"', self.HTML)
+
+    def test_the_chosen_broker_wears_its_own_colour_on_both_switches(self):
+        """Phil, 2026-10-12: "there is no highlighter while changing broker"."""
+        css = (ROOT / "static" / "philforge-app.css").read_text(encoding="utf-8")
+        for tone in ("dhan", "zerodha"):
+            self.assertIn(f'.scalp-toggle-btn.active[data-tone="{tone}"]', css)
+            self.assertEqual(self.HTML.count(f'data-value="{tone}" data-tone="{tone}"'), 2, tone)  # Scalp + Gap Carry
 
     def test_start_and_both_auto_calls_send_the_broker(self):
         self.assertEqual(self.JS.count("broker: _gapCarryBroker()"), 3)

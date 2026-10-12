@@ -644,6 +644,34 @@
     border-color: rgba(251,146,60,0.42);
     color: #fed7aa;
   }
+  /* BROKER SWITCHES. Phil, 2026-10-12: "there is no highlighter while changing
+     broker... give an outline on another colour". The chosen broker wears its
+     own colour with a clear outline -- Dhan teal, Zerodha orange, the same
+     pair as the tags on Portfolio -- on Scalp and on Gap Carry alike. */
+  .scalp-toggle-btn.active[data-tone="dhan"] {
+    background: linear-gradient(180deg, rgba(20,184,166,0.24) 0%, rgba(13,148,136,0.40) 100%);
+    border-color: rgba(94,234,212,0.85);
+    color: #99f6e4;
+    box-shadow: 0 0 0 1px rgba(94,234,212,0.55), inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 12px rgba(0,0,0,0.22);
+  }
+  .scalp-toggle-btn.active[data-tone="zerodha"] {
+    background: linear-gradient(180deg, rgba(251,146,60,0.24) 0%, rgba(194,65,12,0.42) 100%);
+    border-color: rgba(251,146,60,0.9);
+    color: #fed7aa;
+    box-shadow: 0 0 0 1px rgba(251,146,60,0.6), inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 12px rgba(0,0,0,0.22);
+  }
+  [data-theme="light"] .scalp-toggle-btn.active[data-tone="dhan"] {
+    background: linear-gradient(180deg, rgba(20,184,166,0.14) 0%, rgba(13,148,136,0.22) 100%);
+    border-color: #0d9488;
+    color: #0f766e;
+    box-shadow: 0 0 0 1px rgba(13,148,136,0.45);
+  }
+  [data-theme="light"] .scalp-toggle-btn.active[data-tone="zerodha"] {
+    background: linear-gradient(180deg, rgba(251,146,60,0.16) 0%, rgba(194,65,12,0.22) 100%);
+    border-color: #c2410c;
+    color: #9a3412;
+    box-shadow: 0 0 0 1px rgba(194,65,12,0.45);
+  }
   .scalp-live-note {
     margin-top: 8px;
     font-size: 10px;

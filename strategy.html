@@ -3537,8 +3537,8 @@
           <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;">Live orders through</label>
           <input type="hidden" id="oc-gap-broker" value="dhan">
           <div id="oc-gap-broker-toggle" class="scalp-toggle compact" role="radiogroup" aria-label="Broker for live orders">
-            <button type="button" class="read-only-lock scalp-toggle-btn active" data-value="dhan" data-tone="paper" data-pf-action="setGapCarryBroker" role="radio" aria-checked="true"><span>Dhan</span></button>
-            <button type="button" class="read-only-lock scalp-toggle-btn" data-value="zerodha" data-tone="paper" data-pf-action="setGapCarryBroker" role="radio" aria-checked="false"><span>Zerodha</span></button>
+            <button type="button" class="read-only-lock scalp-toggle-btn active" data-value="dhan" data-tone="dhan" data-pf-action="setGapCarryBroker" role="radio" aria-checked="true"><span>Dhan</span></button>
+            <button type="button" class="read-only-lock scalp-toggle-btn" data-value="zerodha" data-tone="zerodha" data-pf-action="setGapCarryBroker" role="radio" aria-checked="false"><span>Zerodha</span></button>
           </div>
           <span id="oc-gap-broker-note" class="ocp-broker-note"></span>
         </div>
@@ -4551,8 +4551,8 @@
           <span style="font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: 0.4px;">BROKER</span>
           <input type="hidden" id="scalp-broker" value="dhan">
           <div id="scalp-broker-toggle" class="scalp-toggle compact" style="width: 146px; flex-shrink: 0;">
-            <button type="button" class="scalp-toggle-btn active" data-value="dhan" onclick="setScalpBroker('dhan')"><span>Dhan</span></button>
-            <button type="button" class="scalp-toggle-btn" data-value="zerodha" onclick="setScalpBroker('zerodha')"><span>Zerodha</span></button>
+            <button type="button" class="scalp-toggle-btn active" data-value="dhan" data-tone="dhan" onclick="setScalpBroker('dhan')"><span>Dhan</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="zerodha" data-tone="zerodha" onclick="setScalpBroker('zerodha')"><span>Zerodha</span></button>
           </div>
         </div>
 
