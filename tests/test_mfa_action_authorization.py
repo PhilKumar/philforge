@@ -232,7 +232,13 @@ class MfaActionAuthorizationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(auth.classify_sensitive_action("POST", "/api/emergency-stop"))
         self.assertEqual(auth.classify_sensitive_action("POST", "/api/live/stop"), "live_trading")
-        self.assertEqual(auth.classify_sensitive_action("POST", "/api/live/exit-position"), "live_trading")
+        self.assertEqual(auth.classify_sensitive_action("POST", "/api/live/start"), "live_trading")
+        # The manual exit came OFF this gate on 2026-10-12: the challenge cost
+        # Phil the price he wanted to sell at, and an exit only removes risk.
+        self.assertIsNone(auth.classify_sensitive_action("POST", "/api/live/exit-position"))
+        unchallenged = await self.client.post("/api/live/exit-position", json={})
+        self.assertEqual(unchallenged.status_code, 200)
+        self.assertEqual(unchallenged.json()["message"], "No running live engine found")
         # Fib Boundary came OFF this gate on 2026-08-15: Phil asked for a plain
         # Paper/Live toggle like the Scalp page, which is why the scalp routes
         # below have always been unclassified too.

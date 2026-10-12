@@ -218,7 +218,6 @@ async def verify_totp_enrollment(user_id: int, secret: str, code: str, *, now: f
 _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ("POST", re.compile(r"^/api/live/start$"), "live_trading"),
     ("POST", re.compile(r"^/api/live/stop$"), "live_trading"),
-    ("POST", re.compile(r"^/api/live/exit-position$"), "live_trading"),
     ("POST", re.compile(r"^/api/orders/place$"), "broker_order"),
     ("DELETE", re.compile(r"^/api/orders/[^/]+$"), "broker_order"),
     ("POST", re.compile(r"^/api/terminal/order$"), "broker_order"),
@@ -237,6 +236,12 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # Scalp orders retain the normal authenticated user session and explicit
     # order/exit confirmations, but do not interrupt execution with a fresh
     # password + TOTP challenge on every entry, exit, stop, or target change.
+    # THE MANUAL EXIT OF A LIVE POSITION IS NOT HERE ANY MORE. Phil, 2026-10-12:
+    # "This is making too much of time and not able to exit when I think it is
+    # right." An exit only takes risk off, and a password plus an authenticator
+    # code cost him the price he wanted. POST /api/live/exit-position keeps the
+    # signed-in session, the viewer block and its own confirm click. Starting
+    # and stopping a live book still challenge.
     ("PUT", re.compile(r"^/api/user/broker$"), "broker_credentials"),
     ("DELETE", re.compile(r"^/api/user/broker$"), "broker_credentials"),
     ("PUT", re.compile(r"^/api/user/zerodha$"), "broker_credentials"),
