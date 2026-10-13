@@ -14765,6 +14765,58 @@ async def _save_gap_carry_open_state(user_id: int, *, force: bool = False) -> No
             _logger.warning("[GAP CARRY] could not bank closed nights for user %s: %s", user_id, exc)
 
 
+# A held LIVE carry is compared with the broker's own position book this often.
+# The engine used to ask only after a restart, so a leg Phil sold by hand at
+# 15:30 on 13-Oct-2026 was still "holding" on the site four hours later -- and
+# was going to be sold a second time at 09:20.
+_GAP_CARRY_BOOK_CHECK_SEC = 60.0
+_GAP_CARRY_BOOK_CHECK_HOURS = (dt_time(9, 0), dt_time(16, 0))
+_gap_carry_book_checked_at: Dict[int, float] = defaultdict(float)
+
+
+def _gap_carry_book_check_due(user_id: int, runtime, now: datetime) -> bool:
+    engine = runtime.engine
+    pos = engine.position
+    if pos is None or engine.executor is None or not pos.order_id:
+        return False
+    opens, shuts = _GAP_CARRY_BOOK_CHECK_HOURS
+    if now.weekday() >= 5 or not (opens <= now.time() <= shuts):
+        return False
+    if _gap_carry_on_zerodha(runtime) and not engine.executor.broker.token_is_current():
+        return False  # before the day's Zerodha login the book cannot be read
+    return time.monotonic() - _gap_carry_book_checked_at[int(user_id)] >= _GAP_CARRY_BOOK_CHECK_SEC
+
+
+async def _gap_carry_sync_broker_book(user_id: int, engine, now: datetime) -> str:
+    """Compare the open leg with the broker's book, and say so if it has gone.
+
+    A leg sold at the broker by hand is BOOKED here (the engine sends nothing
+    and takes the bracket's stop and target off); a partly sold one freezes.
+    """
+    _gap_carry_book_checked_at[int(user_id)] = time.monotonic()
+    pos = engine.position
+    frozen_before = engine.frozen_reason
+    outcome = await asyncio.to_thread(engine.sync_with_broker_book, now)
+    where = (engine.broker or "dhan").title()
+    if outcome == "closed" and pos is not None:
+        stuck = [note for note in engine.notes[-3:] if "would NOT cancel" in str(note)]
+        price = (
+            f"at ₹{float(pos.exit_premium):.2f}"
+            if pos.exit_priced
+            else f"with no sale price on the book, so booked at the last mark ₹{float(pos.exit_premium or 0):.2f}"
+        )
+        alerter.alert(
+            "Gap Carry · closed at the broker",
+            f"{int(pos.strike)}{pos.side} ({pos.quantity} qty, bought ₹{float(pos.entry_premium or 0):.2f}) was sold at "
+            f"{where} by hand {price}. It is booked on the site and no order was sent."
+            + (f"\n{stuck[-1]}" if stuck else ""),
+            level="error" if stuck or not pos.exit_priced else "info",
+        )
+    elif outcome == "short" and engine.frozen_reason != frozen_before:
+        alerter.alert("Gap Carry · position mismatch", str(engine.frozen_reason), level="error")
+    return outcome
+
+
 # Carries restored on a stale Zerodha token: their position check is owed.
 _gap_carry_reconcile_pending: set[int] = set()
 # Accounts whose Auto carry is LIVE on Zerodha with no login yet today, kept
@@ -14785,6 +14837,9 @@ async def _gap_carry_after_zerodha_login(user_id: int) -> None:
         return
     pos = runtime.engine.position
     if pos is None or not pos.order_id:
+        return
+    if await _gap_carry_sync_broker_book(uid, runtime.engine, datetime.now(IST)) == "closed":
+        await _save_gap_carry_open_state(uid, force=True)
         return
     frozen = await _reconcile_shared_live_orders(
         "GAP CARRY",
@@ -14863,6 +14918,21 @@ async def _restore_gap_carry_open_state(
             last = datetime.now(IST)
         if last.tzinfo is None:
             last = last.replace(tzinfo=IST)
+        # A leg sold at the broker by hand while this was away is BOOKED, not
+        # frozen: the broker's book says what it sold for. A flat book with no
+        # sale on it is asked twice before it is believed.
+        hand_closed = False
+        if (
+            engine.executor is not None
+            and engine.position is not None
+            and engine.position.order_id
+            and not (order_broker is not None and not order_broker.token_is_current())
+        ):
+            seen = await _gap_carry_sync_broker_book(int(user_id), engine, datetime.now(IST))
+            if seen == "unconfirmed":
+                await asyncio.sleep(1)
+                seen = await _gap_carry_sync_broker_book(int(user_id), engine, datetime.now(IST))
+            hand_closed = seen == "closed"
         # The ENGINE decides whether this is finished. A deploy can persist
         # running=False over a leg that is still open.
         unfinished = engine.status not in _GAP_CARRY_TERMINAL
@@ -14920,6 +14990,8 @@ async def _restore_gap_carry_open_state(
             engine=engine, adapter=adapter, broker=broker, last_candle_timestamp=last, running=running
         )
         _gap_carry_engines[int(user_id)] = runtime
+        if hand_closed:
+            await _save_gap_carry_open_state(int(user_id), force=True)
         if running and activate and _engine_restore_owner_is_active_instance():
             runtime.task = asyncio.create_task(_run_gap_carry_paper_loop(int(user_id), runtime))
         return runtime
@@ -15081,6 +15153,8 @@ async def _run_gap_carry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> N
         try:
             now = datetime.now(IST)
             engine = runtime.engine
+            if _gap_carry_book_check_due(int(user_id), runtime, now):
+                await _gap_carry_sync_broker_book(int(user_id), engine, now)
             if engine.has_open_position:
                 pos = engine.position
                 premium = None

@@ -136,6 +136,9 @@ class GapCarryPaper:
     #: ladder read from `history` alone always saw nothing banked and traded one
     #: lot for ever (found 2026-09-15). The app keeps the bank and hands it in.
     banked_before: float = 0.0
+    #: Consecutive readings of the broker book that showed the open leg gone
+    #: with no sale to price it from. Not persisted: a restart asks afresh.
+    _flat_readings: int = field(default=0, repr=False, compare=False)
 
     position: Optional[GapCarryPosition] = None
     history: list = field(default_factory=list)
@@ -460,12 +463,26 @@ class GapCarryPaper:
         status: str = CLOSED,
     ) -> None:
         if self.executor is not None and pos.order_id:
+            # NEVER SELL WHAT THE ACCOUNT DOES NOT HOLD. A leg sold by hand at
+            # the broker left this engine still HOLDING, and its 09:20 exit
+            # would have sold 65 calls the account no longer had -- a naked
+            # short (Phil, 13-Oct-2026). The book is asked first, every time.
+            seen = self.sync_with_broker_book(when)
+            if seen == "closed":
+                return
+            if seen != "held":
+                # Short, unreadable, or flat on a first reading: nothing is
+                # sent. The next mark asks again.
+                return
             traded = self._sell_for_real(pos, when)
             if traded is None:
                 # NOT closed. The position stays open and stays HOLDING; the
                 # next mark tries again, or a human clears the freeze.
                 return
             premium, priced = traded, True
+        self._book(pos, when, float(premium), reason, priced=priced, status=status)
+
+    def _book(self, pos: GapCarryPosition, when: datetime, premium: float, reason: str, *, priced: bool, status: str):
         pos.exit_timestamp = _ist(when)
         pos.exit_spot = float(self.last_index_close or pos.entry_spot)
         pos.exit_premium = float(premium)
@@ -475,6 +492,93 @@ class GapCarryPaper:
         self.history.append(pos)
         self.position = None
         self._status = status
+        self._flat_readings = 0
+
+    # ── the broker's own book ────────────────────────────────────────────
+    def _note_once(self, note: str) -> None:
+        if not self.notes or self.notes[-1] != note:
+            self.notes.append(note)
+
+    def sync_with_broker_book(self, when: datetime) -> str:
+        """Ask the broker whether the open leg is still in the account.
+
+        BLOCKING on a live campaign. Answers:
+
+        ``held``        the account holds it (or this is paper): carry on.
+        ``closed``      it was sold at the broker by hand; it is now BOOKED
+                        here, at the broker's own sale price, and nothing was
+                        sent.
+        ``short``       the account holds only part of it. Frozen for a human.
+        ``unreadable``  the book could not be read. Not an answer.
+        ``unconfirmed`` flat, with no sale on the book to price it from: it is
+                        believed on the second reading, not the first.
+        """
+        pos = self.position
+        reader = getattr(self.executor, "position_at_broker", None)
+        if pos is None or reader is None or not pos.order_id or str(pos.order_id).startswith("paper-"):
+            return "held"
+        try:
+            book = reader(strike=int(pos.strike), expiry=pos.expiry, option_type=pos.side)
+        except Exception:
+            book = None
+        where = self.broker.title() or "Dhan"
+        if not isinstance(book, dict):
+            self._note_once(f"the {where} position book could not be read; no exit is sent until it can be")
+            return "unreadable"
+        held = int(book.get("held") or 0)
+        if held >= int(pos.quantity):
+            self._flat_readings = 0
+            return "held"
+        if held > 0:
+            self.frozen_reason = (
+                f"{where} holds {held} of the {pos.quantity} this carry bought; "
+                "nothing is sold until that is settled by hand"
+            )
+            self._note_once(self.frozen_reason)
+            return "short"
+        sold = float(book.get("sell_avg") or 0.0) if int(book.get("sell_qty") or 0) >= int(pos.quantity) else 0.0
+        if sold <= 0:
+            self._flat_readings += 1
+            if self._flat_readings < 2:
+                return "unconfirmed"
+        self.book_broker_exit(when, sold if sold > 0 else None)
+        return "closed"
+
+    def book_broker_exit(self, when: datetime, premium: Optional[float]) -> bool:
+        """The leg was sold at the broker by hand. Book it; SEND NOTHING.
+
+        `premium` is the broker's own average sale price. Without one the leg
+        is booked at the last mark and flagged as not a real price, exactly as
+        a floored expiry is.
+
+        The bracket's stop and target come off: left working over a flat
+        account, either one is a naked short waiting for a bad tick.
+        """
+        pos = self.position
+        if pos is None:
+            return False
+        where = self.broker.title() or "Dhan"
+        if self.executor is not None and pos.bracket_order_id:
+            try:
+                self.executor.cancel_bracket(order_id=pos.bracket_order_id)
+                pos.notes.append("its stop and target were cancelled")
+            except Exception as exc:
+                self.notes.append(
+                    f"the stop and target of the hand-closed leg would NOT cancel -- cancel them at {where}: {exc}"
+                )
+            pos.bracket_order_id = None
+        priced = premium is not None and float(premium) > 0
+        if not priced:
+            premium = float((self.last_mark or {}).get("premium") or pos.entry_premium or 0.0)
+        pos.notes.append(f"sold at {where} by hand, not by this engine")
+        self.notes.append(
+            f"{int(pos.strike)}{pos.side} was sold at {where} by hand"
+            + (f" at {float(premium):.2f}" if priced else "; no sale price on the book, booked at the last mark")
+            + " -- booked, nothing sent"
+        )
+        self.frozen_reason = None
+        self._book(pos, when, float(premium), "CLOSED_AT_BROKER", priced=priced, status=CLOSED)
+        return True
 
     @staticmethod
     def _charges(buy: float, sell: float, quantity: int) -> float:

@@ -68,6 +68,10 @@ def live_execution_open(tag: str) -> bool:
 BRACKET_PLACEHOLDER_TARGET_MULTIPLE = 10.0
 
 
+# Dhan and Kite name the same two products differently.
+_PRODUCT_CLASS = {"MARGIN": "carry", "NRML": "carry", "INTRADAY": "intraday", "MIS": "intraday"}
+
+
 class ExecutionRefused(RuntimeError):
     """An order was decided but the executor would not send it."""
 
@@ -456,6 +460,52 @@ class OptionsLiveExecutor:
         except (TypeError, ValueError):
             value = 0.0
         return value if value > 0 else None
+
+    def position_at_broker(self, *, strike, expiry, option_type) -> Optional[dict]:
+        """What the account holds of one contract, in this executor's product.
+
+        BLOCKING. Returns ``{"held", "sell_qty", "sell_avg"}``. None means the
+        book could NOT be read -- which is not the same as "nothing is held",
+        and no caller may treat it that way.
+
+        Only this product's rows count: the account is shared, and an intraday
+        book holding the same strike is not this campaign's leg.
+        """
+        try:
+            from broker.dhan import ScripMaster
+
+            security_id = str(
+                ScripMaster.lookup(self.symbol, float(strike), self._expiry_str(expiry), str(option_type)) or ""
+            )
+            if not security_id:
+                return None
+            rows = self.broker.get_positions()
+        except Exception:
+            return None
+        if not isinstance(rows, list):
+            return None
+        mine = _PRODUCT_CLASS.get(self.product_type.upper())
+        held = sell_qty = 0
+        sell_value = 0.0
+        for row in rows:
+            if not isinstance(row, dict) or str(row.get("securityId") or "") != security_id:
+                continue
+            theirs = _PRODUCT_CLASS.get(str(row.get("productType") or "").upper())
+            if mine and theirs and mine != theirs:
+                continue
+            try:
+                held += int(float(row.get("netQty") or 0))
+                qty, avg = int(float(row.get("sellQty") or 0)), float(row.get("sellAvg") or 0.0)
+            except (TypeError, ValueError):
+                return None
+            if qty > 0 and avg > 0:
+                sell_qty += qty
+                sell_value += qty * avg
+        return {
+            "held": held,
+            "sell_qty": sell_qty,
+            "sell_avg": round(sell_value / sell_qty, 2) if sell_qty else None,
+        }
 
     def cancel_bracket(self, *, order_id) -> dict:
         """Release a bracket's exit legs so the position can be sold.
