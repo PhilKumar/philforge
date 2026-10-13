@@ -13892,7 +13892,8 @@ async function openScalpOptionChart(tradeId, options = {}) {
           throw new Error('Option chart renderer is unavailable');
         }
         if (!(data.candles || []).length) {
-          throw new Error('No candles for this contract yet — it may not have traded in the last few sessions.');
+          const asked = { '1m': '1-minute', '3m': '3-minute', '5m': '5-minute', '15m': '15-minute', '1h': '1-hour' }[data.timeframe || _scalpOptionChartTf] || '5-minute';
+          throw new Error(`No ${asked} candles for this contract yet — it may not have traded in the last few sessions.`);
         }
         if (!pfBenchDrawChart(host, data)) throw new Error('Option chart could not be drawn.');
       }
