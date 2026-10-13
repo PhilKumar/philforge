@@ -59,6 +59,8 @@ EXPECTED_LOOPS = [
     "pre-open-check",
     "sanctuary-plans",
     "supertrend",
+    # Saves every closed live trade's chart outside the trading day (13-Oct-2026).
+    "trade-chart-keeper",
 ]
 
 # (owner, attribute) for each loop factory, so a module-level one can be
@@ -71,6 +73,7 @@ STUBBED = [
     (None, "_run_official_close_telegram_loop"),
     (None, "_run_live_watchdog_loop"),
     (None, "_run_pre_open_check_loop"),
+    (None, "_run_trade_chart_keeper_loop"),
     (app_module._sanctuary, "plan_nudge_loop"),
 ]
 

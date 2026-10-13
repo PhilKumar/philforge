@@ -3831,6 +3831,8 @@ def _ensure_auto_loops_running() -> list[str]:
         "live-watchdog": _run_live_watchdog_loop,
         # And the faults that are knowable before the open, at 09:10.
         "pre-open-check": _run_pre_open_check_loop,
+        # Saves every closed live trade's chart, outside the trading day.
+        "trade-chart-keeper": _run_trade_chart_keeper_loop,
     }
     started: list[str] = []
     for name, factory in loops.items():
@@ -21171,6 +21173,25 @@ def _write_trade_chart_cache(path: str, candles: list[dict]) -> None:
         _logger.warning("[TRADE CHART] could not keep candles at %s: %s", path, exc)
 
 
+def _read_json_file(path: str):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_json_file(path: str, value) -> None:
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(value, handle)
+        os.replace(tmp, path)
+    except OSError as exc:
+        _logger.warning("[TRADE CHART] could not keep %s: %s", os.path.basename(path), exc)
+
+
 async def _contract_chart_candles(
     broker_client,
     trade: dict,
@@ -21303,11 +21324,7 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
             break
 
     # The trade: engine's closed list first (freshest), then the history file.
-    candidates: list[dict] = []
-    if engine is not None:
-        candidates.extend(getattr(engine, "closed_trades", []) or [])
-        candidates.extend(p for p in (getattr(engine, "positions", []) or []) if p.get("status") == "closed")
-    candidates.extend(_live_run_history_trades(run_id, user_id))
+    candidates = _trade_chart_candidates(engine, run_id, user_id)
     trade = None
     if trade_id:
         for row in candidates:
@@ -21319,6 +21336,48 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     if trade is None:
         raise HTTPException(status_code=404, detail="No closed trade with that id on this run")
 
+    async def broker():
+        client = getattr(engine, "dhan", None) if engine is not None else None
+        if client is None:
+            _, client, _ = await _request_broker_context(request)
+        return client
+
+    return await _build_trade_chart(user_id, run_id, trade, engine, broker, timeframe)
+
+
+def _trade_chart_candidates(engine, run_id: str, user_id: int) -> list[dict]:
+    """A run's closed trades: the engine's own list first, then its history file."""
+    candidates: list[dict] = []
+    if engine is not None:
+        candidates.extend(getattr(engine, "closed_trades", []) or [])
+        candidates.extend(p for p in (getattr(engine, "positions", []) or []) if p.get("status") == "closed")
+    candidates.extend(_live_run_history_trades(run_id, user_id))
+    return candidates
+
+
+# After this the day's candles are all in: the F&O session shuts at 15:40.
+_TRADE_CHART_DAY_DONE = dt_time(15, 50)
+
+
+def _trade_chart_is_complete(exit_ts: int | None, now: datetime | None = None) -> bool:
+    """True once nothing more can be added to a closed trade's chart, so it
+    may be kept for good: its exit day is behind us, or over for the day."""
+    if not exit_ts:
+        return False
+    now = now or datetime.now(IST)
+    end_day = datetime.fromtimestamp(exit_ts, IST).date()
+    return end_day < now.date() or (end_day == now.date() and now.time() >= _TRADE_CHART_DAY_DONE)
+
+
+async def _build_trade_chart(user_id: int, run_id: str, trade: dict, engine, broker, timeframe: str) -> dict:
+    """One closed trade's frozen chart. `broker` is awaited only if Dhan is needed.
+
+    A complete trade's candles and Supertrend turns are kept on disk the first
+    time they are built (by this route, or by the nightly keeper below), and
+    every later open is answered from there -- with no broker at all, which is
+    what lets a chart still open years after Dhan has dropped the contract
+    (Phil, 2026-10-13: "After some years it should not go to Dhan").
+    """
     underlying = str(trade.get("underlying") or getattr(engine, "instrument", "") or "NIFTY").strip().upper()
     if underlying.isdigit():
         underlying = {
@@ -21340,11 +21399,14 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
         raise HTTPException(status_code=422, detail="This trade record has no entry time")
 
     security_id = str(trade.get("security_id") or trade.get("securityId") or "")
-    broker_client = getattr(engine, "dhan", None) if engine is not None else None
-    if broker_client is None:
-        _, broker_client, _ = await _request_broker_context(request)
-    if not broker_client:
-        raise HTTPException(status_code=503, detail="Broker connection is required to load the trade chart")
+    held: dict = {}
+
+    async def broker_client_or_503():
+        if "client" not in held:
+            held["client"] = await broker()
+        if not held["client"]:
+            raise HTTPException(status_code=503, detail="Broker connection is required to load the trade chart")
+        return held["client"]
 
     tf = str(timeframe or "5m").lower()
     candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
@@ -21354,14 +21416,12 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     # prior day and the EMA has warm-up) to the EXIT day -- never "today".
     end_day = datetime.fromtimestamp(exit_ts, IST).date() if exit_ts else entry_day
     from_date = (entry_day - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
-    # A trade that ended before today is complete: its candles are kept.
-    cache_path = (
-        _trade_chart_cache_path(user_id, run_id, f"{trade.get('id') or ''}_{int(entry_ts)}", candle_type)
-        if exit_ts and end_day < datetime.now(IST).date()
-        else ""
-    )
-    frozen = await _contract_chart_candles(
-        broker_client,
+    # A trade whose day is over is complete: its candles are kept.
+    trade_key = f"{trade.get('id') or ''}_{int(entry_ts)}"
+    complete = _trade_chart_is_complete(exit_ts)
+    cache_path = _trade_chart_cache_path(user_id, run_id, trade_key, candle_type) if complete else ""
+    frozen = (_read_trade_chart_cache(cache_path) if cache_path else []) or await _contract_chart_candles(
+        await broker_client_or_503(),
         trade,
         underlying=underlying,
         strike=strike,
@@ -21400,12 +21460,22 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
     # Supertrend(10, 2.7) over 3m NIFTY; it turned down at 10:36 and the engine
     # acted at the next 5m boundary, 10:45. Without it on the chart the exit
     # looks arbitrary.
+    # Kept with the candles once the trade is complete, so the turn that ended
+    # it is still on the chart when the strategy has changed or the book has
+    # gone -- and without asking Dhan for the index again.
     supertrend_overlay = None
+    turns_path = _trade_chart_cache_path(user_id, run_id, trade_key, f"st{candle_type}") if complete else ""
+    kept_turns = _read_json_file(turns_path) if turns_path else None
     spec = _strategy_supertrend_spec(getattr(engine, "strategy", None))
-    if spec:
+    if isinstance(kept_turns, dict) and "overlay" in kept_turns:
+        supertrend_overlay = kept_turns["overlay"]
+    elif spec:
+        broker_client = await broker_client_or_503()
         supertrend_overlay = await _index_supertrend_flips(
             broker_client, underlying, spec, from_date, end_day.isoformat(), until_ts=exit_ts
         )
+        if turns_path and supertrend_overlay is not None:
+            _write_json_file(turns_path, {"overlay": supertrend_overlay, "spec": list(spec)})
     return {
         "status": "ok",
         "timeframe": tf,
@@ -21446,6 +21516,144 @@ async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "
         "overlays": analytics["overlays"],
         "live_price": 0.0,
     }
+
+
+# ── The keeper: every closed LIVE trade's chart, saved without being opened ──
+# The route above keeps a chart the first time someone opens it. A trade nobody
+# opens was never kept -- and years on, Dhan may no longer serve its contract.
+# So outside the trading day this walks every live book's closed trades and
+# builds, one a minute, whichever chart is not on disk yet: all three
+# timeframes, newest trades first. A day's own trades are still listed by
+# Dhan directly that evening (one request each); only the backlog of expired
+# contracts costs the slow strike-by-strike archive walk, once per chart.
+_TRADE_CHART_KEEP_TFS = ("5m", "15m", "1h")
+_TRADE_CHART_KEEP_EVERY_SEC = 60.0
+_TRADE_CHART_KEEP_RETRY_SEC = 6 * 3600.0
+_TRADE_CHART_KEEP_MAX_TRIES = 3
+_trade_chart_keep_failed: dict[str, tuple[int, float]] = {}
+
+
+def _trade_chart_keeper_may_work(now: datetime) -> bool:
+    """Never in the trading day: every fetch here spends Dhan's rate budget,
+    and the live books come first."""
+    if now.weekday() >= 5:
+        return True
+    return now.time() >= _TRADE_CHART_DAY_DONE or now.time() < dt_time(8, 30)
+
+
+def _live_run_ids(user_id: int) -> list[str]:
+    """The live books this user has now, and the ones only their history remembers."""
+    ids = list(_registry_bucket(live_engines, user_id).keys())
+    folder = _engine_state_dir(int(user_id), create=False)
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        names = []
+    for name in names:
+        if name.startswith("live_history_") and name.endswith(".json"):
+            run_id = name[len("live_history_") : -len(".json")]
+            if run_id and run_id not in ids:
+                ids.append(run_id)
+    return ids
+
+
+def _trade_charts_still_owed(user_id: int, now: datetime) -> list[dict]:
+    """Charts of complete live trades that are not on disk yet, most wanted first."""
+    owed: list[dict] = []
+    clock = time.monotonic()
+    for run_id in _live_run_ids(user_id):
+        engine = _registry_bucket(live_engines, user_id).get(run_id)
+        seen: set[str] = set()
+        for trade in _trade_chart_candidates(engine, run_id, user_id):
+            entry_ts = _scalp_option_chart_timestamp(trade.get("entry_time"))
+            exit_ts = _scalp_option_chart_timestamp(trade.get("exit_time"))
+            if not entry_ts or not _trade_chart_is_complete(exit_ts, now):
+                continue
+            try:
+                usable = int(float(trade.get("strike") or 0)) > 0
+            except (TypeError, ValueError):
+                usable = False
+            if not usable or str(trade.get("option_type") or "").upper() not in {"CE", "PE"}:
+                continue
+            trade_key = f"{trade.get('id') or ''}_{int(entry_ts)}"
+            if trade_key in seen:
+                continue
+            seen.add(trade_key)
+            # A book that exits on a Supertrend turn keeps the turns as well.
+            has_turns = bool(_strategy_supertrend_spec(getattr(engine, "strategy", None)))
+            for order, tf in enumerate(_TRADE_CHART_KEEP_TFS):
+                candle_type = {"5m": "5", "15m": "15", "1h": "60"}[tf]
+                path = _trade_chart_cache_path(user_id, run_id, trade_key, candle_type)
+                paths = [path]
+                if has_turns:
+                    paths.append(_trade_chart_cache_path(user_id, run_id, trade_key, f"st{candle_type}"))
+                if all(os.path.exists(item) for item in paths):
+                    continue
+                tries, retry_at = _trade_chart_keep_failed.get(path, (0, 0.0))
+                if tries >= _TRADE_CHART_KEEP_MAX_TRIES or clock < retry_at:
+                    continue
+                owed.append(
+                    {
+                        "run_id": run_id,
+                        "trade": trade,
+                        "engine": engine,
+                        "timeframe": tf,
+                        "path": path,
+                        "paths": paths,
+                        "rank": (order, -int(entry_ts)),
+                    }
+                )
+    # Every trade's 5m before anyone's 15m, and the newest trade first.
+    owed.sort(key=lambda row: row["rank"])
+    return owed
+
+
+async def _keep_one_trade_chart(user_id: int, now: datetime) -> str:
+    """Build and keep ONE owed chart for this user. Says what it did."""
+    owed = _trade_charts_still_owed(user_id, now)
+    if not owed:
+        return "nothing-owed"
+    job = owed[0]
+    engine = job["engine"]
+
+    async def broker():
+        client = getattr(engine, "dhan", None) if engine is not None else None
+        if client is None:
+            client, _source = _resolve_user_broker_client(await _db_mod.get_user_by_id(int(user_id)))
+        return client
+
+    label = f"{job['run_id']} trade {job['trade'].get('id')} {job['timeframe']}"
+    problem = None
+    try:
+        await _build_trade_chart(user_id, job["run_id"], job["trade"], engine, broker, job["timeframe"])
+    except Exception as exc:  # noqa: BLE001 - one chart Dhan cannot serve must not stop the rest
+        problem = getattr(exc, "detail", None) or exc
+    if problem is None and not all(os.path.exists(item) for item in job["paths"]):
+        problem = "built, but not everything could be kept"
+    if problem is not None:
+        # Asked again in six hours, three times in all -- not every minute.
+        tries = _trade_chart_keep_failed.get(job["path"], (0, 0.0))[0] + 1
+        _trade_chart_keep_failed[job["path"]] = (tries, time.monotonic() + _TRADE_CHART_KEEP_RETRY_SEC)
+        _logger.warning("[TRADE CHART] could not keep %s (try %s): %s", label, tries, problem)
+        return "failed"
+    _logger.info("[TRADE CHART] kept %s (%s more owed)", label, len(owed) - 1)
+    return "kept"
+
+
+async def _run_trade_chart_keeper_loop() -> None:
+    while True:
+        try:
+            now = datetime.now(IST)
+            if _trade_chart_keeper_may_work(now) and _engine_restore_owner_is_active_instance():
+                for user_id in list(live_engines.keys()):
+                    # One chart a pass, whoever it belongs to.
+                    if await _keep_one_trade_chart(int(user_id), now) != "nothing-owed":
+                        break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning("[TRADE CHART] keeper recovered from: %s", exc)
+        await asyncio.sleep(_TRADE_CHART_KEEP_EVERY_SEC)
 
 
 @app.get("/api/live/debug")
