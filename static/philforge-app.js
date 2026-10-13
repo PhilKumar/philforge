@@ -13759,6 +13759,9 @@ function _syncScalpContractChartLabel() {
   const label = document.getElementById('scalp-contract-chart-label');
   const btn = document.getElementById('scalp-contract-chart-btn');
   if (!label || !btn) return;
+  // The site's one chart icon, the same bars every other chart button wears.
+  const ico = document.getElementById('scalp-contract-chart-ico');
+  if (ico && !ico.firstChild) ico.innerHTML = ICO.barchart(14);
   const c = _scalpFormContract();
   label.textContent = c ? `${c.strike} ${c.option_type} chart` : 'Option chart';
   btn.disabled = !c;
@@ -13766,6 +13769,9 @@ function _syncScalpContractChartLabel() {
     ? `Chart ${c.underlying} ${c.strike} ${c.option_type} (${c.expiry}) before you trade it`
     : 'Pick a strike and an expiry to chart that option';
 }
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _syncScalpContractChartLabel);
+else _syncScalpContractChartLabel();
 
 function openScalpContractChart() {
   const contract = _scalpFormContract();

@@ -49,6 +49,9 @@ test('Scalp: the option chart button beside the broker charts the contract in th
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   const btn = page.locator('#scalp-contract-chart-btn');
   await expect(btn).toBeVisible();
+  // It wears the site's own chart icon, not an arrow.
+  await expect(btn.locator('#scalp-contract-chart-ico svg rect')).toHaveCount(3);
+  await expect(btn).not.toContainText('↗');
 
   // It sits on the broker's row, to the right of the switch, inside the panel.
   const placed = await page.evaluate(() => {
