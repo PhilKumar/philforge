@@ -25111,6 +25111,97 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
     return _scalp_option_chart_with_live_price(payload, trade)
 
 
+_SCALP_CONTRACT_CHART_CACHE: Dict[tuple, tuple[float, dict]] = {}
+
+
+@app.get("/api/scalp/contract-chart")
+async def get_scalp_contract_chart(
+    request: Request,
+    underlying: str = "NIFTY",
+    strike: int = 0,
+    expiry: str = "",
+    option_type: str = "CE",
+    timeframe: str = "5m",
+    live_price: float = 0.0,
+):
+    """Candles for the contract in the Scalp entry form, BEFORE a trade exists.
+
+    Phil, 2026-10-13: "put the corresponding options chart near the broker so
+    that I can find the particular chart while taking trade". The trade chart
+    above needs an open trade to name its contract; this one is told the
+    contract. Same candles, same CPR/EMA lines. `live_price` is the premium the
+    form is already showing, layered on as the dotted line -- so a poll of this
+    route costs Dhan nothing while the 20-second candle cache holds.
+    """
+    user_id = _request_user_id(request)
+    underlying = str(underlying or "").strip().upper()
+    option_type = str(option_type or "").strip().upper()
+    expiry = str(expiry or "").strip()
+    if underlying not in {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"}:
+        raise HTTPException(status_code=422, detail="Pick an index first")
+    if int(strike or 0) <= 0 or option_type not in {"CE", "PE"} or not expiry:
+        raise HTTPException(status_code=422, detail="Pick a strike, CE or PE, and an expiry first")
+    strike = int(strike)
+
+    tf = str(timeframe or "5m").lower()
+    candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
+    tf = {"5": "5m", "15": "15m", "60": "1h"}[candle_type]
+    live = {"current_premium": live_price if 0 < float(live_price or 0) < 1e6 else 0}
+    cache_key = (int(user_id), underlying, strike, expiry, option_type, tf)
+    cached = _SCALP_CONTRACT_CHART_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
+        return {**_scalp_option_chart_with_live_price(cached[1], live), "cached": True}
+
+    security_id = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
+    if not security_id:
+        raise HTTPException(status_code=404, detail="Option contract is unavailable in the current Scrip Master")
+    engine = _scalp_engines.get(int(user_id))
+    broker_client = getattr(engine, "dhan", None) if engine is not None else None
+    if broker_client is None:
+        _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=503, detail="Broker connection is required to load the option chart")
+
+    today = datetime.now(IST).date()
+    from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(security_id),
+            exchange_segment="BSE_FNO" if underlying == "SENSEX" else "NSE_FNO",
+            instrument_type="OPTIDX",
+            from_date=from_date,
+            to_date=today.isoformat(),
+            candle_type=candle_type,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Option candle request failed: {exc}") from exc
+    candles = _frame_to_chart_candles(frame) if frame is not None and not frame.empty else []
+    if not candles:
+        raise HTTPException(status_code=404, detail="No intraday candles returned for this option contract")
+
+    analytics = _chart_session_analytics(candles)
+    payload = {
+        "status": "ok",
+        "timeframe": tf,
+        "instrument": {
+            "underlying": underlying,
+            "strike": strike,
+            "option_type": option_type,
+            "expiry": expiry,
+            "security_id": str(security_id),
+        },
+        "candles": candles,
+        "entries": [],
+        "lines": list(analytics["lines"]),
+        "overlays": analytics["overlays"],
+    }
+    if len(_SCALP_CONTRACT_CHART_CACHE) > 64:  # a strike stepped through leaves a trail
+        _SCALP_CONTRACT_CHART_CACHE.clear()
+    _SCALP_CONTRACT_CHART_CACHE[cache_key] = (time.monotonic(), payload)
+    return _scalp_option_chart_with_live_price(payload, live)
+
+
 def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | None = None):
     if not _HAS_SCALP:
         raise HTTPException(status_code=503, detail="scalp.py not available")

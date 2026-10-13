@@ -6349,6 +6349,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .cascade-options-control:hover, .cascade-options-primary-btn:hover { transform: translateY(-1px); border-color: rgba(191,219,254,.82); color: #fff; filter: saturate(1.1) brightness(1.05); box-shadow: 0 6px 13px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(0,0,0,.30); }
 .cascade-options-control:active, .cascade-options-primary-btn:active { transform: translateY(1px); box-shadow: 0 2px 6px rgba(0,0,0,.28), inset 0 2px 2px rgba(0,0,0,.25); }
 .cascade-options-control { min-width: 0; min-height: 30px; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+.scalp-broker-row .scalp-contract-chart-btn { margin-left: auto; font-family: var(--font-mono); }
+.scalp-broker-row .scalp-contract-chart-btn:disabled { opacity: .45; cursor: not-allowed; }
 .cascade-options-control.is-warn { border-color: rgba(251,191,36,.50); background: linear-gradient(180deg, rgba(245,158,11,.30), rgba(180,83,9,.42)); color: #fef3c7; }
 .cascade-options-control.is-danger { border-color: rgba(252,165,165,.54); background: linear-gradient(180deg, rgba(248,113,113,.30), rgba(153,27,27,.52)); color: #fee2e2; }
 .cascade-options-primary-btn { --btn-bg: linear-gradient(180deg, rgba(16,185,129,.32), rgba(5,150,105,.50)); --btn-color: #d1fae5; --btn-border: rgba(52,211,153,.56); min-height: 40px; padding: 8px 13px; border-color: rgba(52,211,153,.56); background: var(--btn-bg); color: var(--btn-color); }

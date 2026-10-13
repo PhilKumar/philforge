@@ -12996,6 +12996,7 @@ function fetchScalpLTPThrottled() {
 }
 
 async function fetchScalpLTP() {
+  _syncScalpContractChartLabel();
   const el = document.getElementById('scalp-live-ltp');
   const strike = parseInt(document.getElementById('scalp-strike').value) || 0;
   const underlying = document.getElementById('scalp-underlying').value;
@@ -13731,6 +13732,47 @@ let _scalpOptionChartTf = '5m';
 let _scalpOptionChartDrawnKey = '';
 let _scalpOptionChartPollTimer = null;
 let _scalpOptionChartPollInFlight = false;
+// The contract in the entry form, charted BEFORE a trade exists. Null while
+// the window is showing an open trade's chart.
+let _scalpOptionChartContract = null;
+
+function _scalpChartTargetKey() {
+  const c = _scalpOptionChartContract;
+  if (c) return `form:${c.underlying}|${c.strike}|${c.expiry}|${c.option_type}`;
+  return _scalpOptionChartTradeId ? String(_scalpOptionChartTradeId) : '';
+}
+
+// The contract the entry form is pointing at, or null while it is incomplete.
+function _scalpFormContract() {
+  const strike = parseInt(document.getElementById('scalp-strike')?.value, 10) || 0;
+  const expiry = document.getElementById('scalp-expiry')?.value || '';
+  if (!strike || !expiry) return null;
+  return {
+    underlying: document.getElementById('scalp-underlying')?.value || 'NIFTY',
+    strike,
+    expiry,
+    option_type: document.getElementById('scalp-option-type')?.value || 'CE',
+  };
+}
+
+function _syncScalpContractChartLabel() {
+  const label = document.getElementById('scalp-contract-chart-label');
+  const btn = document.getElementById('scalp-contract-chart-btn');
+  if (!label || !btn) return;
+  const c = _scalpFormContract();
+  label.textContent = c ? `${c.strike} ${c.option_type} chart` : 'Option chart';
+  btn.disabled = !c;
+  btn.title = c
+    ? `Chart ${c.underlying} ${c.strike} ${c.option_type} (${c.expiry}) before you trade it`
+    : 'Pick a strike and an expiry to chart that option';
+}
+
+function openScalpContractChart() {
+  const contract = _scalpFormContract();
+  if (!contract) { toast('Pick a strike and an expiry first.', 'warning'); return; }
+  openScalpOptionChart(null, { contract });
+}
+window.openScalpContractChart = openScalpContractChart;
 
 function _stopScalpOptionChartPolling() {
   if (_scalpOptionChartPollTimer) clearInterval(_scalpOptionChartPollTimer);
@@ -13742,9 +13784,9 @@ function _startScalpOptionChartPolling() {
   _stopScalpOptionChartPolling();
   _scalpOptionChartPollTimer = setInterval(() => {
     const overlay = document.getElementById('scalp-option-chart-overlay');
-    if (!overlay?.classList.contains('is-open') || !_scalpOptionChartTradeId || _scalpOptionChartPollInFlight) return;
+    if (!overlay?.classList.contains('is-open') || !_scalpChartTargetKey() || _scalpOptionChartPollInFlight) return;
     _scalpOptionChartPollInFlight = true;
-    openScalpOptionChart(_scalpOptionChartTradeId, { liveRefresh: true }).finally(() => {
+    openScalpOptionChart(_scalpOptionChartTradeId, { liveRefresh: true, contract: _scalpOptionChartContract }).finally(() => {
       _scalpOptionChartPollInFlight = false;
     });
   }, 2000);
@@ -13788,10 +13830,13 @@ function _ensureScalpOptionChartOverlay() {
 }
 
 async function openScalpOptionChart(tradeId, options = {}) {
-  const id = Number(tradeId);
-  if (!Number.isInteger(id) || id <= 0) return;
+  const contract = options.contract || null;
+  const id = contract ? null : Number(tradeId);
+  if (!contract && (!Number.isInteger(id) || id <= 0)) return;
   const liveRefresh = !!options.liveRefresh;
   _scalpOptionChartTradeId = id;
+  _scalpOptionChartContract = contract;
+  const targetKey = _scalpChartTargetKey();
   const requestId = ++_scalpOptionChartRequest;
   const overlay = _ensureScalpOptionChartOverlay();
   const body = document.getElementById('scalp-option-chart-body');
@@ -13801,9 +13846,14 @@ async function openScalpOptionChart(tradeId, options = {}) {
   // Hold the old frame while fetching; only a first open announces itself.
   if (!liveRefresh && body && !body.querySelector('#pf-bench-canvas-host')) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
   try {
-    const response = await fetch(`/api/scalp/trades/${encodeURIComponent(id)}/chart?timeframe=${encodeURIComponent(_scalpOptionChartTf)}`, { credentials: 'same-origin', cache: 'no-store' });
+    // The form's contract has no trade to price it, so the premium the form is
+    // already showing rides along and becomes the dotted LIVE line.
+    const url = contract
+      ? `/api/scalp/contract-chart?${new URLSearchParams({ ...contract, timeframe: _scalpOptionChartTf, live_price: String(Number(_scalpCurrentLTP) > 0 ? _scalpCurrentLTP : 0) })}`
+      : `/api/scalp/trades/${encodeURIComponent(id)}/chart?timeframe=${encodeURIComponent(_scalpOptionChartTf)}`;
+    const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
-    if (requestId !== _scalpOptionChartRequest || _scalpOptionChartTradeId !== id) return;
+    if (requestId !== _scalpOptionChartRequest || _scalpChartTargetKey() !== targetKey) return;
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
     const instrument = data.instrument || {};
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
@@ -13824,7 +13874,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
         host = document.getElementById('scalp-option-chart-canvas');
       }
       const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#scalp-option-chart-canvas') === host;
-      const drawnKey = `${id}|${data.timeframe || _scalpOptionChartTf}`;
+      const drawnKey = `${targetKey}|${data.timeframe || _scalpOptionChartTf}`;
       const view = canvasIsThisChart && drawnKey === _scalpOptionChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
       const refreshed = canvasIsThisChart && (data.candles || []).length && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
       _scalpOptionChartDrawnKey = drawnKey;
@@ -13849,12 +13899,14 @@ async function openScalpOptionChart(tradeId, options = {}) {
 }
 
 function refreshScalpOptionChart() {
-  if (_scalpOptionChartTradeId) openScalpOptionChart(_scalpOptionChartTradeId);
+  if (_scalpOptionChartContract) openScalpOptionChart(null, { contract: _scalpOptionChartContract });
+  else if (_scalpOptionChartTradeId) openScalpOptionChart(_scalpOptionChartTradeId);
 }
 
 function hideScalpOptionChart() {
   _scalpOptionChartRequest++;
   _scalpOptionChartTradeId = null;
+  _scalpOptionChartContract = null;
   _scalpOptionChartDrawnKey = '';
   _stopScalpOptionChartPolling();
   if (typeof _pfChartCanvasTeardown === 'function') _pfChartCanvasTeardown();
