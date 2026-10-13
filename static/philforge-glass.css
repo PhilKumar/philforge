@@ -14,7 +14,7 @@ html.pf-glass[data-theme="light"] {
   --fg-body-overlay:linear-gradient(125deg,#edf5fbe6,#edf4f9ad 65%,#ebf2f8cc);
 }
 html.pf-glass body {
-  background:var(--fg-body-overlay),url('/static/artwork/trading-happiness.png') center/cover fixed !important;
+  background:var(--fg-body-overlay),url('/static/artwork/trading-happiness.png?v=2') center/cover fixed !important;
   color:var(--fg-ink);
 }
 html.pf-glass body::before,html.pf-glass body::after { display:none !important; }
