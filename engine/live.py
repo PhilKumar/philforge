@@ -4160,6 +4160,10 @@ class LiveEngine:
         closed_trade["gross_pnl"] = gross
         closed_trade["charges"] = charges
         closed_trade["pnl"] = pnl
+        # Which account took this trade. The desk settles a trade against the
+        # DHAN account's record, and must never do that to a Zerodha one.
+        _broker = str((self.deploy_config or {}).get("broker") or "dhan").strip().lower()
+        closed_trade["broker"] = "zerodha" if _broker == "zerodha" else "dhan"
         self.daily_pnl += pnl
         self._arm_profit_cooldown()
 

@@ -20279,6 +20279,11 @@ def _same_trade_key(trade: dict) -> str:
     return f"at:{str(trade.get('entry_time') or '')[:16]}|{_contract_strike(symbol)}"
 
 
+# One tick. A book's verified entry and the account's own average for the same
+# fills agree to the paisa; a different broker's fill rarely does.
+_ACCOUNT_TWIN_PRICE_SLACK = 0.05
+
+
 def _account_twin(trade: dict, side: str, account_rows: list) -> dict | None:
     """The broker's row for THIS trade: same side, strike, quantity, entry minute.
 
@@ -20293,6 +20298,10 @@ def _account_twin(trade: dict, side: str, account_rows: list) -> dict | None:
         quantity = 0
     if not side or strike is None or entered is None or quantity <= 0:
         return None
+    try:
+        paid = float(trade.get("entry_premium") or 0)
+    except (TypeError, ValueError):
+        paid = 0.0
     twins = []
     for row in account_rows or []:
         if str(row.get("side") or "").upper() != side:
@@ -20307,11 +20316,22 @@ def _account_twin(trade: dict, side: str, account_rows: list) -> dict | None:
         at = _minute(row.get("entry_time"))
         if at is None or abs((at - entered).total_seconds()) > 120:
             continue
+        # ...and bought at the same price. Two brokers running the same book
+        # buy the same strike, in the same size, in the same second: on
+        # 12-Oct-2026 the Zerodha PE (in at 244.45) was paired with DHAN's row
+        # (in at 245.05) and shown Dhan's profit. The price each paid is the
+        # one thing in the row that tells them apart.
+        try:
+            theirs = float(row.get("entry_premium") or 0)
+        except (TypeError, ValueError):
+            theirs = 0.0
+        if paid > 0 and theirs > 0 and abs(theirs - paid) > _ACCOUNT_TWIN_PRICE_SLACK:
+            continue
         twins.append(row)
     return twins[0] if len(twins) == 1 else None
 
 
-def _settle_against_account(own_rows: list, side: str, account_rows: list) -> float:
+def _settle_against_account(own_rows: list, side: str, account_rows: list, broker: str | None = None) -> float:
     """Replace an engine's estimated P&L with the broker's, once Dhan has it.
 
     An engine books a trade the moment it closes, costing it from the statutory
@@ -20322,6 +20342,11 @@ def _settle_against_account(own_rows: list, side: str, account_rows: list) -> fl
 
     Only the broker row that IS this trade may do it (`_account_twin`).
 
+    THE ACCOUNT ROWS ARE DHAN'S. A trade a book took at Zerodha is never
+    settled from them: `broker` is the book's, and a trade that names its own
+    (`trade["broker"]`, stamped since 13-Oct-2026) is believed over it. Such a
+    trade keeps the engine's own figure.
+
     Mutates the rows in place and returns how much the total moved by, so a
     caller can nudge a headline it computed from a longer list.
     """
@@ -20329,6 +20354,8 @@ def _settle_against_account(own_rows: list, side: str, account_rows: list) -> fl
         return 0.0
     moved = 0.0
     for trade in own_rows:
+        if _book_broker_name({"broker": trade.get("broker") or broker}) != "dhan":
+            continue
         twin = _account_twin(trade, side, account_rows)
         if twin is None or not twin.get("costs_known"):
             continue
@@ -20361,10 +20388,12 @@ def _one_row_per_trade(runs: list, book_trades: list, account_rows: list) -> lis
         # The correction goes to THE book whose trade matched, never to every
         # book on that side. `booked_pnl` comes from the WHOLE closed list, of
         # which `recent` is the tail, so it is nudged by what changed.
-        moved = _settle_against_account(recent, side, account_rows)
+        moved = _settle_against_account(recent, side, account_rows, run.get("broker"))
         if moved:
             run["booked_pnl"] = round(float(run.get("booked_pnl", 0) or 0) + moved, 2)
 
+    # A saved trade from before trades named their broker takes its book's.
+    book_broker = {str(run.get("name") or ""): run.get("broker") for run in runs}
     rows = []
     for trade in book_trades or []:
         key = _same_trade_key(trade)
@@ -20390,6 +20419,9 @@ def _one_row_per_trade(runs: list, book_trades: list, account_rows: list) -> lis
             # The engine's own P&L is already net of its charge estimate.
             "costs_known": True,
             "from_saved_run": True,
+            "broker": _book_broker_name(
+                {"broker": trade.get("broker") or book_broker.get(str(trade.get("book_name") or ""))}
+            ),
         }
         _settle_against_account([row], side, account_rows)
         rows.append(row)
@@ -20411,10 +20443,11 @@ def _with_account_history(status: dict, account_rows: list, book_trades: list | 
     side = _book_option_side(strategy)
     # The same settlement the CE + PE desk applies, so the two pages cannot
     # disagree about what one trade made.
-    settled_by = _settle_against_account(own, side, account_rows)
+    broker = _book_broker_name(status.get("deploy_config"))
+    settled_by = _settle_against_account(own, side, account_rows, broker)
     borrowed = _saved_trades_this_book_is_missing(strategy, own, book_trades or [])
     for row in borrowed:
-        _settle_against_account([row], side, account_rows)
+        _settle_against_account([row], side, account_rows, broker)
     if not borrowed and not settled_by:
         return status
     borrowed_pnl = sum(float(row.get("pnl", 0) or 0) for row in borrowed)
@@ -20643,6 +20676,8 @@ async def live_runs(request: Request):
                         and str((getattr(engine, "deploy_config", None) or {}).get("order_type", "")).lower() == "auto"
                     ),
                     "side": str(leg.get("option_type") or "").upper(),
+                    # Whose account this book's orders go to: "dhan" or "zerodha".
+                    "broker": _book_broker_name(getattr(engine, "deploy_config", None)),
                     "lots": leg.get("lots"),
                     "expiry_day_lots": leg.get("expiry_day_lots") or 0,
                     # The ladder is strategy-level, not per-leg: one rung count
