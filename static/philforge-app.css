@@ -8108,6 +8108,18 @@ input:focus, select:focus {
 /* WHOSE ACCOUNT. Phil, 2026-10-11: "a small diff between these 2 accounts
    like a tag or an orange text". Dhan wears the site's teal, Zerodha orange,
    on the capital rows and on each month panel. */
+#portfolio-page .portfolio-ytd-brokers {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  color: var(--muted);
+  font: 700 11px var(--font-mono);
+  vertical-align: middle;
+}
+#portfolio-page .portfolio-ytd-brokers[hidden] { display: none; }
+#portfolio-page .portfolio-ytd-brokers .pf-broker-chip { margin-right: 0; }
+
 #portfolio-page .pf-broker-chip {
   display: inline-block;
   margin-right: 8px;

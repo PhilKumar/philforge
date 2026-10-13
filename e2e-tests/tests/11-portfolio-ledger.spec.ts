@@ -109,6 +109,7 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   await expect(page.locator('#portfolio-dhan-tag')).toBeHidden();
   await expect(page.locator('#portfolio-zerodha-book')).toBeHidden();
   await expect(page.locator('#portfolio-monthly-dhan-chip')).toBeHidden();
+  await expect(page.locator('#portfolio-ytd-brokers')).toBeHidden();
 
   // The days PhilForge has recorded at Zerodha, in the month on screen.
   await page.waitForFunction(() => !!(window as unknown as { _currentMonthlyView?: string })._currentMonthlyView);
@@ -131,6 +132,13 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
     json: {
       status: 'ok', configured: true, logged_in_today: true, connected: true, user_id: 'AB1234',
       available: 152340.5, day_pnl: -1250.75, trades_today: 3, open_positions: 1,
+    },
+  }));
+  // Dhan's month, so the yearly table has two accounts to add together.
+  await page.route('**/api/portfolio/history', route => route.fulfill({
+    json: {
+      status: 'success', daily: {}, yearly: {},
+      monthly: { [month]: { real_pnl: 23500, real_net_pnl: 22721, real_charges: 500, real_brokerage: 279, trades: 19 } },
     },
   }));
   await page.evaluate(() => (window as unknown as { loadPortfolioData: () => Promise<void> }).loadPortfolioData());
@@ -166,6 +174,30 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
     };
   });
   expect(layout).toEqual({ sideBySide: true, paperBelow: true, paperFullWidth: true, differentColours: true });
+
+  // The yearly table adds the two accounts together, and says so.
+  await expect(page.locator('#portfolio-ytd-brokers')).toBeVisible();
+  await expect(page.locator('#portfolio-ytd-brokers')).toHaveText('Dhan+Zerodha');
+  const ytd = await page.evaluate((ym) => {
+    const w = window as unknown as { _portfolioMonthly: Record<string, { real_net_pnl?: number; real_pnl?: number; trades?: number }> };
+    const dhan = w._portfolioMonthly[ym];
+    const dhanNet = Number(dhan ? (dhan.real_net_pnl ?? dhan.real_pnl ?? 0) : 0);
+    const [year, mm] = ym.split('-');
+    const row = Array.from(document.querySelectorAll('.portfolio-ytd-table tbody tr')).find(tr => tr.firstElementChild!.textContent!.trim() === year)!;
+    const cell = row.children[Number(mm)] as HTMLElement;
+    return {
+      shown: cell.querySelector('div')!.textContent!.trim(),
+      expected: '₹' + (dhanNet + 1469.75).toFixed(0),
+      trades: cell.querySelectorAll('div')[1].textContent!.trim(),
+      expectedTrades: `${Number((dhan && dhan.trades) || 0) + 4}T`,
+      title: cell.getAttribute('title') || '',
+    };
+  }, month);
+  expect(ytd.shown).toBe(ytd.expected);
+  expect(ytd.shown).toBe('₹24191'); // 22721 at Dhan + 1469.75 at Zerodha
+  expect(ytd.trades).toBe(ytd.expectedTrades);
+  expect(ytd.trades).toBe('23T');
+  expect(ytd.title).toContain('Dhan: ₹22721.00 · Zerodha: ₹1469.75');
 
   // Saved but not logged in today: the row stays and says what to do.
   await page.route('**/api/zerodha/portfolio', route => route.fulfill({

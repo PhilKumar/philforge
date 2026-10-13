@@ -19437,10 +19437,48 @@ function _renderPortfolioPaperMonth(dayEntries) {
   }
 }
 
+// Zerodha's recorded days, added up by month in the shape the Dhan months have.
+function _zerodhaMonthsFromDays(daily) {
+  const months = {};
+  Object.entries(daily || {}).forEach(([day, d]) => {
+    const key = String(day).slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(key) || !d) return;
+    const m = months[key] || (months[key] = { real_pnl: 0, real_net_pnl: 0, real_charges: 0, real_brokerage: 0, trades: 0 });
+    m.real_pnl += Number(d.real_pnl || 0);
+    m.real_net_pnl += Number(d.real_net_pnl ?? d.real_pnl ?? 0);
+    m.real_charges += Number(d.real_charges || 0);
+    m.real_brokerage += Number(d.real_brokerage || 0);
+    m.trades += Number(d.real_trades || 0);
+  });
+  return months;
+}
+
 // ── Year-to-Date: Monthly table (Jan–Dec) per year from 2024 ──
+// BOTH ACCOUNTS. Each month is Dhan plus Zerodha (Phil, 13-Oct-2026); the
+// hover card says how much came from each.
 function renderYearlyMonthlyTable() {
   const container = document.getElementById('portfolio-yearly-grid');
-  const monthly = window._portfolioMonthly || {};
+  const dhanMonthly = window._portfolioMonthly || {};
+  const zerodhaMonthly = _zerodhaMonthsFromDays(window._portfolioZerodhaDaily);
+  const bothBrokers = Object.keys(zerodhaMonthly).length > 0;
+  const brokersTag = document.getElementById('portfolio-ytd-brokers');
+  if (brokersTag) brokersTag.hidden = !bothBrokers;
+  const monthly = {};
+  new Set([...Object.keys(dhanMonthly), ...Object.keys(zerodhaMonthly)]).forEach(key => {
+    const d = dhanMonthly[key];
+    const z = zerodhaMonthly[key];
+    if (!z) { monthly[key] = d; return; }
+    const dhanNet = Number(d ? (d.real_net_pnl ?? d.real_pnl ?? 0) : 0);
+    monthly[key] = {
+      ...(d || {}),
+      real_net_pnl: dhanNet + z.real_net_pnl,
+      real_pnl: Number((d && d.real_pnl) || 0) + z.real_pnl,
+      real_charges: Number((d && d.real_charges) || 0) + z.real_charges,
+      real_brokerage: Number((d && d.real_brokerage) || 0) + z.real_brokerage,
+      trades: Number((d && d.trades) || 0) + z.trades,
+      split: { dhan: dhanNet, zerodha: z.real_net_pnl },
+    };
+  });
 
   const currentYear = (getTimeZoneDateParts(new Date()) || {}).year || new Date().getFullYear();
   const startYear = 2024;
@@ -19483,6 +19521,7 @@ function renderYearlyMonthlyTable() {
           detailLines.push(`Brokerage: ${pfMoney(brokerage)}`);
         }
         if (paperPnl !== 0) detailLines.push(`Paper: ${pfMoney(paperPnl)}`);
+        if (data.split) detailLines.push(`Dhan: ${pfMoney(data.split.dhan)} · Zerodha: ${pfMoney(data.split.zerodha)}`);
         html += `<td style="padding: 10px 4px; text-align: center;" title="${detailLines.join('\n')}">
           <div style="font-weight: 600; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(pnl, 0)}</div>
           <div style="font-size: 9px; color: var(--muted);">${trades}T</div>
