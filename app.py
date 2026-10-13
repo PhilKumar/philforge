@@ -25118,7 +25118,7 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         if i >= period - 1:
             points.append({"t": bar["t"], "price": round(ema, 4)})
     if len(points) >= 2:
-        overlays.append({"label": "EMA 20", "color": "#38bdf8", "width": 1.3, "points": points})
+        overlays.append({"label": "EMA 20", "color": "#2962ff", "width": 1.3, "points": points})
 
     # EVERY SESSION CARRIES ITS OWN LEVELS. One set of pivots drawn flat across
     # the whole window is only true for the last day: on a three-day chart the
@@ -25131,7 +25131,11 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         day = datetime.fromtimestamp(int(bar["t"]), IST).date().isoformat()
         sessions.setdefault(day, []).append(bar)
     days = sorted(sessions)
-    amber, red, green = "#f59e0b", "#f87171", "#4ade80"
+    # TRADINGVIEW'S COLOURS, the ones the Journal page's charts already use
+    # (journal_charts.previous_session_levels): the CPR band in blue with its
+    # pivot in magenta, resistance red, support green. Phil, 2026-10-13: "make
+    # the standard default chart like trading view colours".
+    cpr_blue, cpr_pivot, red, green = "#2962ff", "#d946ef", "#ef3340", "#34a853"
     for index in range(1, len(days)):
         prev = sessions[days[index - 1]]
         today = sessions[days[index]]
@@ -25152,9 +25156,9 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         last_day = index == len(days) - 1
         span = [{"t": today[0]["t"], "price": 0.0}, {"t": today[-1]["t"], "price": 0.0}]
         for label, price, color in (
-            ("CPR TC", tc, amber),
-            ("CPR P", p, amber),
-            ("CPR BC", bc, amber),
+            ("CPR TC", tc, cpr_blue),
+            ("CPR P", p, cpr_pivot),
+            ("CPR BC", bc, cpr_blue),
             ("R1", r1, red),
             ("R2", r2, red),
             ("R3", r3, red),
@@ -25178,6 +25182,40 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
                 }
             )
     return {"lines": lines, "overlays": overlays}
+
+
+# The Scalp chart's timeframes: label -> (the candle Dhan is asked for, minutes).
+# Dhan serves no 3-minute candle, so 3m is built here from its 1m bars.
+_SCALP_CHART_TIMEFRAMES = {"1m": ("1", 1), "3m": ("1", 3), "5m": ("5", 5), "15m": ("15", 15), "1h": ("60", 60)}
+
+
+def _scalp_chart_timeframe(timeframe: str) -> tuple[str, str, int]:
+    """(label, Dhan candle type, minutes) for a requested timeframe; 5m if unknown."""
+    tf = str(timeframe or "5m").strip().lower()
+    if tf not in _SCALP_CHART_TIMEFRAMES:
+        tf = "5m"
+    candle_type, minutes = _SCALP_CHART_TIMEFRAMES[tf]
+    return tf, candle_type, minutes
+
+
+def _regroup_chart_candles(candles: list[dict], minutes: int) -> list[dict]:
+    """Bars of `minutes`, built from finer ones on the session's own 09:15 grid."""
+    step = int(minutes) * 60
+    grouped: dict[int, dict] = {}
+    for bar in sorted(candles, key=lambda row: int(row["t"])):
+        stamp = datetime.fromtimestamp(int(bar["t"]), IST)
+        session_open = int(stamp.replace(hour=9, minute=15, second=0, microsecond=0).timestamp())
+        slot = session_open + ((int(bar["t"]) - session_open) // step) * step
+        made = grouped.get(slot)
+        if made is None:
+            grouped[slot] = {**bar, "t": slot}
+            continue
+        made["h"] = max(float(made["h"]), float(bar["h"]))
+        made["l"] = min(float(made["l"]), float(bar["l"]))
+        made["c"] = bar["c"]
+        if "v" in made or "v" in bar:
+            made["v"] = int(made.get("v", 0) or 0) + int(bar.get("v", 0) or 0)
+    return [grouped[slot] for slot in sorted(grouped)]
 
 
 def _scalp_option_chart_with_live_price(payload: dict, trade: dict) -> dict:
@@ -25214,9 +25252,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
     if not trade:
         raise HTTPException(status_code=404, detail="Active scalp trade not found")
 
-    tf = str(timeframe or "5m").lower()
-    candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
-    tf = {"5": "5m", "15": "15m", "60": "1h"}[candle_type]
+    tf, candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
     cache_key = (int(user_id), int(trade_id), tf)
     cached = _SCALP_OPTION_CHART_CACHE.get(cache_key)
     if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
@@ -25277,6 +25313,8 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
         )
     if not candles:
         raise HTTPException(status_code=404, detail="Option candles contained no usable timestamps")
+    if str(tf_minutes) != candle_type:
+        candles = _regroup_chart_candles(candles, tf_minutes)
 
     entry_time = _scalp_option_chart_timestamp(trade.get("entry_time"))
     entry_price = float(trade.get("entry_premium") or 0)
@@ -25351,9 +25389,7 @@ async def get_scalp_contract_chart(
         raise HTTPException(status_code=422, detail="Pick a strike, CE or PE, and an expiry first")
     strike = int(strike)
 
-    tf = str(timeframe or "5m").lower()
-    candle_type = {"5m": "5", "15m": "15", "1h": "60"}.get(tf, "5")
-    tf = {"5": "5m", "15": "15m", "60": "1h"}[candle_type]
+    tf, candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
     live = {"current_premium": live_price if 0 < float(live_price or 0) < 1e6 else 0}
     cache_key = (int(user_id), underlying, strike, expiry, option_type, tf)
     cached = _SCALP_CONTRACT_CHART_CACHE.get(cache_key)
@@ -25387,6 +25423,8 @@ async def get_scalp_contract_chart(
     candles = _frame_to_chart_candles(frame) if frame is not None and not frame.empty else []
     if not candles:
         raise HTTPException(status_code=404, detail="No intraday candles returned for this option contract")
+    if str(tf_minutes) != candle_type:
+        candles = _regroup_chart_candles(candles, tf_minutes)
 
     analytics = _chart_session_analytics(candles)
     payload = {

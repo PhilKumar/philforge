@@ -73,21 +73,28 @@ var _PF_CHART_MAX_STRUCTURES = 3;
 // vanished against green candles and red sell arrows against red ones — the two
 // marks you most need to find were camouflaged by the bars they sat on. Amber
 // and white appear nowhere else on the chart.
+//
+// CANDLES AND THE EMA ARE TRADINGVIEW'S (Phil, 2026-10-13: "make the standard
+// default chart like trading view colours"). Teal up, crimson down and a blue
+// 20-EMA -- the same set the Journal page's own charts are drawn in, so the
+// site and the journal read alike. On a light sheet TradingView outlines each
+// candle and draws its wick near-black (`wick`); on a dark one the wick takes
+// the candle's colour, so the dark palette names none.
 var _PF_CHART_DARK = {
   grid: 'rgba(148,163,184,0.12)', axis: 'rgba(148,163,184,0.55)',
-  up: '#3fae56', down: '#d9534f', mother: '#a855f7', tp: '#10b981',
+  up: '#089981', down: '#e91e63', mother: '#a855f7', tp: '#10b981',
   avg: '#e2e8f0', fill: '#22c55e', fillRing: '#0b1220',
   buyMark: '#ffffff', sellMark: '#fbbf24', markRing: '#0b1220',
   fibs: ['#3b82f6', '#22c55e', '#ef4444'],
-  ema: '#fb923c', rsi: '#c084fc', rsiGuide: 'rgba(148,163,184,0.45)', rsiBand: 'rgba(192,132,252,0.10)'
+  ema: '#5b9bff', rsi: '#c084fc', rsiGuide: 'rgba(148,163,184,0.45)', rsiBand: 'rgba(192,132,252,0.10)'
 };
 var _PF_CHART_LIGHT = {
   grid: 'rgba(15,23,42,0.10)', axis: 'rgba(51,65,85,0.75)',
-  up: '#0f766e', down: '#be123c', mother: '#7c3aed', tp: '#047857',
+  up: '#089981', down: '#e91e63', wick: '#0f172a', mother: '#7c3aed', tp: '#047857',
   avg: '#334155', fill: '#15803d', fillRing: '#ffffff',
   buyMark: '#1e293b', sellMark: '#b45309', markRing: '#ffffff',
   fibs: ['#1d4ed8', '#15803d', '#be123c'],
-  ema: '#c2410c', rsi: '#7e22ce', rsiGuide: 'rgba(51,65,85,0.45)', rsiBand: 'rgba(126,34,206,0.08)'
+  ema: '#2962ff', rsi: '#7e22ce', rsiGuide: 'rgba(51,65,85,0.45)', rsiBand: 'rgba(126,34,206,0.08)'
 };
 
 function _pfChartPalette() {
@@ -102,7 +109,9 @@ function _pfChartPalette() {
 // at paint time so switching theme also updates CPR, Supertrend and quotes.
 function _pfChartSeriesColor(color, PAL, fallback) {
   if (!color) return fallback;
-  if (PAL !== _PF_CHART_LIGHT) return color;
+  // TradingView's blue is drawn for a white sheet; on the dark one it is
+  // lifted a little so the CPR and the EMA do not sink into the background.
+  if (PAL !== _PF_CHART_LIGHT) return String(color).toLowerCase() === '#2962ff' ? '#5b9bff' : color;
   var light = {
     '#4ade80': '#15803d', '#6ee7b7': '#047857', '#34d399': '#047857',
     '#f87171': '#b91c1c', '#fca5a5': '#b91c1c',
@@ -678,12 +687,18 @@ function _pfChartCanvasCandles(c, p, PAL) {
   _pfChartCanvasClip(ctx, p, function () {
     (d.candles || []).forEach(function (bar) {
       var x = p.xOf(bar.t), up = Number(bar.c) >= Number(bar.o), color = up ? PAL.up : PAL.down;
-      ctx.strokeStyle = color; ctx.lineWidth = 1;
+      ctx.strokeStyle = PAL.wick || color; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, p.yOf(bar.h)); ctx.lineTo(x, p.yOf(bar.l)); ctx.stroke();
       var top = p.yOf(Math.max(Number(bar.o), Number(bar.c)));
       var bottom = p.yOf(Math.min(Number(bar.o), Number(bar.c)));
       ctx.fillStyle = color;
       ctx.fillRect(x - bodyW / 2, top, bodyW, Math.max(bottom - top, 1));
+      // The outline TradingView gives a candle on a light sheet. Skipped on
+      // hairline bodies, where it would paint the whole candle black.
+      if (PAL.wick && bodyW >= 4) {
+        ctx.lineWidth = 0.6;
+        ctx.strokeRect(x - bodyW / 2, top, bodyW, Math.max(bottom - top, 1));
+      }
       if (bar.is_mother) {
         ctx.strokeStyle = PAL.mother; ctx.lineWidth = 1.4;
         ctx.strokeRect(x - bodyW / 2 - 1, p.yOf(bar.h) - 1, bodyW + 2,

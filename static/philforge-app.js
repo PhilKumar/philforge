@@ -11449,14 +11449,14 @@ function _terminalCascadeChartPalette() {
   return theme === 'light'
     ? {
       bg: bg, grid: 'rgba(15,23,42,.10)', axis: 'rgba(51,65,85,.75)',
-      up: '#0f766e', down: '#be123c', mother: '#7c3aed', tp: '#047857',
+      up: '#089981', down: '#e91e63', mother: '#7c3aed', tp: '#047857',
       avg: '#334155', fill: '#15803d', fillRing: '#ffffff',
       buyMark: '#1e293b', sellMark: '#b45309', markRing: '#ffffff',
       fibs: ['#1d4ed8', '#15803d', '#be123c'],
     }
     : {
       bg: bg, grid: 'rgba(148,163,184,.12)', axis: 'rgba(148,163,184,.55)',
-      up: '#3fae56', down: '#d9534f', mother: '#a855f7', tp: '#10b981',
+      up: '#089981', down: '#e91e63', mother: '#a855f7', tp: '#10b981',
       avg: '#e2e8f0', fill: '#22c55e', fillRing: '#0b1220',
       buyMark: '#ffffff', sellMark: '#fbbf24', markRing: '#0b1220',
       fibs: ['#3b82f6', '#22c55e', '#ef4444'],
@@ -13825,7 +13825,7 @@ function _ensureScalpOptionChartOverlay() {
   // The site's one chart strip: timeframes, zoom, refresh, close.
   if (typeof pfChartStrip === 'function') {
     pfChartStrip(overlay.querySelector('#scalp-option-chart-actions'), {
-      timeframes: ['5m', '15m', '1h'],
+      timeframes: ['1m', '3m', '5m', '15m', '1h'],
       active: _scalpOptionChartTf,
       onTimeframe: (tf) => { _scalpOptionChartTf = tf; refreshScalpOptionChart(); },
       onRefresh: () => refreshScalpOptionChart(),
@@ -13892,7 +13892,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
           throw new Error('Option chart renderer is unavailable');
         }
         if (!(data.candles || []).length) {
-          throw new Error('No 5-minute candles for this contract yet — it may not have traded in the last few sessions.');
+          throw new Error('No candles for this contract yet — it may not have traded in the last few sessions.');
         }
         if (!pfBenchDrawChart(host, data)) throw new Error('Option chart could not be drawn.');
       }
@@ -17234,7 +17234,7 @@ function _pfEquityDraw(state) {
 
   var PAL = (typeof _pfChartPalette === 'function') ? _pfChartPalette() : {
     grid: 'rgba(148,163,184,0.12)', axis: 'rgba(148,163,184,0.55)',
-    up: '#3fae56', down: '#d9534f', avg: '#e2e8f0', fillRing: '#0b1220'
+    up: '#089981', down: '#e91e63', avg: '#e2e8f0', fillRing: '#0b1220'
   };
   var money = (typeof _pfChartInr === 'function') ? _pfChartInr
     : function(v) { return '₹' + Math.round(v).toLocaleString('en-IN'); };

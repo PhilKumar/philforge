@@ -86,9 +86,15 @@ test('Scalp: the option chart button beside the broker charts the contract in th
     .toEqual(['NIFTY', '22700', expiry, 'PE', '5m']);
   expect(first.get('live_price')).toBe('131.5');
 
-  // Another timeframe is asked for the same contract.
-  await page.locator('#scalp-option-chart-actions').getByRole('radio', { name: /15m/i }).click();
-  await expect.poll(() => asked.some((u) => u.searchParams.get('timeframe') === '15m' && u.searchParams.get('strike') === '22700')).toBe(true);
+  // 1m and 3m sit before the three it always had, and each is asked for the
+  // same contract.
+  const strip = page.locator('#scalp-option-chart-actions');
+  await expect(strip.getByRole('radio')).toHaveText(['1M', '3M', '5M', '15M', '1H']);
+  for (const tf of ['1m', '3m', '15m']) {
+    await strip.getByRole('radio', { name: new RegExp(`^${tf}$`, 'i') }).click();
+    await expect.poll(() => asked.some((u) => u.searchParams.get('timeframe') === tf && u.searchParams.get('strike') === '22700'), { message: tf }).toBe(true);
+    await expect(page.locator('#scalp-option-chart-body canvas').first()).toBeVisible();
+  }
 
   // Closed, it stops asking.
   await page.keyboard.press('Escape');
