@@ -58,6 +58,9 @@ class Zerodha:
         return {"order_id": order_id, "status": "FILLED", "avg_price": 201.5}
 
     def get_order_status(self, order_id):
+        if order_id == "Z1":
+            # The entry of `_open_zerodha_trade`: filled, as an open trade's is.
+            return {"orderId": order_id, "orderStatus": "TRADED", "filledQty": 65, "averageTradedPrice": 200.0}
         return {"orderId": order_id, "orderStatus": self.stop_status, "averageTradedPrice": self.stop_avg}
 
     def cancel_order(self, order_id):

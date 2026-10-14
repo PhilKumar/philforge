@@ -231,6 +231,11 @@ class ScalpTrade:
         # Broker-side SL/TP order IDs (safety net — placed after entry fills)
         self.broker_sl_order_id: str = ""
         self.broker_tp_order_id: str = ""
+        # Zerodha only: an exit order sent but not yet seen to fill, and the
+        # earliest moment an AUTOMATIC exit may be tried again after Zerodha
+        # refused one (so a monitor tick cannot fire a refused order every second).
+        self.pending_exit_order_id: str = ""
+        self.exit_retry_at: float = 0.0
         # Pending = waiting for stop-limit trigger; open = actively trading
         self.status: str = "pending" if (entry_limit_price > 0 and entry_limit_max > 0) else "open"
 
@@ -701,7 +706,9 @@ class ScalpEngine:
         trade = self.open_trades.get(trade_id)
         if not trade:
             return {"status": "error", "message": f"Trade {trade_id} not found or already closed"}
-        await self._close_trade(trade, reason)
+        refused = await self._close_trade(trade, reason)
+        if isinstance(refused, dict) and refused.get("status") == "error":
+            return {**refused, "trade": trade.to_dict()}
         return {"status": "ok", "trade": trade.to_dict()}
 
     async def kill_all_trades(self) -> Dict[str, Any]:
@@ -713,7 +720,10 @@ class ScalpEngine:
         closed = 0
         for trade in trades_to_close:
             try:
-                await self._close_trade(trade, "kill")
+                refused = await self._close_trade(trade, "kill")
+                if isinstance(refused, dict) and refused.get("status") == "error":
+                    self._log("error", f"Kill could not close trade {trade.trade_id}: {refused.get('message')}")
+                    continue
                 closed += 1
             except Exception as e:
                 self._log("error", f"Kill failed for trade {trade.trade_id}: {e}")
@@ -1800,6 +1810,130 @@ class ScalpEngine:
                 )
                 trade.broker_sl_order_id = ""
 
+    async def _zerodha_exit(self, trade: ScalpTrade, reason: str, exit_txn: str) -> Dict[str, Any]:
+        """Close a Zerodha scalp at Zerodha, and say what really happened.
+
+        14-Oct-2026: Exit was pressed 8 seconds after a SENSEX entry. Kite turns
+        a MARKET option order into a protected LIMIT, and that buy had not
+        filled yet; the SELL went out as a fresh short, Zerodha refused it for
+        margin, and the trade was booked closed anyway at the LTP -- while the
+        buy filled a second later and sat open at Zerodha with nothing here
+        watching it. So, in order:
+
+        1. The ENTRY is settled first. Still working, it is cancelled; never
+           filled, there is nothing to sell; partly filled, only that is sold.
+        2. The exit is sent for what is held, and Zerodha is asked how it
+           ended. Only a fill closes the trade, at the fill price. A refusal
+           leaves the trade open and says why; an order still working is
+           remembered and not sent twice.
+
+        Returns {"status": "ok", "price", "order_id", "reason"} or {"status": "error", "message"}.
+        """
+        client = self._orders_for(trade)
+        if trade.pending_exit_order_id:
+            row = await asyncio.to_thread(client.get_order_status, trade.pending_exit_order_id)
+            status = str(row.get("orderStatus") or "UNKNOWN").upper()
+            if status == "TRADED":
+                oid, trade.pending_exit_order_id = trade.pending_exit_order_id, ""
+                price = float(row.get("averageTradedPrice") or 0.0) or trade.current_premium
+                return {"status": "ok", "price": price, "order_id": oid}
+            if status not in ("REJECTED", "CANCELLED"):
+                return {
+                    "status": "error",
+                    "message": f"The exit order {trade.pending_exit_order_id} is still working at Zerodha; "
+                    "nothing more was sent. Check the Kite order book.",
+                }
+            trade.pending_exit_order_id = ""
+
+        # 1. The entry.
+        row = await asyncio.to_thread(client.get_order_status, trade.order_id)
+        status = str(row.get("orderStatus") or "UNKNOWN").upper()
+        if status == "UNKNOWN":
+            message = (
+                f"Zerodha did not say whether the entry {trade.order_id} filled ({row.get('message') or 'no answer'}); "
+                "nothing was sent. Check the Kite order book, then try Exit again."
+            )
+            self._log("error", f"❌ Exit NOT sent for trade {trade.trade_id}: {message}")
+            return {"status": "error", "message": message}
+        if status not in ("TRADED", "REJECTED", "CANCELLED"):
+            await asyncio.to_thread(client.cancel_order, trade.order_id)
+            for _ in range(8):
+                await asyncio.sleep(0.4)
+                row = await asyncio.to_thread(client.get_order_status, trade.order_id)
+                status = str(row.get("orderStatus") or "UNKNOWN").upper()
+                if status in ("TRADED", "REJECTED", "CANCELLED"):
+                    break
+            else:
+                message = (
+                    f"The entry {trade.order_id} is still working at Zerodha and would not cancel; "
+                    "nothing was sent. Check the Kite order book."
+                )
+                self._log("error", f"❌ Exit NOT sent for trade {trade.trade_id}: {message}")
+                return {"status": "error", "message": message}
+        filled = int(row.get("filledQty") or 0)
+        average = float(row.get("averageTradedPrice") or 0.0)
+        if filled <= 0:
+            self._log("info", f"🚫 Entry {trade.order_id} never filled at Zerodha — cancelled, nothing to sell")
+            return {
+                "status": "ok",
+                "price": trade.entry_premium or trade.current_premium or 0.0,
+                "order_id": trade.order_id,
+                "reason": "cancelled",
+            }
+        if average > 0 and abs(average - trade.entry_premium) >= 0.05:
+            self._log("info", f"📌 Entry fill at Zerodha: ₹{average:.2f} (was ₹{trade.entry_premium:.2f})")
+            trade.entry_premium = average
+        if filled < trade.quantity and trade.lot_size > 0:
+            self._log("info", f"Entry filled {filled} of {trade.quantity} at Zerodha; the rest was cancelled")
+            trade.lots = max(1, filled // trade.lot_size)
+            trade.quantity = filled
+
+        # 2. The exit.
+        ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium or trade.entry_premium
+        exit_price = round(max(0.05, ltp * 0.95), 2) if exit_txn == "SELL" else round(ltp * 1.05, 2)
+        self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp}) at Zerodha")
+        try:
+            result = await asyncio.to_thread(
+                client.place_option_order,
+                underlying=trade.underlying,
+                strike_price=trade.strike,
+                option_type=trade.option_type,
+                expiry=trade.expiry,
+                transaction_type=exit_txn,
+                quantity=filled,
+                order_type="LIMIT",
+                product_type=trade.product_type,
+                price=exit_price,
+                tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
+            )
+        except Exception as e:
+            trade.exit_retry_at = _time.monotonic() + 30
+            message = f"Zerodha refused the exit: {e}. The trade is still open."
+            self._log("error", f"❌ {message}")
+            return {"status": "error", "message": message}
+        order_id = str((result or {}).get("orderId") or "")
+        if not order_id:
+            trade.exit_retry_at = _time.monotonic() + 30
+            message = f"Zerodha gave no order id for the exit ({(result or {}).get('message') or 'no answer'}). The trade is still open."
+            self._log("error", f"❌ {message}")
+            return {"status": "error", "message": message}
+        fill = await asyncio.to_thread(client.verify_order_fill, order_id, 8, 0.5)
+        state = str(fill.get("status") or "").upper()
+        if state == "FILLED":
+            return {"status": "ok", "price": float(fill.get("avg_price") or 0.0) or ltp, "order_id": order_id}
+        if state in ("REJECTED", "CANCELLED"):
+            trade.exit_retry_at = _time.monotonic() + 30
+            message = f"Zerodha refused the exit: {fill.get('message') or state}. The trade is still open."
+            self._log("error", f"❌ {message}")
+            return {"status": "error", "message": message}
+        trade.pending_exit_order_id = order_id
+        message = (
+            f"The exit order {order_id} has not filled yet at Zerodha; the trade stays open here until it does. "
+            "Check the Kite order book."
+        )
+        self._log("warning", f"⚠ {message}")
+        return {"status": "error", "message": message}
+
     async def _close_trade(
         self,
         trade: ScalpTrade,
@@ -1814,6 +1948,8 @@ class ScalpEngine:
         if trade.trade_id not in self.open_trades or trade.status == "closed":
             self._log("info", f"⚠️ Trade {trade.trade_id} already closed, skipping duplicate exit")
             return
+        if reason not in ("manual", "kill") and not skip_broker_exit and _time.monotonic() < trade.exit_retry_at:
+            return {"status": "error", "message": "Zerodha refused the last exit; it is tried again shortly."}
 
         sync_task = self._broker_sync_tasks.pop(trade.trade_id, None)
         if sync_task and not sync_task.done():
@@ -1884,6 +2020,18 @@ class ScalpEngine:
                 await self._cancel_broker_orders(trade)
                 if self._is_zerodha_trade(trade) and stop_oid:
                     stop_fill = await self._stop_fill_price(trade, stop_oid)
+            zerodha_exit = None
+            if stop_fill <= 0 and self._is_zerodha_trade(trade):
+                zerodha_exit = await self._zerodha_exit(trade, reason, exit_txn)
+                if zerodha_exit.get("status") == "error":
+                    if stop_oid and trade.sl_premium > 0 and not trade.pending_exit_order_id:
+                        # Its stop came off for the exit; the exit did not
+                        # happen, so the position goes back under its net.
+                        try:
+                            await self._place_broker_sl_tp(trade, place_tp=False)
+                        except Exception as e:
+                            self._log("error", f"⚠️ Could not re-rest the Zerodha stop for trade {trade.trade_id}: {e}")
+                    return zerodha_exit
             if stop_fill > 0:
                 # The stop resting at Zerodha filled before it could be
                 # cancelled: the position is already flat, and a second SELL
@@ -1892,6 +2040,11 @@ class ScalpEngine:
                 reason = "sl_hit"
                 exit_order_id = stop_oid
                 exit_prem = stop_fill
+            elif zerodha_exit is not None:
+                # Settled at Zerodha already: the fill, or an entry that never filled.
+                reason = zerodha_exit.get("reason") or reason
+                exit_order_id = zerodha_exit.get("order_id", "")
+                exit_prem = zerodha_exit["price"]
             else:
                 try:
                     # Use LIMIT order with aggressive fill price — Dhan converts
