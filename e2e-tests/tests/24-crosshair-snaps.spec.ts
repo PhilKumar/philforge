@@ -32,7 +32,7 @@ test('the crosshair\'s vertical line sits on a candle, never between two', async
   const geo = await page.evaluate(() => {
     const c = (window as any)._pfChartCanvas, p = c.projection, rect = c.host.querySelector('canvas').getBoundingClientRect();
     const t0 = c.data.candles[10].t, t1 = c.data.candles[11].t;
-    return { left: rect.left, top: rect.top, x10: p.xOf(t0), x11: p.xOf(t1), midY: p.padT + p.plotH * 0.5, probeY: p.padT + 6 };
+    return { left: rect.left, top: rect.top, x10: p.xOf(t0), x11: p.xOf(t1), midY: p.padT + p.plotH * 0.5, probeY: p.padT + 1 };
   });
   async function lineAt(fraction: number) {
     const x = geo.x10 + (geo.x11 - geo.x10) * fraction;
@@ -40,9 +40,10 @@ test('the crosshair\'s vertical line sits on a candle, never between two', async
     return page.evaluate((probeY) => {
       const overlay = document.querySelector('#xhair-host #pf-bench-canvas-overlay') as HTMLCanvasElement;
       const scale = overlay.width / overlay.getBoundingClientRect().width;
-      const row = overlay.getContext('2d')!.getImageData(0, Math.round(probeY * scale), overlay.width, 1).data;
+      // The line is dashed, so a single row can fall in a gap: read a band.
+      const band = overlay.getContext('2d')!.getImageData(0, Math.round(probeY * scale), overlay.width, Math.round(14 * scale)).data;
       const hits: number[] = [];
-      for (let i = 0; i < row.length; i += 4) if (row[i + 3] > 40) hits.push(i / 4 / scale);
+      for (let i = 0; i < band.length; i += 4) if (band[i + 3] > 40) hits.push(((i / 4) % overlay.width) / scale);
       return hits.length ? hits.reduce((a, b) => a + b, 0) / hits.length : null;
     }, geo.probeY);
   }
