@@ -12799,6 +12799,9 @@ function _readScalpFormState() {
     broker: read('scalp-broker') || 'dhan',
     entry_limit_price: read('scalp-limit-price'),
     entry_limit_max: read('scalp-limit-max'),
+    auto_exits: document.getElementById('scalp-auto-exits')?.checked === false ? 'off' : 'on',
+    sl_pts: read('scalp-sl-pts'),
+    target_pts: read('scalp-target-pts'),
   };
 }
 
@@ -12849,6 +12852,11 @@ async function _restoreScalpFormState() {
     _applyScalpFieldValue('scalp-target-prem', saved.target_prem);
     _applyScalpFieldValue('scalp-limit-price', saved.entry_limit_price);
     _applyScalpFieldValue('scalp-limit-max', saved.entry_limit_max);
+    _applyScalpFieldValue('scalp-sl-pts', saved.sl_pts);
+    _applyScalpFieldValue('scalp-target-pts', saved.target_pts);
+    const autoBox = document.getElementById('scalp-auto-exits');
+    if (autoBox && saved.auto_exits) autoBox.checked = saved.auto_exits !== 'off';
+    _syncScalpAutoExits();
     await loadScalpExpiries({ preserveState: saved });
   } finally {
     _scalpRestoringState = false;
@@ -13068,7 +13076,33 @@ async function fetchScalpLTP() {
 // This keeps the UI internally consistent when live premium moves via REST or WS.
 var _marginCache = { underlying: '', strike: 0, optType: '', lots: 0, lotSize: 0, ltp: 0, value: null };
 
+// SL and Target a set number of points from the premium of the option picked,
+// kept in step with its live price while "Set SL and Target from the premium"
+// is on. The server works them out again from the real entry, so the form's
+// figures are a preview and can never be on the wrong side of the price.
+function _scalpAutoExitPoints() {
+  if (document.getElementById('scalp-auto-exits')?.checked === false) return null;
+  const sl = parseFloat(document.getElementById('scalp-sl-pts')?.value) || 0;
+  const target = parseFloat(document.getElementById('scalp-target-pts')?.value) || 0;
+  return sl > 0 || target > 0 ? { sl, target } : null;
+}
+
+function _syncScalpAutoExits() {
+  const auto = _scalpAutoExitPoints();
+  const slEl = document.getElementById('scalp-sl-prem');
+  const tgEl = document.getElementById('scalp-target-prem');
+  if (!slEl || !tgEl) return;
+  slEl.readOnly = !!(auto && auto.sl > 0);
+  tgEl.readOnly = !!(auto && auto.target > 0);
+  const ltp = Number(_scalpCurrentLTP) || 0;
+  if (!auto || ltp <= 0) return;
+  const cents = (v) => Math.max(0.05, Math.round(v * 20) / 20).toFixed(2);
+  if (auto.sl > 0) slEl.value = cents(ltp - auto.sl);
+  if (auto.target > 0) tgEl.value = cents(ltp + auto.target);
+}
+
 function updateScalpMargin(forceRecalc) {
+  _syncScalpAutoExits();
   const el = document.getElementById('scalp-margin');
   const underlying = document.getElementById('scalp-underlying').value;
   const strike = parseInt(document.getElementById('scalp-strike').value) || 0;
@@ -13283,6 +13317,12 @@ async function submitScalpEntry(direction) {
       entry_limit_price: parseFloat(document.getElementById('scalp-limit-price').value) || 0,
       entry_limit_max: parseFloat(document.getElementById('scalp-limit-max').value) || 0,
     };
+    const autoExits = _scalpAutoExitPoints();
+    if (autoExits) {
+      // Sent as distances: the server measures them from the price it trades at.
+      payload.sl_points = autoExits.sl;
+      payload.target_points = autoExits.target;
+    }
     if (!payload.strike || payload.strike <= 0) {
       statusEl.textContent = 'Strike price required';
       statusEl.style.color = 'var(--danger)';

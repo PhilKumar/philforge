@@ -74,6 +74,25 @@ def normalize_scalp_broker(broker: str | None) -> str:
     return name if name in SCALP_BROKERS else "dhan"
 
 
+SCALP_ENTRY_SLIP_PCT = 2.0  # over the best offer (under the best bid for a SELL)
+SCALP_ENTRY_SLIP_NO_BOOK_PCT = 3.0  # over the last price when there is no book to read
+
+
+def scalp_entry_limit(transaction_type, book: dict, last_price: float) -> float:
+    """The limit price that fills a scalp entry now, or 0 to send it at market."""
+    buying = str(transaction_type or "BUY").upper() != "SELL"
+    ask = float((book or {}).get("ask") or 0)
+    bid = float((book or {}).get("bid") or 0)
+    last = float((book or {}).get("ltp") or 0) or float(last_price or 0)
+    if buying:
+        price = ask * (1 + SCALP_ENTRY_SLIP_PCT / 100) if ask > 0 else last * (1 + SCALP_ENTRY_SLIP_NO_BOOK_PCT / 100)
+    else:
+        price = bid * (1 - SCALP_ENTRY_SLIP_PCT / 100) if bid > 0 else last * (1 - SCALP_ENTRY_SLIP_NO_BOOK_PCT / 100)
+    if price <= 0:
+        return 0.0
+    return round(max(0.05, round(price / 0.05) * 0.05), 2)
+
+
 def resolve_scalp_exit_prices(transaction_type, premium, target_premium, sl_premium, broker="Dhan"):
     """The target and stop a Super Order can actually carry, or why it cannot.
 
@@ -169,6 +188,10 @@ class ScalpTrade:
         entry_limit_price: float = 0.0,
         entry_limit_max: float = 0.0,
         broker: str = "dhan",
+        # Target and stop a fixed distance from the ENTRY, in premium points
+        # (Phil, 2026-10-14: "SL 100 pts less and 100 points more for Target").
+        target_points: float = 0.0,
+        sl_points: float = 0.0,
     ):
         self.trade_id = trade_id
         self.mode = mode
@@ -212,6 +235,12 @@ class ScalpTrade:
                 else:
                     self.sl_premium = round(entry_premium * (1 + sl_pct / 100), 2)
 
+        self.target_points = float(target_points or 0)
+        self.sl_points = float(sl_points or 0)
+        self.target_from_points = self.target_points > 0
+        self.sl_from_points = self.sl_points > 0
+        self.rebase_points(entry_premium)
+
         self.target_rupees = target_rupees
         self.sl_rupees = sl_rupees
         self.sqoff_time = (sqoff_time or "").strip()
@@ -238,6 +267,24 @@ class ScalpTrade:
         self.exit_retry_at: float = 0.0
         # Pending = waiting for stop-limit trigger; open = actively trading
         self.status: str = "pending" if (entry_limit_price > 0 and entry_limit_max > 0) else "open"
+
+    def rebase_points(self, entry: float) -> None:
+        """Set a points-based target and stop from the entry premium.
+
+        Called again whenever the entry is learned or corrected -- the quote at
+        order time, then the real fill -- so the exits are always measured from
+        what was actually paid. A stop can never go below a paisa.
+        """
+        entry = float(entry or 0)
+        if entry <= 0:
+            return
+        buying = self.transaction_type == "BUY"
+        if self.target_from_points:
+            target = entry + self.target_points if buying else entry - self.target_points
+            self.target_premium = round(max(0.05, target), 2)
+        if self.sl_from_points:
+            stop = entry - self.sl_points if buying else entry + self.sl_points
+            self.sl_premium = round(max(0.05, stop), 2)
 
     def _compute_pnl(self, current_prem: float) -> float:
         mult = 1 if self.transaction_type == "BUY" else -1
@@ -322,6 +369,9 @@ class ScalpTrade:
             "super_target_status": self.super_target_status,
             "super_sl_status": self.super_sl_status,
             "broker_sl_order_id": self.broker_sl_order_id,
+            "pending_exit_order_id": self.pending_exit_order_id,
+            "target_points": self.target_points,
+            "sl_points": self.sl_points,
             "broker_tp_order_id": self.broker_tp_order_id,
         }
 
@@ -410,6 +460,8 @@ class ScalpEngine:
         entry_limit_price: float = 0.0,
         entry_limit_max: float = 0.0,
         broker: str = "dhan",
+        target_points: float = 0.0,
+        sl_points: float = 0.0,
     ) -> Dict[str, Any]:
         """Place a broker order (or simulate in paper mode) and register the scalp trade.
         If entry_limit_price and entry_limit_max are set, the trade goes into 'pending' state
@@ -469,6 +521,8 @@ class ScalpEngine:
                 entry_limit_price=lo,
                 entry_limit_max=hi,
                 broker=broker,
+                target_points=target_points,
+                sl_points=sl_points,
             )
             self.open_trades[self._trade_counter] = trade
             self._sync_marketfeed_throttle()
@@ -525,7 +579,20 @@ class ScalpEngine:
             # greater than Order price", from the form's flat Rs 300 target on
             # an option trading above it). Priced here, named in words here.
             quote = 0.0
+            kite_quote: Dict[str, float] = {}
+            if broker == "zerodha":
+                # Zerodha's own price for the contract it will trade: fresher
+                # than Dhan's REST LTP, which answers 429 when it is busiest.
+                try:
+                    kite_quote = await asyncio.to_thread(
+                        self.zerodha.get_option_quote, underlying, strike, expiry, option_type
+                    )
+                except Exception:
+                    kite_quote = {}
+                quote = float((kite_quote or {}).get("ltp") or 0.0)
             for _attempt in range(2):
+                if quote > 0:
+                    break
                 try:
                     quote = float(
                         await asyncio.to_thread(self.dhan.get_option_ltp, underlying, strike, expiry, option_type)
@@ -537,6 +604,13 @@ class ScalpEngine:
                     quote = 0.0
                 if _attempt == 0:
                     await asyncio.sleep(0.3)
+            # Exits a set distance from the premium, worked out from the live
+            # price here so they always sit on the right side of it.
+            buying = transaction_type == "BUY"
+            if quote > 0 and float(target_points or 0) > 0:
+                typed_target = round(max(0.05, quote + target_points if buying else quote - target_points), 2)
+            if quote > 0 and float(sl_points or 0) > 0:
+                typed_sl = round(max(0.05, quote - sl_points if buying else quote + sl_points), 2)
             target_premium, sl_premium, problem = resolve_scalp_exit_prices(
                 transaction_type, quote, typed_target, typed_sl, broker="Zerodha" if broker == "zerodha" else "Dhan"
             )
@@ -546,7 +620,15 @@ class ScalpEngine:
 
             if broker == "zerodha":
                 order_id, order_status, problem = await self._place_zerodha_entry(
-                    underlying, strike, option_type, expiry, transaction_type, quantity, product_type, quote
+                    underlying,
+                    strike,
+                    option_type,
+                    expiry,
+                    transaction_type,
+                    quantity,
+                    product_type,
+                    quote,
+                    kite_quote,
                 )
                 if problem:
                     return {"status": "error", "message": problem}
@@ -624,6 +706,8 @@ class ScalpEngine:
             order_id=order_id,
             mode=mode,
             broker=broker,
+            target_points=target_points,
+            sl_points=sl_points,
         )
         if mode == "live" and broker == "zerodha":
             trade.broker_order_model = "zerodha"
@@ -661,15 +745,21 @@ class ScalpEngine:
         return {"status": "ok", "trade_id": self._trade_counter, "trade": trade.to_dict()}
 
     async def _place_zerodha_entry(
-        self, underlying, strike, option_type, expiry, transaction_type, quantity, product_type, quote
+        self, underlying, strike, option_type, expiry, transaction_type, quantity, product_type, quote, kite_quote=None
     ) -> tuple[str, str, str]:
         """Send a scalp's entry to Zerodha. Returns (order_id, status, problem).
 
-        A MARKET order: Kite fills it inside its own protection band
-        (`market_protection=-1`, set by the client), so the aggressive-limit
-        workaround Dhan needs is not needed here. The stop goes in only after
-        the fill is confirmed (`_verify_fill_and_sync_broker_orders`).
+        A LIMIT a little THROUGH the best offer, not a MARKET order. Kite turns
+        a market option order into a limit capped near the last price, and in
+        a fast market that cap sits under the sellers: 14-Oct-2026's SENSEX
+        73000PE waited eight seconds at Rs 510.60 while the premium ran away
+        from it. Paying up to 2% over the offer fills at once, and still fills
+        at the best price on the book, not at the limit. With no offer to read,
+        3% over the last price; with no price at all, MARKET as before. The
+        stop goes in only after the fill is confirmed
+        (`_verify_fill_and_sync_broker_orders`).
         """
+        price = scalp_entry_limit(transaction_type, kite_quote or {}, quote)
         try:
             result = await asyncio.to_thread(
                 self.zerodha.place_option_order,
@@ -679,8 +769,9 @@ class ScalpEngine:
                 expiry=expiry,
                 transaction_type=transaction_type,
                 quantity=quantity,
-                order_type="MARKET",
+                order_type="LIMIT" if price > 0 else "MARKET",
                 product_type=product_type,
+                price=price,
                 tag="AF_SCALP_Z",
             )
         except Exception as e:
@@ -744,6 +835,8 @@ class ScalpEngine:
             "entry_limit_max": trade.entry_limit_max,
             "target_from_pct": trade.target_from_pct,
             "sl_from_pct": trade.sl_from_pct,
+            "target_from_points": trade.target_from_points,
+            "sl_from_points": trade.sl_from_points,
         }
         new_entry_min = kwargs.get("entry_limit_price")
         new_entry_max = kwargs.get("entry_limit_max")
@@ -785,8 +878,10 @@ class ScalpEngine:
                 setattr(trade, attr, kwargs[attr])
         if "target_premium" in kwargs and kwargs["target_premium"] is not None:
             trade.target_from_pct = False
+            trade.target_from_points = False
         if "sl_premium" in kwargs and kwargs["sl_premium"] is not None:
             trade.sl_from_pct = False
+            trade.sl_from_points = False
         if trade.status == "pending":
             self._log("info", f"⏳ Pending trade {trade_id} updated: {kwargs}")
             return {"status": "ok", "trade": trade.to_dict()}
@@ -910,6 +1005,7 @@ class ScalpEngine:
                         if trade.sl_from_pct:
                             mult = -1 if trade.transaction_type == "BUY" else 1
                             trade.sl_premium = round(current_prem * (1 + mult * trade.sl_pct / 100), 2)
+                        trade.rebase_points(current_prem)
                         self._log("info", f"📌 Trade {tid} entry price backfilled @ ₹{current_prem:.2f}")
                     trade.current_premium = current_prem
                     reason = trade.check_exit(trade.current_premium)
@@ -1020,6 +1116,7 @@ class ScalpEngine:
                 trade.sl_premium = round(entry_premium * (1 - trade.sl_pct / 100), 2)
             else:
                 trade.sl_premium = round(entry_premium * (1 + trade.sl_pct / 100), 2)
+        trade.rebase_points(entry_premium)
 
         self._log(
             "entry",
@@ -1315,6 +1412,7 @@ class ScalpEngine:
                     if trade.sl_from_pct and trade.sl_pct > 0:
                         mult = -1 if trade.transaction_type == "BUY" else 1
                         trade.sl_premium = round(actual * (1 + mult * trade.sl_pct / 100), 2)
+                    trade.rebase_points(actual)
                     if abs(actual - old_entry) >= 0.05:
                         self._log(
                             "info",
@@ -1353,6 +1451,7 @@ class ScalpEngine:
                     if trade.sl_from_pct and trade.sl_pct > 0:
                         mult = -1 if trade.transaction_type == "BUY" else 1
                         trade.sl_premium = round(fallback_entry * (1 + mult * trade.sl_pct / 100), 2)
+                    trade.rebase_points(fallback_entry)
                 self._log(
                     "warning",
                     f"⚠ Entry fill not fully confirmed for trade {trade_id}: {fill.get('message', 'timeout')} "
@@ -1883,6 +1982,7 @@ class ScalpEngine:
         if average > 0 and abs(average - trade.entry_premium) >= 0.05:
             self._log("info", f"📌 Entry fill at Zerodha: ₹{average:.2f} (was ₹{trade.entry_premium:.2f})")
             trade.entry_premium = average
+            trade.rebase_points(average)
         if filled < trade.quantity and trade.lot_size > 0:
             self._log("info", f"Entry filled {filled} of {trade.quantity} at Zerodha; the rest was cancelled")
             trade.lots = max(1, filled // trade.lot_size)

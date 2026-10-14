@@ -4508,6 +4508,17 @@
         <!-- Exit Rules: IDs and values are deliberately unchanged. -->
         <div class="scalp-exit-rules" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
           <div id="scalp-exit-rules-note" style="font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">Exit Rules (optional — leave 0 to skip)</div>
+          <!-- SL and Target a set distance from the premium, worked out live
+               (Phil, 2026-10-14: "SL 100 pts less and 100 points more for Target"). -->
+          <div class="scalp-auto-exits">
+            <label class="scalp-auto-exits-toggle"><input type="checkbox" id="scalp-auto-exits" checked onchange="_syncScalpAutoExits(); _persistScalpFormState()"> Set SL and Target from the premium</label>
+            <div class="scalp-auto-exits-pts">
+              <label for="scalp-sl-pts">SL pts</label>
+              <input type="number" id="scalp-sl-pts" value="100" min="0" step="5" oninput="_syncScalpAutoExits(); _persistScalpFormState()">
+              <label for="scalp-target-pts">Target pts</label>
+              <input type="number" id="scalp-target-pts" value="100" min="0" step="5" oninput="_syncScalpAutoExits(); _persistScalpFormState()">
+            </div>
+          </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
             <div>
               <label for="scalp-sl-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL ₹ (max loss)</label>

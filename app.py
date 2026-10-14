@@ -3729,6 +3729,7 @@ def _restore_scalp_trade_from_payload(payload: dict):
             "super_sl_status",
             "broker_sl_order_id",
             "broker_tp_order_id",
+            "pending_exit_order_id",
         ):
             if attr in payload:
                 setattr(trade, attr, str(payload.get(attr) or ""))
@@ -25598,6 +25599,9 @@ class ScalpEntryReq(BaseModel):
     entry_limit_price: float = Field(default=0.0, ge=0, le=1_000_000)
     entry_limit_max: float = Field(default=0.0, ge=0, le=1_000_000)
     broker: str = Field(default="dhan", max_length=10)
+    # Target and stop a set distance from the entry premium, in points.
+    target_points: float = Field(default=0.0, ge=0, le=100_000)
+    sl_points: float = Field(default=0.0, ge=0, le=100_000)
 
 
 _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
@@ -25693,6 +25697,8 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                 entry_limit_price=req.entry_limit_price,
                 entry_limit_max=req.entry_limit_max,
                 broker=req.broker,
+                target_points=req.target_points,
+                sl_points=req.sl_points,
             )
             broker_line = "\nBroker: Zerodha" if req.broker == "zerodha" and req.mode == "live" else ""
             if result.get("status") == "error":

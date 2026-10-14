@@ -142,7 +142,10 @@ class TheEntryGoesToZerodha(AnEngine):
         self.assertEqual(dhan.super_orders, [])
         self.assertEqual(dhan.orders, [])
         kinds = [o["order_type"] for o in zerodha.orders]
-        self.assertEqual(kinds, ["MARKET", "SL"])
+        # The entry is a LIMIT through the offer, not MARKET (14-Oct-2026: a
+        # Kite market order sat eight seconds under a running premium).
+        self.assertEqual(kinds, ["LIMIT", "SL"])
+        self.assertEqual(zerodha.orders[0]["transaction_type"], "BUY")
         self.assertEqual(zerodha.orders[1]["transaction_type"], "SELL")
         self.assertEqual(zerodha.orders[1]["trigger_price"], 150.0)
 
@@ -159,7 +162,10 @@ class TheEntryGoesToZerodha(AnEngine):
         engine = self.make(Dhan(), zerodha)
         await engine.enter_trade(**_entry())
         await self.settle(engine)
-        self.assertNotIn("LIMIT", [o["order_type"] for o in zerodha.orders])
+        # No resting target: no SELL limit beside the stop.
+        self.assertEqual(
+            [o for o in zerodha.orders if o["order_type"] == "LIMIT" and o["transaction_type"] == "SELL"], []
+        )
 
     async def test_without_a_zerodha_login_nothing_is_sent(self):
         dhan = Dhan()
@@ -194,7 +200,7 @@ class TheEntryGoesToZerodha(AnEngine):
         await engine._activate_pending_trade(trade)
         await self.settle(engine)
         self.assertEqual(dhan.super_orders, [])
-        self.assertEqual([o["order_type"] for o in zerodha.orders], ["MARKET", "SL"])
+        self.assertEqual([o["order_type"] for o in zerodha.orders], ["LIMIT", "SL"])
         self.assertEqual(trade.status, "open")
 
 

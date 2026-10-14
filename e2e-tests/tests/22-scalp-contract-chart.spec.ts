@@ -111,3 +111,49 @@ test('Scalp: the option chart button beside the broker charts the contract in th
   await expect(btn).toBeDisabled();
   await expect(page.locator('#scalp-contract-chart-label')).toHaveText('Option chart');
 });
+
+test('Scalp: SL and Target follow the premium by the points set, and go to the server as points', async ({ page }) => {
+  test.setTimeout(60_000);
+  await login(page);
+  let sent: any = null;
+  await page.route('**/api/scalp/entry', async (route) => {
+    sent = JSON.parse(route.request().postData() as string);
+    await route.fulfill({ json: { status: 'error', message: 'stopped by the test' } });
+  });
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+  await page.waitForFunction(() => !!(document.getElementById('scalp-expiry') as HTMLSelectElement).value);
+  // SENSEX 73000PE at Rs 480.85, the price that refused the order on 14-Oct.
+  await page.evaluate(() => {
+    (document.getElementById('scalp-strike') as HTMLInputElement).value = '73000';
+    (window as unknown as { _scalpCurrentLTP: number })._scalpCurrentLTP = 480.85;
+    (window as unknown as { _syncScalpAutoExits: () => void })._syncScalpAutoExits();
+  });
+  await expect(page.locator('#scalp-auto-exits')).toBeChecked();
+  await expect(page.locator('#scalp-sl-prem')).toHaveValue('380.85');
+  await expect(page.locator('#scalp-target-prem')).toHaveValue('580.85');
+  expect(await page.locator('#scalp-sl-prem').evaluate((el: HTMLInputElement) => el.readOnly)).toBe(true);
+
+  // The price moves: so do they.
+  await page.evaluate(() => {
+    (window as unknown as { _scalpCurrentLTP: number })._scalpCurrentLTP = 500;
+    (window as unknown as { updateScalpMargin: () => void }).updateScalpMargin();
+  });
+  await expect(page.locator('#scalp-sl-prem')).toHaveValue('400.00');
+  await expect(page.locator('#scalp-target-prem')).toHaveValue('600.00');
+
+  // Sent as distances, for the server to measure from the price it trades at.
+  await page.evaluate(() => (window as unknown as { submitScalpEntry: (d: string) => Promise<void> }).submitScalpEntry('BUY'));
+  await expect.poll(() => sent).not.toBeNull();
+  expect([sent.sl_points, sent.target_points]).toEqual([100, 100]);
+
+  // Off: the prices are typed by hand again and no points are sent.
+  sent = null;
+  // The switch lives under Advanced.
+  await page.locator('#scalp-page details.scalp-advanced > summary').click();
+  await page.locator('#scalp-auto-exits').uncheck();
+  expect(await page.locator('#scalp-sl-prem').evaluate((el: HTMLInputElement) => el.readOnly)).toBe(false);
+  await page.evaluate(() => (window as unknown as { submitScalpEntry: (d: string) => Promise<void> }).submitScalpEntry('BUY'));
+  await expect.poll(() => sent).not.toBeNull();
+  expect(sent.sl_points).toBeUndefined();
+});

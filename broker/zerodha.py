@@ -663,6 +663,30 @@ class ZerodhaClient:
                     prices[wanted[name]] = price
         return prices
 
+    def get_option_quote(self, underlying: str, strike: int, expiry: str, option_type: str) -> dict:
+        """Last price and the best bid and offer for one contract, from Kite's book.
+
+        {"ltp", "bid", "ask"}; a side with nothing on it is 0, and so is the
+        whole answer when Kite cannot be asked.
+        """
+        try:
+            info = self._contract(underlying, strike, expiry, option_type)
+            name = f"{info['exchange']}:{info['tradingsymbol']}"
+            row = (self._get_data("/quote", params=[("i", name)]) or {}).get(name) or {}
+        except Exception as exc:
+            log.warning("[ZERODHA] option quote failed: %s", exc)
+            return {"ltp": 0.0, "bid": 0.0, "ask": 0.0}
+        depth = row.get("depth") or {}
+
+        def best(side: str) -> float:
+            for level in depth.get(side) or []:
+                price = float((level or {}).get("price") or 0.0)
+                if price > 0 and int((level or {}).get("quantity") or 0) > 0:
+                    return price
+            return 0.0
+
+        return {"ltp": float(row.get("last_price") or 0.0), "bid": best("buy"), "ask": best("sell")}
+
     def get_option_ltp(self, underlying: str, strike: int, expiry: str, option_type: str) -> float:
         try:
             info = self._contract(underlying, strike, expiry, option_type)
