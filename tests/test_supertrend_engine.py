@@ -121,6 +121,16 @@ class SignalTests(unittest.TestCase):
         self.assertEqual(drawn["atr_period"], 10)
         self.assertEqual(drawn["multiplier"], 1.5)
 
+    def test_each_point_says_its_trend_so_the_chart_can_shade_it(self):
+        # Up for 25 bars, then down: the chart colours and shades each run by
+        # `d`, TradingView's way (Phil, 2026-10-14).
+        rows = _series([100 + i * 4 for i in range(25)] + [196 - i * 6 for i in range(25)])
+        config = SupertrendConfig()
+        drawn = indicator_series(rows, config)["supertrend"]
+        computed = direction_series(rows, config)
+        self.assertEqual([p["d"] for p in drawn], [1 if d > 0 else -1 for _ts, _c, _st, d in computed])
+        self.assertEqual({p["d"] for p in drawn}, {1, -1})
+
 
 class StrikeTests(unittest.TestCase):
     def test_at_the_money_rounds_to_the_step(self):

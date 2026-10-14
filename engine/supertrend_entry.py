@@ -219,7 +219,9 @@ def direction_series(candles: list, config: SupertrendConfig) -> list:
 def indicator_series(candles: list, config: SupertrendConfig) -> dict:
     """The chart payload's indicator block: the line itself, and the flips."""
     series = direction_series(candles, config)
-    line = [{"t": int(_ist(ts).timestamp()), "v": round(st, 2)} for ts, _c, st, _d in series]
+    # `d` is the trend at that bar (1 up, -1 down): the chart colours and
+    # shades each run by it, as TradingView draws its Supertrend.
+    line = [{"t": int(_ist(ts).timestamp()), "v": round(st, 2), "d": 1 if d > 0 else -1} for ts, _c, st, d in series]
     flips = []
     previous = None
     for ts, close, _st, direction in series:

@@ -787,6 +787,49 @@ function _pfChartCanvasLines(c, p, PAL, labels) {
   return count;
 }
 
+// SUPERTREND, SHADED THE WAY TRADINGVIEW SHADES IT (Phil, 2026-10-14): green
+// under the price while the trend is up, red over it while it is down, and the
+// band between the line and each candle's body middle ((open+close)/2) filled
+// faintly in the same colour. One call per same-direction run, so a flip is a
+// break in the line and never a diagonal joining the two sides.
+var PF_ST_UP = '#4caf50', PF_ST_DOWN = '#ff5252';
+
+function _pfChartBodyMids(d) {
+  var mids = {};
+  (d.candles || []).forEach(function (bar) { mids[bar.t] = (Number(bar.o) + Number(bar.c)) / 2; });
+  return mids;
+}
+
+function _pfChartShadeToBody(ctx, p, pts, color, mids) {
+  var shaded = pts.filter(function (pt) { return mids[pt.t] != null && isFinite(mids[pt.t]); });
+  if (shaded.length >= 2) {
+    ctx.save();
+    ctx.globalAlpha = 0.13;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    shaded.forEach(function (pt, i) {
+      var x = p.xOf(pt.t), y = p.yOf(pt.price);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    for (var j = shaded.length - 1; j >= 0; j--) ctx.lineTo(p.xOf(shaded[j].t), p.yOf(mids[shaded[j].t]));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.6;
+  ctx.setLineDash([]);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach(function (pt, i) {
+    var x = p.xOf(pt.t), y = p.yOf(pt.price);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Indicator polylines -- the 20-EMA and anything else that is a running series
 // rather than a level. overlays: [{label, color, dash, width, points:[{t,price}]}]
 function _pfChartCanvasOverlays(c, p, PAL, labels) {
@@ -795,6 +838,16 @@ function _pfChartCanvasOverlays(c, p, PAL, labels) {
     var pts = (ov && ov.points || []).filter(function (pt) { return pt && pt.t != null && pt.price != null; });
     if (pts.length < 2) return;
     var color = _pfChartSeriesColor(ov.color, PAL, PAL.avg);
+    if (ov.supertrend) {
+      // A run of the book's Supertrend: TradingView's colours, shaded to the candles.
+      color = Number(ov.supertrend) > 0 ? PF_ST_UP : PF_ST_DOWN;
+      var mids = _pfChartBodyMids(d);
+      _pfChartCanvasClip(ctx, p, function () { _pfChartShadeToBody(ctx, p, pts, color, mids); });
+      var tip = pts[pts.length - 1];
+      if (ov.label && p.inPrice(tip.price)) labels.push({ kind: 'gutter', y: p.yOf(tip.price), text: String(ov.label), color: color });
+      count += 1;
+      return;
+    }
     _pfChartCanvasClip(ctx, p, function () {
       ctx.strokeStyle = color;
       ctx.lineWidth = Number(ov.width) || 1.3;
@@ -973,6 +1026,37 @@ function _pfChartCanvasLabels(c, p, labels) {
  * charts that predate this are unaffected.
  */
 
+// The Supertrend strategy's own line. Each point says its direction (`d`: 1
+// up, -1 down); a payload from before that was added is read off the candle,
+// since an up-trend line sits under the close and a down-trend line over it.
+function _pfChartCanvasSupertrend(c, p, labels, ind) {
+  var d = c.data || {}, ctx = c.ctx, mids = _pfChartBodyMids(d), closes = {};
+  (d.candles || []).forEach(function (bar) { closes[bar.t] = Number(bar.c); });
+  var runs = [], run = null, drawn = 0;
+  ind.supertrend.forEach(function (point) {
+    if (!point || point.v === null || point.v === undefined || !isFinite(Number(point.v))) return;
+    var dir = point.d != null ? (Number(point.d) > 0 ? 1 : -1)
+      : (closes[point.t] != null ? (Number(point.v) <= closes[point.t] ? 1 : -1) : (run ? run.dir : 1));
+    if (!run || run.dir !== dir) { run = { dir: dir, pts: [] }; runs.push(run); }
+    run.pts.push({ t: point.t, price: Number(point.v) });
+    drawn++;
+  });
+  _pfChartCanvasClip(ctx, p, function () {
+    runs.forEach(function (r) {
+      if (r.pts.length >= 2) _pfChartShadeToBody(ctx, p, r.pts, r.dir > 0 ? PF_ST_UP : PF_ST_DOWN, mids);
+    });
+  });
+  var lastRun = runs[runs.length - 1];
+  if (lastRun && lastRun.pts.length) {
+    var tip = lastRun.pts[lastRun.pts.length - 1];
+    labels.push({
+      y: p.yOf(tip.price), color: lastRun.dir > 0 ? PF_ST_UP : PF_ST_DOWN, align: 'right',
+      text: 'ST ' + (ind.atr_period || 10) + ',' + (ind.multiplier != null ? ind.multiplier : '') + ' ' + Math.round(tip.price)
+    });
+  }
+  return drawn;
+}
+
 // An EMA is a CURVE, so it cannot be expressed as a line/trendline: `lines`
 // are horizontal and a trendline has exactly two anchors. Hence a real path.
 function _pfChartCanvasIndicators(c, p, PAL, labels) {
@@ -983,6 +1067,7 @@ function _pfChartCanvasIndicators(c, p, PAL, labels) {
   // indicator was the one chart that never showed it (Phil, 2026-09-01).
   var series = (ind && (ind.ema || ind.supertrend)) || null;
   if (!series || !series.length) return 0;
+  if (!ind.ema && ind.supertrend) return _pfChartCanvasSupertrend(c, p, labels, ind);
   var ctx = c.ctx, drawn = 0, last = null;
   _pfChartCanvasClip(ctx, p, function () {
     ctx.strokeStyle = PAL.ema;

@@ -20858,9 +20858,11 @@ async def live_index_chart(request: Request, instrument: str = "26000", timefram
             st_overlays.append(
                 {
                     "label": f"{st_book} ST 10,{_BOOK_SUPERTREND[st_book]:g} (3m)" if i == 0 else "",
-                    "color": "#4ade80" if seg["dir"] > 0 else "#f87171",
+                    "color": "#4caf50" if seg["dir"] > 0 else "#ff5252",
                     "width": 1.6,
                     "points": seg["points"],
+                    # Drawn TradingView's way: shaded to the candles' body middle.
+                    "supertrend": 1 if seg["dir"] > 0 else -1,
                 }
             )
     except Exception as exc:  # a chart is worth more than one of its overlays
