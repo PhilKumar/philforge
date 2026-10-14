@@ -25177,7 +25177,10 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
                     # day would bury the chart it is meant to explain.
                     "label": f"{label} ({price:,.2f})" if last_day else "",
                     "color": color,
-                    "dash": [] if label.startswith("CPR") else [5, 4],
+                    # Solid, every one: R and S are drawn as TradingView draws
+                    # the main pivot levels (Phil, 2026-10-14: "R and S line in
+                    # CPR without dashed lines").
+                    "dash": [],
                     "width": 1.1 if label == "CPR P" else 0.9,
                     "opacity": 0.85 if label.startswith("CPR") else 0.55,
                     "points": [{"t": pt["t"], "price": round(price, 4)} for pt in span],

@@ -70,6 +70,14 @@ class TheLevelsWearTradingViewsColours(unittest.TestCase):
         self.assertEqual({colours[k] for k in ("R1", "R2", "R3", "R4")}, {"#ef3340"})
         self.assertEqual({colours[k] for k in ("S1", "S2", "S3", "S4", "S5")}, {"#34a853"})
 
+    def test_every_level_is_a_solid_line(self):
+        bars = []
+        for day in (12, 13):
+            bars += _minute_bars(datetime(2026, 10, day, 9, 15, tzinfo=IST), 30)
+        levels = [o for o in app_module._chart_session_analytics(bars)["overlays"] if o.get("label") != "EMA 20"]
+        self.assertTrue(levels)
+        self.assertEqual({tuple(o.get("dash") or []) for o in levels}, {()})
+
     def test_they_are_the_journal_charts_own_colours(self):
         import journal_charts
 
