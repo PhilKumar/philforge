@@ -145,6 +145,75 @@ def resolve_scalp_exit_prices(transaction_type, premium, target_premium, sl_prem
     return target, stop, None
 
 
+def match_scalp_to_broker_fills(trade: dict, fills: list, tradingsymbol: str, claimed_order_ids=()) -> dict:
+    """Re-price a closed scalp from the broker's own fills of that contract.
+
+    The entry is the broker's fill of the scalp's own entry order. The exit is
+    the opposite-side fills of the same contract after it, the scalp's own exit
+    order first, then any other (a hand close in Kite) in time order, until the
+    entry's quantity is covered. Orders another scalp already accounts for are
+    left out, so two scalps can never book the same sell. Raises ValueError,
+    naming what is missing, when the fills do not cover the trade.
+    """
+    side = str(trade.get("transaction_type") or "BUY").upper()
+    exit_side = "BUY" if side == "SELL" else "SELL"
+    entry_id = str(trade.get("order_id") or "")
+    own_exit_id = str(trade.get("exit_order_id") or "")
+    claimed = {str(o) for o in claimed_order_ids if str(o)}
+    rows = [f for f in fills or [] if str(f.get("tradingSymbol") or "") == tradingsymbol]
+
+    entry_rows = [
+        f for f in rows if str(f.get("orderId")) == entry_id and str(f.get("transactionType")).upper() == side
+    ]
+    qty = sum(int(f.get("tradedQuantity") or 0) for f in entry_rows)
+    if not entry_id or qty <= 0:
+        raise ValueError(f"The broker shows no fill today for this scalp's entry order {entry_id or '(none)'}.")
+    entry_price = sum(float(f["tradedPrice"]) * int(f["tradedQuantity"]) for f in entry_rows) / qty
+    entered_at = min(str(f.get("exchangeTime") or "") for f in entry_rows)
+
+    exits = [
+        f
+        for f in rows
+        if str(f.get("transactionType")).upper() == exit_side
+        and str(f.get("orderId")) not in claimed
+        and str(f.get("exchangeTime") or "") >= entered_at
+    ]
+    exits.sort(key=lambda f: (str(f.get("orderId")) != own_exit_id, str(f.get("exchangeTime") or "")))
+    taken, cost, used, last_at = 0, 0.0, [], ""
+    for f in exits:
+        if taken >= qty:
+            break
+        part = min(int(f.get("tradedQuantity") or 0), qty - taken)
+        if part <= 0:
+            continue
+        taken += part
+        cost += float(f["tradedPrice"]) * part
+        last_at = max(last_at, str(f.get("exchangeTime") or ""))
+        if str(f.get("orderId")) not in used:
+            used.append(str(f.get("orderId")))
+    if taken < qty:
+        raise ValueError(
+            f"The broker shows {taken} of {qty} closed for {tradingsymbol} today; the rest is still open there."
+        )
+    exit_price = cost / qty
+    sign = -1 if side == "SELL" else 1
+    lot_size = int(trade.get("lot_size") or 1) or 1
+    return {
+        "entry_premium": round(entry_price, 2),
+        "exit_premium": round(exit_price, 2),
+        "current_premium": round(exit_price, 2),
+        "quantity": qty,
+        "lots": qty // lot_size if qty % lot_size == 0 else trade.get("lots"),
+        "exit_time": last_at or trade.get("exit_time"),
+        "pnl": round(sign * (exit_price - entry_price) * qty, 2),
+        "broker_match": {
+            "matched_at": _now_ist().strftime("%Y-%m-%d %H:%M:%S"),
+            "exit_order_ids": used,
+            "was": {k: trade.get(k) for k in ("entry_premium", "exit_premium", "quantity", "exit_time", "pnl")},
+        },
+    }
+
+
 def _now_ist():
     return datetime.now(IST).replace(tzinfo=None)
 

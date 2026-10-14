@@ -1567,6 +1567,27 @@ async def create_scalp_trade(user_id: int, trade: dict) -> None:
         await db.commit()
 
 
+async def update_scalp_trade(user_id: int, trade_id: int, changes: dict) -> dict | None:
+    """Merge fields into one persisted scalp trade; the updated trade, or None."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, trade_data FROM scalp_trades WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        )
+        for row in await cursor.fetchall():
+            payload = _json_loads(dict(row).get("trade_data"), {})
+            if isinstance(payload, dict) and _trade_id_from_scalp_payload(payload) == int(trade_id):
+                payload.update(changes or {})
+                await db.execute(
+                    "UPDATE scalp_trades SET trade_data = ? WHERE user_id = ? AND id = ?",
+                    (_json_dumps(payload), user_id, int(row["id"])),
+                )
+                await db.commit()
+                return payload
+    return None
+
+
 async def bulk_delete_scalp_trades(user_id: int, trade_ids: list[int]) -> int:
     """Delete persisted scalp trades for a user by nested trade_id."""
     ids = {int(tid) for tid in trade_ids if str(tid).strip()}
