@@ -94,7 +94,12 @@ def analytics():
     return functions(
         ROOT / "app.py",
         {"_chart_session_analytics"},
-        {"datetime": datetime, "IST": timezone(timedelta(hours=5, minutes=30))},
+        {
+            "datetime": datetime,
+            "date": __import__("datetime").date,
+            "dt_time": __import__("datetime").time,
+            "IST": timezone(timedelta(hours=5, minutes=30)),
+        },
     )["_chart_session_analytics"]
 
 
