@@ -70,6 +70,14 @@ class TheLevelsWearTradingViewsColours(unittest.TestCase):
         self.assertEqual({colours[k] for k in ("R1", "R2", "R3", "R4")}, {"#ef3340"})
         self.assertEqual({colours[k] for k in ("S1", "S2", "S3", "S4", "S5")}, {"#34a853"})
 
+    def test_todays_levels_run_to_the_close_from_the_first_bar(self):
+        bars = _minute_bars(datetime(2026, 10, 13, 9, 15, tzinfo=IST), 30)
+        bars += _minute_bars(datetime(2026, 10, 14, 9, 15, tzinfo=IST), 3)  # three minutes into the day
+        levels = [o for o in app_module._chart_session_analytics(bars)["overlays"] if o.get("label") != "EMA 20"]
+        ends = {datetime.fromtimestamp(o["points"][-1]["t"], IST).strftime("%d %H:%M") for o in levels}
+        starts = {datetime.fromtimestamp(o["points"][0]["t"], IST).strftime("%d %H:%M") for o in levels}
+        self.assertEqual((starts, ends), ({"14 09:15"}, {"14 15:29"}))
+
     def test_every_level_is_a_solid_line(self):
         bars = []
         for day in (12, 13):

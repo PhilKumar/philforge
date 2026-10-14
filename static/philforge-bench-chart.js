@@ -1247,21 +1247,30 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   if (!ctx || !p) return;
   ctx.clearRect(0, 0, c.w, c.h);
   if (!point || !point.plot) return;
-  var PAL = _pfChartPalette(), price = p.pAt(point.y), when = p.tAt(point.x);
+  var PAL = _pfChartPalette(), price = p.pAt(point.y);
+  // THE VERTICAL LINE SITS ON A CANDLE, never between two (Phil, 2026-10-14:
+  // "the cross hair has to jump ... on the minute and not all the places").
+  // As on TradingView it steps from bar to bar as the pointer moves, and the
+  // time beneath it is that candle's own time.
+  var bars = ((c.data || {}).candles || []).length;
+  var idx = Math.round(p.tAt(point.x));
+  if (bars) idx = Math.max(0, Math.min(bars - 1, idx));
+  var barTime = p.timeAt(idx), lineX = p.xOf(barTime);
+  if (!isFinite(lineX)) lineX = point.x;
   ctx.save();
   ctx.strokeStyle = PAL.axis; ctx.lineWidth = 0.7; ctx.globalAlpha = 0.8; ctx.setLineDash([4, 3]);
   ctx.beginPath(); ctx.moveTo(p.padL, point.y); ctx.lineTo(p.padL + p.plotW, point.y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(point.x, p.padT); ctx.lineTo(point.x, p.padT + p.plotH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(lineX, p.padT); ctx.lineTo(lineX, p.padT + p.plotH); ctx.stroke();
   ctx.setLineDash([]); ctx.globalAlpha = 1;
   var priceText = Number(price).toLocaleString('en-US', { maximumFractionDigits: 2 });
   ctx.font = '9.5px monospace';
-  var priceW = Math.max(ctx.measureText(priceText).width + 10, 42), timeText = _pfChartIst(Math.round(p.timeAt(when))) + ' IST';
+  var priceW = Math.max(ctx.measureText(priceText).width + 10, 42), timeText = _pfChartIst(Math.round(barTime)) + ' IST';
   var timeW = Math.max(ctx.measureText(timeText).width + 10, 84);
   ctx.fillStyle = PAL.axis;
   ctx.fillRect(p.padL + p.plotW + 2, point.y - 8, priceW, 16);
-  ctx.fillRect(point.x - timeW / 2, c.h - 20, timeW, 15);
+  ctx.fillRect(lineX - timeW / 2, c.h - 20, timeW, 15);
   _pfChartCanvasText(ctx, priceText, p.padL + p.plotW + 6, point.y + 0.5, PAL.fillRing, 9.5, 'left');
-  _pfChartCanvasText(ctx, timeText, point.x, c.h - 12, PAL.fillRing, 9, 'center');
+  _pfChartCanvasText(ctx, timeText, lineX, c.h - 12, PAL.fillRing, 9, 'center');
   ctx.restore();
 }
 

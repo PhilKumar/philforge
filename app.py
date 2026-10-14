@@ -25156,7 +25156,15 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         r4, s4 = 3 * p + (high - 3 * low), 3 * p - (3 * high - low)
         s5 = 4 * p - (4 * high - low)
         last_day = index == len(days) - 1
-        span = [{"t": today[0]["t"], "price": 0.0}, {"t": today[-1]["t"], "price": 0.0}]
+        # A day's levels are fixed at 09:15 -- they come from the day before --
+        # so the current session's are drawn to its close from the first bar,
+        # as TradingView draws them, not stretched one candle at a time behind
+        # the price (Phil, 2026-10-14).
+        end_t = today[-1]["t"]
+        if last_day:
+            session_close = datetime.combine(date.fromisoformat(days[index]), dt_time(15, 29), tzinfo=IST)
+            end_t = max(int(end_t), int(session_close.timestamp()))
+        span = [{"t": today[0]["t"], "price": 0.0}, {"t": end_t, "price": 0.0}]
         for label, price, color in (
             ("CPR TC", tc, cpr_blue),
             ("CPR P", p, cpr_pivot),
