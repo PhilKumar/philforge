@@ -963,6 +963,13 @@ class LiveEngine:
             self.log_event("warning", f"Could not read the broker's trade book: {exc}")
             return 0.0, None, ""
 
+        entered = None
+        for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                entered = datetime.strptime(str(pos.get("entry_time") or "")[:19], pattern)
+                break
+            except ValueError:
+                continue
         latest_price, latest_stamp, latest_order = 0.0, None, ""
         for fill in fills or []:
             if not isinstance(fill, dict):
@@ -983,6 +990,11 @@ class LiveEngine:
                     break
                 except ValueError:
                     continue
+            # A sell from before this position existed closed something else
+            # -- on 15-Oct-2026 the morning scalp's 12:39 exit at Rs 261.65
+            # was booked as the 13:10 CE entry's exit.
+            if stamp is not None and entered is not None and stamp < entered:
+                continue
             # The LAST closing fill is the one that flattened us.
             if latest_stamp is None or (stamp is not None and stamp >= latest_stamp):
                 latest_price, latest_stamp, latest_order = price, stamp or latest_stamp, order_id
@@ -1029,6 +1041,46 @@ class LiveEngine:
                 return "STOP_LOSS"
         return "BROKER_MANUAL_EXIT"
 
+    # ── ONE OPTION, TWO PRODUCT LINES ────────────────────────────────────────
+    #
+    # 15-Oct-2026, 13:10:01: the Zerodha CE book bought 130 NIFTY 22800CE MIS
+    # and one second later booked it "closed by hand at Rs 261.65", -Rs 2,017.
+    # Kite was listing that option TWICE: MIS 130 open (this book) and NRML 0
+    # (the morning's scalps on the same strike). The map below was keyed by
+    # security id alone, so the NRML row overwrote the MIS one, the book read
+    # quantity 0, and walked away from a live position with its stop resting.
+    # A book only reads its own product's line; a row naming no product is
+    # still read, as before.
+    _PRODUCT_CLASS = {
+        "MIS": "intraday",
+        "INTRADAY": "intraday",
+        "NRML": "carry",
+        "NORMAL": "carry",
+        "MARGIN": "carry",
+        "CNC": "carry",
+    }
+
+    def _broker_row_for_book(self, rows: list[dict]) -> dict | None:
+        """The broker's row for this book's product, rows of one option given."""
+        mine = self._PRODUCT_CLASS.get(self._product_type())
+        same = [
+            row
+            for row in rows
+            if mine is None
+            or self._PRODUCT_CLASS.get(str(row.get("productType") or row.get("product") or "").upper()) in (mine, None)
+        ]
+        if not same:
+            return None
+        if len(same) == 1:
+            return same[0]
+        net = 0.0
+        for row in same:
+            for key in ("netQty", "netQuantity", "quantity", "qty"):
+                if row.get(key) not in (None, ""):
+                    net += self._safe_float(row.get(key), 0.0)
+                    break
+        return {**same[0], "netQty": net}
+
     async def _reconcile_broker_positions(self, callback=None) -> bool:
         if not self.positions:
             return False
@@ -1038,13 +1090,13 @@ class LiveEngine:
             self.log_event("warning", f"Broker position sync failed: {exc}")
             return False
 
-        broker_map: dict[str, dict] = {}
+        broker_rows: dict[str, list[dict]] = {}
         for broker_position in broker_positions or []:
             if not isinstance(broker_position, dict):
                 continue
             security_id = str(broker_position.get("securityId") or broker_position.get("security_id") or "").strip()
             if security_id:
-                broker_map[security_id] = broker_position
+                broker_rows.setdefault(security_id, []).append(broker_position)
 
         changed = False
         for pos in list(self.positions):
@@ -1057,7 +1109,7 @@ class LiveEngine:
                 continue
 
             security_id = self._resolve_position_security_id(pos)
-            broker_position = broker_map.get(security_id) if security_id else None
+            broker_position = self._broker_row_for_book(broker_rows.get(security_id, [])) if security_id else None
             broker_qty = self._broker_position_quantity(broker_position)
             if broker_qty >= engine_qty:
                 continue
