@@ -542,7 +542,10 @@ function _pfChartCanvasPaintKey(d) {
     fills: d.fills || [], entries: d.entries || [], exits: d.exits || [],
     avg_entry_price: d.avg_entry_price, tp_price: d.tp_price,
     tp_label: d.tp_label || '', timeframe: d.timeframe,
-    indicators: d.indicators || null
+    indicators: d.indicators || null,
+    // Overlays paint too (EMA, Supertrend): without them here, a payload that
+    // changed only an overlay -- the Scalp chart's ST switch -- never repainted.
+    overlays: d.overlays || []
   });
 }
 

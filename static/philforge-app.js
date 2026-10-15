@@ -13907,12 +13907,14 @@ function _scalpDockShow() {
   dock.hidden = false;
   if (!_scalpDockStripBuilt && typeof pfChartStrip === 'function') {
     _scalpDockStripBuilt = true;
-    pfChartStrip(document.getElementById('scalp-dock-chart-actions'), {
+    const actions = document.getElementById('scalp-dock-chart-actions');
+    pfChartStrip(actions, {
       timeframes: ['1m', '3m', '5m', '15m', '1h'],
       active: _scalpOptionChartTf,
       onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
       onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
     });
+    actions.insertBefore(_scalpStToggleButton(), actions.firstChild);
   }
 }
 
@@ -14028,6 +14030,88 @@ function _scalpApplyLiveBar(data, key) {
   return true;
 }
 
+// ── Supertrend (10, 2) on the option charts ──────────────────────
+// Phil, 2026-10-15: "Add supertrend 2 as an option on the options charts".
+// Worked out here from the chart's own candles -- whatever the timeframe, and
+// including the forming bar -- with Wilder's ATR as TradingView does, then
+// handed to the renderer as runs it shades green below price and red above.
+const _SCALP_ST = { period: 10, multiplier: 2 };
+const _SCALP_ST_KEY = 'pf_scalp_chart_supertrend';
+let _scalpChartSupertrendOn = (() => {
+  try { return localStorage.getItem(_SCALP_ST_KEY) !== '0'; } catch (_) { return true; }
+})();
+
+function _supertrendRuns(candles, period, multiplier) {
+  const n = candles.length;
+  if (n < period + 1) return [];
+  const h = candles.map(b => Number(b.h)), l = candles.map(b => Number(b.l)), c = candles.map(b => Number(b.c));
+  const atr = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const tr = i === 0 ? h[0] - l[0] : Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
+    atr[i] = i === 0 ? tr : atr[i - 1] + (tr - atr[i - 1]) / period;
+  }
+  let upper = 0, lower = 0, dir = 1;
+  const runs = [];
+  let run = null;
+  for (let i = 0; i < n; i++) {
+    const mid = (h[i] + l[i]) / 2;
+    const up = mid + multiplier * atr[i], dn = mid - multiplier * atr[i];
+    if (i === 0) { upper = up; lower = dn; }
+    else {
+      lower = (dn > lower || c[i - 1] < lower) ? dn : lower;
+      upper = (up < upper || c[i - 1] > upper) ? up : upper;
+      if (dir < 0 && c[i] > upper) dir = 1;
+      else if (dir > 0 && c[i] < lower) dir = -1;
+    }
+    if (i < period) continue; // the ATR has not settled yet
+    const value = dir > 0 ? lower : upper;
+    if (!run || run.dir !== dir) { run = { dir, points: [] }; runs.push(run); }
+    run.points.push({ t: candles[i].t, price: Math.round(value * 100) / 100 });
+  }
+  return runs;
+}
+
+function _scalpApplySupertrend(data) {
+  if (!data) return;
+  data.overlays = (data.overlays || []).filter(ov => !ov || !ov._scalpSt);
+  if (!_scalpChartSupertrendOn) return;
+  // Each run stands alone, as on TradingView: a flip is a gap, not a diagonal.
+  _supertrendRuns(data.candles || [], _SCALP_ST.period, _SCALP_ST.multiplier).forEach((run, i, all) => {
+    const points = run.points;
+    if (points.length < 2) return;
+    data.overlays.push({
+      _scalpSt: true,
+      label: i === all.length - 1 ? `ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}` : '',
+      color: run.dir > 0 ? '#4caf50' : '#ff5252',
+      width: 1.6,
+      points,
+      supertrend: run.dir,
+    });
+  });
+}
+
+function _scalpStToggleButton() {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'terminal-cascade-chart-control scalp-st-toggle';
+  btn.textContent = `ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}`;
+  btn.title = `Supertrend (${_SCALP_ST.period}, ${_SCALP_ST.multiplier}) on this chart`;
+  const paint = () => { btn.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); btn.classList.toggle('is-on', _scalpChartSupertrendOn); };
+  paint();
+  btn.addEventListener('click', () => {
+    _scalpChartSupertrendOn = !_scalpChartSupertrendOn;
+    try { localStorage.setItem(_SCALP_ST_KEY, _scalpChartSupertrendOn ? '1' : '0'); } catch (_) {}
+    document.querySelectorAll('.scalp-st-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartSupertrendOn); });
+    const shown = _scalpChartShown;
+    if (shown && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas && _pfChartCanvas.data === shown.data) {
+      const state = _pfChartCanvasRefreshState();
+      _scalpApplySupertrend(shown.data);
+      _pfChartCanvasRefresh(shown.data, state);
+    }
+  });
+  return btn;
+}
+
 function _scalpLiveTick() {
   const shown = _scalpChartShown;
   if (!shown || shown.key !== _scalpChartTargetKey()) return;
@@ -14036,6 +14120,7 @@ function _scalpLiveTick() {
   if (document.hidden || !_pfChartCanvas.host.getClientRects().length) return;
   const state = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
   if (_scalpApplyLiveBar(shown.data, shown.key) && typeof _pfChartCanvasRefresh === 'function') {
+    _scalpApplySupertrend(shown.data);
     _pfChartCanvasRefresh(shown.data, state);
   }
 }
@@ -14132,6 +14217,8 @@ function _ensureScalpOptionChartOverlay() {
       onRefresh: () => refreshScalpOptionChart(),
       onClose: () => hideScalpOptionChart(),
     });
+    const actions = overlay.querySelector('#scalp-option-chart-actions');
+    actions.insertBefore(_scalpStToggleButton(), actions.firstChild);
   }
   return overlay;
 }
@@ -14183,6 +14270,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     // from the live premium before it is drawn.
     data.countdown = true;
     _scalpApplyLiveBar(data, targetKey);
+    _scalpApplySupertrend(data);
     _scalpChartShown = { key: targetKey, data };
     if (!_scalpLiveTimer) _scalpLiveTimer = setInterval(_scalpLiveTick, 1000);
     const instrument = data.instrument || {};

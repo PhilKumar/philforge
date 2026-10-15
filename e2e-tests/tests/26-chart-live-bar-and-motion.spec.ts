@@ -183,3 +183,34 @@ test('a new strike never takes the last strike\'s price into its candle', async 
   const lows = (await canvas(page)).candles.map((b) => b.l);
   expect(Math.min(...lows)).toBeGreaterThan(290);
 });
+
+test('Supertrend (10, 2) is drawn on the option chart and its switch turns it off and on', async ({ page }) => {
+  // Phil, 2026-10-15: "Add supertrend 2 as an option on the options charts".
+  // A day that rises then falls, so the line turns green and then red.
+  const candles = oneMinuteBars('2026-10-14', '15:29:00').map((b, i) => {
+    const mid = 150 + (i < 180 ? i * 0.6 : 108 - (i - 180) * 0.6);
+    return { ...b, o: mid - 0.3, h: mid + 1, l: mid - 1, c: mid + (i < 180 ? 0.3 : -0.3) };
+  });
+  await scalpChart(page, candles, 150);
+  const st = () => page.evaluate(() => {
+    const c = (window as unknown as { _pfChartCanvas: { data: { overlays: { _scalpSt?: boolean; supertrend?: number; label?: string }[] }; paint: { overlays: number } } })._pfChartCanvas;
+    const runs = (c.data.overlays || []).filter((o) => o._scalpSt);
+    return { runs: runs.length, dirs: [...new Set(runs.map((o) => o.supertrend))].sort(), label: runs.filter((o) => o.label).map((o) => o.label), painted: c.paint.overlays };
+  });
+  const on = await st();
+  expect(on.runs).toBeGreaterThan(1);
+  expect(on.dirs).toEqual([-1, 1]);
+  expect(on.label).toEqual(['ST 10,2']);
+
+  const toggle = page.locator('#scalp-dock-chart-actions .scalp-st-toggle');
+  await expect(toggle).toHaveText('ST 10,2');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(async () => (await st()).runs).toBe(0);
+  // It repainted without the line, and the choice is remembered.
+  await expect.poll(async () => (await st()).painted).toBeLessThan(on.painted);
+  expect(await page.evaluate(() => localStorage.getItem('pf_scalp_chart_supertrend'))).toBe('0');
+  await toggle.click();
+  await expect.poll(async () => (await st()).runs).toBe(on.runs);
+});
