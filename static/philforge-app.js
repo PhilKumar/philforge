@@ -13912,6 +13912,25 @@ let _scalpDockOpenTrades = [];
 // 09:15 grid. Only on a day the chart already holds a bar from, so a holiday
 // or a closed market never grows bars from a stale price.
 const _SCALP_TF_SEC = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600 };
+// Phil, 2026-10-15: "one day amount of candles ... and stays till I refresh".
+// The chart opens on one session's worth of bars (375 minutes); once the
+// viewer zooms, that span -- kept in minutes so it carries across timeframes
+// -- is reused by every redraw (timeframe, contract, refresh button) until the
+// page is reloaded. The 100% button still returns to one day.
+const _SCALP_SESSION_MIN = 375;
+let _scalpChartSpanMin = 0;
+
+function _scalpOneDayBars(tfSec) {
+  return Math.max(5, Math.ceil(_SCALP_SESSION_MIN * 60 / tfSec));
+}
+
+// Remember the span on screen while the Scalp chart owns the canvas.
+function _scalpRememberChartSpan(tfSec) {
+  const c = typeof _pfChartCanvas !== 'undefined' ? _pfChartCanvas : null;
+  if (!c || !c.viewport || !_scalpChartShown || c.data !== _scalpChartShown.data) return;
+  const bars = c.viewport.tMax - c.viewport.tMin;
+  if (bars > 0 && isFinite(bars)) _scalpChartSpanMin = bars * tfSec / 60;
+}
 let _scalpLiveBar = null;   // {key, tf, t, o, h, l}: survives the 20s refreshes
 let _scalpChartShown = null; // {key, data}: the payload on screen
 let _scalpLiveTimer = null;
@@ -14103,8 +14122,12 @@ async function openScalpOptionChart(tradeId, options = {}) {
     const data = await response.json().catch(() => ({}));
     if (requestId !== _scalpOptionChartRequest || _scalpChartTargetKey() !== targetKey) return;
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
-    // Opens on today and yesterday; drag or zoom out for the older sessions.
-    data.fit_sessions = 2;
+    // One day's worth of bars, or the span last chosen on this page.
+    const tfSec = _SCALP_TF_SEC[data.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300;
+    const shownTf = _scalpChartShown && _scalpChartShown.data ? (_SCALP_TF_SEC[_scalpChartShown.data.timeframe] || tfSec) : tfSec;
+    _scalpRememberChartSpan(shownTf);
+    data.fit_bars = _scalpOneDayBars(tfSec);
+    if (_scalpChartSpanMin > 0) data.initial_bars = Math.max(5, Math.round(_scalpChartSpanMin * 60 / tfSec));
     // The price tag with the time to bar close, and the forming bar grown
     // from the live premium before it is drawn.
     data.countdown = true;

@@ -243,34 +243,63 @@ test('Scalp: the docked chart leaves the NIFTY 5m chart alone while it is open',
   await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
 });
 
-test('Scalp: the option chart opens on today and yesterday', async ({ page }) => {
-  // Phil, 2026-10-15: "I want the options chart to be defaulted to today and
-  // yesterday view". Four sessions come back; the first view frames the last two.
+test('Scalp: the option chart opens on one day of candles and keeps a chosen zoom', async ({ page }) => {
+  // Phil, 2026-10-15: "Need options chart view to one day amount of candles
+  // ... I want only one day quantity and stays till I refresh".
   test.setTimeout(60_000);
   await login(page);
   const days = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15'];
-  const candles = days.flatMap((day) => {
+  const bars = (tfMin: number) => days.flatMap((day) => {
     const open = Math.floor(new Date(`${day}T09:15:00+05:30`).getTime() / 1000);
-    return Array.from({ length: 75 }, (_, i) => ({ t: open + i * 300, o: 100 + i, h: 104 + i, l: 98 + i, c: 102 + i }));
+    return Array.from({ length: Math.ceil(375 / tfMin) }, (_, i) => ({ t: open + i * tfMin * 60, o: 100 + i, h: 104 + i, l: 98 + i, c: 102 + i }));
   });
-  await page.route('**/api/scalp/contract-chart**', (route) => route.fulfill({ json: {
-    status: 'ok', timeframe: '5m', candles, entries: [], overlays: [], lines: [], live_price: 0,
-    instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
-  } }));
+  await page.route('**/api/scalp/contract-chart**', (route) => {
+    const tf = new URL(route.request().url()).searchParams.get('timeframe') || '5m';
+    const tfMin = { '1m': 1, '3m': 3, '5m': 5, '15m': 15, '1h': 60 }[tf] || 5;
+    return route.fulfill({ json: {
+      status: 'ok', timeframe: tf, candles: bars(tfMin), entries: [], overlays: [], lines: [], live_price: 0,
+      instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+    } });
+  });
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   await page.evaluate(() => {
     const sel = document.getElementById('scalp-expiry') as HTMLSelectElement;
     if (!sel.value) { sel.innerHTML = '<option value="2026-10-19">19 Oct</option>'; sel.value = '2026-10-19'; }
     (document.getElementById('scalp-strike') as HTMLInputElement).value = '22700';
-    (window as unknown as { _syncScalpContractChartLabel: () => void })._syncScalpContractChartLabel();
+    const w = window as unknown as { _scalpOptionChartTf: string; _syncScalpContractChartLabel: () => void };
+    w._scalpOptionChartTf = '5m';
+    w._syncScalpContractChartLabel();
   });
   await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
-  const view = await page.evaluate(() => {
-    const c = (window as unknown as { _pfChartCanvas: { viewport: { tMin: number; tMax: number } } })._pfChartCanvas;
-    return c && c.viewport;
+  type V = { tMin: number; tMax: number; pMin: number; pMax: number };
+  const view = () => page.evaluate(() => ({ ...(window as unknown as { _pfChartCanvas: { viewport: V } })._pfChartCanvas.viewport }));
+  const span = async () => { const v = await view(); return Math.round(v.tMax - v.tMin); };
+
+  // One day on 5m is 75 bars, ending at the newest of the 300.
+  const first = await view();
+  expect(first.tMin).toBeCloseTo(224.5, 0);
+  expect(first.tMax).toBeCloseTo(299.5, 0);
+
+  // Zoom in to 30 bars (150 minutes): the refreshes and the refresh button keep it.
+  await page.evaluate(() => {
+    const w = window as unknown as { _pfChartCanvas: { viewport: V }; _pfChartCanvasSetViewport: (c: unknown, v: V) => void };
+    const v = w._pfChartCanvas.viewport;
+    w._pfChartCanvasSetViewport(w._pfChartCanvas, { tMin: v.tMax - 30, tMax: v.tMax, pMin: v.pMin, pMax: v.pMax });
   });
-  // Yesterday (14-Oct) starts at bar 150 of 300.
-  expect(view.tMin).toBeCloseTo(149.5, 0);
-  expect(view.tMax).toBeCloseTo(299.5, 0);
+  await page.waitForTimeout(2600); // past a live refresh
+  expect(await span()).toBe(30);
+  const strip = page.locator('#scalp-dock-chart-actions');
+  await strip.locator('button[title*="efresh" i], button[aria-label*="efresh" i]').first().click();
+  await page.waitForTimeout(800);
+  expect(await span()).toBe(30);
+
+  // A new timeframe keeps the same stretch of time: 150 minutes is 10 bars of 15m.
+  await strip.getByRole('radio', { name: /^15m$/i }).click();
+  await expect.poll(span).toBe(10);
+
+  // The 100% button goes back to one day: 25 bars of 15m.
+  await page.locator('#scalp-dock-chart-body [data-bench-zoom-reset]').click();
+  await expect.poll(span).toBe(25);
+  await strip.getByRole('radio', { name: /^5m$/i }).click();
 });

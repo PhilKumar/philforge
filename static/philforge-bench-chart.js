@@ -434,7 +434,7 @@ var _PF_CHART_TRADE_PAD_BARS = 25;
 // what is actually visible plus the drawn lines — fitting the whole fetch
 // squashed the trade into a sliver whenever later days fell far below it.
 // tMin/tMax are BAR INDICES; only the names are inherited.
-function _pfChartCanvasFit(c) {
+function _pfChartCanvasFit(c, initial) {
   var d = c.data || {};
   var candles = d.candles || [];
   if (!candles.length) return null;
@@ -463,10 +463,20 @@ function _pfChartCanvasFit(c) {
       iMax = Math.min(last + 0.5, exitIdx + _PF_CHART_TRADE_PAD_BARS + 0.5);
     }
   }
+  // fit_bars: N frames the newest N bars, widened only to keep a marked
+  // entry in view -- the Scalp option chart's "one day's worth of candles"
+  // (Phil, 2026-10-15). initial_bars, when given, replaces it for the FIRST
+  // frame of a payload only, so a caller can reopen at the span the viewer
+  // last chose while the reset button still returns to fit_bars.
+  var barsWanted = Number((initial && d.initial_bars) || d.fit_bars) || 0;
+  if (barsWanted > 0) {
+    var keepBars = entries.length && isFinite(entryIdx) ? iMin : Infinity;
+    iMin = Math.max(-0.5, Math.min(last + 0.5 - barsWanted, keepBars));
+    iMax = last + 0.5;
+  }
   // fit_sessions: N frames the last N trading days (IST dates) up to the
-  // latest bar, widened only to keep a marked entry in view. The Scalp option
-  // chart opens on today and yesterday (Phil, 2026-10-15).
-  var sessions = Number(d.fit_sessions) || 0;
+  // latest bar, widened only to keep a marked entry in view.
+  var sessions = barsWanted > 0 ? 0 : Number(d.fit_sessions) || 0;
   if (sessions > 0) {
     var seen = 0, day = null, startIdx = 0;
     for (var k = last; k >= 0; k--) {
@@ -562,7 +572,7 @@ function _pfChartCanvasRefresh(d, saved) {
   if (!c || !c.host || !c.host.isConnected) return false;
   var oldKey = c.paintKey, oldViewport = c.viewport;
   c.data = d;
-  var fit = _pfChartCanvasFit(c);
+  var fit = _pfChartCanvasFit(c, !(saved && saved.viewport));
   if (!fit) return false;
   var next = saved && saved.viewport ? {
     tMin: saved.viewport.tMin, tMax: saved.viewport.tMax,
@@ -1253,7 +1263,7 @@ function _pfChartCanvasDraw() {
   var ctx = c.ctx, PAL = _pfChartPalette();
   ctx.clearRect(0, 0, c.w, c.h);
   if (!candles.length) return;
-  if (!c.viewport) c.viewport = _pfChartCanvasFit(c);
+  if (!c.viewport) c.viewport = _pfChartCanvasFit(c, true);
   var p = _pfChartCanvasProjection(c);
   if (!p) return;
   var labels = [];
