@@ -4594,6 +4594,21 @@
           </div>
         </div>
       </details>
+      <!-- Phil, 2026-10-15: "put the options chart on the right side blank
+           area so that I'll check that trade easily side by side". On a
+           two-column window the option chart lives here, following the
+           form's contract and then the open trade; narrower, the chart
+           button still opens it in the pop-up. -->
+      <section class="ocp-monitor scalp-dock-chart" id="scalp-dock-chart" aria-label="Option chart" hidden>
+        <div class="terminal-cascade-chart-toolbar scalp-dock-chart-toolbar">
+          <div class="terminal-cascade-chart-title">
+            <h3 id="scalp-dock-chart-title">Option chart</h3>
+            <div id="scalp-dock-chart-meta">Pick a strike and an expiry to chart that option.</div>
+          </div>
+          <div class="terminal-cascade-chart-actions" id="scalp-dock-chart-actions"></div>
+        </div>
+        <div id="scalp-dock-chart-body" class="scalp-dock-chart-body"><div class="pf-cascade-chart-empty">Pick a strike and an expiry to chart that option.</div></div>
+      </section>
       </div>
     </div>
     <div class="ocp-monitor scalp-history-card">

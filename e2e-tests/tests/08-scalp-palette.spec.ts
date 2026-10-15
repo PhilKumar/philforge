@@ -10,6 +10,9 @@ async function login(page: Page) {
   if (await pw.isVisible()) { await pw.fill(PIN); await page.click('#unlock-btn'); }
   else { for (const d of PIN.split('')) await page.click(`[data-val="${d}"]`); }
   await page.waitForSelector('.nav-tab', { timeout: 15_000 });
+  // The nav is static markup, so it appears while the app script is still
+  // parsing; the light-skin test calls showPage and must wait for it.
+  await page.waitForFunction(() => typeof (window as unknown as { showPage?: unknown }).showPage === 'function');
 }
 
 test('Scalp follows the selected skin and reserves green for trading meaning', async ({ page }) => {

@@ -13817,6 +13817,83 @@ function _scalpChartTargetKey() {
   return _scalpOptionChartTradeId ? String(_scalpOptionChartTradeId) : '';
 }
 
+// Where the chart draws: docked beside the form when the two columns stand
+// side by side, the pop-up otherwise. One canvas either way -- the renderer
+// keeps a single live chart.
+function _scalpChartDocked() {
+  return !!document.getElementById('scalp-dock-chart') && window.matchMedia('(min-width: 1080px)').matches
+    && (typeof _isPageActive !== 'function' || _isPageActive('scalp-page'));
+}
+
+function _scalpChartEls(docked) {
+  const p = docked ? 'scalp-dock-chart' : 'scalp-option-chart';
+  return {
+    title: document.getElementById(p + '-title'),
+    meta: document.getElementById(p + '-meta'),
+    body: document.getElementById(p + '-body'),
+    canvasId: p + '-canvas',
+    canvasClass: docked ? 'scalp-option-chart-canvas scalp-dock-chart-canvas' : 'scalp-option-chart-canvas',
+  };
+}
+
+let _scalpDockStripBuilt = false;
+let _scalpDockPendingKey = '';
+let _scalpDockFailed = { key: '', at: 0 };
+const _SCALP_DOCK_RETRY_MS = 60000;
+
+function _scalpDockShow() {
+  const dock = document.getElementById('scalp-dock-chart');
+  if (!dock) return;
+  dock.hidden = false;
+  if (!_scalpDockStripBuilt && typeof pfChartStrip === 'function') {
+    _scalpDockStripBuilt = true;
+    pfChartStrip(document.getElementById('scalp-dock-chart-actions'), {
+      timeframes: ['1m', '3m', '5m', '15m', '1h'],
+      active: _scalpOptionChartTf,
+      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
+      onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
+    });
+  }
+}
+
+// Draw `target` ({contract} or {tradeId}) into the dock unless it is already
+// there, on its way, or failed under a minute ago (an unchartable contract
+// must not ask Dhan every few seconds).
+function _scalpDockDraw(target) {
+  const key = target.contract
+    ? `form:${target.contract.underlying}|${target.contract.strike}|${target.contract.expiry}|${target.contract.option_type}`
+    : String(target.tradeId);
+  const drawn = !!document.querySelector('#scalp-dock-chart-canvas #pf-bench-canvas-host');
+  if (key === _scalpChartTargetKey() && (drawn || _scalpDockPendingKey === key)) return;
+  if (_scalpDockPendingKey === key) return;
+  if (_scalpDockFailed.key === key && Date.now() - _scalpDockFailed.at < _SCALP_DOCK_RETRY_MS) return;
+  _scalpDockPendingKey = key;
+  openScalpOptionChart(target.contract ? null : target.tradeId, target.contract ? { contract: target.contract } : {})
+    .finally(() => { if (_scalpDockPendingKey === key) _scalpDockPendingKey = ''; });
+}
+
+// The dock follows the form's contract; an open trade on that contract takes
+// over (it carries the entry, target and stop), and when that trade closes the
+// dock goes back to the form.
+function _scalpDockFollow(openTrades) {
+  if (!_scalpChartDocked()) return;
+  _scalpDockShow();
+  const open = Array.isArray(openTrades) ? openTrades : _scalpDockOpenTrades;
+  const form = _scalpFormContract();
+  const pinned = _scalpOptionChartTradeId && !_scalpOptionChartContract;
+  if (pinned && open.some(t => t.trade_id === _scalpOptionChartTradeId)) {
+    _scalpDockDraw({ tradeId: _scalpOptionChartTradeId });
+    return;
+  }
+  const same = form && open
+    .filter(t => t.status !== 'pending' && t.underlying === form.underlying && Number(t.strike) === form.strike
+      && t.expiry === form.expiry && t.option_type === form.option_type)
+    .sort((a, b) => (b.trade_id || 0) - (a.trade_id || 0))[0];
+  if (same) _scalpDockDraw({ tradeId: same.trade_id });
+  else if (form) _scalpDockDraw({ contract: form });
+}
+let _scalpDockOpenTrades = [];
+
 // The contract the entry form is pointing at, or null while it is incomplete.
 function _scalpFormContract() {
   const strike = parseInt(document.getElementById('scalp-strike')?.value, 10) || 0;
@@ -13843,6 +13920,7 @@ function _syncScalpContractChartLabel() {
   btn.title = c
     ? `Chart ${c.underlying} ${c.strike} ${c.option_type} (${c.expiry}) before you trade it`
     : 'Pick a strike and an expiry to chart that option';
+  _scalpDockFollow();
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _syncScalpContractChartLabel);
@@ -13851,7 +13929,7 @@ else _syncScalpContractChartLabel();
 function openScalpContractChart() {
   const contract = _scalpFormContract();
   if (!contract) { toast('Pick a strike and an expiry first.', 'warning'); return; }
-  openScalpOptionChart(null, { contract });
+  openScalpOptionChart(null, { contract, reveal: true });
 }
 window.openScalpContractChart = openScalpContractChart;
 
@@ -13865,7 +13943,9 @@ function _startScalpOptionChartPolling() {
   _stopScalpOptionChartPolling();
   _scalpOptionChartPollTimer = setInterval(() => {
     const overlay = document.getElementById('scalp-option-chart-overlay');
-    if (!overlay?.classList.contains('is-open') || !_scalpChartTargetKey() || _scalpOptionChartPollInFlight) return;
+    const dockLive = _scalpChartDocked() && !document.getElementById('scalp-dock-chart')?.hidden
+      && (typeof _isPageVisible !== 'function' || _isPageVisible());
+    if (!(overlay?.classList.contains('is-open') || dockLive) || !_scalpChartTargetKey() || _scalpOptionChartPollInFlight) return;
     _scalpOptionChartPollInFlight = true;
     openScalpOptionChart(_scalpOptionChartTradeId, { liveRefresh: true, contract: _scalpOptionChartContract }).finally(() => {
       _scalpOptionChartPollInFlight = false;
@@ -13919,11 +13999,21 @@ async function openScalpOptionChart(tradeId, options = {}) {
   _scalpOptionChartContract = contract;
   const targetKey = _scalpChartTargetKey();
   const requestId = ++_scalpOptionChartRequest;
-  const overlay = _ensureScalpOptionChartOverlay();
-  const body = document.getElementById('scalp-option-chart-body');
-  overlay.classList.add('is-open');
-  overlay.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('terminal-cascade-chart-open');
+  const docked = _scalpChartDocked();
+  if (docked) {
+    _scalpDockShow();
+    // A chart button pressed beside the dock lands in it, not in a pop-up.
+    if (!liveRefresh && typeof document.getElementById('scalp-dock-chart')?.scrollIntoView === 'function' && options.reveal) {
+      document.getElementById('scalp-dock-chart').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  } else {
+    const overlay = _ensureScalpOptionChartOverlay();
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('terminal-cascade-chart-open');
+  }
+  const els = _scalpChartEls(docked);
+  const body = els.body;
   // Hold the old frame while fetching; only a first open announces itself.
   if (!liveRefresh && body && !body.querySelector('#pf-bench-canvas-host')) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
   try {
@@ -13938,9 +14028,9 @@ async function openScalpOptionChart(tradeId, options = {}) {
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
     const instrument = data.instrument || {};
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
-    const title = document.getElementById('scalp-option-chart-title');
-    const meta = document.getElementById('scalp-option-chart-meta');
-    if (title) title.textContent = symbol || 'Option Chart';
+    const title = els.title;
+    const meta = els.meta;
+    if (title) title.textContent = (symbol || 'Option Chart') + (docked && !contract ? ' · your trade' : '');
     if (meta) {
       const live = Number(data.live_price || 0);
       meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _scalpOptionChartTf).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Waiting for live premium'} · CPR, R1-R4, S1-S5, 20-EMA · entry, target, stop marked · drag to pan, wheel to zoom`;
@@ -13949,12 +14039,12 @@ async function openScalpOptionChart(tradeId, options = {}) {
       // An already-mounted canvas is UPDATED in place, never torn down and
       // remounted — element churn is the flicker. The viewport survives only
       // a same trade + same timeframe redraw; anything else refits.
-      let host = document.getElementById('scalp-option-chart-canvas');
+      let host = document.getElementById(els.canvasId);
       if (!host) {
-        body.innerHTML = '<div class="scalp-option-chart-canvas" id="scalp-option-chart-canvas"></div>';
-        host = document.getElementById('scalp-option-chart-canvas');
+        body.innerHTML = `<div class="${els.canvasClass}" id="${els.canvasId}"></div>`;
+        host = document.getElementById(els.canvasId);
       }
-      const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#scalp-option-chart-canvas') === host;
+      const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#' + els.canvasId) === host;
       const drawnKey = `${targetKey}|${data.timeframe || _scalpOptionChartTf}`;
       const view = canvasIsThisChart && drawnKey === _scalpOptionChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
       const refreshed = canvasIsThisChart && (data.candles || []).length && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
@@ -13973,9 +14063,13 @@ async function openScalpOptionChart(tradeId, options = {}) {
         if (!pfBenchDrawChart(host, data)) throw new Error('Option chart could not be drawn.');
       }
     }
-    if (!liveRefresh) _startScalpOptionChartPolling();
+    if (docked && _scalpDockFailed.key === targetKey) _scalpDockFailed = { key: '', at: 0 };
+    if (!liveRefresh || !_scalpOptionChartPollTimer) _startScalpOptionChartPolling();
   } catch (error) {
     if (requestId !== _scalpOptionChartRequest) return;
+    // Docked, a chart that cannot be drawn stops asking; the dock tries the
+    // same contract again after a minute, or at once on a new pick.
+    if (docked) { _scalpDockFailed = { key: targetKey, at: Date.now() }; _stopScalpOptionChartPolling(); }
     if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Option chart unavailable')}</div>`;
   }
 }
@@ -14370,6 +14464,8 @@ function _renderScalpStatus(data) {
   const tbody = document.getElementById('scalp-active-body');
   if (tbody) {
     const open = data.open_trades || [];
+    _scalpDockOpenTrades = open;
+    _scalpDockFollow(open);
     const pendingCount = open.filter(t => t.status === 'pending').length;
     const activeCount = open.length - pendingCount;
     document.getElementById('scalp-open-count').textContent = activeCount + ' open' + (pendingCount ? ` · ${pendingCount} pending` : '');
