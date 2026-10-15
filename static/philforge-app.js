@@ -12995,6 +12995,15 @@ document.addEventListener('input', function(e) {
 let _ltpAbort = null;
 var _scalpCurrentLTP = 0;
 var _scalpLTPFromWS = 0;  // timestamp (ms) of last WS-driven LTP update
+// WHICH contract _scalpCurrentLTP is the price of. After a strike change the
+// old strike's price sat in _scalpCurrentLTP until the new one arrived, and
+// the chart's live candle took it as the new strike's -- a wick down (or up)
+// to the old premium (Phil, 2026-10-15) -- while margin and the points-based
+// SL/Target read it too.
+var _scalpLTPKey = '';
+function _scalpContractKey(underlying, strike, expiry, optionType) {
+  return `form:${underlying}|${parseInt(strike, 10) || 0}|${expiry}|${optionType}`;
+}
 let _ltpThrottleTimer = null;
 
 // Throttled wrapper: ensures fetchScalpLTP fires at most once per 1s
@@ -13014,7 +13023,8 @@ async function fetchScalpLTP() {
 
   // Skip REST call if WS provided a fresh price within the last 2 seconds
   // (avoids Dhan rate limits while WS is actively pushing open-trade data)
-  if (_scalpLTPFromWS && (Date.now() - _scalpLTPFromWS < 5000) && _scalpCurrentLTP > 0) {
+  const formKey = _scalpContractKey(underlying, strike, expiry, optType);
+  if (_scalpLTPFromWS && (Date.now() - _scalpLTPFromWS < 5000) && _scalpCurrentLTP > 0 && _scalpLTPKey === formKey) {
     return;
   }
 
@@ -13028,6 +13038,7 @@ async function fetchScalpLTP() {
     );
     if (match) {
       _scalpCurrentLTP = match.current_premium;
+      _scalpLTPKey = formKey;
       el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
       el.style.color = 'var(--scalp-info)';
       updateScalpMargin();
@@ -13047,6 +13058,7 @@ async function fetchScalpLTP() {
       el.textContent = '₹' + d.ltp.toFixed(2);
       el.style.color = 'var(--scalp-info)';
       _scalpCurrentLTP = d.ltp;
+      _scalpLTPKey = formKey;
     } else {
       // Fallback: keep last known LTP if we had one, show N/A only if truly unknown
       if (_scalpCurrentLTP > 0) {
@@ -13939,7 +13951,8 @@ function _scalpChartLivePrice(key) {
   if (String(key).startsWith('form:')) {
     const c = _scalpFormContract();
     const formKey = c ? `form:${c.underlying}|${c.strike}|${c.expiry}|${c.option_type}` : '';
-    return formKey === key ? Number(_scalpCurrentLTP) || 0 : 0;
+    // Only a price known to be THIS contract's; never the last strike's.
+    return formKey === key && _scalpLTPKey === key ? Number(_scalpCurrentLTP) || 0 : 0;
   }
   const trade = (_scalpDockOpenTrades || []).find(t => String(t.trade_id) === String(key));
   return trade ? Number(trade.current_premium) || 0 : 0;
@@ -14116,7 +14129,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     // The form's contract has no trade to price it, so the premium the form is
     // already showing rides along and becomes the dotted LIVE line.
     const url = contract
-      ? `/api/scalp/contract-chart?${new URLSearchParams({ ...contract, timeframe: _scalpOptionChartTf, live_price: String(Number(_scalpCurrentLTP) > 0 ? _scalpCurrentLTP : 0) })}`
+      ? `/api/scalp/contract-chart?${new URLSearchParams({ ...contract, timeframe: _scalpOptionChartTf, live_price: String(_scalpChartLivePrice(targetKey)) })}`
       : `/api/scalp/trades/${encodeURIComponent(id)}/chart?timeframe=${encodeURIComponent(_scalpOptionChartTf)}`;
     const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
@@ -20828,6 +20841,7 @@ function _updateLivePremiumFromWS(openTrades) {
       el.style.color = 'var(--scalp-info)';
     }
     _scalpCurrentLTP = match.current_premium;
+    _scalpLTPKey = _scalpContractKey(underlying, strike, expiry, optType);
     _scalpLTPFromWS = Date.now();  // mark as fresh — suppresses REST fallback
     updateScalpMargin();
   }

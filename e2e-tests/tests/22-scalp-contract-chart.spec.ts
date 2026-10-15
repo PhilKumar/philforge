@@ -71,6 +71,7 @@ test('Scalp: the option chart button beside the broker charts the contract in th
     (document.getElementById('scalp-option-type') as HTMLInputElement).value = 'PE';
     (document.getElementById('scalp-strike') as HTMLInputElement).value = '22700';
     w._scalpCurrentLTP = 131.5;
+    (window as unknown as { _scalpLTPKey: string })._scalpLTPKey = `form:NIFTY|22700|${(document.getElementById('scalp-expiry') as HTMLSelectElement).value}|PE`;
     w._syncScalpContractChartLabel();
     return (document.getElementById('scalp-expiry') as HTMLSelectElement).value;
   });

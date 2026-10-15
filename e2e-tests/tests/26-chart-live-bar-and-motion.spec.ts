@@ -27,13 +27,15 @@ function oneMinuteBars(day: string, until: string) {
   return bars;
 }
 
-async function scalpChart(page: Page, candles: unknown[], ltp: number) {
-  await page.route('**/api/scalp/contract-chart**', (route) => route.fulfill({ json: {
+async function scalpChart(page: Page, candles: unknown[], ltp: number, ownRoutes = true) {
+  // Playwright tries the LAST route registered first, so a test with routes
+  // of its own passes ownRoutes=false rather than have these shadow them.
+  if (ownRoutes) await page.route('**/api/scalp/contract-chart**', (route) => route.fulfill({ json: {
     status: 'ok', timeframe: '1m', candles, entries: [], overlays: [], live_price: ltp,
     lines: [{ label: 'LIVE', price: ltp, filled: true, color: '#e2e8f0', dash: [2, 3] }],
     instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
   } }));
-  await page.route('**/api/option-ltp**', (route) => route.fulfill({ json: { status: 'ok', ltp } }));
+  if (ownRoutes) await page.route('**/api/option-ltp**', (route) => route.fulfill({ json: { status: 'ok', ltp } }));
   await login(page);
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
@@ -46,6 +48,7 @@ async function scalpChart(page: Page, candles: unknown[], ltp: number) {
     (document.getElementById('scalp-option-type') as HTMLInputElement).value = 'PE';
     (document.getElementById('scalp-strike') as HTMLInputElement).value = '22700';
     w._scalpCurrentLTP = price;
+    (window as unknown as { _scalpLTPKey: string })._scalpLTPKey = 'form:NIFTY|22700|2026-10-19|PE';
     w._scalpOptionChartTf = '1m';
     w._syncScalpContractChartLabel();
   }, ltp);
@@ -146,4 +149,37 @@ test('the wheel glides, a sideways swipe pans, and a flicked pan coasts', async 
   await page.waitForTimeout(250);
   // Dragged left moves forward in time, and keeps going after the release.
   expect((await canvas(page)).viewport.tMin).toBeGreaterThan(released + 0.5);
+});
+
+test('a new strike never takes the last strike\'s price into its candle', async ({ page }) => {
+  // Phil, 2026-10-15: "Why it is putting a big wick below or above when I
+  // change strikes". The old strike's premium was still the page's price for
+  // a moment and the new strike's live bar took it as its own low or high.
+  await page.clock.setFixedTime(new Date('2026-10-15T10:07:30+05:30'));
+  const low = [...oneMinuteBars('2026-10-14', '15:29:00'), ...oneMinuteBars('2026-10-15', '10:06:00')];
+  const high = low.map((b) => ({ ...b, o: b.o + 160, h: b.h + 160, l: b.l + 160, c: b.c + 160 }));
+  await page.route('**/api/scalp/contract-chart**', (route) => {
+    const strike = new URL(route.request().url()).searchParams.get('strike');
+    return route.fulfill({ json: {
+      status: 'ok', timeframe: '1m', candles: strike === '22750' ? high : low, entries: [], overlays: [], lines: [], live_price: 0,
+      instrument: { underlying: 'NIFTY', strike: Number(strike), option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+    } });
+  });
+  // The new strike's own price is slow to come back, as Dhan can be.
+  await page.route('**/api/option-ltp**', async (route) => {
+    const strike = new URL(route.request().url()).searchParams.get('strike');
+    if (strike === '22750') await new Promise((r) => setTimeout(r, 4000));
+    await route.fulfill({ json: { status: 'ok', ltp: strike === '22750' ? 305 : 150 } });
+  });
+  await scalpChart(page, low, 150, false);
+  await expect.poll(async () => (await canvas(page)).candles.at(-1)!.c).toBe(150);
+
+  await page.evaluate(() => {
+    (document.getElementById('scalp-strike') as HTMLInputElement).value = '22750';
+    (window as unknown as { _syncScalpContractChartLabel: () => void })._syncScalpContractChartLabel();
+  });
+  await expect(page.locator('#scalp-dock-chart-title')).toHaveText('NIFTY 22750PE');
+  await page.waitForTimeout(2500);
+  const lows = (await canvas(page)).candles.map((b) => b.l);
+  expect(Math.min(...lows)).toBeGreaterThan(290);
 });
