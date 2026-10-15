@@ -155,6 +155,32 @@ window.pfChartLatestStructures = function (list, isActive) {
 };
 
 
+// ── The NSE bar clock ────────────────────────────────────────
+// Bars sit on the 09:15 grid and the session ends at 15:30 IST, so a 1h bar
+// opened at 15:15 closes at 15:30, not 16:15. Weekends have no session;
+// holidays cannot be known here, so callers also ask that the chart already
+// holds a bar from today before treating a moment as live.
+function _pfChartNseSession(nowSec) {
+  var istDay = Math.floor((Number(nowSec) + 19800) / 86400);
+  var weekday = (istDay + 4) % 7; // 1970-01-01 was a Thursday; 0 is Sunday
+  if (weekday === 0 || weekday === 6) return null;
+  var midnight = istDay * 86400 - 19800;
+  return { day: istDay, open: midnight + 33300, close: midnight + 55800 };
+}
+
+// The bar `nowSec` falls in, for bars of `tfSec`, or null outside a session.
+function _pfChartBarWindow(nowSec, tfSec) {
+  var session = _pfChartNseSession(nowSec), step = Math.max(Number(tfSec) || 60, 1);
+  if (!session || nowSec < session.open || nowSec >= session.close) return null;
+  var start = session.open + Math.floor((nowSec - session.open) / step) * step;
+  return { start: start, close: Math.min(start + step, session.close), day: session.day, open: session.open };
+}
+
+function _pfChartIstDay(epochSec) { return Math.floor((Number(epochSec) + 19800) / 86400); }
+
+window.pfChartBarWindow = _pfChartBarWindow;
+window.pfChartIstDay = _pfChartIstDay;
+
 // Live canvas state, or null when no canvas chart is mounted. Holding the
 // ResizeObserver here is what makes teardown possible — without it, every
 // refresh would leave another observer watching a detached element.
@@ -211,6 +237,13 @@ function _pfChartCanvasMount(d, scope) {
   var c = _pfChartCanvas;
   _pfChartCanvasResize();
   _pfChartCanvasBindInteraction(_pfChartCanvas);
+  // The bar-close countdown ticks once a second, on a chart that asks for it
+  // (payload.countdown) and only while it can be seen.
+  c.clock = setInterval(function () {
+    if (_pfChartCanvas !== c || !c.data || !c.data.countdown) return;
+    if (document.hidden || !c.host.isConnected || !c.host.getClientRects().length) return;
+    _pfChartCanvasDraw();
+  }, 1000);
   // The host's own zoom cluster. Bound per-mount; teardown removes the host.
   var zoomBox = host.querySelector('[data-bench-zoom]');
   if (zoomBox) {
@@ -273,6 +306,8 @@ function _pfChartCanvasTeardown() {
   (c.handlers || []).forEach(function (row) { c.host.removeEventListener(row[0], row[1], row[2]); });
   // A frame already queued would otherwise resize a chart that is gone.
   if (c.resizeFrame) { cancelAnimationFrame(c.resizeFrame); c.resizeFrame = 0; }
+  if (c.clock) { clearInterval(c.clock); c.clock = 0; }
+  _pfChartCanvasStopMotion(c);
   if (c.ro) { try { c.ro.disconnect(); } catch (err) {} }
   else window.removeEventListener('resize', _pfChartCanvasResize);
   if (c.themeObserver) { try { c.themeObserver.disconnect(); } catch (err) {} }
@@ -702,8 +737,12 @@ function _pfChartCanvasGapCandles(c, p, PAL) {
 function _pfChartCanvasCandles(c, p, PAL) {
   var ctx = c.ctx, d = c.data || {}, bodyW = Math.max(Math.min(_pfChartCanvasCandleWidth(d, p) * 0.65, 9), 1);
   var count = 0;
+  // Only the bars in view (x is the bar index), one either side for the edge.
+  var all = d.candles || [], v = c.viewport || {};
+  var first = Math.max(0, Math.floor(Number(v.tMin)) - 1), last = Math.min(all.length - 1, Math.ceil(Number(v.tMax)) + 1);
+  if (!isFinite(first) || !isFinite(last)) { first = 0; last = all.length - 1; }
   _pfChartCanvasClip(ctx, p, function () {
-    (d.candles || []).forEach(function (bar) {
+    all.slice(first, last + 1).forEach(function (bar) {
       var x = p.xOf(bar.t), up = Number(bar.c) >= Number(bar.o), color = up ? PAL.up : PAL.down;
       ctx.strokeStyle = PAL.wick || color; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, p.yOf(bar.h)); ctx.lineTo(x, p.yOf(bar.l)); ctx.stroke();
@@ -1166,6 +1205,47 @@ function _pfChartCanvasRsiPane(c, p, PAL) {
   return drawn;
 }
 
+// TradingView's last-price tag: the latest close on the price axis in the
+// bar's colour, with the time left until that bar closes underneath (Phil,
+// 2026-10-15: "add the countdown to bar close"). Opt-in by payload.countdown.
+// The countdown shows only while the session is open AND the chart holds a
+// bar from today -- on a holiday or after the close the tag carries the price
+// alone, never a clock counting a bar that is not forming.
+function _pfChartCanvasCountdownText(seconds) {
+  var s = Math.max(0, Math.floor(seconds)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return (h ? h + ':' + pad(m) : pad(m)) + ':' + pad(r);
+}
+
+function _pfChartCanvasLastPriceTag(c, p, PAL) {
+  var d = c.data || {}, candles = d.candles || [];
+  if (!d.countdown || !candles.length) return { price: null, countdown: '' };
+  var bar = candles[candles.length - 1], price = Number(bar.c);
+  if (!isFinite(price)) return { price: null, countdown: '' };
+  var now = Date.now() / 1000;
+  var tfSec = _pfChartCanvasTimeframeSeconds(d), win = _pfChartBarWindow(now, tfSec);
+  // A bar off the 09:15 grid (a broker's own hourly bars, say) would make the
+  // grid's clock wrong for it, so it gets no countdown.
+  var onGrid = win && (Number(bar.t) - win.open) % tfSec === 0;
+  var countdown = win && onGrid && _pfChartIstDay(bar.t) === win.day ? _pfChartCanvasCountdownText(win.close - now) : '';
+  var ctx = c.ctx, scale = p.fontScale || 1;
+  var color = price >= Number(bar.o) ? PAL.up : PAL.down;
+  var priceText = price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  ctx.save();
+  ctx.font = '700 ' + (9.5 * scale) + 'px monospace';
+  var w = Math.max(ctx.measureText(priceText).width, countdown ? ctx.measureText(countdown).width : 0) + 10;
+  var h = countdown ? 28 * scale : 15 * scale;
+  var x = p.padL + p.plotW + 1;
+  // Pinned to the plot's edge when the price is scrolled out of view.
+  var y = Math.max(p.padT, Math.min(p.padT + p.plotH - h, p.yOf(price) - 7.5 * scale));
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+  _pfChartCanvasText(ctx, priceText, x + 5, y + 7.5 * scale, '#ffffff', 9.5, 'left', '700', scale);
+  if (countdown) _pfChartCanvasText(ctx, countdown, x + 5, y + 20.5 * scale, 'rgba(255,255,255,0.85)', 9.5, 'left', '400', scale);
+  ctx.restore();
+  return { price: price, countdown: countdown };
+}
+
 function _pfChartCanvasDraw() {
   var c = _pfChartCanvas;
   if (!c || !c.ctx) return;
@@ -1190,6 +1270,7 @@ function _pfChartCanvasDraw() {
   var rsiCount = _pfChartCanvasRsiPane(c, p, PAL);
   var markerCount = _pfChartCanvasMarkers(c, p, PAL, labels);
   var labelCount = _pfChartCanvasLabels(c, p, labels);
+  var tag = _pfChartCanvasLastPriceTag(c, p, PAL);
   // E2E reads this small semantic paint record in addition to real pixels. It
   // is a test seam, not payload state, and catches a canvas that draws a frame
   // but silently loses candles/labels/geometry.
@@ -1198,6 +1279,7 @@ function _pfChartCanvasDraw() {
     overlays: overlayCount, ema: emaCount, rsi: rsiCount,
     gaps: gapCount, labels: axisLabelCount + labelCount,
     labelTexts: labels.map(function (label) { return label.text; }),
+    lastPrice: tag.price, countdown: tag.countdown,
     theme: document.documentElement.getAttribute('data-theme') || 'auto'
   };
   c.paintKey = _pfChartCanvasPaintKey(d);
@@ -1296,6 +1378,86 @@ function _pfChartCanvasClearCrosshair(c) {
   if (c && c.octx) c.octx.clearRect(0, 0, c.w, c.h);
 }
 
+// ── Motion ───────────────────────────────────────────────────
+// Phil, 2026-10-15: "why the chart painting is not smooth like Trading view?"
+// A drag drew once per pointer event (a fast mouse sends several a frame), a
+// wheel notch jumped 8% at once whatever the device -- a trackpad sends dozens
+// of tiny wheel events, so it lurched -- and a released drag stopped dead.
+// Now a drag paints once per frame, the wheel steers a target the view eases
+// toward, and a flicked pan coasts to a stop.
+function _pfChartCanvasStopMotion(c) {
+  if (!c) return;
+  if (c.moveFrame) { cancelAnimationFrame(c.moveFrame); c.moveFrame = 0; }
+  if (c.glideFrame) { cancelAnimationFrame(c.glideFrame); c.glideFrame = 0; }
+  if (c.coastFrame) { cancelAnimationFrame(c.coastFrame); c.coastFrame = 0; }
+  c.pendingView = null;
+  c.glideTarget = null;
+}
+
+// Paint a dragged viewport at the next frame; later moves in the same frame
+// replace it.
+function _pfChartCanvasQueueView(c, next) {
+  c.pendingView = next;
+  if (c.moveFrame) return;
+  c.moveFrame = requestAnimationFrame(function () {
+    c.moveFrame = 0;
+    var view = c.pendingView;
+    c.pendingView = null;
+    if (view && _pfChartCanvas === c) _pfChartCanvasSetViewport(c, view);
+  });
+}
+
+function _pfChartCanvasFlushView(c) {
+  if (c.moveFrame) { cancelAnimationFrame(c.moveFrame); c.moveFrame = 0; }
+  var view = c.pendingView;
+  c.pendingView = null;
+  if (view) _pfChartCanvasSetViewport(c, view);
+}
+
+function _pfChartCanvasMaxSpan(c) {
+  var bars = ((c.data || {}).candles || []).length;
+  return Math.max(bars * 2 + 20, 10);
+}
+
+// Ease the time window toward c.glideTarget, about a third of the way each
+// frame, so a wheel notch glides and a burst of trackpad events blends.
+function _pfChartCanvasGlide(c) {
+  if (c.glideFrame) return;
+  var last = performance.now();
+  var step = function (now) {
+    c.glideFrame = 0;
+    var target = c.glideTarget, v = c.viewport;
+    if (_pfChartCanvas !== c || !target || !v) { c.glideTarget = null; return; }
+    var k = 1 - Math.pow(0.65, Math.max(now - last, 1) / 16.7);
+    last = now;
+    var tMin = v.tMin + (target.tMin - v.tMin) * k, tMax = v.tMax + (target.tMax - v.tMax) * k;
+    var done = Math.abs(target.tMin - tMin) < 0.01 && Math.abs(target.tMax - tMax) < 0.01;
+    if (done) { tMin = target.tMin; tMax = target.tMax; c.glideTarget = null; }
+    _pfChartCanvasSetViewport(c, { tMin: tMin, tMax: tMax, pMin: v.pMin, pMax: v.pMax });
+    if (!done) c.glideFrame = requestAnimationFrame(step);
+  };
+  c.glideFrame = requestAnimationFrame(step);
+}
+
+// After a flicked pan the chart keeps moving in time and slows to a stop.
+function _pfChartCanvasCoast(c, pxPerMs) {
+  var p = c.projection;
+  if (!p || Math.abs(pxPerMs) < 0.25) return;
+  var velocity = Math.max(-6, Math.min(6, pxPerMs)), last = performance.now();
+  var step = function (now) {
+    c.coastFrame = 0;
+    var v = c.viewport, proj = c.projection;
+    if (_pfChartCanvas !== c || !v || !proj) return;
+    var dt = Math.max(now - last, 1);
+    last = now;
+    var shift = -(velocity * dt) / proj.plotW * (v.tMax - v.tMin);
+    _pfChartCanvasSetViewport(c, { tMin: v.tMin + shift, tMax: v.tMax + shift, pMin: v.pMin, pMax: v.pMax });
+    velocity *= Math.pow(0.92, dt / 16.7);
+    if (Math.abs(velocity) > 0.02) c.coastFrame = requestAnimationFrame(step);
+  };
+  c.coastFrame = requestAnimationFrame(step);
+}
+
 // Phase 3 interaction model. Plot drag pans both axes; the axis gutters are
 // deliberately separate so price stretching can never move time and vice versa.
 function _pfChartCanvasBindInteraction(c) {
@@ -1343,7 +1505,7 @@ function _pfChartCanvasBindInteraction(c) {
     // midpoint, so one gesture both zooms and pans.
     var tMin = pin.anchorTime - ((g.mx - p.padL) / p.plotW) * tSpan;
     var pMax = pin.anchorPrice + ((g.my - p.padT) / p.plotH) * pSpan;
-    _pfChartCanvasSetViewport(c, { tMin: tMin, tMax: tMin + tSpan, pMin: pMax - pSpan, pMax: pMax });
+    _pfChartCanvasQueueView(c, { tMin: tMin, tMax: tMin + tSpan, pMin: pMax - pSpan, pMax: pMax });
   }
   function endDrag(event) {
     if (event) { try { c.host.releasePointerCapture(event.pointerId); } catch (err) {} }
@@ -1365,10 +1527,21 @@ function _pfChartCanvasBindInteraction(c) {
       if (c.touches.size) return;
     }
     if (!c.drag) return;
+    _pfChartCanvasFlushView(c);
+    var drag = c.drag;
     c.drag = null;
     c.host.style.cursor = '';
+    // Released while still moving: coast, at the speed of the drag's last
+    // ~100ms. A pointer that came to rest before letting go stays put.
+    var samples = drag.samples || [], b = samples[samples.length - 1];
+    var recent = b ? samples.filter(function (s) { return b.at - s.at < 100; }) : [];
+    if (drag.kind === 'pan' && b && performance.now() - b.at < 100 && recent.length >= 2) {
+      var a = recent[0];
+      if (b.at > a.at) _pfChartCanvasCoast(c, (b.x - a.x) / (b.at - a.at));
+    }
   }
   bind('pointerdown', function (event) {
+    _pfChartCanvasStopMotion(c);
     var point = _pfChartCanvasPoint(c, event), v = c.viewport;
     if (event.pointerType === 'touch' && point) {
       c.touches.set(event.pointerId, { x: point.x, y: point.y });
@@ -1402,17 +1575,18 @@ function _pfChartCanvasBindInteraction(c) {
     }
     var drag = c.drag, start = drag.viewport, p = c.projection;
     var tSpan = start.tMax - start.tMin, pSpan = start.pMax - start.pMin;
+    drag.samples = (drag.samples || []).concat([{ x: point.x, at: performance.now() }]).slice(-6);
     if (drag.kind === 'pan') {
       var dt = -(point.x - drag.x) / p.plotW * tSpan;
       var dp = (point.y - drag.y) / p.plotH * pSpan;
-      _pfChartCanvasSetViewport(c, { tMin: start.tMin + dt, tMax: start.tMax + dt, pMin: start.pMin + dp, pMax: start.pMax + dp });
+      _pfChartCanvasQueueView(c, { tMin: start.tMin + dt, tMax: start.tMax + dt, pMin: start.pMin + dp, pMax: start.pMax + dp });
     } else if (drag.kind === 'price') {
       // Pulling the price axis upward zooms in (a tighter price range); pulling
       // it downward zooms out. This is intentionally opposite to screen Y,
       // which increases downward.
       var priceSpan = pSpan * Math.exp((point.y - drag.y) / 160);
       var priceRatio = (drag.anchorPrice - start.pMin) / pSpan;
-      _pfChartCanvasSetViewport(c, {
+      _pfChartCanvasQueueView(c, {
         tMin: start.tMin, tMax: start.tMax,
         pMin: drag.anchorPrice - priceRatio * priceSpan,
         pMax: drag.anchorPrice + (1 - priceRatio) * priceSpan
@@ -1420,7 +1594,7 @@ function _pfChartCanvasBindInteraction(c) {
     } else {
       var timeSpan = Math.max(0.5, tSpan * Math.exp((drag.x - point.x) / 160));
       var timeRatio = (drag.anchorTime - start.tMin) / tSpan;
-      _pfChartCanvasSetViewport(c, {
+      _pfChartCanvasQueueView(c, {
         tMin: drag.anchorTime - timeRatio * timeSpan,
         tMax: drag.anchorTime + (1 - timeRatio) * timeSpan,
         pMin: start.pMin, pMax: start.pMax
@@ -1431,11 +1605,30 @@ function _pfChartCanvasBindInteraction(c) {
   bind('pointercancel', endDrag);
   bind('pointerleave', function () { if (!c.drag) _pfChartCanvasClearCrosshair(c); });
   bind('wheel', function (event) {
-    var point = _pfChartCanvasPoint(c, event);
-    if (!point || !point.plot) return;
+    var point = _pfChartCanvasPoint(c, event), p = c.projection, v = c.viewport;
+    if (!point || !point.plot || !p || !v) return;
     event.preventDefault();
-    // Time only: vertical scale is reserved for deliberate price-axis drags.
-    _pfChartCanvasZoom(event.deltaY < 0 ? 1 / 1.08 : 1.08, false, point);
+    if (c.coastFrame) { cancelAnimationFrame(c.coastFrame); c.coastFrame = 0; }
+    // Line and page deltas (some mice) are scaled to pixels, so a notch and a
+    // trackpad stroke of the same length move the chart the same amount.
+    var unit = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? 400 : 1);
+    var dx = event.deltaX * unit, dy = event.deltaY * unit;
+    var base = c.glideTarget || { tMin: v.tMin, tMax: v.tMax };
+    var span = base.tMax - base.tMin, next;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // A sideways swipe pans time, as on TradingView.
+      var shift = dx / p.plotW * span;
+      next = { tMin: base.tMin + shift, tMax: base.tMax + shift };
+    } else {
+      // Time only: vertical scale is reserved for deliberate price-axis drags.
+      // Proportional to the stroke: a mouse notch (~100px) is ~16%.
+      var factor = Math.exp(Math.max(-0.3, Math.min(0.3, dy * 0.0015)));
+      var newSpan = Math.max(0.5, Math.min(_pfChartCanvasMaxSpan(c), span * factor));
+      var at = base.tMin + ((point.x - p.padL) / p.plotW) * span, ratio = (at - base.tMin) / span;
+      next = { tMin: at - ratio * newSpan, tMax: at + (1 - ratio) * newSpan };
+    }
+    c.glideTarget = next;
+    _pfChartCanvasGlide(c);
   }, { passive: false });
   bind('dblclick', function (event) {
     var point = _pfChartCanvasPoint(c, event), fit = _pfChartCanvasFit(c);

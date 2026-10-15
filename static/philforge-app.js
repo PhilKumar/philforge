@@ -13904,6 +13904,72 @@ function _scalpDockFollow(openTrades) {
 }
 let _scalpDockOpenTrades = [];
 
+// ── The forming candle, built from the live price ─────────────
+// Phil, 2026-10-15: the last candle should grow like TradingView's. The
+// candles come from Dhan's history (reused for 20s on the server), so between
+// those the page builds the current bar itself from the premium it already
+// polls: high, low and close follow the price, and a new bar opens on the
+// 09:15 grid. Only on a day the chart already holds a bar from, so a holiday
+// or a closed market never grows bars from a stale price.
+const _SCALP_TF_SEC = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600 };
+let _scalpLiveBar = null;   // {key, tf, t, o, h, l}: survives the 20s refreshes
+let _scalpChartShown = null; // {key, data}: the payload on screen
+let _scalpLiveTimer = null;
+
+function _scalpChartLivePrice(key) {
+  if (String(key).startsWith('form:')) {
+    const c = _scalpFormContract();
+    const formKey = c ? `form:${c.underlying}|${c.strike}|${c.expiry}|${c.option_type}` : '';
+    return formKey === key ? Number(_scalpCurrentLTP) || 0 : 0;
+  }
+  const trade = (_scalpDockOpenTrades || []).find(t => String(t.trade_id) === String(key));
+  return trade ? Number(trade.current_premium) || 0 : 0;
+}
+
+// Fold the live price into data's last bar (or open the next one). True when
+// the candles changed. Builds new arrays so the renderer re-reads its axis.
+function _scalpApplyLiveBar(data, key) {
+  const candles = data && data.candles;
+  const price = _scalpChartLivePrice(key);
+  if (!(price > 0) || !Array.isArray(candles) || !candles.length || typeof pfChartBarWindow !== 'function') return false;
+  const tf = _SCALP_TF_SEC[data.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300;
+  const now = Date.now() / 1000;
+  const win = pfChartBarWindow(now, tf);
+  const last = candles[candles.length - 1];
+  const lastT = Number(last.t);
+  if (!win || pfChartIstDay(lastT) !== win.day || lastT > win.start || (lastT - win.open) % tf !== 0) return false;
+  let live = _scalpLiveBar;
+  if (!live || live.key !== key || live.tf !== tf || live.t !== win.start) {
+    live = _scalpLiveBar = { key, tf, t: win.start, o: price, h: price, l: price };
+  }
+  live.h = Math.max(live.h, price);
+  live.l = Math.min(live.l, price);
+  let bar;
+  if (lastT === win.start) {
+    bar = { ...last, h: Math.max(Number(last.h), live.h), l: Math.min(Number(last.l), live.l), c: price };
+    if (bar.h === Number(last.h) && bar.l === Number(last.l) && bar.c === Number(last.c)) return false;
+    data.candles = candles.slice(0, -1).concat([bar]);
+  } else {
+    bar = { t: win.start, o: live.o, h: live.h, l: live.l, c: price };
+    data.candles = candles.concat([bar]);
+  }
+  (data.lines || []).forEach(line => { if (line && line.label === 'LIVE') line.price = price; });
+  data.live_price = price;
+  return true;
+}
+
+function _scalpLiveTick() {
+  const shown = _scalpChartShown;
+  if (!shown || shown.key !== _scalpChartTargetKey()) return;
+  // Only while this payload is the chart mounted (another chart may own it).
+  if (typeof _pfChartCanvas === 'undefined' || !_pfChartCanvas || _pfChartCanvas.data !== shown.data) return;
+  if (document.hidden || !_pfChartCanvas.host.getClientRects().length) return;
+  const state = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+  if (_scalpApplyLiveBar(shown.data, shown.key) && typeof _pfChartCanvasRefresh === 'function') {
+    _pfChartCanvasRefresh(shown.data, state);
+  }
+}
+
 // The contract the entry form is pointing at, or null while it is incomplete.
 function _scalpFormContract() {
   const strike = parseInt(document.getElementById('scalp-strike')?.value, 10) || 0;
@@ -14039,6 +14105,12 @@ async function openScalpOptionChart(tradeId, options = {}) {
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
     // Opens on today and yesterday; drag or zoom out for the older sessions.
     data.fit_sessions = 2;
+    // The price tag with the time to bar close, and the forming bar grown
+    // from the live premium before it is drawn.
+    data.countdown = true;
+    _scalpApplyLiveBar(data, targetKey);
+    _scalpChartShown = { key: targetKey, data };
+    if (!_scalpLiveTimer) _scalpLiveTimer = setInterval(_scalpLiveTick, 1000);
     const instrument = data.instrument || {};
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
     const title = els.title;
