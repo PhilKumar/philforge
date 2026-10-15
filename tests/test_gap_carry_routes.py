@@ -248,6 +248,8 @@ class RegistrationTests(unittest.TestCase):
                 # leaves a button on the page that 404s.
                 "/api/gap-carry/paper/chart",
                 "/api/gap-carry/backtests/latest/chart",
+                # The 15:10 signal card, live from 15:00 (2026-10-15).
+                "/api/gap-carry/signal-monitor",
                 "/api/gap-carry/backtests/latest/export.csv",
                 "/api/gap-carry/backtests/latest/export.json",
             },

@@ -15689,7 +15689,9 @@ async def gap_carry_signal_monitor(request: Request):
         _user, broker_client, _source = await _request_broker_context(request)
         if broker_client is None:
             raise HTTPException(status_code=503, detail="Connect Dhan to read NIFTY's candles.")
-        adapter, config = CascadeOptionsAdapter(broker_client, paper_only=True), _gap_carry_mod.GapCarryConfig()
+        # No campaign today: the rule Auto would trade on.
+        adapter = CascadeOptionsAdapter(broker_client, paper_only=True)
+        config = _gap_carry_config(SimpleNamespace(**dict(_GAP_CARRY_AUTO_RULE)))
     rows = await _gap_carry_load_candles(adapter, config.timeframe, days=6)
     body = _gap_carry_signal_payload(rows, config, now)
     _GAP_CARRY_SIGNAL_CACHE[user_id] = (time.monotonic(), body)
