@@ -5211,8 +5211,62 @@ async function _restoreLastGapCarryBacktest() {
   } catch (_error) { /* a missing replay is not an error */ }
 }
 
+// ── The 15:10 signal, from 15:00 ──────────────────────────────────
+// Phil, 2026-10-15: "a small status monitor to be displayed after 15:00 for
+// Gap carry to see the EMA and RSI status". Shown on weekdays from 15:00 to
+// the F&O close (15:40); the server reads the latest closed bar the way the
+// 15:10 decision does.
+let _gapSignalFetchedAt = 0;
+
+function _gapSignalWindowOpen(now = new Date()) {
+  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000);
+  const day = ist.getDay(), mins = ist.getHours() * 60 + ist.getMinutes();
+  return day >= 1 && day <= 5 && mins >= 15 * 60 && mins < 15 * 60 + 40;
+}
+
+function _renderGapCarrySignal(d) {
+  const box = document.getElementById('oc-gap-signal');
+  if (!box) return;
+  if (!d || d.status !== 'ok') { box.hidden = true; return; }
+  const n = (v) => Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const above = !!d.above_ema;
+  const need = above ? `≥ ${d.rsi_call}` : `≤ ${d.rsi_put}`;
+  const gap = above ? d.rsi_call - d.rsi : d.rsi - d.rsi_put;
+  const rsiOk = gap <= 0;
+  const leaning = above ? 'CE' : 'PE';
+  const decided = d.decided;
+  const head = decided
+    ? (decided.side ? `${decided.side} taken at ${d.entry_time}` : `No trade at ${d.entry_time}`)
+    : (d.side ? `${d.side} would fire` : `No trade yet`);
+  const tone = (decided ? decided.side : d.side) === 'CE' ? 'is-ce' : ((decided ? decided.side : d.side) === 'PE' ? 'is-pe' : '');
+  box.innerHTML = `
+    <div class="ocp-monitor-head">
+      <div><div class="ocp-monitor-kicker">${escapeHtml(d.entry_time)} signal · live</div><h4 class="oc-gap-signal-verdict ${tone}">${escapeHtml(head)}</h4></div>
+      <span class="ocp-monitor-updated">bar ${escapeHtml(d.bar_start)}–${escapeHtml(d.bar_end)} · ${escapeHtml(String(d.timeframe || '').toUpperCase())}</span>
+    </div>
+    <div class="oc-gap-signal-rows">
+      <div><span>Close vs EMA${escapeHtml(d.ema_period)}</span><b>${n(d.close)}</b><b class="${above ? 'is-ce' : 'is-pe'}">${above ? 'above' : 'below'} ${n(d.ema)}</b></div>
+      <div><span>RSI ${escapeHtml(d.rsi_period)}</span><b>${Number(d.rsi).toFixed(1)}</b><b class="${rsiOk ? (above ? 'is-ce' : 'is-pe') : ''}">${leaning} needs ${need}${rsiOk ? ' ✓' : ` · ${gap.toFixed(1)} to go`}</b></div>
+    </div>`;
+  box.hidden = false;
+}
+
+async function _refreshGapCarrySignal() {
+  const box = document.getElementById('oc-gap-signal');
+  if (!box) return;
+  if (!_gapSignalWindowOpen()) { box.hidden = true; return; }
+  if (Date.now() - _gapSignalFetchedAt < 15000) return;
+  _gapSignalFetchedAt = Date.now();
+  try {
+    const r = await fetch('/api/gap-carry/signal-monitor', { credentials: 'same-origin' });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) _renderGapCarrySignal(d);
+  } catch (_) { /* the next poll tries again */ }
+}
+
 async function refreshGapCarryStatus() {
   _refreshPaperLedger('gap_carry');
+  _refreshGapCarrySignal();
   try {
     const response = await fetch('/api/gap-carry/paper/status', { credentials: 'same-origin' });
     const data = await response.json().catch(() => ({}));

@@ -15620,6 +15620,82 @@ async def gap_carry_delete_backtest(request: Request):
     return {"status": "ok", "removed": bool(removed)}
 
 
+# ── The 15:10 signal, watched live ─────────────────────────────────────────
+# Phil, 2026-10-15: "a small status monitor ... after 15:00 for Gap carry to
+# see the EMA and RSI status". The latest CLOSED bar read the way read_signal
+# reads the 15:05-15:10 one -- same EMA, same Wilder RSI -- so what it shows at
+# 15:10 is the decision itself. Cached briefly: the page polls every few
+# seconds and a 5m bar only changes every five minutes.
+_GAP_CARRY_SIGNAL_CACHE: dict[int, tuple[float, dict]] = {}
+_GAP_CARRY_SIGNAL_TTL_SEC = 20.0
+
+
+def _gap_carry_signal_payload(rows: list, config, now: datetime) -> dict:
+    step = timedelta(minutes=_gap_carry_mod.bar_minutes(config))
+    closed = [r for r in rows if _gap_carry_naive_ist(r.timestamp) + step <= now]
+    if len(closed) < max(config.ema_period, config.rsi_period) + 2:
+        return {"status": "empty", "message": "Not enough closed candles yet."}
+    closes = [float(r.close) for r in closed]
+    ema = _gap_carry_mod._ema(closes, config.ema_period)[-1]
+    rsi = _gap_carry_mod._wilder_rsi(closes, config.rsi_period)[-1]
+    bar = closed[-1]
+    close = closes[-1]
+    call_at, put_at = config.rsi_floor_for_call, config.rsi_ceiling_for_put
+    above = close > ema
+    side = None
+    if above and rsi >= call_at:
+        side = "CE"
+    elif close < ema and rsi <= put_at:
+        side = "PE"
+    body = {
+        "status": "ok",
+        "timeframe": config.timeframe,
+        "bar_start": _gap_carry_naive_ist(bar.timestamp).strftime("%H:%M"),
+        "bar_end": (_gap_carry_naive_ist(bar.timestamp) + step).strftime("%H:%M"),
+        "close": round(close, 2),
+        "ema": round(ema, 2),
+        "ema_period": config.ema_period,
+        "rsi": round(rsi, 1),
+        "rsi_period": config.rsi_period,
+        "rsi_call": call_at,
+        "rsi_put": put_at,
+        "above_ema": above,
+        "side": side,
+        "entry_time": config.entry_time.strftime("%H:%M"),
+    }
+    # From the entry time on, the reading that decided tonight.
+    if now.time() >= config.entry_time:
+        decided = _gap_carry_mod.read_signal(closed, config, at=now)
+        if decided is not None:
+            body["decided"] = decided.as_dict()
+    return body
+
+
+def _gap_carry_naive_ist(value: datetime) -> datetime:
+    return value.astimezone(IST).replace(tzinfo=None) if value.tzinfo else value
+
+
+@app.get("/api/gap-carry/signal-monitor")
+async def gap_carry_signal_monitor(request: Request):
+    user_id = _request_user_id(request)
+    now = datetime.now(IST).replace(tzinfo=None)
+    cached = _GAP_CARRY_SIGNAL_CACHE.get(user_id)
+    if cached and time.monotonic() - cached[0] < _GAP_CARRY_SIGNAL_TTL_SEC:
+        return cached[1]
+    runtime = _gap_carry_engines.get(user_id)
+    if runtime is not None:
+        adapter, config = runtime.adapter, runtime.engine.config
+    else:
+        _user, broker_client, _source = await _request_broker_context(request)
+        if broker_client is None:
+            raise HTTPException(status_code=503, detail="Connect Dhan to read NIFTY's candles.")
+        adapter, config = CascadeOptionsAdapter(broker_client, paper_only=True), _gap_carry_mod.GapCarryConfig()
+    rows = await _gap_carry_load_candles(adapter, config.timeframe, days=6)
+    body = _gap_carry_signal_payload(rows, config, now)
+    _GAP_CARRY_SIGNAL_CACHE[user_id] = (time.monotonic(), body)
+    return body
+
+
 @app.get("/api/gap-carry/paper/chart")
 async def gap_carry_paper_chart(request: Request, timeframe: str = ""):
     """The carry drawn on its own chart -- with the two indicators that ARE the rule.

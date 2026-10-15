@@ -135,6 +135,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_option_builder_expiry_and_adjust.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_on_zerodha.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_hand_close.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_gap_carry_signal_monitor.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_trade_keeps_its_own_pnl.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_trade_charts_are_kept.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_chart_timeframes.py'

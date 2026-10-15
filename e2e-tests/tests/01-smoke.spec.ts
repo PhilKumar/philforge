@@ -146,6 +146,9 @@ async function installOfflineE2E(page: Page) {
       candles: [0, 1, 2].map((i) => ({ t: 1792040100 + i * 300, o: 120 + i, h: 124 + i, l: 118 + i, c: 122 + i })),
       instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
     } });
+    // Gap Carry's 15:10 signal card asks only from 15:00 to 15:40 IST, so a
+    // run that lands in that window needs an answer (2026-10-15).
+    else if (path === '/api/gap-carry/signal-monitor') await route.fulfill({ json: { status: 'empty' } });
     else if (path === '/api/zerodha/history') await route.fulfill({ json: { status: 'ok', configured: false, daily: {} } });
     else if (path === '/api/zerodha/status') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
     // Insights panels. Both used to be their own pages; inside the tab they

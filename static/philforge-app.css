@@ -10009,3 +10009,13 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     box-shadow: 0 -22px 0 var(--bg), 0 10px 18px rgba(2, 6, 14, .22);
   }
 }
+
+/* Gap Carry's 15:10 signal, live from 15:00 (Phil, 2026-10-15). */
+.oc-gap-signal .oc-gap-signal-verdict.is-ce, .oc-gap-signal-rows .is-ce { color: var(--green); }
+.oc-gap-signal .oc-gap-signal-verdict.is-pe, .oc-gap-signal-rows .is-pe { color: var(--red); }
+.oc-gap-signal-rows { display: grid; gap: 6px; padding: 4px 14px 12px; font: 12px 'JetBrains Mono', monospace; }
+.oc-gap-signal-rows > div { display: grid; grid-template-columns: minmax(110px, auto) auto 1fr; gap: 12px; align-items: baseline; }
+.oc-gap-signal-rows span { color: var(--muted); font-size: 11px; }
+.oc-gap-signal-rows b:last-child { font-weight: 600; color: var(--muted); }
+.oc-gap-signal-rows b.is-ce:last-child { color: var(--green); }
+.oc-gap-signal-rows b.is-pe:last-child { color: var(--red); }
