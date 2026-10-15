@@ -93,7 +93,7 @@
 /* option chain: a dense CSS grid ladder (not a <table>, see option-builder.js) */
 .ob-chain-scroll { border: 1px solid var(--border); border-radius: 10px; overflow-x: clip; }
 .ob-chain { display: grid; font: 10.5px var(--font-mono); font-variant-numeric: tabular-nums; }
-.ob-chain-head, .ob-chain-row { display: grid; grid-template-columns: 1fr 1.05fr 50px 1.15fr 50px 1.05fr 1fr; align-items: center; }
+.ob-chain-head, .ob-chain-row { display: grid; grid-template-columns: 1fr 1.05fr 58px 1.15fr 58px 1.05fr 1fr; align-items: center; }
 .ob-chain-head { position: sticky; top: 0; z-index: 2; padding: 6px 0; background: linear-gradient(180deg, rgba(79,142,247,.16), rgba(148,163,184,.06)), var(--bg); color: var(--muted); font: 800 9px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; text-align: center; border-bottom: 1px solid var(--border); }
 .ob-chain-head small { margin-left: 3px; font-weight: 600; opacity: .8; }
 .ob-chain-row { min-height: 34px; border-bottom: 1px solid rgba(148,163,184,.08); text-align: center; }
@@ -123,6 +123,15 @@
 .ob-s { color: var(--red); border-color: color-mix(in srgb, var(--red) 55%, transparent); }
 .ob-b:hover, .ob-b.is-on { background: color-mix(in srgb, var(--green) 20%, transparent); }
 .ob-s:hover, .ob-s.is-on { background: color-mix(in srgb, var(--red) 20%, transparent); }
+/* A held strike: − [B 2] +. The middle takes the leg back. */
+.ob-c-act.is-held { gap: 2px; }
+.ob-held { width: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 1px; }
+.ob-held small { font: 700 9px var(--font-mono); }
+.ob-lot {
+  width: 13px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: rgba(148,163,184,.14);
+  color: var(--text); font: 700 11px var(--font-mono); cursor: pointer; line-height: 1;
+}
+.ob-lot:hover { background: rgba(148,163,184,.28); }
 
 /* positions + paper */
 .ob-pos-list, .ob-paper { display: grid; gap: 6px; }

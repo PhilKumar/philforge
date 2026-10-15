@@ -313,3 +313,37 @@ test('Option Builder: an opened strategy takes a new strike instead of being cop
   await expect(add).toHaveText('Add to portfolio');
   await expect(page.locator('[data-ob-act="paper-new"]')).toBeHidden();
 });
+
+test('Option Builder: B in the chain adds, again takes it back, and − lots + sizes it', async ({ page }) => {
+  // Phil, 2026-10-15: "when I click B it has to add the buy and if I again
+  // click it has to undo ... a number, + on the right side and - on the left".
+  const calls: { method: string; url: string; body: any }[] = [];
+  await login(page);
+  await mockBuilder(page, calls);
+  await openBuilder(page);
+  await page.click('[data-ob-left="chain"]');
+  const legs = () => page.evaluate(() => (window as any).PFOptionBuilder.state.legs.map((l: any) => `${l.side}:${l.type}:${l.strike}:${l.lots}`));
+
+  await page.click('[data-ob-add="BUY:CE:25100"]');
+  expect(await legs()).toEqual(['BUY:CE:25100:1']);
+  const held = page.locator('.ob-chain-row[data-strike="25100"] .ob-c-act.is-held').first();
+  await expect(held.locator('[data-ob-undo="BUY:CE:25100"]')).toHaveText('B1');
+  await expect(held.locator('button')).toHaveText(['−', 'B1', '+']);
+
+  await held.locator('[data-ob-lots="BUY:CE:25100:1"]').click();
+  await page.locator('.ob-chain-row[data-strike="25100"] [data-ob-lots="BUY:CE:25100:1"]').click();
+  expect(await legs()).toEqual(['BUY:CE:25100:3']);
+  await page.locator('.ob-chain-row[data-strike="25100"] [data-ob-lots="BUY:CE:25100:-1"]').click();
+  expect(await legs()).toEqual(['BUY:CE:25100:2']);
+
+  // The same button again takes the leg back; B and S return.
+  await page.locator('[data-ob-undo="BUY:CE:25100"]').click();
+  expect(await legs()).toEqual([]);
+  await expect(page.locator('[data-ob-add="BUY:CE:25100"]')).toBeVisible();
+
+  // S works the same, and − at one lot also removes it.
+  await page.click('[data-ob-add="SELL:PE:24900"]');
+  await expect(page.locator('[data-ob-undo="SELL:PE:24900"]')).toHaveText('S1');
+  await page.locator('[data-ob-lots="SELL:PE:24900:-1"]').click();
+  expect(await legs()).toEqual([]);
+});

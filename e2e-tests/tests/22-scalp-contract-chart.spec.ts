@@ -47,20 +47,10 @@ test('Scalp: the option chart button beside the broker charts the contract in th
 
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+  // Phil, 2026-10-15: "no need of this button" -- with the chart docked
+  // beside the form it has nothing to do, so a two-column window hides it.
   const btn = page.locator('#scalp-contract-chart-btn');
-  await expect(btn).toBeVisible();
-  // It wears the site's own chart icon, not an arrow.
-  await expect(btn.locator('#scalp-contract-chart-ico svg rect')).toHaveCount(3);
-  await expect(btn).not.toContainText('↗');
-
-  // It sits on the broker's row, to the right of the switch, inside the panel.
-  const placed = await page.evaluate(() => {
-    const row = document.querySelector('.scalp-broker-row')!.getBoundingClientRect();
-    const sw = document.getElementById('scalp-broker-toggle')!.getBoundingClientRect();
-    const b = document.getElementById('scalp-contract-chart-btn')!.getBoundingClientRect();
-    return b.left >= sw.right && b.right <= row.right + 1 && b.top >= row.top - 1 && b.bottom <= row.bottom + 1;
-  });
-  expect(placed).toBe(true);
+  await expect(btn).toBeHidden();
 
   // Point the form at a contract, as picking a strike does. The expiry is
   // whichever one the page has loaded for itself.
@@ -76,16 +66,16 @@ test('Scalp: the option chart button beside the broker charts the contract in th
     return (document.getElementById('scalp-expiry') as HTMLSelectElement).value;
   });
   await expect(page.locator('#scalp-contract-chart-label')).toHaveText('22700 PE chart');
-  await expect(btn).toBeEnabled();
 
   // Phil, 2026-10-15: on a two-column window the chart sits beside the form
-  // and follows it; the button just brings it into view.
-  await btn.click();
+  // and follows it, with no click.
   const dock = page.locator('#scalp-dock-chart');
   await expect(dock).toBeVisible();
   await expect(page.locator('#scalp-option-chart-overlay.is-open')).toHaveCount(0);
   await expect(page.locator('#scalp-dock-chart-title')).toHaveText('NIFTY 22700PE');
   await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
+  // The heading is the expiry and the timeframe, nothing more.
+  await expect(page.locator('#scalp-dock-chart-meta')).toHaveText(/^Exp \d{2} \w{3} · 5M$/);
   const sideBySide = await page.evaluate(() => {
     const form = document.querySelector('#scalp-page .scalp-entry-card')!.getBoundingClientRect();
     const d = document.getElementById('scalp-dock-chart')!.getBoundingClientRect();
@@ -131,6 +121,17 @@ test('Scalp: the option chart button beside the broker charts the contract in th
   // Narrower than two columns, the dock steps aside and the button opens the pop-up.
   await page.setViewportSize({ width: 1000, height: 800 });
   await expect(dock).toBeHidden();
+  await expect(btn).toBeVisible();
+  // It wears the site's own chart icon, not an arrow, on the broker's row.
+  await expect(btn.locator('#scalp-contract-chart-ico svg rect')).toHaveCount(3);
+  await expect(btn).not.toContainText('↗');
+  const placed = await page.evaluate(() => {
+    const row = document.querySelector('.scalp-broker-row')!.getBoundingClientRect();
+    const sw = document.getElementById('scalp-broker-toggle')!.getBoundingClientRect();
+    const b = document.getElementById('scalp-contract-chart-btn')!.getBoundingClientRect();
+    return b.left >= sw.right && b.right <= row.right + 1 && b.top >= row.top - 1 && b.bottom <= row.bottom + 1;
+  });
+  expect(placed).toBe(true);
   await btn.click();
   await expect(page.locator('#scalp-option-chart-overlay')).toHaveClass(/is-open/);
   await expect(page.locator('#scalp-option-chart-title')).toHaveText('NIFTY 22750PE');

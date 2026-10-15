@@ -14191,8 +14191,11 @@ async function openScalpOptionChart(tradeId, options = {}) {
     const meta = els.meta;
     if (title) title.textContent = (symbol || 'Option Chart') + (docked && !contract ? ' · your trade' : '');
     if (meta) {
-      const live = Number(data.live_price || 0);
-      meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _scalpOptionChartTf).toUpperCase()} candles · ${live > 0 ? `LIVE ₹${live.toFixed(2)} (dotted)` : 'Waiting for live premium'} · CPR, R1-R4, S1-S5, 20-EMA · entry, target, stop marked · drag to pan, wheel to zoom`;
+      // Just what to read the chart by (Phil, 2026-10-15: "remove the
+      // unnecessary text explanations"); the live price is on the axis tag.
+      const exp = instrument.expiry ? new Date(`${instrument.expiry}T00:00:00`) : null;
+      const expTxt = exp && !isNaN(exp) ? exp.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '';
+      meta.textContent = `${expTxt ? `Exp ${expTxt} · ` : ''}${String(data.timeframe || _scalpOptionChartTf).toUpperCase()}`;
     }
     if (body) {
       // An already-mounted canvas is UPDATED in place, never torn down and

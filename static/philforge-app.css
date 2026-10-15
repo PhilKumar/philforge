@@ -6334,6 +6334,9 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-dock-chart-canvas,
 .scalp-dock-chart-canvas .pf-bench-canvas-host { min-height: 600px; aspect-ratio: auto; }
 @media (max-width: 1079px) { .scalp-dock-chart { display: none !important; } }
+/* With the chart beside the form, its button has nothing left to do
+   (Phil, 2026-10-15: "no need of this button"); narrower, it still opens it. */
+@media (min-width: 1080px) { #scalp-page #scalp-contract-chart-btn { display: none; } }
 .scalp-option-chart-btn { --btn-bg: linear-gradient(180deg, rgba(96,165,250,.30), rgba(30,64,175,.48)); --btn-color: #dbeafe; --btn-border: rgba(147,197,253,.52); }
 .cascade-options-workspace { display: grid; grid-template-columns: minmax(300px, .72fr) minmax(420px, 1.28fr); gap: 16px; align-items: start; }
 .cascade-options-setup-card { min-width: 0; }

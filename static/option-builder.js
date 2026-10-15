@@ -173,6 +173,10 @@
     const chain = chainFor(expiry) || primary();
     return chain ? chain.rows.map((r) => r.strike) : [];
   }
+  function dropChainLeg(side, type, strike) {
+    S.legs = S.legs.filter((l) => !(l.expiry === S.expiry && l.side === side && l.type === type && l.strike === strike));
+    changed({ margin: true });
+  }
   function addLeg(side, type, strike, expiry = S.expiry, lots = 1) {
     S.legs.push(newLeg({ side, type, strike, expiry, lots }));
     changed({ margin: true });
@@ -406,15 +410,24 @@
     const idx = chain.rows.findIndex((r) => r.strike === chain.atm);
     const rows = chain.rows.slice(Math.max(0, idx - CHAIN_WINDOW), idx + CHAIN_WINDOW + 1);
     const maxOi = Math.max(1, ...rows.flatMap((r) => [r.ce?.oi || 0, r.pe?.oi || 0]));
-    const held = new Map(S.legs.filter((l) => l.expiry === S.expiry).map((l) => [`${l.strike}${l.type}`, l.side]));
+    const held = new Map();
+    for (const l of S.legs) if (l.expiry === S.expiry && !held.has(`${l.strike}${l.type}`)) held.set(`${l.strike}${l.type}`, l);
     const oi = (side, type) => side
       ? `<div class="ob-c-oi ob-oi-${type.toLowerCase()}"><i style="width:${(100 * side.oi / maxOi).toFixed(1)}%"></i><span>${(side.oi / 1e5).toFixed(1)}L</span><small class="${tone(side.oi_change)}">${side.oi_change > 0 ? '+' : ''}${(side.oi_change / 1e5).toFixed(1)}</small></div>`
       : '<div class="ob-c-oi"></div>';
     const ltp = (side) => `<div class="ob-c-ltp">${side ? price(side.ltp) : '—'}<small>${side && side.iv ? side.iv.toFixed(1) : ''}</small></div>`;
+    // Phil, 2026-10-15: B (or S) adds the leg, the same button again takes it
+    // back, and while held it reads − lots + so the size is set right here.
     const act = (side, r, type) => {
       if (!side) return '<div class="ob-c-act"></div>';
-      const tag = held.get(`${r.strike}${type}`);
-      return `<div class="ob-c-act"><button type="button" class="ob-b ${tag === 'BUY' ? 'is-on' : ''}" data-ob-add="BUY:${type}:${r.strike}" aria-label="Buy ${strikeTxt(r.strike)} ${type}">B</button><button type="button" class="ob-s ${tag === 'SELL' ? 'is-on' : ''}" data-ob-add="SELL:${type}:${r.strike}" aria-label="Sell ${strikeTxt(r.strike)} ${type}">S</button></div>`;
+      const leg = held.get(`${r.strike}${type}`);
+      if (leg) {
+        const k = `${leg.side}:${type}:${r.strike}`;
+        const cls = leg.side === 'BUY' ? 'ob-b' : 'ob-s';
+        const what = `${leg.side === 'BUY' ? 'Buy' : 'Sell'} ${strikeTxt(r.strike)} ${type}`;
+        return `<div class="ob-c-act is-held"><button type="button" class="ob-lot" data-ob-lots="${k}:-1" aria-label="One lot less: ${what}">−</button><button type="button" class="${cls} is-on ob-held" data-ob-undo="${k}" aria-label="Remove ${what}" title="Click again to remove">${leg.side === 'BUY' ? 'B' : 'S'}<small>${leg.lots}</small></button><button type="button" class="ob-lot" data-ob-lots="${k}:1" aria-label="One lot more: ${what}">+</button></div>`;
+      }
+      return `<div class="ob-c-act"><button type="button" class="ob-b" data-ob-add="BUY:${type}:${r.strike}" aria-label="Buy ${strikeTxt(r.strike)} ${type}">B</button><button type="button" class="ob-s" data-ob-add="SELL:${type}:${r.strike}" aria-label="Sell ${strikeTxt(r.strike)} ${type}">S</button></div>`;
     };
     // CE reads outward-in (OI, price, B/S | strike); PE mirrors it.
     return `<div class="ob-chain-scroll"><div class="ob-chain" role="grid" aria-label="Option chain">
@@ -908,6 +921,16 @@
         changed({ margin: true }); return;
       }
       if (d.obAdd) { const [side, type, k] = d.obAdd.split(':'); addLeg(side, type, Number(k)); return; }
+      if (d.obUndo) { const [side, type, k] = d.obUndo.split(':'); dropChainLeg(side, type, Number(k)); return; }
+      if (d.obLots) {
+        const [side, type, k, step] = d.obLots.split(':');
+        const leg = S.legs.find((l) => l.expiry === S.expiry && l.side === side && l.type === type && l.strike === Number(k));
+        if (!leg) return;
+        if (leg.lots + Number(step) < 1) { dropChainLeg(side, type, Number(k)); return; }
+        leg.lots = Math.min(50, leg.lots + Number(step));
+        changed({ margin: true });
+        return;
+      }
       if (d.legAct) {
         const leg = legOf(t); if (!leg) return;
         if (d.legAct === 'del') S.legs = S.legs.filter((l) => l !== leg);
