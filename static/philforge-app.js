@@ -9448,8 +9448,46 @@ function _portfolioCompletedTradeRowHtml(trade, index, all, runId) {
   const pnl = round2(trade?.pnl || 0);
   const journalBtn = runId && trade?.id !== undefined && trade?.id !== null
     ? `<button type="button" class="ocp-icon-btn is-chart live-journal-btn" aria-label="Journal chart" title="Journal chart — frozen at the exit, with the why" onclick="openLiveTradeJournal('${escapeHtml(String(runId)).replace(/'/g, "\\'")}','${escapeHtml(String(trade.id))}')">${typeof ICO !== 'undefined' && ICO.barchart ? ICO.barchart(12) : '▤'}</button>`
+      + _liveKiteMatchBtn(trade, runId)
     : '';
   return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);white-space:nowrap;">${_portfolioTradeDateLabel(trade?.entry_time)}</td><td style="padding:8px 12px;">${escapeHtml(trade?.symbol || trade?.trading_symbol || '—')}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.entry_time))}</td><td style="padding:8px 12px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);">${escapeHtml(_portfolioTradeTimeLabel(trade?.exit_time))}</td><td style="padding:8px 12px;text-align:right;color:${trade?.transaction_type === 'BUY' ? 'var(--success)' : 'var(--danger)'}">${escapeHtml(trade?.transaction_type || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.entry_premium || trade?.entry_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';">₹${round2(trade?.exit_premium || trade?.exit_price || 0).toFixed(2)}</td><td style="padding:8px 12px;text-align:right;">${escapeHtml(trade?.lots || trade?.quantity || '—')}</td><td style="padding:8px 12px;text-align:right;font-family:'JetBrains Mono';color:${pnl >= 0 ? 'var(--success)' : 'var(--danger)'}">₹${pnl.toFixed(2)}</td><td style="padding:8px 12px;text-align:right;font-size:11px;color:var(--muted);">${escapeHtml(trade?.exit_reason || trade?.reason || '—')}</td>${journalBtn ? `<td style="padding:6px 8px;text-align:right;white-space:nowrap;">${journalBtn}</td>` : ''}</tr>`;
+}
+
+// A Zerodha book's trade from today can be re-booked from Kite's own fills
+// (Phil, 2026-10-15: "I closed the Zerodha CE in Kite, correct the record").
+// Kite keeps only today's fills, so older rows offer only the record.
+function _liveKiteMatchBtn(trade, runId) {
+  if (!runId || !trade || trade.broker !== 'zerodha' || trade.id === undefined || trade.id === null) return '';
+  const d = new Date();
+  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const matched = trade.broker_match;
+  if (String(trade.entry_time || '').slice(0, 10) !== today) {
+    return matched ? ` <span class="live-kite-matched" title="Matched with Zerodha at ${escapeAttr(matched.matched_at || '')}">✓ Kite</span>` : '';
+  }
+  const was = (matched && matched.was) || {};
+  const title = matched
+    ? `Matched with Zerodha at ${matched.matched_at || ''}. The book had booked ₹${Number(was.entry_premium || 0).toFixed(2)} → ₹${Number(was.exit_premium || 0).toFixed(2)} (₹${Number(was.pnl || 0).toFixed(2)}). Click to match again.`
+    : 'Match with Zerodha: book the entry and exit Kite actually filled';
+  return ` <button type="button" class="btn btn-secondary btn-sm live-kite-match-btn" style="padding:2px 6px;font-size:10px;" title="${escapeAttr(title)}" aria-label="Match trade ${escapeAttr(String(trade.id))} with Zerodha" onclick="matchLiveTradeWithZerodha('${escapeHtml(String(runId)).replace(/'/g, "\\'")}','${escapeHtml(String(trade.id))}')">${matched ? '✓ Kite' : '⇄ Kite'}</button>`;
+}
+
+async function matchLiveTradeWithZerodha(runId, tradeId) {
+  const ok = await customConfirm('Replace this trade\'s entry and exit with the prices Zerodha actually filled today? The book\'s P&L is corrected by the difference.', { title: 'Match with Zerodha', okText: 'Match' });
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/live/trades/match-broker', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run_id: String(runId), trade_id: String(tradeId) }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(pfErrorText(body, 'Match failed (' + r.status + ')'), 'error'); return; }
+    const t = body.trade || {};
+    const pnl = Number(t.pnl || 0);
+    toast('Matched with Zerodha: ₹' + Number(t.entry_premium || 0).toFixed(2) + ' → ₹' + Number(t.exit_premium || 0).toFixed(2) + ', ' + (pnl >= 0 ? '+' : '') + '₹' + pnl.toFixed(2) + ' net', 'success');
+    if (typeof loadLiveMonitor === 'function') loadLiveMonitor();
+  } catch (e) {
+    toast('Match failed: ' + e.message, 'error');
+  }
 }
 
 function _portfolioCompletedTradeCardHtml(trade) {

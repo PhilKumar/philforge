@@ -1738,6 +1738,43 @@ class LiveEngine:
         except Exception as e:
             print(f"[LIVE] Trade history rewrite failed: {e}")
 
+    async def apply_broker_match(self, trade_id, changes: dict) -> dict | None:
+        """Re-price one closed trade from the broker's own fills.
+
+        15-Oct-2026: the Zerodha CE book booked its 13:10 entry closed at
+        Rs 261.65 (-Rs 2,017.85) by mistake; Phil closed the real position in
+        Kite at Rs 301.75. The trade, the book's running totals (banked_pnl
+        sizes the ladder) and the permanent history file are all corrected,
+        by the difference, so nothing is counted twice.
+        """
+        async with self._trades_lock:
+            trade = next((t for t in self.closed_trades if str(t.get("id")) == str(trade_id)), None)
+            if trade is None:
+                return None
+            delta = round(float(changes.get("pnl", 0) or 0) - float(trade.get("pnl", 0) or 0), 2)
+            trade.update(changes)
+            self.banked_pnl += delta
+            if str(trade.get("entry_time") or "")[:10] == str(self.session_date or ""):
+                self.daily_pnl += delta
+        self._arm_profit_cooldown()
+        key = (str(trade.get("entry_time", "")), str(trade.get("strike", "")), str(trade.get("option_type", "")))
+        try:
+            history = self._load_trade_history()
+            for i, row in enumerate(history):
+                if (str(row.get("entry_time", "")), str(row.get("strike", "")), str(row.get("option_type", ""))) == key:
+                    history[i] = {**row, **changes}
+            with open(self._history_file, "w") as f:
+                _json.dump(history, f, indent=2, default=str)
+        except Exception as e:
+            self.log_event("warning", f"Trade history not updated by the broker match: {e}")
+        self._save_state()
+        self.log_event(
+            "info",
+            f"🔁 Trade {trade_id} matched with the broker: Entry ₹{trade.get('entry_premium')} → "
+            f"Exit ₹{trade.get('exit_premium')} | P&L ₹{float(trade.get('pnl') or 0):,.2f} (was ₹{float(trade.get('pnl') or 0) - delta:,.2f})",
+        )
+        return trade
+
     def _save_trade_history(self, trades: list) -> None:
         """Append closed trades to the book's own permanent record.
 

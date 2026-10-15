@@ -21338,6 +21338,121 @@ def _live_run_history_trades(run_id: str, user_id: int | None = None) -> list[di
     return out
 
 
+class LiveBrokerMatchReq(BaseModel):
+    run_id: str
+    trade_id: str
+
+
+@app.post("/api/live/trades/match-broker")
+async def match_live_trade_to_broker(req: LiveBrokerMatchReq, request: Request):
+    """Re-book one closed trade of a live Zerodha book from Kite's own fills.
+
+    15-Oct-2026: the Zerodha CE book bought 130 NIFTY 22800CE MIS at 13:10 and
+    a reconcile fault booked it closed at Rs 261.65 one second later; Phil sold
+    the real position in Kite at 13:37. Kite keeps only today's fills, so a
+    trade can be matched on the day it traded. Only fills of the book's own
+    product line are read (the same option traded NRML by the scalps that day).
+    """
+    import scalp as _scalp_mod
+    from engine.live import statutory_round_charges
+
+    user_id = _request_user_id(request)
+    engine = _registry_bucket(live_engines, user_id).get(req.run_id)
+    if engine is None:
+        raise HTTPException(status_code=404, detail="That live book is not running.")
+    if _book_broker_name(getattr(engine, "deploy_config", None)) != "zerodha":
+        raise HTTPException(status_code=400, detail="Only a Zerodha book's trades can be matched with Zerodha.")
+    trade = next((t for t in engine.closed_trades if str(t.get("id")) == str(req.trade_id)), None)
+    if trade is None:
+        raise HTTPException(status_code=404, detail="No closed trade with that id on this book today.")
+    if str(trade.get("entry_time") or "")[:10] != datetime.now(IST).strftime("%Y-%m-%d"):
+        raise HTTPException(
+            status_code=400, detail="Kite keeps only today's fills, so a trade can be matched on the day it traded."
+        )
+    user = getattr(request.state, "current_user", None) or await _auth_mod.get_current_user(request)
+    client, source = _user_zerodha_client(user)
+    if client is None:
+        raise HTTPException(status_code=400, detail=_book_broker_missing_message(user, source))
+    try:
+        contract = await asyncio.to_thread(
+            client._contract,
+            trade.get("underlying"),
+            trade.get("strike"),
+            trade.get("expiry"),
+            trade.get("option_type"),
+        )
+        fills = await asyncio.to_thread(client.get_trades)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read Zerodha's fills: {exc}") from exc
+
+    mine = engine._PRODUCT_CLASS.get(engine._product_type())
+    own = [f for f in fills if engine._PRODUCT_CLASS.get(str(f.get("productType") or "").upper()) in (mine, None)]
+    claimed = set()
+    for other in engine.closed_trades:
+        if other is trade:
+            continue
+        claimed.update(str(other.get(k) or "") for k in ("entry_order_id", "exit_order_id"))
+        claimed.update(str(o) for o in (other.get("broker_match") or {}).get("exit_order_ids") or [])
+    shaped = {
+        "transaction_type": trade.get("transaction_type"),
+        "order_id": trade.get("entry_order_id"),
+        "exit_order_id": trade.get("exit_order_id"),
+        "lot_size": trade.get("lot_size"),
+        "lots": trade.get("lots"),
+        **{k: trade.get(k) for k in ("entry_premium", "exit_premium", "quantity", "exit_time", "pnl")},
+    }
+    try:
+        matched = _scalp_mod.match_scalp_to_broker_fills(shaped, own, contract["tradingsymbol"], claimed)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    qty = int(matched["quantity"])
+    lots = qty / trade["lot_size"] if trade.get("lot_size") else trade.get("lots", 0)
+    gross = matched["pnl"]
+    charges = statutory_round_charges(
+        entry_premium=matched["entry_premium"],
+        exit_premium=matched["exit_premium"],
+        quantity=qty,
+        lots=lots,
+        option_type=trade.get("option_type"),
+    )
+    was = (trade.get("broker_match") or {}).get("was") or {
+        k: trade.get(k)
+        for k in ("entry_premium", "exit_premium", "quantity", "exit_time", "gross_pnl", "charges", "pnl")
+    }
+    changes = {
+        "entry_premium": matched["entry_premium"],
+        "exit_premium": matched["exit_premium"],
+        "quantity": qty,
+        "lots": lots,
+        "exit_time": matched["exit_time"],
+        "gross_pnl": gross,
+        "charges": charges,
+        "pnl": round(gross - charges, 2),
+        "broker_match": {**matched["broker_match"], "was": was},
+    }
+    updated = await engine.apply_broker_match(req.trade_id, changes)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="The trade left the book while it was being matched.")
+
+    # The saved run the Results and Portfolio pages read.
+    key = (str(was.get("exit_time") or ""), str(trade.get("entry_time") or ""))
+    for run in await _db_mod.list_runs_by_mode(user_id, "live"):
+        rows = run.get("trades") or []
+        hit = False
+        for i, row in enumerate(rows):
+            if (
+                str(row.get("entry_time") or "") == key[1]
+                and str(row.get("strike")) == str(trade.get("strike"))
+                and str(row.get("option_type")) == str(trade.get("option_type"))
+            ):
+                rows[i] = {**row, **changes}
+                hit = True
+        if hit:
+            await _db_mod.replace_run_record(user_id, int(run["id"]), _recompute_run_trade_summary(run, rows))
+    return {"status": "ok", "trade": updated}
+
+
 @app.get("/api/live/trade-chart")
 async def live_trade_chart(request: Request, run_id: str = "", trade_id: str = "", timeframe: str = "5m"):
     """ONE trade's chart, frozen at its exit, with the WHY -- the journal view.

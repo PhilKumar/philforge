@@ -591,6 +591,8 @@ class ZerodhaClient:
                     "tradedPrice": float(row.get("average_price") or 0.0),
                     "tradedQuantity": int(row.get("quantity") or 0),
                     "exchangeTime": str(row.get("fill_timestamp") or row.get("exchange_timestamp") or ""),
+                    # MIS or NRML: one option can carry both on one day.
+                    "productType": str(row.get("product") or ""),
                 }
             )
         return rows

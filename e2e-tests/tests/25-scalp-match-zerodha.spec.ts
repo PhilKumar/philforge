@@ -58,3 +58,35 @@ test('Scalp history: a live Zerodha row from today can be matched with Kite', as
   await expect.poll(() => asked).toBe('/api/scalp/trades/916/match-broker');
   await expect(page.locator('body')).toContainText('+₹880.00');
 });
+
+test('Live book: today\'s Zerodha trade can be matched with Kite, a Dhan one cannot', async ({ page }) => {
+  // Phil, 2026-10-15: "I closed the Zerodha CE in Kite, correct the record".
+  await login(page);
+  const today = await page.evaluate(() => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  });
+  let sent: unknown = null;
+  await page.route('**/api/live/trades/match-broker', async (route) => {
+    sent = JSON.parse(route.request().postData() as string);
+    await route.fulfill({ json: { status: 'ok', trade: { entry_premium: 276.3, exit_premium: 301.75, pnl: 3195.15 } } });
+  });
+  await page.evaluate((day) => {
+    const w = window as unknown as { _portfolioCompletedTradeRowHtml: (t: unknown, i: number, a: unknown[], r: string) => string };
+    const row = (extra: Record<string, unknown>) => ({ symbol: 'NIFTY 22800CE', entry_time: `${day} 13:10:00`, transaction_type: 'BUY', pnl: -2017.85, ...extra });
+    const host = document.createElement('table');
+    host.id = 'kite-match-probe';
+    host.innerHTML = '<tbody>'
+      + w._portfolioCompletedTradeRowHtml(row({ id: 1, broker: 'zerodha' }), 0, [], 'CE_SL15_NoMonTue_Zerodha')
+      + w._portfolioCompletedTradeRowHtml(row({ id: 2, broker: 'dhan' }), 1, [], 'CE_SL15_NoMonTue')
+      + w._portfolioCompletedTradeRowHtml(row({ id: 3, broker: 'zerodha', entry_time: '2026-01-02 10:00:00' }), 2, [], 'CE_SL15_NoMonTue_Zerodha')
+      + '</tbody>';
+    document.body.appendChild(host);
+  }, today);
+  const buttons = page.locator('#kite-match-probe .live-kite-match-btn');
+  await expect(buttons).toHaveCount(1);
+  await buttons.first().click();
+  await page.click('#confirm-ok-btn');
+  await expect.poll(() => sent).toEqual({ run_id: 'CE_SL15_NoMonTue_Zerodha', trade_id: '1' });
+  await expect(page.locator('body')).toContainText('+₹3195.15');
+});
