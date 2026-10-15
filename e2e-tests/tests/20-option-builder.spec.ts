@@ -265,3 +265,51 @@ test('Option Builder: Exit closes a held position on one confirm, with no code a
   expect(exits()[1].body).toEqual({ keys: [held[0].key] });
   expect(calls.some((c) => c.url.endsWith('/execute'))).toBe(false);
 });
+
+test('Option Builder: an opened strategy takes a new strike instead of being copied', async ({ page }) => {
+  // Phil, 2026-10-15: "I cannot add some strategies or strikes to the existing
+  // portfolio strategies" -- Add to portfolio made a duplicate straddle.
+  test.setTimeout(60_000);
+  const calls: { method: string; url: string; body: any }[] = [];
+  await login(page);
+  const straddle = {
+    id: 2, name: 'Short Straddle', underlying: 'NIFTY', lot_size: 75, status: 'open', portfolio_id: 1,
+    opened_at: '2026-10-06T10:00:00+05:30',
+    legs: [
+      { underlying: 'NIFTY', side: 'SELL', strike: 25000, option_type: 'CE', expiry: '2026-10-13', lots: 1, entry: 110.5 },
+      { underlying: 'NIFTY', side: 'SELL', strike: 25000, option_type: 'PE', expiry: '2026-10-13', lots: 1, entry: 98.25 },
+    ],
+  };
+  await mockBuilder(page, calls);
+  // After mockBuilder: Playwright tries the last route registered first.
+  await page.route('**/api/option-builder/paper', (route) => route.request().method() === 'GET'
+    ? route.fulfill({ json: { status: 'ok', baskets: [straddle], portfolios: [{ id: 1, name: 'Short2' }], saved: [] } })
+    : route.fallback());
+  await openBuilder(page);
+
+  await page.click('[data-ob-left="paper"]');
+  await page.locator('[data-ob-pf-toggle="1"]').first().click();
+  await page.click('[data-ob-paper-load="2"]');
+  const add = page.locator('[data-ob-act="paper"]');
+  await expect(add).toHaveText('Add to Short Straddle');
+  await expect(page.locator('[data-ob-act="paper-new"]')).toBeVisible();
+
+  // Nothing new yet: nothing is sent, and the straddle is not copied.
+  await add.click();
+  expect(calls.some((c) => c.method === 'POST' && c.url.includes('/paper'))).toBe(false);
+
+  // A hedge from the chain joins the straddle, alone, at its live price.
+  await page.click('[data-ob-left="chain"]');
+  await page.click('[data-ob-add="BUY:CE:25300"]');
+  await add.click();
+  await expect.poll(() => calls.find((c) => c.method === 'POST' && c.url.endsWith('/paper/2/legs'))?.body.legs).toHaveLength(1);
+  const sent = calls.find((c) => c.url.endsWith('/paper/2/legs'))!.body.legs[0];
+  expect([sent.side, sent.strike, sent.option_type, sent.lots]).toEqual(['BUY', 25300, 'CE', 1]);
+  expect(sent.price).toBeGreaterThan(0);
+  expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/option-builder/paper'))).toBe(false);
+
+  // Clear goes back to making a new strategy.
+  await page.click('[data-ob-act="clear"]');
+  await expect(add).toHaveText('Add to portfolio');
+  await expect(page.locator('[data-ob-act="paper-new"]')).toBeHidden();
+});

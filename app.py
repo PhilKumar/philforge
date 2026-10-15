@@ -27014,6 +27014,49 @@ async def option_builder_paper_open(req: OptionBuilderBasketReq, request: Reques
     return {"status": "ok", "basket": basket}
 
 
+async def _ob_index_close_on(client, underlying: str, day: date) -> float | None:
+    """The index's last in-session close on `day` (its expiry settlement), or None."""
+    index_id = _ROLLING_INDEX_ID.get(str(underlying).upper())
+    if not index_id or client is None:
+        return None
+    frame = await asyncio.to_thread(
+        client.get_historical_data,
+        security_id=index_id,
+        exchange_segment="IDX_I",
+        instrument_type="INDEX",
+        from_date=(day - timedelta(days=4)).isoformat(),
+        to_date=(day + timedelta(days=1)).isoformat(),
+        candle_type="5",
+    )
+    found = _prev_session_close_from_frame(frame, day + timedelta(days=1))
+    if not found or found.get("session") != day.isoformat():
+        return None
+    return float(found["close"])
+
+
+@app.post("/api/option-builder/paper/{basket_id}/legs")
+async def option_builder_paper_add_legs(basket_id: int, req: OptionBuilderBasketReq, request: Request):
+    """New strikes join an open paper strategy at their prices now."""
+    uid = _request_user_id(request)
+    try:
+        legs = _ob.normalize_legs(req.legs)
+    except _ob.OptionBuilderError as exc:
+        return _ob_refusal(exc)
+    async with _ob_paper_lock.setdefault(uid, asyncio.Lock()):
+        rows = await _ob_load_paper(uid)
+        basket = next((r for r in rows if int(r.get("id") or 0) == basket_id), None)
+        if basket is None:
+            return JSONResponse(
+                status_code=404, content={"status": "error", "message": "That strategy does not exist."}
+            )
+        try:
+            grown = _ob.add_legs_to_basket(basket, legs, datetime.now(IST))
+        except _ob.OptionBuilderError as exc:
+            return _ob_refusal(exc)
+        await _ob_save_paper(uid, [grown if r is basket else r for r in rows])
+    return {"status": "ok", "basket": grown}
+
+
 @app.post("/api/option-builder/paper/{basket_id}/close")
 async def option_builder_paper_close(basket_id: int, request: Request):
     uid = _request_user_id(request)
@@ -27030,14 +27073,26 @@ async def option_builder_paper_close(basket_id: int, request: Request):
                 status_code=404, content={"status": "error", "message": "That paper strategy is not open."}
             )
         prices = {}
+        settled: dict[str, float] = {}
+        today = datetime.now(IST).date()
         try:
             for expiry in sorted({leg["expiry"] for leg in basket["legs"]}):
+                # An expired contract has no chain to price it; it settles at
+                # the index's close on its expiry day, as NSE settles it.
+                if date.fromisoformat(str(expiry)[:10]) < today:
+                    close = await _ob_index_close_on(client, basket["underlying"], date.fromisoformat(str(expiry)[:10]))
+                    if close is None:
+                        raise _ob.OptionBuilderError(
+                            f"{basket['underlying']}'s close on {expiry} is not available yet -- try again in a moment."
+                        )
+                    settled[expiry] = close
+                    continue
                 chain = await _ob_chain(client, basket["underlying"], expiry)
                 for leg in basket["legs"]:
                     if leg["expiry"] == expiry:
                         quote = _ob.quote_for(chain, leg["strike"], leg["option_type"])
                         prices[(leg["strike"], leg["option_type"], expiry)] = (quote or {}).get("ltp", 0.0)
-            closed = _ob.close_paper_basket(basket, prices, datetime.now(IST))
+            closed = _ob.close_paper_basket(basket, prices, datetime.now(IST), settled)
         except _ob.OptionBuilderError as exc:
             return _ob_refusal(exc)
         except Exception as exc:

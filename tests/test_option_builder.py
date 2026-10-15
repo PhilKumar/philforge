@@ -12,7 +12,7 @@ import base64
 import json
 import os
 import unittest
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("PHILFORGE_PIN", "123456")
@@ -573,12 +573,15 @@ class PaperRoutes(unittest.TestCase):
         async def set_state(key, value):
             store[key] = value
 
-        chain = ob.shape_chain(_raw_chain(), "NIFTY", "2026-10-13", 75)
+        # A live expiry: an expired one settles at the index close instead
+        # (test_option_builder_expiry_and_adjust.py), which this does not test.
+        expiry = (date.today() + timedelta(days=7)).isoformat()
+        chain = ob.shape_chain(_raw_chain(), "NIFTY", expiry, 75)
         legs = [
             {
                 "underlying": "NIFTY",
                 "strike": 25000,
-                "expiry": "2026-10-13",
+                "expiry": expiry,
                 "option_type": "CE",
                 "side": "BUY",
                 "lots": 1,

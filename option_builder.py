@@ -470,19 +470,42 @@ def new_paper_basket(basket_id: int, name: str, legs: list[dict], lot_size: int,
     }
 
 
-def close_paper_basket(basket: dict, prices: dict[tuple, float], now: datetime) -> dict:
-    """Close at the given LTPs ({(strike, type, expiry): ltp}); refuse a guess."""
+def expiry_value(strike: float, option_type: str, index_close: float) -> float:
+    """What an index option is worth at expiry: NSE settles it in cash at the
+    index's closing price on expiry day, so a call is worth what the close is
+    above the strike and a put what it is below; out of the money, nothing."""
+    if str(option_type).upper() == "CE":
+        return round(max(0.0, float(index_close) - float(strike)), 2)
+    return round(max(0.0, float(strike) - float(index_close)), 2)
+
+
+def close_paper_basket(
+    basket: dict, prices: dict[tuple, float], now: datetime, settled: dict[str, float] | None = None
+) -> dict:
+    """Close at the given LTPs ({(strike, type, expiry): ltp}); refuse a guess.
+
+    `settled` maps an EXPIRED expiry to the index close it settled at; its legs
+    close at their expiry value, which may be zero (Phil, 2026-10-15: a
+    13-Oct straddle could not be closed at all -- an expired contract has no
+    chain, so there was never a price to close at).
+    """
+    settled = settled or {}
     total = 0.0
     legs = []
     for leg in basket["legs"]:
-        ltp = prices.get((leg["strike"], leg["option_type"], leg["expiry"]))
-        if not ltp or ltp <= 0:
-            raise OptionBuilderError(
-                f"No price for {leg['strike']:g} {leg['option_type']} {leg['expiry']} -- try again in a moment."
-            )
+        if leg["expiry"] in settled:
+            ltp = expiry_value(leg["strike"], leg["option_type"], settled[leg["expiry"]])
+            note = {"settled_at_expiry": True, "index_close": settled[leg["expiry"]]}
+        else:
+            ltp = prices.get((leg["strike"], leg["option_type"], leg["expiry"]))
+            note = {}
+            if not ltp or ltp <= 0:
+                raise OptionBuilderError(
+                    f"No price for {leg['strike']:g} {leg['option_type']} {leg['expiry']} -- try again in a moment."
+                )
         pnl = leg_pnl(leg, ltp, basket["lot_size"])
         total += pnl
-        legs.append({**leg, "exit": round(ltp, 2), "pnl": round(pnl, 2)})
+        legs.append({**leg, "exit": round(ltp, 2), "pnl": round(pnl, 2), **note})
     return {
         **basket,
         "legs": legs,
@@ -490,6 +513,47 @@ def close_paper_basket(basket: dict, prices: dict[tuple, float], now: datetime) 
         "closed_at": now.isoformat(timespec="seconds"),
         "realised": round(total, 2),
     }
+
+
+def add_legs_to_basket(basket: dict, legs: list[dict], now: datetime) -> dict:
+    """New strikes join an OPEN paper strategy at their prices now.
+
+    Phil, 2026-10-15: "I cannot add some strategies or strikes to the existing
+    portfolio strategies" -- Add to portfolio always made a new strategy, so
+    an adjustment duplicated the whole straddle instead. A leg on a contract
+    and side already held adds lots there, its entry the lot-weighted average;
+    anything else is a new leg. Nothing already booked is re-priced.
+    """
+    if basket.get("status") != "open":
+        raise OptionBuilderError("Only an open strategy can take more strikes.")
+    kept = [dict(leg) for leg in basket["legs"]]
+    for leg in legs:
+        if leg["underlying"] != basket["underlying"]:
+            raise OptionBuilderError(f"This strategy is on {basket['underlying']}; {leg['underlying']} cannot join it.")
+        if leg["price"] <= 0:
+            raise OptionBuilderError(
+                f"{leg['strike']:g} {leg['option_type']} has no price yet -- wait for the chain to load."
+            )
+        same = next(
+            (
+                k
+                for k in kept
+                if (k["strike"], k["option_type"], k["expiry"], k["side"])
+                == (leg["strike"], leg["option_type"], leg["expiry"], leg["side"])
+            ),
+            None,
+        )
+        if same is not None:
+            lots = same["lots"] + leg["lots"]
+            if lots > MAX_LOTS_PER_LEG:
+                raise OptionBuilderError(f"A leg can hold at most {MAX_LOTS_PER_LEG} lots.")
+            same["entry"] = round((same["entry"] * same["lots"] + leg["price"] * leg["lots"]) / lots, 2)
+            same["lots"] = lots
+        else:
+            kept.append({**leg, "entry": round(leg["price"], 2)})
+    if len(kept) > MAX_LEGS:
+        raise OptionBuilderError(f"A strategy can have at most {MAX_LEGS} legs.")
+    return {**basket, "legs": kept, "adjusted_at": now.isoformat(timespec="seconds")}
 
 
 # ── portfolios and saved strategies ─────────────────────────────────────────

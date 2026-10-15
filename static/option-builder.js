@@ -25,6 +25,7 @@
   const OTHER_EXPIRY_MS = 9000;
 
   const S = {
+    editingPaper: null,  // the open paper strategy Open put in the builder
     underlying: 'NIFTY',
     expiries: [],
     expiry: '',
@@ -115,8 +116,8 @@
     try {
       localStorage.setItem(STATE_KEY, JSON.stringify({
         underlying: S.underlying, expiry: S.expiry, view: S.view, leftTab: S.leftTab, anaTab: S.anaTab,
-        product: S.product, broker: S.broker, showOI: S.showOI, showSigma: S.showSigma,
-        legs: S.legs.map(({ side, type, strike, expiry, lots, entry, enabled, source }) => ({ side, type, strike, expiry, lots, entry, enabled, source })),
+        product: S.product, broker: S.broker, showOI: S.showOI, showSigma: S.showSigma, editingPaper: S.editingPaper,
+        legs: S.legs.map(({ side, type, strike, expiry, lots, entry, enabled, source, fromBasket }) => ({ side, type, strike, expiry, lots, entry, enabled, source, fromBasket })),
       }));
     } catch (_) { /* private mode: the page still works */ }
   }
@@ -128,6 +129,7 @@
       S.expiry = String(raw.expiry || '');
       for (const k of ['view', 'leftTab', 'anaTab', 'product', 'broker']) if (raw[k]) S[k] = raw[k];
       S.showOI = raw.showOI !== false; S.showSigma = raw.showSigma !== false;
+      S.editingPaper = Number(raw.editingPaper) || null;
       const today = new Date().toISOString().slice(0, 10);
       S.legs = (Array.isArray(raw.legs) ? raw.legs : [])
         .filter((l) => l && l.expiry >= today && ['BUY', 'SELL'].includes(l.side) && ['CE', 'PE'].includes(l.type))
@@ -150,6 +152,7 @@
       id: S.nextId++, side: o.side, type: o.type, strike: num(o.strike), expiry: o.expiry,
       lots: Math.max(1, Math.round(num(o.lots, 1))), entry: num(o.entry), enabled: o.enabled !== false,
       source: o.source || 'builder', ltp: 0, iv: 0, bid: 0, ask: 0, greeks: null, securityId: '',
+      fromBasket: Number(o.fromBasket) || null,
     };
   }
   // Fill every leg's live numbers from its chain; a new leg's entry is its LTP.
@@ -275,6 +278,7 @@
             </div>
             <div class="ob-action-btns">
               <label class="ob-pf-pick">Portfolio <select id="ob-portfolio" aria-label="Portfolio"></select></label>
+              <button type="button" class="btn btn-sm" data-ob-act="paper-new" style="display:none" title="Track these legs as a new strategy instead">New strategy</button>
               <button type="button" class="btn" data-ob-act="paper">Add to portfolio</button>
               <button type="button" class="btn ob-live-btn" data-ob-act="live">Place live ▸</button>
             </div>
@@ -925,7 +929,8 @@
       if (d.obExit) { exitPositions([d.obExit]); return; }
       if (d.obPaperDel) { deletePaper(Number(d.obPaperDel)); return; }
       switch (d.obAct) {
-        case 'clear': S.legs = []; S.margin = null; changed(); break;
+        case 'clear': S.legs = []; S.margin = null; S.editingPaper = null; renderPaperButton(); changed(); break;
+        case 'paper-new': S.editingPaper = null; S.legs.forEach((l) => { l.fromBasket = null; }); renderPaperButton(); save(); await paperTrade(); break;
         case 'new-portfolio': S.naming = { kind: 'new', value: '' }; S.leftTab = 'paper'; S.pfView = 'portfolios'; renderLeft(); focusNaming(); break;
         case 'save-start':
           if (!sendable().length) { notify('Add legs first.', 'warning'); break; }
@@ -1056,7 +1061,29 @@
     renderPortfolioPicker();
     if (S.leftTab === 'paper') renderLeft();
   }
+  // Phil, 2026-10-15: "I cannot add some strategies or strikes to the existing
+  // portfolio strategies". Open puts a paper strategy in the builder; from then
+  // the button adds NEW strikes to that strategy instead of making another
+  // one, until Clear or "New strategy".
+  function editingBasket() {
+    const b = S.editingPaper ? S.paper.find((x) => x.id === S.editingPaper) : null;
+    return b && b.status === 'open' ? b : null;
+  }
+  function renderPaperButton() {
+    const btn = document.querySelector('[data-ob-act="paper"]');
+    const alt = document.querySelector('[data-ob-act="paper-new"]');
+    const pick = document.querySelector('.ob-pf-pick');
+    const b = editingBasket();
+    if (btn) {
+      btn.textContent = b ? `Add to ${b.name}` : 'Add to portfolio';
+      btn.title = b ? `New strikes join “${b.name}” at their prices now; its existing legs keep their entries` : 'Track this strategy in the portfolio picked here';
+    }
+    // style, not the hidden attribute: .btn sets its own display, which wins.
+    if (alt) alt.style.display = b ? '' : 'none';
+    if (pick) pick.style.display = b ? 'none' : '';
+  }
   function renderPortfolioPicker() {
+    renderPaperButton();
     const sel = $('#ob-portfolio');
     if (!sel) return;
     sel.innerHTML = S.portfolios.map((p) => `<option value="${p.id}" ${p.id === S.portfolioId ? 'selected' : ''}>${esc(p.name)}</option>`).join('') || '<option value="">Paper</option>';
@@ -1104,6 +1131,25 @@
     return M.activeLegs(S.legs).filter((l) => l.source !== 'position');
   }
   async function paperTrade() {
+    const editing = editingBasket();
+    if (editing) {
+      // What the builder holds beyond the strategy: a new contract whole, or
+      // the extra lots on one it already has. Fewer lots is not an exit here.
+      const fresh = [];
+      for (const l of sendable()) {
+        const held = editing.legs.find((b) => b.side === l.side && b.option_type === l.type && Number(b.strike) === Number(l.strike) && b.expiry === l.expiry);
+        const extra = held ? l.lots - Number(held.lots || 0) : l.lots;
+        if (extra > 0) fresh.push({ ...l, lots: extra });
+      }
+      if (!fresh.length) { notify(`Add a new strike (or more lots) to ${editing.name} first.`, 'warning'); return; }
+      try {
+        await api(`/api/option-builder/paper/${editing.id}/legs`, { method: 'POST', body: JSON.stringify({ legs: payloadLegs(fresh), name: editing.name }) });
+        notify(`${fresh.length} strike${fresh.length > 1 ? 's' : ''} added to ${editing.name} at live prices.`, 'success');
+        await loadPaper();
+        openPaper(editing.id);
+      } catch (err) { notify(err.message, 'error'); }
+      return;
+    }
     const legs = sendable();
     if (!legs.length) { notify('Add legs first.', 'warning'); return; }
     try {
@@ -1117,7 +1163,9 @@
     const b = S.paper.find((x) => x.id === id);
     if (!b) return;
     if (b.underlying !== S.underlying) { notify(`Switch to ${b.underlying} first.`, 'warning'); return; }
-    S.legs = b.legs.map((l) => newLeg({ side: l.side, type: l.option_type, strike: l.strike, expiry: l.expiry, lots: l.lots, entry: l.entry }));
+    S.legs = b.legs.map((l) => newLeg({ side: l.side, type: l.option_type, strike: l.strike, expiry: l.expiry, lots: l.lots, entry: l.entry, fromBasket: b.id }));
+    S.editingPaper = b.status === 'open' ? b.id : null;
+    renderPaperButton();
     changed({ margin: true });
   }
   async function closePaper(id) {
