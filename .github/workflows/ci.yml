@@ -140,6 +140,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_zerodha_exit_is_confirmed.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_points_and_entry_limit.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_match_zerodha_fills.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_broker.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_image_uploads.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_journal_validation.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_request_security.py'

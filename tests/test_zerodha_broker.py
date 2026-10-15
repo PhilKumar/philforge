@@ -653,7 +653,8 @@ class ZerodhasOwnLedger(unittest.TestCase):
             store[key] = value
 
         async def run():
-            day = ([{"netQty": 0, "dayPnl": 500.0}], [{"orderId": "1"}])
+            filled = datetime.now(IST).strftime("%Y-%m-%d") + " 10:00:00"
+            day = ([{"netQty": 0, "dayPnl": 500.0}], [{"orderId": "1", "exchangeTime": filled}])
             first = await app._record_zerodha_day(self.USER, Kite(), *day)
             await app._record_zerodha_day(self.USER, Kite(), *day)  # the page asks again a minute later
             return first, await app._load_zerodha_history(self.USER)
@@ -667,6 +668,51 @@ class ZerodhasOwnLedger(unittest.TestCase):
         self.assertEqual(entry["real_net_pnl"], 400.0)
         self.assertEqual(history, {today: entry})
         self.assertEqual(writes, [app._zerodha_history_key(self.USER)])  # unchanged: not written twice
+
+    def test_a_morning_login_files_yesterdays_fills_under_yesterday(self):
+        """15-Oct-2026, 07:36: Kite had not cleared 14-Oct, and its two fills
+        were booked again as 15-Oct. The fills' own time names the day."""
+        from unittest import mock
+
+        class Kite:
+            def get_order_charges(self):
+                return {"total": 142.56, "brokerage": 40.0}
+
+        store: dict = {}
+
+        async def get_state(key):
+            return store.get(key)
+
+        async def set_state(key, value):
+            store[key] = value
+
+        fills = [
+            {"orderId": "261014220870046", "exchangeTime": "2026-10-14 13:06:40"},
+            {"orderId": "261014220872491", "exchangeTime": "2026-10-14 13:07:14"},
+        ]
+
+        async def run():
+            await app._record_zerodha_day(self.USER, Kite(), [{"netQty": 0, "dayPnl": 880.0}], fills)
+            return await app._load_zerodha_history(self.USER)
+
+        with (
+            mock.patch.object(app._db_mod, "get_app_state", get_state),
+            mock.patch.object(app._db_mod, "set_app_state", set_state),
+        ):
+            history = asyncio.run(run())
+        self.assertEqual(list(history), ["2026-10-14"])
+        self.assertEqual(history["2026-10-14"]["real_pnl"], 880.0)
+
+    def test_the_copied_day_already_saved_is_dropped(self):
+        day = {"broker": "zerodha", "real_pnl": 880.0, "real_net_pnl": 737.44, "real_trade_legs": 2}
+        other = {**day, "real_pnl": 100.0}
+        history = {"2026-10-12": other, "2026-10-14": day, "2026-10-15": dict(day), "2026-10-16": other}
+        self.assertEqual(list(app._drop_stale_zerodha_copies(history)), ["2026-10-12", "2026-10-14", "2026-10-16"])
+
+    def test_no_fills_before_the_open_records_nothing(self):
+        src = SRC.split("async def _record_zerodha_day(")[1].split("\nasync def ")[0]
+        self.assertIn("dt_time(9, 15)", src)
+        self.assertIsNone(app._zerodha_fills_day([{"orderId": "1"}]))
 
     def test_the_close_is_kept_by_the_loop_that_survives_a_deploy(self):
         body = SRC.split("async def _run_zerodha_login_reminder_loop(")[1].split("\n# ──")[0]

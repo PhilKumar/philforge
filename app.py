@@ -8472,12 +8472,38 @@ def _zerodha_day_entry(positions: list, trades: list, charges: dict | None) -> d
     }
 
 
+def _zerodha_fills_day(trades: list) -> str | None:
+    """The day the fills belong to, from Kite's own fill times, or None."""
+    days = {str(row.get("exchangeTime") or "")[:10] for row in trades or []}
+    days.discard("")
+    return max(days) if days else None
+
+
+def _drop_stale_zerodha_copies(history: dict) -> dict:
+    """Drop a day that is a copy of the day recorded before it.
+
+    Before Kite clears its day (around 07:30-08:00), a morning login still
+    sees yesterday's fills, and 15-Oct-2026 was booked with 14-Oct's two
+    trades that way. Two real days never match to the paisa on P&L, charges
+    and fills alike, so a later day equal to the one before is that copy.
+    """
+    kept: dict = {}
+    previous = None
+    for day in sorted(history):
+        entry = history[day]
+        if previous is not None and entry == previous and int((entry or {}).get("real_trade_legs") or 0) > 0:
+            continue
+        kept[day] = entry
+        previous = entry
+    return kept
+
+
 async def _load_zerodha_history(user_id: int) -> dict:
     try:
         history = json.loads(await _db_mod.get_app_state(_zerodha_history_key(user_id)) or "{}")
     except Exception:
         history = {}
-    return history if isinstance(history, dict) else {}
+    return _drop_stale_zerodha_copies(history) if isinstance(history, dict) else {}
 
 
 async def _record_zerodha_day(
@@ -8497,10 +8523,17 @@ async def _record_zerodha_day(
     entry = _zerodha_day_entry(positions, trades, charges)
     if entry is None:
         return None
-    today = datetime.now(IST).date().isoformat()
+    # The fills say which day they are; the clock does not, before Kite has
+    # cleared yesterday. With no fills, a figure before the open is yesterday's.
+    now = datetime.now(IST)
+    day = _zerodha_fills_day(trades)
+    if day is None:
+        if now.time() < dt_time(9, 15):
+            return None
+        day = now.date().isoformat()
     history = await _load_zerodha_history(user_id)
-    if history.get(today) != entry:
-        history[today] = entry
+    if history.get(day) != entry:
+        history[day] = entry
         await _db_mod.set_app_state(_zerodha_history_key(user_id), json.dumps(history, sort_keys=True))
     return entry
 
