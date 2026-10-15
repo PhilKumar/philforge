@@ -139,6 +139,13 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else if (path === '/api/zerodha/portfolio') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
+    // The Scalp page docks the option chart beside the form and asks for the
+    // form's contract as soon as it opens (2026-10-15).
+    else if (path === '/api/scalp/contract-chart') await route.fulfill({ json: {
+      status: 'ok', timeframe: '5m', entries: [], overlays: [], lines: [], live_price: 0,
+      candles: [0, 1, 2].map((i) => ({ t: 1792040100 + i * 300, o: 120 + i, h: 124 + i, l: 118 + i, c: 122 + i })),
+      instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+    } });
     else if (path === '/api/zerodha/history') await route.fulfill({ json: { status: 'ok', configured: false, daily: {} } });
     else if (path === '/api/zerodha/status') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
     // Insights panels. Both used to be their own pages; inside the tab they
