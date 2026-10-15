@@ -13836,6 +13836,16 @@ function _scalpChartEls(docked) {
   };
 }
 
+// Another chart open on top (the NIFTY 5m button, a trade chart) owns the one
+// canvas the renderer keeps. The dock waits until it closes; redrawing itself
+// meanwhile wiped that chart every few seconds (Phil, 2026-10-15: "my nifty
+// main chart is not opening").
+function _scalpDockYields() {
+  if (document.querySelector('[class*="chart-overlay"].is-open')) return true;
+  const host = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas ? _pfChartCanvas.host : null;
+  return !!(host && host.isConnected && !host.closest('#scalp-dock-chart') && host.getClientRects().length);
+}
+
 let _scalpDockStripBuilt = false;
 let _scalpDockPendingKey = '';
 let _scalpDockFailed = { key: '', at: 0 };
@@ -13876,7 +13886,7 @@ function _scalpDockDraw(target) {
 // over (it carries the entry, target and stop), and when that trade closes the
 // dock goes back to the form.
 function _scalpDockFollow(openTrades) {
-  if (!_scalpChartDocked()) return;
+  if (!_scalpChartDocked() || _scalpDockYields()) return;
   _scalpDockShow();
   const open = Array.isArray(openTrades) ? openTrades : _scalpDockOpenTrades;
   const form = _scalpFormContract();
@@ -13943,7 +13953,7 @@ function _startScalpOptionChartPolling() {
   _stopScalpOptionChartPolling();
   _scalpOptionChartPollTimer = setInterval(() => {
     const overlay = document.getElementById('scalp-option-chart-overlay');
-    const dockLive = _scalpChartDocked() && !document.getElementById('scalp-dock-chart')?.hidden
+    const dockLive = _scalpChartDocked() && !document.getElementById('scalp-dock-chart')?.hidden && !_scalpDockYields()
       && (typeof _isPageVisible !== 'function' || _isPageVisible());
     if (!(overlay?.classList.contains('is-open') || dockLive) || !_scalpChartTargetKey() || _scalpOptionChartPollInFlight) return;
     _scalpOptionChartPollInFlight = true;
@@ -14000,6 +14010,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
   const targetKey = _scalpChartTargetKey();
   const requestId = ++_scalpOptionChartRequest;
   const docked = _scalpChartDocked();
+  if (docked && liveRefresh && _scalpDockYields()) return;
   if (docked) {
     _scalpDockShow();
     // A chart button pressed beside the dock lands in it, not in a pop-up.
