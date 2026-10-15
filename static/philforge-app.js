@@ -9498,6 +9498,40 @@ function _portfolioTradeTimeLabel(value) {
   return match ? match[1] : s.slice(-8);
 }
 
+// Today's Zerodha fills paired into rows like Dhan's: one per contract and
+// product, bought vs sold at their average prices. An open remainder (more
+// bought than sold) is left to the positions and is not a closed trade.
+function _zerodhaTodayRows(z) {
+  const fills = (z && Array.isArray(z.fills)) ? z.fills : [];
+  const groups = {};
+  fills.forEach(f => {
+    const key = `${f.tradingSymbol}|${f.productType || ''}`;
+    const g = groups[key] || (groups[key] = { symbol: f.tradingSymbol, product: f.productType || '', buys: [], sells: [], first: '' });
+    (String(f.transactionType).toUpperCase() === 'BUY' ? g.buys : g.sells).push(f);
+    const at = String(f.exchangeTime || '');
+    if (at && (!g.first || at < g.first)) g.first = at;
+  });
+  return Object.values(groups).map(g => {
+    const qty = (list) => list.reduce((s, f) => s + Number(f.tradedQuantity || 0), 0);
+    const value = (list) => list.reduce((s, f) => s + Number(f.tradedPrice || 0) * Number(f.tradedQuantity || 0), 0);
+    const bq = qty(g.buys), sq = qty(g.sells), matched = Math.min(bq, sq);
+    if (matched <= 0) return null;
+    const buyAvg = value(g.buys) / bq, sellAvg = value(g.sells) / sq;
+    return {
+      tradingSymbol: g.symbol, product: g.product, broker: 'zerodha', transactionType: 'PAIR',
+      tradedQuantity: matched, buyAvgPrice: buyAvg, sellAvgPrice: sellAvg,
+      pnl: Math.round((sellAvg - buyAvg) * matched * 100) / 100,
+      createTime: g.first,
+    };
+  }).filter(Boolean);
+}
+
+function _todayRowTime(t) {
+  const raw = String(t.createTime || t.exchangeTime || t.entry_time || '');
+  const m = raw.match(/(\d{2}:\d{2}(:\d{2})?)/);
+  return m ? m[1] : raw;
+}
+
 function _portfolioCompletedTradeRowHtml(trade, index, all, runId) {
   const pnl = round2(trade?.pnl || 0);
   const journalBtn = runId && trade?.id !== undefined && trade?.id !== null
@@ -19446,6 +19480,7 @@ async function loadPortfolioData() {
         buyAvgPrice: g.buyAvg,
         sellAvgPrice: g.sellAvg,
         pnl: g.pnl,
+        broker: 'dhan',
         createTime: todayDhanTrades.find(t => t.tradingSymbol === g.symbol)?.createTime || ''
       }));
       console.log(`[Portfolio] Today's P&L from Dhan trades (paired): ₹${todayPnL.toFixed(2)} (${pnlByGroup.length} instruments)`);
@@ -19482,6 +19517,16 @@ async function loadPortfolioData() {
       todayPnL = paperTodayTrades.reduce((sum, t) => sum + Number(t.pnl || 0), 0) + unrealizedPnL;
       todayTradesDisplay = paperTodayTrades;
       console.log(`[Portfolio] Paper trades: ${paperTodayTrades.length}, unrealized: ₹${unrealizedPnL.toFixed(2)}, total: ₹${todayPnL.toFixed(2)}`);
+    }
+
+    // Zerodha's fills beside Dhan's. Paired per contract AND product: the same
+    // option can be bought MIS by a book and NRML by a scalp on one day, and
+    // those are two trades, not one.
+    const zerodhaRows = _zerodhaTodayRows(zerodhaNow);
+    if (zerodhaRows.length) {
+      const fromBroker = todayTradesDisplay.filter(t => t.broker === 'dhan');
+      todayTradesDisplay = fromBroker.concat(zerodhaRows)
+        .sort((a, b) => String(_todayRowTime(a)).localeCompare(String(_todayRowTime(b))));
     }
 
     const availableBal = Number(brokerData.available_balance || brokerData.funds?.availabelBalance || 0);
@@ -19577,6 +19622,7 @@ async function loadPortfolioData() {
         }
 
         const symbol = t.tradingSymbol || t.symbol || t.securityId || '-';
+        const brokerTag = t.broker ? ` <span class="pf-broker-chip is-${escapeAttr(t.broker)}">${t.broker === 'zerodha' ? 'ZERODHA' : 'DHAN'}${t.product ? ' · ' + escapeHtml(t.product) : ''}</span>` : '';
         const txnType = t.transactionType === 'PAIR' ? 'BUY→SELL' : (t.transactionType || t.transaction_type || '-');
         const optionType = t.option_type ? ' ' + t.option_type : '';
 
@@ -19588,7 +19634,7 @@ async function loadPortfolioData() {
         return `
           <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 10px 0;">${escapeHtml(tradeTime)}</td>
-            <td>${escapeHtml(symbol)}</td>
+            <td>${escapeHtml(symbol)}${brokerTag}</td>
             <td>${escapeHtml(txnType + optionType)}</td>
             <td style="font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(buyPrice)}</td>
             <td style="font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(sellPrice)}</td>

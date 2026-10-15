@@ -8598,7 +8598,24 @@ async def zerodha_portfolio(request: Request):
         await _record_zerodha_day(int(user["id"]), client, positions, trades)
     except Exception as exc:
         _logger.warning("[ZERODHA] today's ledger entry was not written: %s", exc)
-    return {**base, "connected": True, **_zerodha_portfolio_summary(funds, positions, trades)}
+    # Today's fills, for the Portfolio page's Today's Trades beside Dhan's
+    # (Phil, 2026-10-15: "why only one trade or is it from Dhan only?").
+    fills = [
+        {
+            k: row.get(k)
+            for k in (
+                "tradingSymbol",
+                "productType",
+                "transactionType",
+                "tradedPrice",
+                "tradedQuantity",
+                "exchangeTime",
+                "orderId",
+            )
+        }
+        for row in trades or []
+    ]
+    return {**base, "connected": True, **_zerodha_portfolio_summary(funds, positions, trades), "fills": fills}
 
 
 def _runtime_owner_ids() -> set[int]:

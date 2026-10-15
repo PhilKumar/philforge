@@ -256,3 +256,42 @@ test('Broker Status gives each broker its own column and its own button', async 
   await expect(page.locator('#broker-zerodha-btn')).toHaveText('Log in');
   await expect(page.locator('#broker-zerodha-btn')).toHaveAttribute('data-action', 'login');
 });
+
+test("Today's Trades lists Zerodha's fills beside Dhan's, one row per contract and product", async ({ page }) => {
+  // Phil, 2026-10-15: "why only one trade or is it from Dhan only?" -- it was
+  // Dhan only. The CE book's 22800CE traded MIS at Zerodha the same day the
+  // scalps traded it NRML: two trades, so two rows.
+  await login(page);
+  const day = await page.evaluate(() => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  });
+  await page.route('**/api/broker/trades', route => route.fulfill({ json: { status: 'success', trades: [
+    { securityId: '47153', tradingSymbol: 'NIFTY-Oct2026-22800-CE', transactionType: 'BUY', tradedQuantity: 130, tradedPrice: 276.5, createTime: `${day} 13:10:01` },
+    { securityId: '47153', tradingSymbol: 'NIFTY-Oct2026-22800-CE', transactionType: 'SELL', tradedQuantity: 130, tradedPrice: 303.85, createTime: `${day} 14:20:00` },
+  ] } }));
+  const fill = (sym: string, product: string, side: string, qty: number, price: number, at: string) =>
+    ({ tradingSymbol: sym, productType: product, transactionType: side, tradedQuantity: qty, tradedPrice: price, exchangeTime: `${day} ${at}`, orderId: at });
+  await page.route('**/api/zerodha/portfolio', route => route.fulfill({ json: {
+    status: 'ok', configured: true, logged_in_today: true, connected: true, user_id: 'AB1234',
+    available: 152340.5, day_pnl: 0, trades_today: 3, open_positions: 0,
+    fills: [
+      fill('NIFTY26O1922800CE', 'NRML', 'BUY', 195, 255.45, '12:36:58'),
+      fill('NIFTY26O1922800CE', 'NRML', 'SELL', 195, 261.65, '12:39:15'),
+      fill('NIFTY26O1922800CE', 'MIS', 'BUY', 130, 276.3, '13:10:01'),
+      fill('NIFTY26O1922800CE', 'MIS', 'SELL', 130, 301.75, '13:37:07'),
+      fill('SENSEX26O1574000PE', 'NRML', 'BUY', 80, 300, '14:00:00'), // still open: no row
+    ],
+  } }));
+  await page.click('#nav-portfolio');
+  const rows = page.locator('#portfolio-trades-body tr');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText('ZERODHA · MIS');
+  await expect(rows.nth(0)).toContainText('₹276.30');
+  await expect(rows.nth(0)).toContainText('₹301.75');
+  await expect(rows.nth(0)).toContainText('3308.50');
+  await expect(rows.nth(1)).toContainText('DHAN');
+  await expect(rows.nth(1)).toContainText('3555.50');
+  await expect(rows.nth(2)).toContainText('ZERODHA · NRML');
+  await expect(rows.nth(2)).toContainText('1209.00');
+});

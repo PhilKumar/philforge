@@ -10019,3 +10019,8 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 .oc-gap-signal-rows b:last-child { font-weight: 600; color: var(--muted); }
 .oc-gap-signal-rows b.is-ce:last-child { color: var(--green); }
 .oc-gap-signal-rows b.is-pe:last-child { color: var(--red); }
+
+/* Which account a Today's Trades row came from (2026-10-15). */
+.pf-broker-chip { margin-left: 6px; padding: 1px 6px; border-radius: 999px; font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .4px; vertical-align: middle; border: 1px solid; }
+.pf-broker-chip.is-dhan { color: #60a5fa; border-color: rgba(96,165,250,.45); }
+.pf-broker-chip.is-zerodha { color: #fb923c; border-color: rgba(251,146,60,.5); }
