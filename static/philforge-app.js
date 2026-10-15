@@ -14037,6 +14037,8 @@ async function openScalpOptionChart(tradeId, options = {}) {
     const data = await response.json().catch(() => ({}));
     if (requestId !== _scalpOptionChartRequest || _scalpChartTargetKey() !== targetKey) return;
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
+    // Opens on today and yesterday; drag or zoom out for the older sessions.
+    data.fit_sessions = 2;
     const instrument = data.instrument || {};
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
     const title = els.title;

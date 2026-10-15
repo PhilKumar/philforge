@@ -428,6 +428,24 @@ function _pfChartCanvasFit(c) {
       iMax = Math.min(last + 0.5, exitIdx + _PF_CHART_TRADE_PAD_BARS + 0.5);
     }
   }
+  // fit_sessions: N frames the last N trading days (IST dates) up to the
+  // latest bar, widened only to keep a marked entry in view. The Scalp option
+  // chart opens on today and yesterday (Phil, 2026-10-15).
+  var sessions = Number(d.fit_sessions) || 0;
+  if (sessions > 0) {
+    var seen = 0, day = null, startIdx = 0;
+    for (var k = last; k >= 0; k--) {
+      var dayNo = Math.floor((Number(candles[k].t) + 19800) / 86400);
+      if (dayNo !== day) {
+        day = dayNo;
+        seen += 1;
+        if (seen > sessions) { startIdx = k + 1; break; }
+      }
+    }
+    var keepEntry = entries.length && isFinite(entryIdx) ? iMin : Infinity;
+    iMin = Math.max(-0.5, Math.min(startIdx - 0.5, keepEntry));
+    iMax = last + 0.5;
+  }
   var from = Math.max(Math.ceil(iMin), 0), to = Math.min(Math.floor(iMax), last);
   var lo = Number(candles[from].l), hi = Number(candles[from].h);
   for (var i = from; i <= to; i++) {
