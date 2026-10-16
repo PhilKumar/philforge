@@ -295,3 +295,39 @@ test("Today's Trades lists Zerodha's fills beside Dhan's, one row per contract a
   await expect(rows.nth(2)).toContainText('ZERODHA · NRML');
   await expect(rows.nth(2)).toContainText('1209.00');
 });
+
+test('A Zerodha Console tradebook fills the older Zerodha months, marked before charges', async ({ page }) => {
+  // Phil, 2026-10-16: "Why old trades are not visible in zerodha like Aug 2021?"
+  // Kite keeps today only; Console's tradebook has the rest. The upload goes
+  // through the real route and the real ledger.
+  await login(page);
+  await page.route('**/api/zerodha/portfolio', route => route.fulfill({ json: {
+    status: 'ok', configured: true, logged_in_today: true, connected: true, user_id: 'AB1234',
+    available: 0, day_pnl: 0, trades_today: 0, open_positions: 0, fills: [],
+  } }));
+  await page.click('#nav-portfolio');
+  await expect(page.locator('#portfolio-zerodha-book')).toBeVisible();
+  const csv = [
+    'symbol,isin,trade_date,exchange,segment,series,trade_type,auction,quantity,price,trade_id,order_id,order_execution_time,expiry_date',
+    'NIFTY21AUG16400CE,,2021-08-10,NFO,NFO-OPT,,buy,false,50,100.00,T1,O1,2021-08-10T09:20:00,2021-08-12',
+    'NIFTY21AUG16400CE,,2021-08-10,NFO,NFO-OPT,,sell,false,50,115.00,T2,O2,2021-08-10T10:00:00,2021-08-12',
+    'NIFTY21AUG16500PE,,2021-08-11,NFO,NFO-OPT,,buy,false,50,80.00,T3,O3,2021-08-11T09:30:00,2021-08-12',
+    'NIFTY21AUG16500PE,,2021-08-11,NFO,NFO-OPT,,sell,false,50,70.00,T4,O4,2021-08-11T14:30:00,2021-08-12',
+  ].join('\n');
+  const done = page.waitForResponse(r => r.url().includes('/api/zerodha/import-tradebook'));
+  await page.setInputFiles('#portfolio-zerodha-import', { name: 'tradebook-AB1234-FO.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const res = await done;
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  expect([body.written, body.first, body.last, body.gross]).toEqual([2, '2021-08-10', '2021-08-11', 250]);
+
+  await page.evaluate(() => {
+    const w = window as unknown as { _currentMonthlyView: string; renderMonthlyDailyGrid: () => void };
+    w._currentMonthlyView = '2021-08';
+    w.renderMonthlyDailyGrid();
+  });
+  const summary = page.locator('#portfolio-zerodha-monthly-summary');
+  await expect(summary).toContainText('250');
+  await expect(summary).toContainText('2 of 2 days imported from the Zerodha Console tradebook, before charges');
+  await expect(page.locator('#portfolio-zerodha-monthly-grid .portfolio-monthly-day')).toHaveCount(2);
+});

@@ -10036,3 +10036,8 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 .pf-broker-chip { margin-left: 6px; padding: 1px 6px; border-radius: 999px; font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .4px; vertical-align: middle; border: 1px solid; }
 .pf-broker-chip.is-dhan { color: #60a5fa; border-color: rgba(96,165,250,.45); }
 .pf-broker-chip.is-zerodha { color: #fb923c; border-color: rgba(251,146,60,.5); }
+
+/* Zerodha Console tradebook import (2026-10-16). */
+.pf-zerodha-import { color: #fb923c; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.pf-zerodha-import:hover { color: #fdba74; }
+.pf-import-note { margin-top: 6px; font-size: 10.5px; color: #fbbf24; }

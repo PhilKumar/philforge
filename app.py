@@ -8563,8 +8563,32 @@ async def zerodha_history(request: Request):
     """The days recorded at Zerodha, for the Portfolio month panel."""
     user = await _auth_mod.get_current_user(request)
     profile = _zerodha_profile_payload(user)
-    daily = await _load_zerodha_history(int(user["id"])) if profile["configured"] else {}
+    # The days are the account's own -- recorded, or imported from Console --
+    # whether or not a Kite app is saved right now.
+    daily = await _load_zerodha_history(int(user["id"]))
     return {"status": "ok", "configured": profile["configured"], "user_id": profile["user_id"], "daily": daily}
+
+
+@app.post("/api/zerodha/import-tradebook")
+async def zerodha_import_tradebook(request: Request, file: UploadFile):
+    """Days from a Zerodha Console tradebook join the Zerodha month panel.
+
+    Kite answers for today only, so the panel began on 2026-10-11; Console's
+    Reports -> Tradebook (CSV or Excel) is where the older history is. Days
+    PhilForge recorded itself, with Kite's charges, are never overwritten.
+    """
+    import zerodha_tradebook as _ztb
+
+    user_id = _request_user_id(request)
+    data = await _read_upload_limited(file, 10 * 1024 * 1024)
+    try:
+        days, summary = _ztb.daily_from_rows(_ztb.read_rows(data, file.filename or ""))
+    except _ztb.TradebookError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    history = await _load_zerodha_history(user_id)
+    merged, written, kept = _ztb.merge_into_history(history, days)
+    await _db_mod.set_app_state(_zerodha_history_key(user_id), json.dumps(merged, sort_keys=True))
+    return {"status": "ok", **summary, "written": written, "kept": kept}
 
 
 @app.get("/api/zerodha/portfolio")

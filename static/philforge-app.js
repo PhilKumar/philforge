@@ -19309,6 +19309,33 @@ function renderPortfolioZerodha(data) {
 
 // Zerodha's month panel. Kite has no trade history, so the days come from
 // PhilForge's own record of each one (GET /api/zerodha/history).
+// Older Zerodha months come from Console's tradebook (Kite keeps today only).
+async function importZerodhaTradebook(input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const r = await fetch('/api/zerodha/import-tradebook', { method: 'POST', body: form, credentials: 'same-origin' });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(pfErrorText(body, 'Import failed (' + r.status + ')'), 'error'); return; }
+    const open = (body.still_open || []).length;
+    toast(`Imported ${body.written} day${body.written === 1 ? '' : 's'} (${body.first} to ${body.last}), gross ${pfMoney(body.gross)}`
+      + (body.kept ? ` · ${body.kept} already recorded kept` : '')
+      + (open ? ` · ${open} contract${open === 1 ? '' : 's'} still open at the file's end (expiry settlements are not in a tradebook)` : ''), 'success', 9000);
+    await loadPortfolioZerodhaMonth(true);
+    if (typeof renderMonthlyDailyGrid === 'function') renderMonthlyDailyGrid();
+  } catch (e) {
+    toast('Import failed: ' + e.message, 'error');
+  } finally {
+    input.value = '';
+  }
+}
+
+document.addEventListener('change', (event) => {
+  if (event.target && event.target.id === 'portfolio-zerodha-import') importZerodhaTradebook(event.target);
+});
+
 async function loadPortfolioZerodhaMonth(configured) {
   const book = document.getElementById('portfolio-zerodha-book');
   const dualGrid = document.getElementById('portfolio-dual-grid');
@@ -19997,6 +20024,7 @@ function _renderPortfolioMonthPanel(panel) {
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayEntries = [];
   let totalGrossRealPnl = 0, totalNetRealPnl = 0, totalCharges = 0, totalBrokerage = 0, totalTrades = 0, tradingDays = 0, profitDays = 0;
+  let importedDays = 0;
   let totalPaperPnl = 0;
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -20034,6 +20062,7 @@ function _renderPortfolioMonthPanel(panel) {
         paperTrades,
         hasRealActivity,
       });
+      if (hasRealActivity && entry.source === 'console') importedDays++;
       if (hasRealActivity) {
         totalGrossRealPnl += grossRealPnl;
         totalNetRealPnl += netRealPnl;
@@ -20081,6 +20110,10 @@ function _renderPortfolioMonthPanel(panel) {
     </div>
     <div style="margin-top: 8px; font-size: 10px; color: var(--muted);">Charges include GST, STT, SEBI Fees, Exchange Transaction Charges and Stamp Duty. Brokerage is shown separately.</div>
   ` : `<span style="color: var(--muted);">No trades this month</span>`;
+  // A Console tradebook carries no charges: those days are gross, said so.
+  if (importedDays > 0 && tradingDays > 0) {
+    summaryEl.insertAdjacentHTML('beforeend', `<div class="pf-import-note">${importedDays} of ${tradingDays} day${tradingDays === 1 ? '' : 's'} imported from the Zerodha Console tradebook, before charges (a tradebook carries none).</div>`);
+  }
 
   // Daily boxes
   if (realDayEntries.length === 0) {
