@@ -13512,7 +13512,7 @@ function _syncScalpUnderlyingPicker() {
   if (!root || !select) return;
   if (!root.firstChild) {
     root.innerHTML = `<button type="button" class="scalp-uly-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Underlying">
-        <span class="scalp-uly-name"></span><span class="scalp-uly-tag"></span><span class="scalp-uly-caret">▾</span>
+        <span class="scalp-uly-name"></span><span class="scalp-uly-cmp"></span><span class="scalp-uly-tag"></span><span class="scalp-uly-caret">▾</span>
       </button>
       <div class="scalp-uly-panel" hidden>
         <div class="scalp-uly-tabs" role="tablist"></div>
@@ -13553,8 +13553,26 @@ function _syncScalpUnderlyingPicker() {
   const tag = root.querySelector('.scalp-uly-tag');
   tag.textContent = _scalpUlyGroupOf(select.value);
   tag.hidden = !tag.textContent;
+  _scalpPaintCmp();
   if (!root.querySelector('.scalp-uly-panel').hidden) _renderScalpUlyGrid();
 }
+
+// The underlying's own price -- the share, the commodity's future, the index --
+// in the picker (Phil, 2026-10-16: "I want to know the CMP of particular stock").
+function _scalpPaintCmp() {
+  const el = document.querySelector('#scalp-uly .scalp-uly-cmp');
+  if (!el) return;
+  const value = _scalpSpotCache[document.getElementById('scalp-underlying')?.value] || 0;
+  el.textContent = value > 0 ? `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+  el.title = value > 0 ? 'Current market price of the underlying' : '';
+}
+
+// Kept fresh every 5 seconds while the Scalp page is on screen.
+setInterval(() => {
+  if (document.hidden || (typeof _isPageActive === 'function' && !_isPageActive('scalp-page'))) return;
+  if (!document.getElementById('scalp-uly')?.firstChild) return;
+  _fetchScalpSpotPrices().then(_scalpPaintCmp).catch(() => {});
+}, 5000);
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _syncScalpUnderlyingPicker);
 else _syncScalpUnderlyingPicker();
@@ -13598,6 +13616,7 @@ async function loadScalpExpiries(options = {}) {
     if (_isScalpStock(underlying)) await _scalpLoadStockSpec(underlying, sel.value);
     // Set ITM-2 default strike from live spot per underlying
     await _fetchScalpSpotPrices();
+    _scalpPaintCmp();
     const preservedStrike = parseFloat(preserve?.strike) || 0;
     if (preservedStrike > 0) {
       document.getElementById('scalp-strike').value = preservedStrike;

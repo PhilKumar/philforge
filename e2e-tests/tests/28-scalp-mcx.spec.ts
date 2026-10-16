@@ -172,6 +172,8 @@ test('Scalp: stock options are searched in their own tab and take each stock\'s 
   await expect(page.locator('#scalp-uly .scalp-uly-item small')).toHaveText('Lot 1800');
   await page.click('#scalp-uly .scalp-uly-item[data-value="CROMPTON"]');
   await expect(btn.locator('.scalp-uly-tag')).toHaveText('Stocks');
+  // Its CMP sits beside the name (Phil, 2026-10-16: "I want to know the CMP").
+  await expect(btn.locator('.scalp-uly-cmp')).toHaveText('₹147.40');
   await expect(page.locator('#scalp-lot-size-label')).toHaveText('1800');
   // Two 2.5-point strikes in the money off the share (147.4 -> ATM 147.5), and
   // the stepper keeps the half.
