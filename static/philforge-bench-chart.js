@@ -991,31 +991,53 @@ function _pfChartCanvasFibs(c, p, PAL, labels) {
   return count;
 }
 
+// The candle a fill at `t` traded in: the bar that opened at or before it
+// (13:13 is in the 13:10 five-minute bar, not the 13:15 one). Null when the
+// fill lies outside the candles drawn.
+function _pfChartCanvasBarAt(c, t) {
+  var bars = ((c.data || {}).candles) || [];
+  if (!bars.length || t == null) return null;
+  var axis = _pfChartCanvasAxisOf(c);
+  var idx = Math.floor(_pfChartCanvasIdxOf(axis, Number(t)) + 1e-6);
+  if (idx < 0 || idx >= bars.length) return null;
+  if (idx === bars.length - 1 && Number(t) >= Number(bars[idx].t) + axis.barSec) return null;
+  return bars[idx];
+}
+
 function _pfChartCanvasMarkers(c, p, PAL, labels) {
   var d = c.data || {}, ctx = c.ctx, count = 0;
   var entries = (d.entries && d.entries.length) ? d.entries : (d.fills || []).map(function (fill) {
     return { t: fill && fill.timestamp, price: fill && fill.price };
   });
   _pfChartCanvasClip(ctx, p, function () {
+    // THE ARROW SITS CLEAR OF ITS CANDLE, as TradingView's do (Phil,
+    // 2026-10-16: "Make this buy arrow below the bought candle and sell above
+    // the sold candle"): a buy points up from under the low of the candle it
+    // filled in, a sell points down from over the high. Drawn at the fill
+    // price it sat inside the candle's body and read as either.
     entries.forEach(function (fill) {
       if (!fill || !fill.price || !p.inPrice(fill.price)) return;
-      var x = p.xOf(fill.t), y = p.yOf(fill.price) + 10;
+      var bar = _pfChartCanvasBarAt(c, fill.t);
+      var x = bar ? p.xOf(bar.t) : p.xOf(fill.t);
+      var tip = (bar ? p.yOf(bar.l) : p.yOf(fill.price)) + 4;
       ctx.fillStyle = PAL.buyMark; ctx.strokeStyle = PAL.markRing; ctx.lineWidth = 0.9;
-      ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.lineTo(x - 5, y); ctx.lineTo(x - 2, y); ctx.lineTo(x - 2, y + 6);
-      ctx.lineTo(x + 2, y + 6); ctx.lineTo(x + 2, y); ctx.lineTo(x + 5, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, tip); ctx.lineTo(x - 5, tip + 9); ctx.lineTo(x - 2, tip + 9); ctx.lineTo(x - 2, tip + 15);
+      ctx.lineTo(x + 2, tip + 15); ctx.lineTo(x + 2, tip + 9); ctx.lineTo(x + 5, tip + 9); ctx.closePath(); ctx.fill(); ctx.stroke();
       count++;
     });
     (d.exits || []).forEach(function (exit) {
       if (!exit || !exit.price || !p.inPrice(exit.price)) return;
-      var x = p.xOf(exit.t), y = p.yOf(exit.price) - 10;
+      var bar = _pfChartCanvasBarAt(c, exit.t);
+      var x = bar ? p.xOf(bar.t) : p.xOf(exit.t);
+      var tip = (bar ? p.yOf(bar.h) : p.yOf(exit.price)) - 4, y = tip - 15;
       ctx.fillStyle = PAL.sellMark; ctx.strokeStyle = PAL.markRing; ctx.lineWidth = 0.9;
-      ctx.beginPath(); ctx.moveTo(x, y + 9); ctx.lineTo(x - 5, y); ctx.lineTo(x - 2, y); ctx.lineTo(x - 2, y - 6);
-      ctx.lineTo(x + 2, y - 6); ctx.lineTo(x + 2, y); ctx.lineTo(x + 5, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, tip); ctx.lineTo(x - 5, tip - 9); ctx.lineTo(x - 2, tip - 9); ctx.lineTo(x - 2, tip - 15);
+      ctx.lineTo(x + 2, tip - 15); ctx.lineTo(x + 2, tip - 9); ctx.lineTo(x + 5, tip - 9); ctx.closePath(); ctx.fill(); ctx.stroke();
       // A null P&L is UNKNOWN, not zero. `Number(x) || 0` printed "+Rs 0" on
       // every unpriced exit; a real 0 still shows, an absent one says nothing.
       var known = exit.pnl !== null && exit.pnl !== undefined && isFinite(Number(exit.pnl));
       var pnl = Number(exit.pnl);
-      labels.push({ kind: 'marker', x: x, y: y - 9, text: 'SELL ' + Number(exit.price).toLocaleString('en-US', { maximumFractionDigits: 2 })
+      labels.push({ kind: 'marker', x: x, y: y - 2, text: 'SELL ' + Number(exit.price).toLocaleString('en-US', { maximumFractionDigits: 2 })
         + (known ? '  ' + (pnl >= 0 ? '+' : '−') + _pfChartInr(Math.abs(pnl)) : '  unpriced'), color: PAL.sellMark });
       count++;
     });
