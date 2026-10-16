@@ -1578,6 +1578,18 @@ function _pfChartDrawGeom(p, dr) {
   return { xa: p.xOf(dr.a.t), ya: p.yOf(dr.a.price), xb: p.xOf(dr.b.t), yb: p.yOf(dr.b.price) };
 }
 
+// A trendline marked `extend: 'right'` carries on past its later point to the
+// plot's right edge, TradingView's "Extend right" (Phil, 2026-10-16: "Trendline
+// has to extend right ... has to be the setting"). Returns the far end drawn.
+function _pfChartLineEnd(p, dr, g) {
+  if (dr.kind !== 'line' || dr.extend !== 'right' || Math.abs(g.xb - g.xa) < 0.5) return null;
+  var from = g.xa < g.xb ? { x: g.xa, y: g.ya } : { x: g.xb, y: g.yb };
+  var to = g.xa < g.xb ? { x: g.xb, y: g.yb } : { x: g.xa, y: g.ya };
+  var right = p.padL + p.plotW;
+  if (to.x >= right) return null;
+  return { x: right, y: from.y + (to.y - from.y) * (right - from.x) / (to.x - from.x), fromX: to.x, fromY: to.y };
+}
+
 function _pfChartFibLevels(dr) {
   var a = Number(dr.a.price), span = Number(dr.b.price) - a;
   return (dr.levels || [0, 1]).map(function (k) { return { k: k, price: a + span * k }; });
@@ -1608,7 +1620,10 @@ function _pfChartCanvasPaintDrawing(ctx, c, p, dr, selected, PAL) {
     ctx.beginPath(); ctx.moveTo(g.xa, g.ya); ctx.lineTo(g.xb, g.yb); ctx.stroke();
   } else {
     ctx.strokeStyle = dr.color || _PF_DRAW_LINE; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(g.xa, g.ya); ctx.lineTo(g.xb, g.yb); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(g.xa, g.ya); ctx.lineTo(g.xb, g.yb);
+    var far = _pfChartLineEnd(p, dr, g);
+    if (far) { ctx.moveTo(far.fromX, far.fromY); ctx.lineTo(far.x, far.y); }
+    ctx.stroke();
   }
   ctx.restore();
   if (selected) {
@@ -1645,6 +1660,8 @@ function _pfChartDrawHit(c, x, y) {
     if (Math.hypot(x - g.xa, y - g.ya) <= 7) return { id: dr.id, part: 'a' };
     if (Math.hypot(x - g.xb, y - g.yb) <= 7) return { id: dr.id, part: 'b' };
     if (_pfChartSegDist(x, y, g.xa, g.ya, g.xb, g.yb) <= 5) return { id: dr.id, part: 'body' };
+    var far = _pfChartLineEnd(p, dr, g);
+    if (far && _pfChartSegDist(x, y, far.fromX, far.fromY, far.x, far.y) <= 5) return { id: dr.id, part: 'body' };
     if (dr.kind === 'fib' && x >= Math.min(g.xa, g.xb) - 4 && x <= p.padL + p.plotW) {
       var levels = _pfChartFibLevels(dr);
       for (var k = 0; k < levels.length; k++) {

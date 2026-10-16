@@ -294,6 +294,18 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   await expect.poll(async () => (await stored()).lines.length).toBe(1);
   const line = (await stored()).lines[0];
   expect(line.b.t).toBeGreaterThan(line.a.t);
+  // It runs on past its second point to the right edge ("Extend right"), and
+  // that part is the line too: a click on it selects it.
+  const beyond = await page.evaluate(() => {
+    const c = (window as any)._pfChartCanvas, dr = c.data.drawings.find((d: any) => d.kind === 'line'), p = c.projection;
+    const box = c.host.getBoundingClientRect();
+    const xa = p.xOf(dr.a.t), ya = p.yOf(dr.a.price), xb = p.xOf(dr.b.t), yb = p.yOf(dr.b.price);
+    const x = xb + (p.padL + p.plotW - xb) / 2;
+    return { extend: dr.extend, x: box.left + x, y: box.top + ya + (yb - ya) * (x - xa) / (xb - xa) };
+  });
+  expect(beyond.extend).toBe('right');
+  await page.mouse.click(beyond.x, beyond.y);
+  expect(await page.evaluate(() => { const c = (window as any)._pfChartCanvas; return c.data.drawings.find((d: any) => d.id === c.drawSel)?.kind; })).toBe('line');
 
   // Its end is taken and moved...
   const [bx, by] = await endAt('line', 'b');
@@ -363,8 +375,13 @@ test('an open trade on the form\'s contract does not hold the chart when CE turn
       instrument: { underlying: 'NIFTY', strike: Number(q.get('strike')), option_type: q.get('option_type'), expiry: q.get('expiry'), security_id: '1' },
     } });
   });
-  await scalpChart(page, candles, 150, false);
   const trade = { trade_id: 7, status: 'open', underlying: 'NIFTY', strike: 22700, expiry: '2026-10-19', option_type: 'PE' };
+  // The page's own status poll reports the trade open too, as the server would.
+  await page.route('**/api/scalp/status', async (route) => {
+    const body = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...body, open_trades: [trade] } });
+  });
+  await scalpChart(page, candles, 150, false);
   await page.evaluate((t) => (window as any)._scalpDockFollow([t]), trade);
   await expect(page.locator('#scalp-dock-chart-title')).toHaveText('NIFTY 22700PE · your trade');
   await page.evaluate((t) => {

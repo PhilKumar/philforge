@@ -14254,7 +14254,7 @@ function _scalpWriteDrawings(key, d) {
 function _scalpDrawingsFor(key) {
   const d = _scalpReadDrawings(key);
   const lines = d.lines.filter(ln => ln && ln.a && ln.b)
-    .map((ln, i) => ({ id: ln.id || `l${i}`, kind: 'line', a: ln.a, b: ln.b }));
+    .map((ln, i) => ({ id: ln.id || `l${i}`, kind: 'line', extend: 'right', a: ln.a, b: ln.b }));
   const fibs = d.fibs.filter(f => f && f.a && f.b && _SCALP_FIB_PRESETS[f.preset])
     .map((f, i) => ({ id: f.id || `f${i}`, kind: 'fib', preset: f.preset, levels: _SCALP_FIB_PRESETS[f.preset].levels, colors: _SCALP_FIB_COLORS, a: f.a, b: f.b }));
   return lines.concat(fibs);
@@ -14326,7 +14326,8 @@ function _scalpStartDraw(tool, preset) {
   pfChartArmDrawing(tool, {
     levels: fib ? fib.levels : null,
     colors: fib ? _SCALP_FIB_COLORS : null,
-    extra: fib ? { preset } : null,
+    // Trendlines run on to the right edge, as TradingView's "Extend right".
+    extra: fib ? { preset } : { extend: 'right' },
     onEnd: () => { _scalpDrawTool = ''; _scalpPaintTools(); },
   });
   _scalpPaintTools();
