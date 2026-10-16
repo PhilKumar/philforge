@@ -141,6 +141,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_chart_timeframes.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_zerodha_exit_is_confirmed.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_points_and_entry_limit.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_scalp_mcx_commodities.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_match_zerodha_fills.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_broker.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_tradebook_import.py'

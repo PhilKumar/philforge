@@ -103,7 +103,15 @@ import engine.supertrend_entry as _supertrend_mod
 import engine.supertrend_paper as _supertrend_paper
 import webauthn_auth as _webauthn_mod
 from broker import zerodha as _zerodha
-from broker.dhan import DhanClient, DhanOrderError, ScripMaster
+from broker.dhan import (
+    MCX_OPTION_MULTIPLIER,
+    DhanClient,
+    DhanOrderError,
+    ScripMaster,
+    is_mcx_underlying,
+    option_exchange_segment,
+    option_instrument_type,
+)
 from cascade_costs import calculate_nifty_option_round_costs
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
 from engine.candle_ladder import (
@@ -25421,7 +25429,7 @@ def _rule_supertrend_on_chart_bars(
     return segments
 
 
-def _chart_session_analytics(candles: list[dict]) -> dict:
+def _chart_session_analytics(candles: list[dict], session_close_hm: tuple[int, int] = (15, 29)) -> dict:
     """CPR + floor pivots + a 20-EMA for any intraday candle series.
 
     Phil's chart standard (2026-08-13): every entry chart carries the previous
@@ -25490,7 +25498,9 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
         # the price (Phil, 2026-10-14).
         end_t = today[-1]["t"]
         if last_day:
-            session_close = datetime.combine(date.fromisoformat(days[index]), dt_time(15, 29), tzinfo=IST)
+            session_close = datetime.combine(
+                date.fromisoformat(days[index]), dt_time(session_close_hm[0], session_close_hm[1]), tzinfo=IST
+            )
             end_t = max(int(end_t), int(session_close.timestamp()))
         span = [{"t": today[0]["t"], "price": 0.0}, {"t": end_t, "price": 0.0}]
         for label, price, color in (
@@ -25542,13 +25552,27 @@ def _scalp_chart_timeframe(timeframe: str) -> tuple[str, str, int]:
     return tf, candle_type, minutes
 
 
-def _regroup_chart_candles(candles: list[dict], minutes: int) -> list[dict]:
-    """Bars of `minutes`, built from finer ones on the session's own 09:15 grid."""
+def _scalp_session(underlying: str, day: date | None = None) -> dict:
+    """The session an underlying's options trade in: NSE/BSE 09:15-15:30, MCX
+    09:00 to 23:30 (23:55 while the US is off daylight time). The chart's
+    forming bar, its countdown and its one-day view are laid on this."""
+    if is_mcx_underlying(underlying):
+        import scalp as _scalp_hours
+
+        close = _scalp_hours.mcx_session_close(day or datetime.now(IST).date())
+        return {"open": "09:00", "close": f"{close[0]:02d}:{close[1]:02d}", "exchange": "MCX"}
+    return {"open": "09:15", "close": "15:30", "exchange": "BSE" if str(underlying).upper() == "SENSEX" else "NSE"}
+
+
+def _regroup_chart_candles(candles: list[dict], minutes: int, session_open_hm: tuple[int, int] = (9, 15)) -> list[dict]:
+    """Bars of `minutes`, built from finer ones on the session's own grid (09:15 NSE, 09:00 MCX)."""
     step = int(minutes) * 60
     grouped: dict[int, dict] = {}
     for bar in sorted(candles, key=lambda row: int(row["t"])):
         stamp = datetime.fromtimestamp(int(bar["t"]), IST)
-        session_open = int(stamp.replace(hour=9, minute=15, second=0, microsecond=0).timestamp())
+        session_open = int(
+            stamp.replace(hour=session_open_hm[0], minute=session_open_hm[1], second=0, microsecond=0).timestamp()
+        )
         slot = session_open + ((int(bar["t"]) - session_open) // step) * step
         made = grouped.get(slot)
         if made is None:
@@ -25624,13 +25648,14 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
     # Dhan intraday requests need business-day room across weekends/holidays,
     # and the pivots need a complete previous session behind the chart.
     from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
-    exchange_segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+    exchange_segment = option_exchange_segment(underlying)
+    session = _scalp_session(underlying, today)
     try:
         frame = await asyncio.to_thread(
             broker_client.get_historical_data,
             security_id=str(security_id),
             exchange_segment=exchange_segment,
-            instrument_type="OPTIDX",
+            instrument_type=option_instrument_type(underlying),
             from_date=from_date,
             to_date=today.isoformat(),
             candle_type=candle_type,
@@ -25657,15 +25682,20 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
         )
     if not candles:
         raise HTTPException(status_code=404, detail="Option candles contained no usable timestamps")
+    open_hm = tuple(int(x) for x in session["open"].split(":"))
+    close_hm = tuple(int(x) for x in session["close"].split(":"))
     if str(tf_minutes) != candle_type:
-        candles = _regroup_chart_candles(candles, tf_minutes)
+        candles = _regroup_chart_candles(candles, tf_minutes, open_hm)
 
     entry_time = _scalp_option_chart_timestamp(trade.get("entry_time"))
     entry_price = float(trade.get("entry_premium") or 0)
-    analytics = _chart_session_analytics(candles)
+    analytics = _chart_session_analytics(
+        candles, (close_hm[0], close_hm[1] - 1) if close_hm[1] else (close_hm[0] - 1, 59)
+    )
     payload = {
         "status": "ok",
         "timeframe": tf,
+        "session": session,
         "instrument": {
             "underlying": underlying,
             "strike": strike,
@@ -25704,6 +25734,37 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
 _SCALP_CONTRACT_CHART_CACHE: Dict[tuple, tuple[float, dict]] = {}
 
 
+@app.get("/api/scalp/underlying-price")
+async def scalp_underlying_price(request: Request, underlying: str = "", expiry: str = ""):
+    """The price a commodity option is struck against: its MCX futures contract.
+
+    The index options read their index from the ticker; an MCX option has no
+    index, so the Scalp form asks here to put its default strike near the money
+    (crude's 17-Nov options -> the 19-Nov crude future).
+    """
+    underlying = str(underlying or "").strip().upper()
+    if not is_mcx_underlying(underlying):
+        raise HTTPException(
+            status_code=422, detail="Only MCX underlyings are priced here; indices come from the ticker."
+        )
+    security_id = await asyncio.to_thread(ScripMaster.mcx_future_for, underlying, str(expiry or ""))
+    if not security_id:
+        raise HTTPException(status_code=404, detail=f"No {underlying} futures contract is listed.")
+    _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=503, detail="Connect Dhan to price the commodity.")
+    try:
+        data = await asyncio.to_thread(broker_client.get_ltp_multi, {"MCX_COMM": [int(security_id)]})
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read the {underlying} futures price: {exc}") from exc
+    row = (data or {}).get("MCX_COMM", {})
+    value = row.get(str(security_id), row.get(int(security_id), 0))
+    price = float(value.get("last_price", value.get("ltp", 0)) if isinstance(value, dict) else value or 0)
+    if price <= 0:
+        raise HTTPException(status_code=503, detail=f"No {underlying} futures price yet.")
+    return {"status": "ok", "underlying": underlying, "price": price, "future_security_id": str(security_id)}
+
+
 @app.get("/api/scalp/contract-chart")
 async def get_scalp_contract_chart(
     request: Request,
@@ -25727,8 +25788,8 @@ async def get_scalp_contract_chart(
     underlying = str(underlying or "").strip().upper()
     option_type = str(option_type or "").strip().upper()
     expiry = str(expiry or "").strip()
-    if underlying not in {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"}:
-        raise HTTPException(status_code=422, detail="Pick an index first")
+    if underlying not in _SCALP_UNDERLYINGS:
+        raise HTTPException(status_code=422, detail="Pick an index or a commodity first")
     if int(strike or 0) <= 0 or option_type not in {"CE", "PE"} or not expiry:
         raise HTTPException(status_code=422, detail="Pick a strike, CE or PE, and an expiry first")
     strike = int(strike)
@@ -25756,8 +25817,8 @@ async def get_scalp_contract_chart(
         frame = await asyncio.to_thread(
             broker_client.get_historical_data,
             security_id=str(security_id),
-            exchange_segment="BSE_FNO" if underlying == "SENSEX" else "NSE_FNO",
-            instrument_type="OPTIDX",
+            exchange_segment=option_exchange_segment(underlying),
+            instrument_type=option_instrument_type(underlying),
             from_date=from_date,
             to_date=today.isoformat(),
             candle_type=candle_type,
@@ -25767,13 +25828,19 @@ async def get_scalp_contract_chart(
     candles = _frame_to_chart_candles(frame) if frame is not None and not frame.empty else []
     if not candles:
         raise HTTPException(status_code=404, detail="No intraday candles returned for this option contract")
+    session = _scalp_session(underlying, today)
+    open_hm = tuple(int(x) for x in session["open"].split(":"))
+    close_hm = tuple(int(x) for x in session["close"].split(":"))
     if str(tf_minutes) != candle_type:
-        candles = _regroup_chart_candles(candles, tf_minutes)
+        candles = _regroup_chart_candles(candles, tf_minutes, open_hm)
 
-    analytics = _chart_session_analytics(candles)
+    analytics = _chart_session_analytics(
+        candles, (close_hm[0], close_hm[1] - 1) if close_hm[1] else (close_hm[0] - 1, 59)
+    )
     payload = {
         "status": "ok",
         "timeframe": tf,
+        "session": session,
         "instrument": {
             "underlying": underlying,
             "strike": strike,
@@ -25937,7 +26004,7 @@ class ScalpEntryReq(BaseModel):
 _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
 _last_scalp_entry_ts: Dict[int, float] = {}
 
-_SCALP_UNDERLYINGS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"}
+_SCALP_UNDERLYINGS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", *MCX_OPTION_MULTIPLIER}
 
 
 def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
@@ -25948,6 +26015,10 @@ def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
     req.mode = str(req.mode or "").strip().lower()
     if req.underlying not in _SCALP_UNDERLYINGS:
         raise HTTPException(status_code=400, detail="Unsupported scalp underlying")
+    # An MCX contract's size is fixed by the exchange; it is what each rupee of
+    # premium is worth, so it is never taken from the form.
+    if is_mcx_underlying(req.underlying):
+        req.lot_size = MCX_OPTION_MULTIPLIER[req.underlying]
     if req.option_type not in {"CE", "PE"}:
         raise HTTPException(status_code=400, detail="option_type must be CE or PE")
     if req.transaction_type not in {"BUY", "SELL"}:

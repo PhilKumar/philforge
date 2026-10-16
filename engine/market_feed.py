@@ -64,7 +64,7 @@ from datetime import time as _dt_time
 import pandas as pd
 
 import config
-from broker.dhan import DhanClient, ScripMaster
+from broker.dhan import DhanClient, ScripMaster, option_feed_exchange
 from engine.timeframes import (
     aligned_candle_start,
     drop_incomplete_candle,
@@ -472,7 +472,7 @@ class LiveMarketFeed:
             return None
 
         sec_id = int(sec_id_str)
-        exchange = 8 if underlying == "SENSEX" else 2  # BSE_FNO or NSE_FNO
+        exchange = option_feed_exchange(underlying)  # NSE_FNO 2, BSE_FNO 8, MCX_COMM 5
 
         if label is None:
             label = f"{underlying}_{strike}_{option_type}"

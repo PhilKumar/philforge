@@ -160,17 +160,25 @@ window.pfChartLatestStructures = function (list, isActive) {
 // opened at 15:15 closes at 15:30, not 16:15. Weekends have no session;
 // holidays cannot be known here, so callers also ask that the chart already
 // holds a bar from today before treating a moment as live.
-function _pfChartNseSession(nowSec) {
+// `hours` ({open: "HH:MM", close: "HH:MM"}) is the payload's own session --
+// MCX runs 09:00 to 23:30 -- and NSE's 09:15-15:30 when none is given.
+function _pfChartHm(text, fallback) {
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(text || ''));
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 : fallback;
+}
+
+function _pfChartNseSession(nowSec, hours) {
   var istDay = Math.floor((Number(nowSec) + 19800) / 86400);
   var weekday = (istDay + 4) % 7; // 1970-01-01 was a Thursday; 0 is Sunday
   if (weekday === 0 || weekday === 6) return null;
   var midnight = istDay * 86400 - 19800;
-  return { day: istDay, open: midnight + 33300, close: midnight + 55800 };
+  var open = _pfChartHm(hours && hours.open, 33300), close = _pfChartHm(hours && hours.close, 55800);
+  return { day: istDay, open: midnight + open, close: midnight + close };
 }
 
 // The bar `nowSec` falls in, for bars of `tfSec`, or null outside a session.
-function _pfChartBarWindow(nowSec, tfSec) {
-  var session = _pfChartNseSession(nowSec), step = Math.max(Number(tfSec) || 60, 1);
+function _pfChartBarWindow(nowSec, tfSec, hours) {
+  var session = _pfChartNseSession(nowSec, hours), step = Math.max(Number(tfSec) || 60, 1);
   if (!session || nowSec < session.open || nowSec >= session.close) return null;
   var start = session.open + Math.floor((nowSec - session.open) / step) * step;
   return { start: start, close: Math.min(start + step, session.close), day: session.day, open: session.open };
@@ -1236,7 +1244,7 @@ function _pfChartCanvasLastPriceTag(c, p, PAL) {
   var bar = candles[candles.length - 1], price = Number(bar.c);
   if (!isFinite(price)) return { price: null, countdown: '' };
   var now = Date.now() / 1000;
-  var tfSec = _pfChartCanvasTimeframeSeconds(d), win = _pfChartBarWindow(now, tfSec);
+  var tfSec = _pfChartCanvasTimeframeSeconds(d), win = _pfChartBarWindow(now, tfSec, d.session);
   // A bar off the 09:15 grid (a broker's own hourly bars, say) would make the
   // grid's clock wrong for it, so it gets no countdown.
   var onGrid = win && (Number(bar.t) - win.open) % tfSec === 0;

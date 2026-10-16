@@ -769,6 +769,35 @@ UNDERLYING_MAP = {
 }
 
 
+# ── MCX commodity options (Phil, 2026-10-16: crude oil and natural gas in the
+# Scalp desk). They are options on the FUTURES, traded on MCX until 23:30
+# (23:55 while the US is off daylight time). Dhan lists their quantity as one
+# per lot, so the contract's real size -- what a rupee of premium is worth --
+# is kept here and used as the lot size the desk multiplies by.
+MCX_OPTION_MULTIPLIER = {"CRUDEOIL": 100, "CRUDEOILM": 10, "NATURALGAS": 1250, "NATGASMINI": 250}
+
+
+def is_mcx_underlying(underlying) -> bool:
+    return str(underlying or "").strip().upper() in MCX_OPTION_MULTIPLIER
+
+
+def option_exchange_segment(underlying) -> str:
+    """Dhan's exchange segment for an underlying's options."""
+    name = str(underlying or "").strip().upper()
+    if name in MCX_OPTION_MULTIPLIER:
+        return "MCX_COMM"
+    return "BSE_FNO" if name == "SENSEX" else "NSE_FNO"
+
+
+def option_feed_exchange(underlying) -> int:
+    """The same segment as Dhan's market-feed WebSocket numbers it."""
+    return {"MCX_COMM": 5, "BSE_FNO": 8}.get(option_exchange_segment(underlying), 2)
+
+
+def option_instrument_type(underlying) -> str:
+    return "OPTFUT" if is_mcx_underlying(underlying) else "OPTIDX"
+
+
 class ScripMaster:
     """
     Download, cache, and lookup Dhan instrument security IDs for option contracts.
@@ -779,6 +808,7 @@ class ScripMaster:
     _options_cache: Dict[str, str] = {}  # key -> security_id
     _expiry_cache: Dict[str, list] = {}  # symbol -> [expiry_dates]
     _lot_cache: Dict[str, int] = {}  # key -> lot_size
+    _futures_cache: Dict[str, Dict[str, str]] = {}  # MCX symbol -> {expiry: security_id}
     _equity_cache: Dict[str, dict] = {}  # symbol -> {security_id, trading_symbol, name}
     _loaded_date: Optional[str] = None
     _equity_loaded_date: Optional[str] = None
@@ -793,7 +823,8 @@ class ScripMaster:
             return True
 
         # Try disk cache first
-        cache_file = os.path.join(SCRIP_CACHE_DIR, f"options_{today}.json")
+        # v2 carries the MCX contracts; a v1 file from earlier today has none.
+        cache_file = os.path.join(SCRIP_CACHE_DIR, f"options_v2_{today}.json")
         if os.path.exists(cache_file):
             try:
                 with open(cache_file) as f:
@@ -801,6 +832,7 @@ class ScripMaster:
                 cls._options_cache = data.get("options", {})
                 cls._expiry_cache = data.get("expiries", {})
                 cls._lot_cache = data.get("lots", {})
+                cls._futures_cache = data.get("futures", {})
                 cls._loaded_date = today
                 print(f"[SCRIP] ✅ Loaded {len(cls._options_cache)} options from disk cache")
                 return True
@@ -832,6 +864,7 @@ class ScripMaster:
         options = {}
         expiries: Dict[str, set] = {}
         lots = {}
+        futures: Dict[str, Dict[str, str]] = {}
         # Map trading symbol prefix → canonical name used as key
         supported_prefixes = {
             "NIFTY": "NIFTY",
@@ -880,22 +913,33 @@ class ScripMaster:
                     continue
 
                 inst_name = row[idx_inst].strip() if idx_inst >= 0 else ""
-                if inst_name != "OPTIDX":
-                    continue
-
-                # Extract symbol from SEM_TRADING_SYMBOL (e.g., "NIFTY-Mar2026-24000-CE")
                 trading_sym = row[idx_tsym].strip() if idx_tsym >= 0 else ""
                 sym_prefix = trading_sym.split("-")[0] if "-" in trading_sym else ""
-                symbol = supported_prefixes.get(sym_prefix, "")
+                exch = row[idx_exch].strip() if idx_exch >= 0 else ""
+                mcx = sym_prefix in MCX_OPTION_MULTIPLIER and exch == "MCX"
+                # MCX futures: the price a commodity option is struck against
+                # (e.g. "CRUDEOIL-19Nov2026-FUT").
+                if mcx and inst_name == "FUTCOM":
+                    fut_id = row[idx_sec].strip() if idx_sec >= 0 else ""
+                    fut_exp = (row[idx_exp].strip() if idx_exp >= 0 else "").split(" ")[0]
+                    if fut_id and fut_exp:
+                        futures.setdefault(sym_prefix, {})[fut_exp] = fut_id
+                    continue
+                if not ((inst_name == "OPTIDX" and not mcx) or (inst_name == "OPTFUT" and mcx)):
+                    continue
+
+                # Extract symbol from SEM_TRADING_SYMBOL (e.g., "NIFTY-Mar2026-24000-CE",
+                # "CRUDEOIL-17Nov2026-7900-CE")
+                symbol = sym_prefix if mcx else supported_prefixes.get(sym_prefix, "")
                 if not symbol:
                     continue
 
-                # Only NSE for most, BSE for SENSEX
-                exch = row[idx_exch].strip() if idx_exch >= 0 else ""
-                if symbol == "SENSEX" and exch != "BSE":
-                    continue
-                if symbol != "SENSEX" and exch != "NSE":
-                    continue
+                # Only NSE for most, BSE for SENSEX, MCX for the commodities
+                if not mcx:
+                    if symbol == "SENSEX" and exch != "BSE":
+                        continue
+                    if symbol != "SENSEX" and exch != "NSE":
+                        continue
 
                 sec_id = row[idx_sec].strip() if idx_sec >= 0 else ""
                 strike_raw = row[idx_stk].strip() if idx_stk >= 0 else ""
@@ -919,9 +963,10 @@ class ScripMaster:
                 key = f"{symbol}_{strike_key}_{expiry}_{opt_type}"
                 options[key] = sec_id
 
-                # Lot size (convert "25.0" → 25)
+                # Lot size (convert "25.0" → 25). An MCX row says 1 (Dhan counts
+                # MCX in lots); its contract size is what a premium is worth.
                 try:
-                    lot_val = int(float(lot_raw))
+                    lot_val = MCX_OPTION_MULTIPLIER[symbol] if mcx else int(float(lot_raw))
                     lots[f"{symbol}_{expiry}"] = lot_val
                 except:
                     pass
@@ -944,13 +989,14 @@ class ScripMaster:
         cls._options_cache = options
         cls._expiry_cache = expiries_serial
         cls._lot_cache = lots
+        cls._futures_cache = futures
         cls._loaded_date = today
         cls._loading = False
 
         # Save to disk cache
         try:
             with open(cache_file, "w") as f:
-                json.dump({"options": options, "expiries": expiries_serial, "lots": lots}, f)
+                json.dump({"options": options, "expiries": expiries_serial, "lots": lots, "futures": futures}, f)
             print(f"[SCRIP] ✅ Cached {count} option contracts for {list(expiries_serial.keys())}")
         except Exception as e:
             print(f"[SCRIP] Cache write error: {e}")
@@ -958,7 +1004,7 @@ class ScripMaster:
         # Clean up old cache files
         try:
             for old_file in Path(SCRIP_CACHE_DIR).glob("options_*.json"):
-                if old_file.name != f"options_{today}.json":
+                if old_file.name != os.path.basename(cache_file):
                     old_file.unlink()
         except:
             pass
@@ -1047,6 +1093,17 @@ class ScripMaster:
             return monthlies[idx] if idx < len(monthlies) else monthlies[-1]
 
         return future[0]
+
+    @classmethod
+    def mcx_future_for(cls, symbol: str, option_expiry: str) -> str:
+        """The futures contract an MCX option is struck against: the first
+        expiring on or after it (crude's 17-Nov options -> the 19-Nov future)."""
+        cls.ensure_loaded()
+        listed = sorted((cls._futures_cache.get(str(symbol).upper()) or {}).items())
+        for expiry, sec_id in listed:
+            if expiry >= str(option_expiry):
+                return sec_id
+        return listed[-1][1] if listed else ""
 
     @classmethod
     def get_expiries(cls, symbol: str) -> list:
@@ -1854,7 +1911,7 @@ class DhanClient:
 
         _dhan_log.info("[DHAN] Resolved option contract for order submission")
 
-        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        exchange_seg = option_exchange_segment(underlying)
 
         return self.place_order(
             security_id=security_id,
@@ -1891,7 +1948,7 @@ class DhanClient:
         if not security_id:
             raise Exception(f"Cannot find security ID for SL order: {underlying} {strike_price}{option_type}")
 
-        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        exchange_seg = option_exchange_segment(underlying)
 
         # A stop that executes at market carries no limit price. Compared on the
         # NORMALISED name so a caller using Dhan's own spelling is not missed.
@@ -1935,7 +1992,7 @@ class DhanClient:
                 f"Cannot find security ID for super order: {underlying} {strike_price}{option_type} expiry {expiry}"
             )
 
-        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        exchange_seg = option_exchange_segment(underlying)
         payload = {
             "dhanClientId": self.client_id,
             "correlationId": (tag or "PhilForgeSO")[:30],
@@ -2338,6 +2395,10 @@ class DhanClient:
             "BSE_FNO": int_ids if exchange_segment == "BSE_FNO" else [],
             "IDX_I": int_ids if exchange_segment == "IDX_I" else [],
         }
+        # A segment outside the four (MCX_COMM for crude and gas, 2026-10-16)
+        # was silently dropped, and its price came back empty.
+        if exchange_segment not in payload:
+            payload[exchange_segment] = int_ids
         _throttle_marketfeed()
         resp = _request_with_retry(
             "POST",
@@ -2363,6 +2424,11 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
+        # Any other segment asked for goes too -- MCX_COMM for crude and gas
+        # (2026-10-16); the four above were all this ever sent.
+        for seg, ids in (segments or {}).items():
+            if seg not in payload and ids:
+                payload[seg] = [int(s) for s in ids]
         _throttle_marketfeed()
         resp = _request_with_retry(
             "POST",
@@ -2446,6 +2512,11 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
+        # Any other segment asked for goes too -- MCX_COMM for crude and gas
+        # (2026-10-16); the four above were all this ever sent.
+        for seg, ids in (segments or {}).items():
+            if seg not in payload and ids:
+                payload[seg] = [int(s) for s in ids]
         _throttle_marketfeed()
         resp = _request_with_retry(
             "POST",
@@ -2470,6 +2541,11 @@ class DhanClient:
             "BSE_FNO": [int(s) for s in segments.get("BSE_FNO", [])],
             "IDX_I": [int(s) for s in segments.get("IDX_I", [])],
         }
+        # Any other segment asked for goes too -- MCX_COMM for crude and gas
+        # (2026-10-16); the four above were all this ever sent.
+        for seg, ids in (segments or {}).items():
+            if seg not in payload and ids:
+                payload[seg] = [int(s) for s in ids]
         _throttle_marketfeed()
         resp = _request_with_retry(
             "POST",
@@ -2494,7 +2570,7 @@ class DhanClient:
             print(f"[DHAN] Cannot get LTP — no security ID for {underlying} {strike}{option_type}")
             return 0.0
 
-        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        exchange_seg = option_exchange_segment(underlying)
         try:
             data = self.get_ltp([security_id], exchange_segment=exchange_seg)
             # Dhan response: {"NSE_FNO": {"54880": {"last_price": 15.6}}}
@@ -2818,7 +2894,7 @@ class DhanClient:
         security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
         if not security_id:
             raise Exception(f"Cannot find security ID for {underlying} {strike_price}{option_type} expiry {expiry}.")
-        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        exchange_seg = option_exchange_segment(underlying)
         return await self.async_place_order(
             security_id=security_id,
             exchange_segment=exchange_seg,
@@ -2849,7 +2925,7 @@ class DhanClient:
         security_id = ScripMaster.lookup(underlying, strike_price, expiry, option_type)
         if not security_id:
             raise Exception(f"Cannot find security ID for SL: {underlying} {strike_price}{option_type}")
-        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        exchange_seg = option_exchange_segment(underlying)
         if _dhan_order_type(order_type) == "STOP_LOSS_MARKET":
             price = 0
         return await self.async_place_order(
@@ -2998,7 +3074,7 @@ class DhanClient:
         security_id = ScripMaster.lookup(underlying, strike, expiry, option_type)
         if not security_id:
             return 0.0
-        exchange_seg = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        exchange_seg = option_exchange_segment(underlying)
         try:
             prices = await self.async_get_ltp_prices([security_id], exchange_segment=exchange_seg, ttl=ttl)
             return float(prices.get(int(security_id), 0.0) or 0.0)

@@ -12,10 +12,10 @@ Does NOT touch any existing code.
 
 import asyncio
 import time as _time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from broker.dhan import ScripMaster, enable_marketfeed_throttle
+from broker.dhan import ScripMaster, enable_marketfeed_throttle, is_mcx_underlying, option_exchange_segment
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -31,13 +31,28 @@ SCALP_WATCH_START = (9, 0)
 SCALP_WATCH_END = (15, 45)
 
 
-def _scalp_market_watch_open(now: datetime | None = None) -> bool:
-    """True when the scalp monitor should be doing any work at all."""
+def mcx_session_close(day: date) -> tuple[int, int]:
+    """MCX's close that day: 23:30 while the US keeps daylight time (second
+    Sunday of March to the first Sunday of November), 23:55 otherwise."""
+    march = date(day.year, 3, 1)
+    dst_start = march + timedelta(days=(6 - march.weekday()) % 7 + 7)
+    november = date(day.year, 11, 1)
+    dst_end = november + timedelta(days=(6 - november.weekday()) % 7)
+    return (23, 30) if dst_start <= day < dst_end else (23, 55)
+
+
+def _scalp_market_watch_open(now: datetime | None = None, mcx: bool = False) -> bool:
+    """True when the scalp monitor should be doing any work at all.
+
+    With an MCX scalp open the watch runs to the MCX close (crude and natural
+    gas trade into the night), not to 15:45.
+    """
     moment = now or datetime.now(IST)
     if moment.weekday() >= 5:  # Saturday/Sunday
         return False
     minutes = moment.hour * 60 + moment.minute
-    return SCALP_WATCH_START[0] * 60 + SCALP_WATCH_START[1] <= minutes <= SCALP_WATCH_END[0] * 60 + SCALP_WATCH_END[1]
+    end = mcx_session_close(moment.date()) if mcx else SCALP_WATCH_END
+    return SCALP_WATCH_START[0] * 60 + SCALP_WATCH_START[1] <= minutes <= end[0] * 60 + end[1] + (5 if mcx else 0)
 
 
 SCALP_IDLE_SLEEP_SEC = 0.5
@@ -552,6 +567,13 @@ class ScalpEngine:
         quantity = lots * lot_size
         product_type = _normalize_scalp_product_type(product_type)
         broker = normalize_scalp_broker(broker)
+        # Step one is paper: MCX live orders (lots, not units, at Dhan; the
+        # MCX contract at Zerodha) come after crude and gas have been tried.
+        if mode == "live" and is_mcx_underlying(underlying):
+            return {
+                "status": "error",
+                "message": f"{underlying} options trade on paper for now; live MCX orders come next.",
+            }
         if mode == "live" and broker == "zerodha" and self.zerodha is None:
             return {"status": "error", "message": "Log in to Zerodha from Settings first."}
         if mode == "live":
@@ -1006,7 +1028,8 @@ class ScalpEngine:
             # Outside market watch (09:00-15:45 IST, weekdays) the loop only
             # breathes. Say so ONCE — a silent engine is indistinguishable
             # from a dead one — then check the clock every minute.
-            if not _scalp_market_watch_open():
+            mcx_open = any(is_mcx_underlying(t.underlying) for t in self.open_trades.values())
+            if not _scalp_market_watch_open(mcx=mcx_open):
                 if not _announced_off_hours:
                     _announced_off_hours = True
                     self._log("info", "🌙 Market closed — monitoring pauses until 09:00 IST")
@@ -1744,7 +1767,7 @@ class ScalpEngine:
 
     @staticmethod
     def _segment_for_underlying(underlying: str) -> str:
-        return "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+        return option_exchange_segment(underlying)
 
     @staticmethod
     def _is_marketfeed_rate_limited(error: Exception) -> bool:
@@ -1810,8 +1833,9 @@ class ScalpEngine:
         WS cache is checked first; remaining trades are batched into one REST call.
         The REST call runs in a thread pool so it never blocks the event loop."""
         result = {}
-        nse_ids: Dict[int, int] = {}  # trade_id -> security_id
-        bse_ids: Dict[int, int] = {}  # trade_id -> security_id
+        # segment -> {trade_id: security_id}: NSE_FNO, BSE_FNO and MCX_COMM
+        # trades go in one call, each read back from its own segment.
+        by_segment: Dict[str, Dict[int, int]] = {}
         now_mono = _time.monotonic()
 
         for tid, trade in trades:
@@ -1854,20 +1878,13 @@ class ScalpEngine:
                 if cached_ltp > 0:
                     result[tid] = cached_ltp
                     continue
-                if trade.underlying == "SENSEX":
-                    bse_ids[tid] = int(sec_id)
-                else:
-                    nse_ids[tid] = int(sec_id)
+                by_segment.setdefault(segment, {})[tid] = int(sec_id)
 
         if self._ltp_backoff_active(now_mono=now_mono):
             return result
 
-        if nse_ids or bse_ids:
-            segments: Dict[str, list] = {}
-            if nse_ids:
-                segments["NSE_FNO"] = list(set(nse_ids.values()))
-            if bse_ids:
-                segments["BSE_FNO"] = list(set(bse_ids.values()))
+        if by_segment:
+            segments: Dict[str, list] = {seg: list(set(ids.values())) for seg, ids in by_segment.items()}
             try:
                 data = await asyncio.to_thread(self.dhan.get_ltp_multi, segments)
 
@@ -1880,16 +1897,12 @@ class ScalpEngine:
                             return float(v)
                     return 0.0
 
-                for tid, sec_id in nse_ids.items():
-                    ltp = _extract(data.get("NSE_FNO", {}), sec_id)
-                    if ltp > 0:
-                        self._remember_ltp("NSE_FNO", sec_id, ltp, now_mono=now_mono)
-                        result[tid] = ltp
-                for tid, sec_id in bse_ids.items():
-                    ltp = _extract(data.get("BSE_FNO", {}), sec_id)
-                    if ltp > 0:
-                        self._remember_ltp("BSE_FNO", sec_id, ltp, now_mono=now_mono)
-                        result[tid] = ltp
+                for seg, ids in by_segment.items():
+                    for tid, sec_id in ids.items():
+                        ltp = _extract(data.get(seg, {}), sec_id)
+                        if ltp > 0:
+                            self._remember_ltp(seg, sec_id, ltp, now_mono=now_mono)
+                            result[tid] = ltp
                 self._clear_ltp_backoff()
             except Exception as e:
                 if self._is_marketfeed_rate_limited(e):

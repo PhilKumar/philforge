@@ -12904,9 +12904,27 @@ const _SCALP_FORM_STORAGE_KEY = 'philforge_scalp_form_state_v1';
 const _SCALP_DEFAULT_TARGET_PREMIUM = 300;
 const _SCALP_DEFAULT_SL_PREMIUM = 100;
 // Correct lot sizes as of Jan 2026
-const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20 };
+// MCX lot sizes are the contract sizes (barrels, mmBtu): what a rupee of
+// premium is worth. The server fixes them too, whatever the form sends.
+const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20, CRUDEOIL: 100, CRUDEOILM: 10, NATURALGAS: 1250, NATGASMINI: 250 };
 // Strike step intervals per underlying
-const _STRIKE_STEPS = { NIFTY: 50, BANKNIFTY: 100, MIDCPNIFTY: 25, SENSEX: 100 };
+const _STRIKE_STEPS = { NIFTY: 50, BANKNIFTY: 100, MIDCPNIFTY: 25, SENSEX: 100, CRUDEOIL: 50, CRUDEOILM: 50, NATURALGAS: 5, NATGASMINI: 5 };
+// Crude oil and natural gas options (MCX). Step one is paper; live MCX orders
+// come after they have been tried (Phil, 2026-10-16).
+const _SCALP_MCX = new Set(['CRUDEOIL', 'CRUDEOILM', 'NATURALGAS', 'NATGASMINI']);
+function _isScalpMcx(underlying) { return _SCALP_MCX.has(String(underlying || '').toUpperCase()); }
+
+function _syncScalpMcxMode() {
+  const underlying = document.getElementById('scalp-underlying')?.value;
+  const mcx = _isScalpMcx(underlying);
+  const live = document.querySelector('#scalp-mode-toggle [data-value="live"]');
+  if (mcx && document.getElementById('scalp-mode')?.value === 'live') setScalpMode('paper');
+  if (live) {
+    live.disabled = mcx;
+    live.title = mcx ? `${underlying} options trade on paper for now; live MCX orders come next` : '';
+  }
+  _updateScalpBrokerNote();
+}
 
 function _readScalpFormState() {
   const read = (id) => document.getElementById(id)?.value ?? '';
@@ -13032,6 +13050,11 @@ function _syncScalpToggleGroup(groupId, inputId) {
 function _updateScalpBrokerNote() {
   const note = document.getElementById('scalp-live-note');
   if (!note) return;
+  const underlying = document.getElementById('scalp-underlying')?.value;
+  if (_isScalpMcx(underlying)) {
+    note.textContent = `${underlying} is an MCX option on the future: paper only for now. MCX trades 09:00 to 23:30 (23:55 from November to March).`;
+    return;
+  }
   note.innerHTML = document.getElementById('scalp-broker')?.value === 'zerodha'
     ? 'Live on Zerodha: your <strong>SL Premium</strong> rests at Zerodha as a stop order; PhilForge watches the <strong>Target Premium</strong> and exits when it is hit. Log in to Zerodha from Settings each morning.'
     : 'Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.';
@@ -13300,7 +13323,21 @@ function updateScalpStrike() {
   fetchScalpLTP();
 }
 
+// An MCX option is struck against its futures contract, not an index.
+async function _fetchScalpMcxPrice(underlying, expiry) {
+  try {
+    const r = await fetch(`/api/scalp/underlying-price?${new URLSearchParams({ underlying, expiry: expiry || '' })}`, { cache: 'no-store' });
+    const d = await r.json();
+    if (r.ok && d.status === 'ok' && d.price > 0) _scalpSpotCache[underlying] = d.price;
+  } catch (e) { /* silent */ }
+}
+
 async function _fetchScalpSpotPrices() {
+  const underlying = document.getElementById('scalp-underlying')?.value;
+  if (_isScalpMcx(underlying)) {
+    await _fetchScalpMcxPrice(underlying, document.getElementById('scalp-expiry')?.value);
+    return;
+  }
   try {
     const r = await fetch(`/api/ticker?_=${Date.now()}`, { cache: 'no-store' });
     const d = await r.json();
@@ -13347,6 +13384,7 @@ async function loadScalpExpiries(options = {}) {
     } else if (sel.options.length > 0) {
       sel.selectedIndex = 0;
     }
+    _syncScalpMcxMode();
     // Set ITM-2 default strike from live spot per underlying
     await _fetchScalpSpotPrices();
     const preservedStrike = parseInt(preserve?.strike, 10) || 0;
@@ -14060,8 +14098,14 @@ const _SCALP_TF_SEC = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600 }
 const _SCALP_SESSION_MIN = 375;
 let _scalpChartSpanMin = 0;
 
-function _scalpOneDayBars(tfSec) {
-  return Math.max(5, Math.ceil(_SCALP_SESSION_MIN * 60 / tfSec));
+// One session's worth of bars: 375 minutes on NSE, 09:00-23:30 on MCX.
+function _scalpSessionMinutes(session) {
+  const hm = (t, f) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : f; };
+  const span = session ? hm(session.close, 930) - hm(session.open, 555) : _SCALP_SESSION_MIN;
+  return span > 0 ? span : _SCALP_SESSION_MIN;
+}
+function _scalpOneDayBars(tfSec, session) {
+  return Math.max(5, Math.ceil(_scalpSessionMinutes(session) * 60 / tfSec));
 }
 
 // Remember the span on screen while the Scalp chart owns the canvas.
@@ -14094,7 +14138,7 @@ function _scalpApplyLiveBar(data, key) {
   if (!(price > 0) || !Array.isArray(candles) || !candles.length || typeof pfChartBarWindow !== 'function') return false;
   const tf = _SCALP_TF_SEC[data.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300;
   const now = Date.now() / 1000;
-  const win = pfChartBarWindow(now, tf);
+  const win = pfChartBarWindow(now, tf, data.session);
   const last = candles[candles.length - 1];
   const lastT = Number(last.t);
   if (!win || pfChartIstDay(lastT) !== win.day || lastT > win.start || (lastT - win.open) % tf !== 0) return false;
@@ -14536,7 +14580,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     const tfSec = _SCALP_TF_SEC[data.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300;
     const shownTf = _scalpChartShown && _scalpChartShown.data ? (_SCALP_TF_SEC[_scalpChartShown.data.timeframe] || tfSec) : tfSec;
     _scalpRememberChartSpan(shownTf);
-    data.fit_bars = _scalpOneDayBars(tfSec);
+    data.fit_bars = _scalpOneDayBars(tfSec, data.session);
     if (_scalpChartSpanMin > 0) data.initial_bars = Math.max(5, Math.round(_scalpChartSpanMin * 60 / tfSec));
     // The price tag with the time to bar close, and the forming bar grown
     // from the live premium before it is drawn.
