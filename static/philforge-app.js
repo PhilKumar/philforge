@@ -14002,7 +14002,7 @@ function _scalpDockShow() {
       onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
       onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
     });
-    actions.insertBefore(_scalpStToggleButton(), actions.firstChild);
+    actions.insertBefore(_scalpChartTools(), actions.firstChild);
   }
 }
 
@@ -14159,45 +14159,221 @@ function _supertrendRuns(candles, period, multiplier) {
   return runs;
 }
 
-function _scalpApplySupertrend(data) {
-  if (!data) return;
-  data.overlays = (data.overlays || []).filter(ov => !ov || !ov._scalpSt);
-  if (!_scalpChartSupertrendOn) return;
-  // Each run stands alone, as on TradingView: a flip is a gap, not a diagonal.
-  _supertrendRuns(data.candles || [], _SCALP_ST.period, _SCALP_ST.multiplier).forEach((run, i, all) => {
-    const points = run.points;
-    if (points.length < 2) return;
-    data.overlays.push({
-      _scalpSt: true,
-      label: i === all.length - 1 ? `ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}` : '',
-      color: run.dir > 0 ? '#4caf50' : '#ff5252',
-      width: 1.6,
-      points,
-      supertrend: run.dir,
-    });
-  });
+// Everything the page lays over the server's chart, rebuilt on each change
+// from the payload as it came (kept in data._base): the CPR/pivot set when its
+// switch is on, Supertrend (10, 2), and the Fibs and trendlines drawn by hand.
+const _SCALP_CPR_KEY = 'pf_scalp_chart_cpr';
+let _scalpChartCprOn = (() => {
+  try { return localStorage.getItem(_SCALP_CPR_KEY) !== '0'; } catch (_) { return true; }
+})();
+
+// Phil, 2026-10-16: "Draw it myself but only with 3 settings... 0,1,2,4,8 ...
+// 0, 0.5, 1 ... 0, 0.25, 0.5, 0.75, 1". The first click is 0, the second 1.
+const _SCALP_FIB_PRESETS = {
+  x2: { levels: [0, 1, 2, 4, 8], label: '0 · 1 · 2 · 4 · 8' },
+  half: { levels: [0, 0.5, 1], label: '0 · 0.5 · 1' },
+  quarter: { levels: [0, 0.25, 0.5, 0.75, 1], label: '0 · 0.25 · 0.5 · 0.75 · 1' },
+};
+const _SCALP_FIB_COLORS = { 0: '#94a3b8', 0.25: '#22d3ee', 0.5: '#f59e0b', 0.75: '#22d3ee', 1: '#94a3b8', 2: '#fb923c', 4: '#a78bfa', 8: '#f472b6' };
+const _SCALP_DRAW_KEY = 'pf_scalp_chart_drawings_v1';
+let _scalpDraw = null; // {tool: 'fib'|'line', preset, first: {t, price}|null, key}
+
+// Drawings belong to a contract (its own premium scale), not a timeframe.
+function _scalpDrawKey(data) {
+  const i = (data && data.instrument) || {};
+  return `${i.underlying}|${Number(i.strike)}|${i.expiry}|${i.option_type}`;
+}
+function _scalpReadDrawings(key) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_SCALP_DRAW_KEY) || '{}');
+    const d = all[key] || {};
+    return { fibs: Array.isArray(d.fibs) ? d.fibs : [], lines: Array.isArray(d.lines) ? d.lines : [] };
+  } catch (_) { return { fibs: [], lines: [] }; }
+}
+function _scalpWriteDrawings(key, d) {
+  try {
+    const all = JSON.parse(localStorage.getItem(_SCALP_DRAW_KEY) || '{}');
+    if (!d.fibs.length && !d.lines.length) delete all[key]; else all[key] = d;
+    localStorage.setItem(_SCALP_DRAW_KEY, JSON.stringify(all));
+  } catch (_) { /* private mode: drawings last as long as the page */ }
 }
 
-function _scalpStToggleButton() {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'terminal-cascade-chart-control scalp-st-toggle';
-  btn.textContent = `ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}`;
-  btn.title = `Supertrend (${_SCALP_ST.period}, ${_SCALP_ST.multiplier}) on this chart`;
-  const paint = () => { btn.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); btn.classList.toggle('is-on', _scalpChartSupertrendOn); };
-  paint();
-  btn.addEventListener('click', () => {
+// A trendline through two picked points, carried on to the right. Straight
+// in BAR space, as the chart's x-axis is (nights and weekends do not exist).
+function _scalpTrendPoints(data, ln) {
+  const candles = data.candles || [];
+  if (!candles.length || typeof _pfChartCanvasAxisBuild !== 'function') return null;
+  const axis = _pfChartCanvasAxisBuild(data);
+  const ia = _pfChartCanvasIdxOf(axis, ln.a.t), ib = _pfChartCanvasIdxOf(axis, ln.b.t);
+  if (!isFinite(ia) || !isFinite(ib) || Math.abs(ib - ia) < 1e-9) return null;
+  const early = ia < ib ? { t: ln.a.t, i: ia, p: ln.a.price } : { t: ln.b.t, i: ib, p: ln.b.price };
+  const slope = (ln.b.price - ln.a.price) / (ib - ia);
+  const tEnd = Number(candles[candles.length - 1].t) + axis.barSec * 40;
+  const iEnd = _pfChartCanvasIdxOf(axis, tEnd);
+  return [{ t: early.t, price: early.p }, { t: tEnd, price: Math.round((early.p + slope * (iEnd - early.i)) * 100) / 100 }];
+}
+
+function _scalpDecorate(data) {
+  if (!data) return;
+  if (!data._base) data._base = { overlays: (data.overlays || []).slice(), lines: (data.lines || []).slice() };
+  const overlays = data._base.overlays.filter(ov => _scalpChartCprOn || !ov || ov.group !== 'cpr');
+  const lines = data._base.lines.slice();
+  if (_scalpChartSupertrendOn) {
+    // Each run stands alone, as on TradingView: a flip is a gap, not a diagonal.
+    _supertrendRuns(data.candles || [], _SCALP_ST.period, _SCALP_ST.multiplier).forEach((run, i, all) => {
+      if (run.points.length < 2) return;
+      overlays.push({
+        label: i === all.length - 1 ? `ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}` : '',
+        color: run.dir > 0 ? '#4caf50' : '#ff5252',
+        width: 1.6,
+        points: run.points,
+        supertrend: run.dir,
+      });
+    });
+  }
+  const key = _scalpDrawKey(data);
+  const drawn = _scalpReadDrawings(key);
+  drawn.fibs.forEach(f => {
+    const preset = _SCALP_FIB_PRESETS[f.preset];
+    if (!preset || !f.a || !f.b) return;
+    const span = Number(f.b.price) - Number(f.a.price);
+    preset.levels.forEach(k => lines.push({
+      label: `F${k}`, price: Math.round((Number(f.a.price) + span * k) * 100) / 100,
+      color: _SCALP_FIB_COLORS[k] || '#94a3b8', dash: [6, 3], width: 1, opacity: 0.9,
+    }));
+  });
+  drawn.lines.forEach(ln => {
+    const pts = ln && ln.a && ln.b ? _scalpTrendPoints(data, ln) : null;
+    if (pts) overlays.push({ label: '', color: '#e2e8f0', width: 1.4, opacity: 0.95, points: pts });
+  });
+  if (_scalpDraw && _scalpDraw.first && _scalpDraw.key === key) {
+    lines.push({ label: _scalpDraw.tool === 'fib' ? 'Fib 0' : 'Line start', price: _scalpDraw.first.price, color: '#fbbf24', dash: [2, 2], width: 1 });
+  }
+  data.overlays = overlays;
+  data.lines = lines;
+}
+
+function _scalpRedecorate() {
+  const shown = _scalpChartShown;
+  if (!shown || typeof _pfChartCanvas === 'undefined' || !_pfChartCanvas || _pfChartCanvas.data !== shown.data) return;
+  const state = _pfChartCanvasRefreshState();
+  _scalpDecorate(shown.data);
+  _pfChartCanvasRefresh(shown.data, state);
+}
+
+function _scalpPaintTools() {
+  document.querySelectorAll('.scalp-st-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartSupertrendOn); });
+  document.querySelectorAll('.scalp-cpr-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartCprOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartCprOn); });
+  document.querySelectorAll('.scalp-fib-btn').forEach(b => b.classList.toggle('is-armed', !!(_scalpDraw && _scalpDraw.tool === 'fib')));
+  document.querySelectorAll('.scalp-line-btn').forEach(b => b.classList.toggle('is-armed', !!(_scalpDraw && _scalpDraw.tool === 'line')));
+}
+
+function _scalpEndDraw() {
+  _scalpDraw = null;
+  window.pfChartPickHandler = null;
+  document.querySelectorAll('.scalp-fib-menu').forEach(m => { m.hidden = true; });
+  _scalpPaintTools();
+}
+
+function _scalpStartDraw(tool, preset) {
+  const shown = _scalpChartShown;
+  if (!shown) { toast('Open an option chart first.', 'warning'); return; }
+  _scalpDraw = { tool, preset, first: null, key: _scalpDrawKey(shown.data) };
+  window.pfChartPickHandler = (pt, host) => {
+    if (!host || !host.closest('#scalp-dock-chart, #scalp-option-chart-overlay') || !_scalpDraw) return false;
+    if (!_scalpDraw.first) {
+      _scalpDraw.first = pt;
+      _scalpRedecorate();
+      return true;
+    }
+    const d = _scalpReadDrawings(_scalpDraw.key);
+    if (_scalpDraw.tool === 'fib') d.fibs.push({ preset: _scalpDraw.preset, a: _scalpDraw.first, b: pt });
+    else d.lines.push({ a: _scalpDraw.first, b: pt });
+    _scalpWriteDrawings(_scalpDraw.key, d);
+    _scalpEndDraw();
+    _scalpRedecorate();
+    return true;
+  };
+  document.querySelectorAll('.scalp-fib-menu').forEach(m => { m.hidden = true; });
+  _scalpPaintTools();
+  toast(tool === 'fib'
+    ? `Fib ${_SCALP_FIB_PRESETS[preset].label}: click the 0 point, then the 1 point. Esc cancels.`
+    : 'Trendline: click the first point, then the second. Esc cancels.', 'info');
+}
+
+function _scalpClearDrawings() {
+  const shown = _scalpChartShown;
+  if (!shown) return;
+  _scalpEndDraw();
+  _scalpWriteDrawings(_scalpDrawKey(shown.data), { fibs: [], lines: [] });
+  _scalpRedecorate();
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && _scalpDraw) {
+    event.stopImmediatePropagation();
+    _scalpEndDraw();
+    _scalpRedecorate();
+  }
+}, true);
+
+// ST and CPR switches, the Fib presets, the trendline and Clear: one group,
+// placed before the timeframe strip on the docked chart and the pop-up alike.
+function _scalpChartTools() {
+  const box = document.createElement('div');
+  box.className = 'scalp-chart-tools';
+  const btn = (cls, text, title) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `terminal-cascade-chart-control ${cls}`;
+    b.textContent = text;
+    b.title = title;
+    return b;
+  };
+  const st = btn('scalp-st-toggle', `ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}`, `Supertrend (${_SCALP_ST.period}, ${_SCALP_ST.multiplier}) on this chart`);
+  st.addEventListener('click', () => {
     _scalpChartSupertrendOn = !_scalpChartSupertrendOn;
     try { localStorage.setItem(_SCALP_ST_KEY, _scalpChartSupertrendOn ? '1' : '0'); } catch (_) {}
-    document.querySelectorAll('.scalp-st-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartSupertrendOn); });
-    const shown = _scalpChartShown;
-    if (shown && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas && _pfChartCanvas.data === shown.data) {
-      const state = _pfChartCanvasRefreshState();
-      _scalpApplySupertrend(shown.data);
-      _pfChartCanvasRefresh(shown.data, state);
-    }
+    _scalpPaintTools();
+    _scalpRedecorate();
   });
-  return btn;
+  const cpr = btn('scalp-cpr-toggle', 'CPR', 'CPR, R1-R4 and S1-S5 on this chart');
+  cpr.addEventListener('click', () => {
+    _scalpChartCprOn = !_scalpChartCprOn;
+    try { localStorage.setItem(_SCALP_CPR_KEY, _scalpChartCprOn ? '1' : '0'); } catch (_) {}
+    _scalpPaintTools();
+    _scalpRedecorate();
+  });
+  const fibWrap = document.createElement('div');
+  fibWrap.className = 'scalp-fib-wrap';
+  const fib = btn('scalp-fib-btn', 'Fib ▾', 'Draw a Fib: pick a set, then click the 0 point and the 1 point');
+  const menu = document.createElement('div');
+  menu.className = 'scalp-fib-menu';
+  menu.hidden = true;
+  Object.entries(_SCALP_FIB_PRESETS).forEach(([key, preset]) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'scalp-fib-item';
+    item.dataset.fibPreset = key;
+    item.textContent = preset.label;
+    item.addEventListener('click', () => _scalpStartDraw('fib', key));
+    menu.appendChild(item);
+  });
+  fib.addEventListener('click', () => {
+    if (_scalpDraw && _scalpDraw.tool === 'fib') { _scalpEndDraw(); _scalpRedecorate(); return; }
+    menu.hidden = !menu.hidden;
+  });
+  fibWrap.append(fib, menu);
+  const line = btn('scalp-line-btn', 'Line', 'Draw a trendline: click two points');
+  line.addEventListener('click', () => {
+    if (_scalpDraw && _scalpDraw.tool === 'line') { _scalpEndDraw(); _scalpRedecorate(); return; }
+    _scalpStartDraw('line');
+  });
+  const clear = btn('scalp-clear-btn', 'Clear', "Remove this option's Fibs and trendlines");
+  clear.addEventListener('click', _scalpClearDrawings);
+  box.append(st, cpr, fibWrap, line, clear);
+  setTimeout(_scalpPaintTools, 0);
+  return box;
 }
 
 function _scalpLiveTick() {
@@ -14208,7 +14384,7 @@ function _scalpLiveTick() {
   if (document.hidden || !_pfChartCanvas.host.getClientRects().length) return;
   const state = typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
   if (_scalpApplyLiveBar(shown.data, shown.key) && typeof _pfChartCanvasRefresh === 'function') {
-    _scalpApplySupertrend(shown.data);
+    _scalpDecorate(shown.data);
     _pfChartCanvasRefresh(shown.data, state);
   }
 }
@@ -14306,7 +14482,7 @@ function _ensureScalpOptionChartOverlay() {
       onClose: () => hideScalpOptionChart(),
     });
     const actions = overlay.querySelector('#scalp-option-chart-actions');
-    actions.insertBefore(_scalpStToggleButton(), actions.firstChild);
+    actions.insertBefore(_scalpChartTools(), actions.firstChild);
   }
   return overlay;
 }
@@ -14358,7 +14534,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     // from the live premium before it is drawn.
     data.countdown = true;
     _scalpApplyLiveBar(data, targetKey);
-    _scalpApplySupertrend(data);
+    _scalpDecorate(data);
     _scalpChartShown = { key: targetKey, data };
     if (!_scalpLiveTimer) _scalpLiveTimer = setInterval(_scalpLiveTick, 1000);
     const instrument = data.instrument || {};

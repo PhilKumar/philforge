@@ -1556,6 +1556,13 @@ function _pfChartCanvasBindInteraction(c) {
   bind('pointerdown', function (event) {
     _pfChartCanvasStopMotion(c);
     var point = _pfChartCanvasPoint(c, event), v = c.viewport;
+    // A drawing tool waiting for a point takes the click instead of a pan:
+    // the bar under the pointer (snapped, as the crosshair is) and its price.
+    if (point && point.plot && c.projection && typeof window.pfChartPickHandler === 'function') {
+      var pickIdx = Math.round(c.projection.tAt(point.x));
+      var picked = window.pfChartPickHandler({ t: Math.round(c.projection.timeAt(pickIdx)), price: c.projection.pAt(point.y) }, c.host);
+      if (picked) { event.preventDefault(); return; }
+    }
     if (event.pointerType === 'touch' && point) {
       c.touches.set(event.pointerId, { x: point.x, y: point.y });
       try { c.host.setPointerCapture(event.pointerId); } catch (err) {}

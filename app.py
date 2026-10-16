@@ -25496,6 +25496,9 @@ def _chart_session_analytics(candles: list[dict]) -> dict:
                     "width": 1.1 if label == "CPR P" else 0.9,
                     "opacity": 0.85 if label.startswith("CPR") else 0.55,
                     "points": [{"t": pt["t"], "price": round(price, 4)} for pt in span],
+                    # So a chart can show or hide the pivot set as one (the
+                    # Scalp chart's CPR switch, 2026-10-16).
+                    "group": "cpr",
                 }
             )
     return {"lines": lines, "overlays": overlays}

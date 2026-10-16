@@ -193,8 +193,8 @@ test('Supertrend (10, 2) is drawn on the option chart and its switch turns it of
   });
   await scalpChart(page, candles, 150);
   const st = () => page.evaluate(() => {
-    const c = (window as unknown as { _pfChartCanvas: { data: { overlays: { _scalpSt?: boolean; supertrend?: number; label?: string }[] }; paint: { overlays: number } } })._pfChartCanvas;
-    const runs = (c.data.overlays || []).filter((o) => o._scalpSt);
+    const c = (window as unknown as { _pfChartCanvas: { data: { overlays: { supertrend?: number; label?: string }[] }; paint: { overlays: number } } })._pfChartCanvas;
+    const runs = (c.data.overlays || []).filter((o) => o.supertrend);
     return { runs: runs.length, dirs: [...new Set(runs.map((o) => o.supertrend))].sort(), label: runs.filter((o) => o.label).map((o) => o.label), painted: c.paint.overlays };
   });
   const on = await st();
@@ -213,4 +213,83 @@ test('Supertrend (10, 2) is drawn on the option chart and its switch turns it of
   expect(await page.evaluate(() => localStorage.getItem('pf_scalp_chart_supertrend'))).toBe('0');
   await toggle.click();
   await expect.poll(async () => (await st()).runs).toBe(on.runs);
+});
+
+test('Fib presets and a trendline are drawn by two clicks, kept per contract, and cleared', async ({ page }) => {
+  // Phil, 2026-10-16: "Draw it myself but only with 3 settings... 0,1,2,4,8
+  // ... 0, 0.5, 1 ... 0, 0.25, 0.5, 0.75, 1" and "Draw it myself" for lines.
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  const candles = [...oneMinuteBars('2026-10-13', '15:29:00'), ...oneMinuteBars('2026-10-14', '15:29:00')];
+  await scalpChart(page, candles, 150);
+  await page.evaluate(() => { try { localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
+  await page.locator('#scalp-dock-chart').scrollIntoViewIfNeeded();
+  const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
+  const at = (fx: number, fy: number) => page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  const tools = page.locator('#scalp-dock-chart-actions .scalp-chart-tools');
+  const fibLines = () => page.evaluate(() => (window as any)._pfChartCanvas.data.lines.filter((l: any) => /^F/.test(l.label)).map((l: any) => [l.label, l.price]));
+
+  await tools.locator('.scalp-fib-btn').click();
+  await expect(tools.locator('.scalp-fib-item')).toHaveText(['0 · 1 · 2 · 4 · 8', '0 · 0.5 · 1', '0 · 0.25 · 0.5 · 0.75 · 1']);
+  await tools.locator('[data-fib-preset="half"]').click();
+  await expect(tools.locator('.scalp-fib-btn')).toHaveClass(/is-armed/);
+  await at(0.4, 0.7);
+  await at(0.7, 0.3);
+  await expect(tools.locator('.scalp-fib-btn')).not.toHaveClass(/is-armed/);
+  const drawn = await page.evaluate(() => JSON.parse(localStorage.getItem('pf_scalp_chart_drawings_v1') || '{}'));
+  const fib = (Object.values(drawn)[0] as any).fibs[0];
+  expect(fib.preset).toBe('half');
+  const a = fib.a.price, b = fib.b.price;
+  expect(b).toBeGreaterThan(a); // the second click was higher on the chart
+  const lines = await fibLines();
+  expect(lines.map((l: any) => l[0])).toEqual(['F0', 'F0.5', 'F1']);
+  expect(lines[0][1]).toBeCloseTo(a, 1);
+  expect(lines[1][1]).toBeCloseTo((a + b) / 2, 1);
+  expect(lines[2][1]).toBeCloseTo(b, 1);
+
+  // The 0-1-2-4-8 set measures out from the same two points.
+  await tools.locator('.scalp-fib-btn').click();
+  await tools.locator('[data-fib-preset="x2"]').click();
+  await at(0.45, 0.8);
+  await at(0.6, 0.75);
+  await expect.poll(async () => (await fibLines()).length).toBe(3 + 5);
+
+  // A trendline: two clicks, an overlay running on to the right.
+  await tools.locator('.scalp-line-btn').click();
+  await at(0.3, 0.8);
+  await at(0.6, 0.6);
+  const trend = await page.evaluate(() => (window as any)._pfChartCanvas.data.overlays.filter((o: any) => !o.supertrend && !o.group && (o.points || []).length === 2 && o.color === '#e2e8f0'));
+  expect(trend).toHaveLength(1);
+  expect(trend[0].points[1].t).toBeGreaterThan(trend[0].points[0].t);
+
+  // A new timeframe keeps them: they belong to the contract.
+  await page.locator('#scalp-dock-chart-actions').getByRole('radio', { name: /^5m$/i }).click();
+  await expect.poll(async () => (await fibLines()).length).toBe(8);
+
+  // Clear takes this contract's drawings away.
+  await tools.locator('.scalp-clear-btn').click();
+  await expect.poll(async () => (await fibLines()).length).toBe(0);
+});
+
+test('the CPR switch hides and shows the pivot set as one', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  const candles = oneMinuteBars('2026-10-14', '15:29:00');
+  const day = candles[0].t, end = candles[candles.length - 1].t;
+  const level = (label: string, price: number) => ({ label, color: '#2962ff', dash: [], width: 1, group: 'cpr', points: [{ t: day, price }, { t: end, price }] });
+  await page.route('**/api/scalp/contract-chart**', (route) => route.fulfill({ json: {
+    status: 'ok', timeframe: '1m', candles, entries: [], lines: [], live_price: 0,
+    overlays: [level('CPR TC (146)', 146), level('CPR BC (144)', 144), level('R1 (150)', 150), { label: 'EMA 20', color: '#2962ff', points: candles.map((c) => ({ t: c.t, price: c.c })) }],
+    instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+  } }));
+  await scalpChart(page, candles, 150, false);
+  const count = () => page.evaluate(() => (window as any)._pfChartCanvas.data.overlays.filter((o: any) => o.group === 'cpr').length);
+  const cpr = page.locator('#scalp-dock-chart-actions .scalp-cpr-toggle');
+  await expect(cpr).toHaveAttribute('aria-pressed', 'true');
+  expect(await count()).toBe(3);
+  await cpr.click();
+  await expect.poll(count).toBe(0);
+  // The EMA is not part of the set and stays.
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.data.overlays.some((o: any) => o.label === 'EMA 20'))).toBe(true);
+  expect(await page.evaluate(() => localStorage.getItem('pf_scalp_chart_cpr'))).toBe('0');
+  await cpr.click();
+  await expect.poll(count).toBe(3);
 });
