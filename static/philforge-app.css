@@ -6329,6 +6329,11 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-option-chart-canvas { min-height: min(64vh, 620px); }
 .scalp-option-chart-canvas .pf-bench-canvas-host { min-height: min(64vh, 620px); aspect-ratio: auto; }
 .scalp-option-chart-refresh { padding: 5px 11px; font-size: 11px; }
+/* The big view, opened from the docked chart's ⤢: nearly the whole window. */
+.scalp-option-chart-overlay:has(.is-big) { padding: 12px; }
+.scalp-option-chart-dialog.is-big { width: min(1880px, 100%); max-height: calc(100vh - 24px); }
+.scalp-option-chart-dialog.is-big .scalp-option-chart-canvas,
+.scalp-option-chart-dialog.is-big .scalp-option-chart-canvas .pf-bench-canvas-host { min-height: calc(100vh - 150px); }
 /* The docked chart beside the Scalp form. Only where the two columns stand
    side by side (1080px up); narrower, the button opens the pop-up instead. */
 .scalp-dock-chart { margin-top: 12px; padding: 14px 16px 16px; }
@@ -6341,8 +6346,6 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-chart-tools .scalp-cpr-toggle.is-on { opacity: 1; color: #5b9bff; border-color: rgba(91,155,255,.55); }
 .scalp-chart-tools .is-armed { color: #fbbf24; border-color: rgba(251,191,36,.6); box-shadow: 0 0 0 1px rgba(251,191,36,.35) inset; }
 .scalp-fib-wrap { position: relative; }
-.scalp-draw-hint { font: 600 11px var(--font-mono, monospace); color: #fbbf24; white-space: nowrap; }
-.scalp-draw-hint[hidden] { display: none; }
 .scalp-fib-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; display: grid; gap: 2px; padding: 4px; min-width: 190px; background: var(--card, #0f172a); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
 .scalp-fib-menu[hidden] { display: none; }
 .scalp-fib-item { text-align: left; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: 600 11px var(--font-mono, monospace); cursor: pointer; }

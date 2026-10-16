@@ -13941,7 +13941,7 @@ function _buildScalpActiveRow(t) {
       <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
       <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
         <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
-        <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
+        <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id}, {pin: true})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
         <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Cancel</button>
       </div></td>
     </tr>`;
@@ -13962,7 +13962,7 @@ function _buildScalpActiveRow(t) {
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
     <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
       <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
-      <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
+      <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id}, {pin: true})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
       <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
     </div></td>
   </tr>`;
@@ -13987,8 +13987,10 @@ function _scalpChartTargetKey() {
 // Where the chart draws: docked beside the form when the two columns stand
 // side by side, the pop-up otherwise. One canvas either way -- the renderer
 // keeps a single live chart.
+let _scalpChartPopped = false; // the big pop-up, opened from the dock's ⤢
+
 function _scalpChartDocked() {
-  return !!document.getElementById('scalp-dock-chart') && window.matchMedia('(min-width: 1080px)').matches
+  return !_scalpChartPopped && !!document.getElementById('scalp-dock-chart') && window.matchMedia('(min-width: 1080px)').matches
     && (typeof _isPageActive !== 'function' || _isPageActive('scalp-page'));
 }
 
@@ -14031,7 +14033,7 @@ function _scalpDockShow() {
       onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
       onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
     });
-    actions.insertBefore(_scalpChartTools(), actions.firstChild);
+    actions.insertBefore(_scalpChartTools({ popout: true }), actions.firstChild);
   }
 }
 
@@ -14054,16 +14056,28 @@ function _scalpDockDraw(target) {
 // The dock follows the form's contract; an open trade on that contract takes
 // over (it carries the entry, target and stop), and when that trade closes the
 // dock goes back to the form.
+// A trade's chart opened from its row stays up only until the form is
+// changed. An open trade the dock merely FOUND for the form's contract never
+// pinned it: that held the CE trade on screen while the form went to PE
+// (Phil, 2026-10-16: "not changing while toggling from PE to CE").
+let _scalpDockPin = null; // {tradeId, form}
+
+function _scalpFormKey() {
+  const c = _scalpFormContract();
+  return c ? `${c.underlying}|${c.strike}|${c.expiry}|${c.option_type}` : '';
+}
+
 function _scalpDockFollow(openTrades) {
   if (!_scalpChartDocked() || _scalpDockYields()) return;
   _scalpDockShow();
   const open = Array.isArray(openTrades) ? openTrades : _scalpDockOpenTrades;
   const form = _scalpFormContract();
-  const pinned = _scalpOptionChartTradeId && !_scalpOptionChartContract;
-  if (pinned && open.some(t => t.trade_id === _scalpOptionChartTradeId)) {
-    _scalpDockDraw({ tradeId: _scalpOptionChartTradeId });
+  const pin = _scalpDockPin;
+  if (pin && pin.form === _scalpFormKey() && open.some(t => t.trade_id === pin.tradeId)) {
+    _scalpDockDraw({ tradeId: pin.tradeId });
     return;
   }
+  _scalpDockPin = null;
   const same = form && open
     .filter(t => t.status !== 'pending' && t.underlying === form.underlying && Number(t.strike) === form.strike
       && t.expiry === form.expiry && t.option_type === form.option_type)
@@ -14211,7 +14225,10 @@ const _SCALP_FIB_PRESETS = {
 };
 const _SCALP_FIB_COLORS = { 0: '#94a3b8', 0.25: '#22d3ee', 0.5: '#f59e0b', 0.75: '#22d3ee', 1: '#94a3b8', 2: '#fb923c', 4: '#a78bfa', 8: '#f472b6' };
 const _SCALP_DRAW_KEY = 'pf_scalp_chart_drawings_v1';
-let _scalpDraw = null; // {tool: 'fib'|'line', preset, first: {t, price}|null, key}
+// The tool waiting for its first click ('fib' | 'line' | ''); the drawing
+// itself -- following the pointer, then dragged by its ends or its body --
+// is the renderer's (pfChartArmDrawing), done the way TradingView does it.
+let _scalpDrawTool = '';
 
 // Drawings belong to a contract (its own premium scale), not a timeframe.
 function _scalpDrawKey(data) {
@@ -14233,19 +14250,20 @@ function _scalpWriteDrawings(key, d) {
   } catch (_) { /* private mode: drawings last as long as the page */ }
 }
 
-// A trendline through two picked points, carried on to the right. Straight
-// in BAR space, as the chart's x-axis is (nights and weekends do not exist).
-function _scalpTrendPoints(data, ln) {
-  const candles = data.candles || [];
-  if (!candles.length || typeof _pfChartCanvasAxisBuild !== 'function') return null;
-  const axis = _pfChartCanvasAxisBuild(data);
-  const ia = _pfChartCanvasIdxOf(axis, ln.a.t), ib = _pfChartCanvasIdxOf(axis, ln.b.t);
-  if (!isFinite(ia) || !isFinite(ib) || Math.abs(ib - ia) < 1e-9) return null;
-  const early = ia < ib ? { t: ln.a.t, i: ia, p: ln.a.price } : { t: ln.b.t, i: ib, p: ln.b.price };
-  const slope = (ln.b.price - ln.a.price) / (ib - ia);
-  const tEnd = Number(candles[candles.length - 1].t) + axis.barSec * 40;
-  const iEnd = _pfChartCanvasIdxOf(axis, tEnd);
-  return [{ t: early.t, price: early.p }, { t: tEnd, price: Math.round((early.p + slope * (iEnd - early.i)) * 100) / 100 }];
+// The stored drawings as the renderer takes them, and back.
+function _scalpDrawingsFor(key) {
+  const d = _scalpReadDrawings(key);
+  const lines = d.lines.filter(ln => ln && ln.a && ln.b)
+    .map((ln, i) => ({ id: ln.id || `l${i}`, kind: 'line', a: ln.a, b: ln.b }));
+  const fibs = d.fibs.filter(f => f && f.a && f.b && _SCALP_FIB_PRESETS[f.preset])
+    .map((f, i) => ({ id: f.id || `f${i}`, kind: 'fib', preset: f.preset, levels: _SCALP_FIB_PRESETS[f.preset].levels, colors: _SCALP_FIB_COLORS, a: f.a, b: f.b }));
+  return lines.concat(fibs);
+}
+function _scalpKeepDrawings(key, list) {
+  _scalpWriteDrawings(key, {
+    lines: list.filter(dr => dr.kind === 'line').map(dr => ({ id: dr.id, a: dr.a, b: dr.b })),
+    fibs: list.filter(dr => dr.kind === 'fib').map(dr => ({ id: dr.id, preset: dr.preset, a: dr.a, b: dr.b })),
+  });
 }
 
 function _scalpDecorate(data) {
@@ -14267,23 +14285,8 @@ function _scalpDecorate(data) {
     });
   }
   const key = _scalpDrawKey(data);
-  const drawn = _scalpReadDrawings(key);
-  drawn.fibs.forEach(f => {
-    const preset = _SCALP_FIB_PRESETS[f.preset];
-    if (!preset || !f.a || !f.b) return;
-    const span = Number(f.b.price) - Number(f.a.price);
-    preset.levels.forEach(k => lines.push({
-      label: `F${k}`, price: Math.round((Number(f.a.price) + span * k) * 100) / 100,
-      color: _SCALP_FIB_COLORS[k] || '#94a3b8', dash: [6, 3], width: 1, opacity: 0.9,
-    }));
-  });
-  drawn.lines.forEach(ln => {
-    const pts = ln && ln.a && ln.b ? _scalpTrendPoints(data, ln) : null;
-    if (pts) overlays.push({ label: '', color: '#e2e8f0', width: 1.4, opacity: 0.95, points: pts });
-  });
-  if (_scalpDraw && _scalpDraw.first && _scalpDraw.key === key) {
-    lines.push({ label: _scalpDraw.tool === 'fib' ? 'Fib 0' : 'Line start', price: _scalpDraw.first.price, color: '#fbbf24', dash: [2, 2], width: 1 });
-  }
+  data.drawings = _scalpDrawingsFor(key);
+  data.onDrawingsChange = (list) => _scalpKeepDrawings(key, list);
   data.overlays = overlays;
   data.lines = lines;
 }
@@ -14299,45 +14302,33 @@ function _scalpRedecorate() {
 function _scalpPaintTools() {
   document.querySelectorAll('.scalp-st-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartSupertrendOn); });
   document.querySelectorAll('.scalp-cpr-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartCprOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartCprOn); });
-  document.querySelectorAll('.scalp-fib-btn').forEach(b => b.classList.toggle('is-armed', !!(_scalpDraw && _scalpDraw.tool === 'fib')));
-  document.querySelectorAll('.scalp-line-btn').forEach(b => b.classList.toggle('is-armed', !!(_scalpDraw && _scalpDraw.tool === 'line')));
-  // The instruction sits in the toolbar. A toast (fixed top-right) lay over
-  // the chart's upper-right corner and took the clicks meant for it.
-  const hint = !_scalpDraw ? ''
-    : _scalpDraw.tool === 'fib'
-      ? (_scalpDraw.first ? 'Click the 1 point · Esc cancels' : `Fib ${_SCALP_FIB_PRESETS[_scalpDraw.preset].label}: click the 0 point`)
-      : (_scalpDraw.first ? 'Click the second point · Esc cancels' : 'Trendline: click the first point');
-  document.querySelectorAll('.scalp-draw-hint').forEach(h => { h.textContent = hint; h.hidden = !hint; });
+  document.querySelectorAll('.scalp-fib-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'fib'));
+  document.querySelectorAll('.scalp-line-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'line'));
+}
+
+function _scalpCloseFibMenus() {
+  document.querySelectorAll('.scalp-fib-menu').forEach(m => { m.hidden = true; });
 }
 
 function _scalpEndDraw() {
-  _scalpDraw = null;
-  window.pfChartPickHandler = null;
-  document.querySelectorAll('.scalp-fib-menu').forEach(m => { m.hidden = true; });
+  if (typeof pfChartDisarmDrawing === 'function' && typeof pfChartDrawingArmed === 'function' && pfChartDrawingArmed()) pfChartDisarmDrawing();
+  _scalpDrawTool = '';
+  _scalpCloseFibMenus();
   _scalpPaintTools();
 }
 
 function _scalpStartDraw(tool, preset) {
-  const shown = _scalpChartShown;
-  if (!shown) { toast('Open an option chart first.', 'warning'); return; }
-  _scalpDraw = { tool, preset, first: null, key: _scalpDrawKey(shown.data) };
-  window.pfChartPickHandler = (pt, host) => {
-    if (!host || !host.closest('#scalp-dock-chart, #scalp-option-chart-overlay') || !_scalpDraw) return false;
-    if (!_scalpDraw.first) {
-      _scalpDraw.first = pt;
-      _scalpPaintTools();
-      _scalpRedecorate();
-      return true;
-    }
-    const d = _scalpReadDrawings(_scalpDraw.key);
-    if (_scalpDraw.tool === 'fib') d.fibs.push({ preset: _scalpDraw.preset, a: _scalpDraw.first, b: pt });
-    else d.lines.push({ a: _scalpDraw.first, b: pt });
-    _scalpWriteDrawings(_scalpDraw.key, d);
-    _scalpEndDraw();
-    _scalpRedecorate();
-    return true;
-  };
-  document.querySelectorAll('.scalp-fib-menu').forEach(m => { m.hidden = true; });
+  if (!_scalpChartShown) { toast('Open an option chart first.', 'warning'); return; }
+  if (typeof pfChartArmDrawing !== 'function') return;
+  _scalpCloseFibMenus();
+  _scalpDrawTool = tool;
+  const fib = tool === 'fib' ? _SCALP_FIB_PRESETS[preset] : null;
+  pfChartArmDrawing(tool, {
+    levels: fib ? fib.levels : null,
+    colors: fib ? _SCALP_FIB_COLORS : null,
+    extra: fib ? { preset } : null,
+    onEnd: () => { _scalpDrawTool = ''; _scalpPaintTools(); },
+  });
   _scalpPaintTools();
 }
 
@@ -14349,17 +14340,25 @@ function _scalpClearDrawings() {
   _scalpRedecorate();
 }
 
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && _scalpDraw) {
-    event.stopImmediatePropagation();
-    _scalpEndDraw();
-    _scalpRedecorate();
-  }
+// The Fib menu folds away on a click anywhere else, not only on its button.
+document.addEventListener('pointerdown', (event) => {
+  if (event.target && event.target.closest && event.target.closest('.scalp-fib-wrap')) return;
+  _scalpCloseFibMenus();
 }, true);
+
+// The docked chart, opened big in the pop-up (Phil, 2026-10-16: "give a zoom
+// button to view in a pop-up window for a nice big view").
+function popOutScalpOptionChart() {
+  const contract = _scalpOptionChartContract;
+  const tradeId = _scalpOptionChartTradeId;
+  if (!contract && !tradeId) { toast('Open an option chart first.', 'warning'); return; }
+  openScalpOptionChart(contract ? null : tradeId, { contract, popup: true });
+}
 
 // ST and CPR switches, the Fib presets, the trendline and Clear: one group,
 // placed before the timeframe strip on the docked chart and the pop-up alike.
-function _scalpChartTools() {
+// The docked one also carries the button that opens it big.
+function _scalpChartTools(options = {}) {
   const box = document.createElement('div');
   box.className = 'scalp-chart-tools';
   const btn = (cls, text, title) => {
@@ -14386,7 +14385,7 @@ function _scalpChartTools() {
   });
   const fibWrap = document.createElement('div');
   fibWrap.className = 'scalp-fib-wrap';
-  const fib = btn('scalp-fib-btn', 'Fib ▾', 'Draw a Fib: pick a set, then click the 0 point and the 1 point');
+  const fib = btn('scalp-fib-btn', 'Fib ▾', 'Fib: pick a set, then click the 0 point and the 1 point');
   const menu = document.createElement('div');
   menu.className = 'scalp-fib-menu';
   menu.hidden = true;
@@ -14400,21 +14399,26 @@ function _scalpChartTools() {
     menu.appendChild(item);
   });
   fib.addEventListener('click', () => {
-    if (_scalpDraw && _scalpDraw.tool === 'fib') { _scalpEndDraw(); _scalpRedecorate(); return; }
-    menu.hidden = !menu.hidden;
+    if (_scalpDrawTool === 'fib') { _scalpEndDraw(); return; }
+    const opening = menu.hidden;
+    _scalpCloseFibMenus();
+    menu.hidden = !opening;
   });
   fibWrap.append(fib, menu);
-  const line = btn('scalp-line-btn', 'Line', 'Draw a trendline: click two points');
+  const line = btn('scalp-line-btn', 'Line', 'Trendline: click two points');
   line.addEventListener('click', () => {
-    if (_scalpDraw && _scalpDraw.tool === 'line') { _scalpEndDraw(); _scalpRedecorate(); return; }
+    if (_scalpDrawTool === 'line') { _scalpEndDraw(); return; }
     _scalpStartDraw('line');
   });
   const clear = btn('scalp-clear-btn', 'Clear', "Remove this option's Fibs and trendlines");
   clear.addEventListener('click', _scalpClearDrawings);
-  const hint = document.createElement('span');
-  hint.className = 'scalp-draw-hint';
-  hint.hidden = true;
-  box.append(st, cpr, fibWrap, line, clear, hint);
+  box.append(st, cpr, fibWrap, line, clear);
+  if (options.popout) {
+    const big = btn('scalp-popout-btn', '⤢', 'Open this chart big');
+    big.setAttribute('aria-label', 'Open this chart big');
+    big.addEventListener('click', popOutScalpOptionChart);
+    box.append(big);
+  }
   setTimeout(_scalpPaintTools, 0);
   return box;
 }
@@ -14535,6 +14539,8 @@ async function openScalpOptionChart(tradeId, options = {}) {
   const id = contract ? null : Number(tradeId);
   if (!contract && (!Number.isInteger(id) || id <= 0)) return;
   const liveRefresh = !!options.liveRefresh;
+  if (options.pin && id) _scalpDockPin = { tradeId: id, form: _scalpFormKey() };
+  if (options.popup) _scalpChartPopped = true;
   _scalpOptionChartTradeId = id;
   _scalpOptionChartContract = contract;
   const targetKey = _scalpChartTargetKey();
@@ -14549,6 +14555,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     }
   } else {
     const overlay = _ensureScalpOptionChartOverlay();
+    overlay.querySelector('.scalp-option-chart-dialog')?.classList.toggle('is-big', _scalpChartPopped);
     overlay.classList.add('is-open');
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('terminal-cascade-chart-open');
@@ -14637,6 +14644,8 @@ function refreshScalpOptionChart() {
 }
 
 function hideScalpOptionChart() {
+  const popped = _scalpChartPopped;
+  _scalpChartPopped = false;
   _scalpOptionChartRequest++;
   _scalpOptionChartTradeId = null;
   _scalpOptionChartContract = null;
@@ -14651,6 +14660,8 @@ function hideScalpOptionChart() {
   if (!document.getElementById('terminal-cascade-chart-overlay')?.classList.contains('is-open')) {
     document.body.classList.remove('terminal-cascade-chart-open');
   }
+  // Back from the big view: the dock picks its chart up again at once.
+  if (popped) _scalpDockFollow();
 }
 
 document.addEventListener('keydown', (event) => {

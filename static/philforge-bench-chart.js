@@ -553,7 +553,8 @@ function _pfChartCanvasPaintKey(d) {
     indicators: d.indicators || null,
     // Overlays paint too (EMA, Supertrend): without them here, a payload that
     // changed only an overlay -- the Scalp chart's ST switch -- never repainted.
-    overlays: d.overlays || []
+    overlays: d.overlays || [],
+    drawings: d.drawings || []
   });
 }
 
@@ -1287,6 +1288,7 @@ function _pfChartCanvasDraw() {
   var trendlineCount = _pfChartCanvasTrendlines(c, p, PAL, labels);
   var fibCount = _pfChartCanvasFibs(c, p, PAL, labels);
   var overlayCount = _pfChartCanvasOverlays(c, p, PAL, labels);
+  var drawingCount = _pfChartCanvasDrawings(c, p, PAL);
   var emaCount = _pfChartCanvasIndicators(c, p, PAL, labels);
   var rsiCount = _pfChartCanvasRsiPane(c, p, PAL);
   var markerCount = _pfChartCanvasMarkers(c, p, PAL, labels);
@@ -1297,7 +1299,7 @@ function _pfChartCanvasDraw() {
   // but silently loses candles/labels/geometry.
   c.paint = {
     candles: candleCount, trendlines: trendlineCount, fibs: fibCount, markers: markerCount,
-    overlays: overlayCount, ema: emaCount, rsi: rsiCount,
+    overlays: overlayCount, drawings: drawingCount, ema: emaCount, rsi: rsiCount,
     gaps: gapCount, labels: axisLabelCount + labelCount,
     labelTexts: labels.map(function (label) { return label.text; }),
     lastPrice: tag.price, countdown: tag.countdown,
@@ -1394,7 +1396,7 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   if (bars) idx = Math.max(0, Math.min(bars - 1, idx));
   var barTime = p.timeAt(idx), lineX = p.xOf(barTime);
   if (!isFinite(lineX)) lineX = point.x;
-  if (typeof window.pfChartPickHandler === 'function') {
+  if (typeof window.pfChartPickHandler === 'function' || _pfChartDrawSnapping(c)) {
     var snap = _pfChartCanvasMagnet(c, idx, point.y);
     if (snap) { price = snap.price; point = { x: point.x, y: snap.y, plot: point.plot }; }
   }
@@ -1413,6 +1415,8 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   _pfChartCanvasText(ctx, priceText, p.padL + p.plotW + 6, point.y + 0.5, PAL.fillRing, 9.5, 'left');
   _pfChartCanvasText(ctx, timeText, lineX, c.h - 12, PAL.fillRing, 9, 'center');
   ctx.restore();
+  // The drawing being made follows the pointer, here on the overlay.
+  if (c.drawPending) _pfChartCanvasPaintDrawing(ctx, c, p, c.drawPending, true, PAL);
 }
 
 function _pfChartCanvasClearCrosshair(c) {
@@ -1501,6 +1505,286 @@ function _pfChartCanvasCoast(c, pxPerMs) {
 
 // Phase 3 interaction model. Plot drag pans both axes; the axis gutters are
 // deliberately separate so price stretching can never move time and vice versa.
+// ── Hand-drawn trendlines and Fibs, TradingView's way ────────────────────
+// Phil, 2026-10-16: "I want same like the trading view". The first click
+// starts the drawing and it follows the pointer; a second click -- or letting
+// go after a drag -- finishes it. A finished drawing is taken by an end (to
+// move that end) or by its body (to move it whole), and Delete removes the
+// one selected. The page owns the list: payload.drawings is
+// [{id, kind: 'line'|'fib', a: {t, price}, b: {t, price}, levels, colors}]
+// and payload.onDrawingsChange(list) keeps it. Arming a tool changes nothing
+// on the chart: the view stays exactly where it was.
+var _pfDrawArmed = null; // {kind, levels, colors, extra, onEnd}
+var _PF_DRAW_LINE = '#2962ff';
+
+function pfChartArmDrawing(kind, opts) {
+  opts = opts || {};
+  var c = _pfChartCanvas;
+  if (c) { c.drawPending = null; c.drawSel = null; }
+  _pfDrawArmed = {
+    kind: kind, levels: opts.levels || null, colors: opts.colors || null,
+    extra: opts.extra || null, onEnd: opts.onEnd || null
+  };
+  if (c) _pfChartCanvasDraw();
+}
+
+function pfChartDisarmDrawing() {
+  var armed = _pfDrawArmed, c = _pfChartCanvas;
+  _pfDrawArmed = null;
+  if (c && c.drawPending) { c.drawPending = null; _pfChartCanvasClearCrosshair(c); }
+  if (armed && typeof armed.onEnd === 'function') armed.onEnd();
+}
+
+function pfChartDrawingArmed() {
+  return _pfDrawArmed ? _pfDrawArmed.kind : '';
+}
+
+// While a point is being placed or an end dragged, the crosshair sticks to
+// the candle as TradingView's magnet does.
+function _pfChartDrawSnapping(c) {
+  return !!(_pfDrawArmed || (c && c.drawPending) || (c && c.drag && c.drag.kind === 'draw' && c.drag.part !== 'body'));
+}
+
+function _pfChartDrawSnap(c, x, y) {
+  var p = c.projection;
+  var idx = Math.round(p.tAt(x));
+  var magnet = _pfChartCanvasMagnet(c, idx, y);
+  return { t: Math.round(p.timeAt(idx)), price: magnet ? magnet.price : Math.round(p.pAt(y) * 100) / 100 };
+}
+
+function _pfChartDrawGeom(p, dr) {
+  return { xa: p.xOf(dr.a.t), ya: p.yOf(dr.a.price), xb: p.xOf(dr.b.t), yb: p.yOf(dr.b.price) };
+}
+
+function _pfChartFibLevels(dr) {
+  var a = Number(dr.a.price), span = Number(dr.b.price) - a;
+  return (dr.levels || [0, 1]).map(function (k) { return { k: k, price: a + span * k }; });
+}
+
+function _pfChartCanvasPaintDrawing(ctx, c, p, dr, selected, PAL) {
+  if (!dr || !dr.a || !dr.b) return;
+  var g = _pfChartDrawGeom(p, dr);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(p.padL, p.padT, p.plotW, p.plotH);
+  ctx.clip();
+  if (dr.kind === 'fib') {
+    // Each level from the earlier pick to the right edge, labelled at its
+    // left end; the two picks joined by a dashed diagonal.
+    var left = Math.min(g.xa, g.xb), right = p.padL + p.plotW;
+    ctx.font = '10px monospace';
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'left';
+    _pfChartFibLevels(dr).forEach(function (lv) {
+      var y = p.yOf(lv.price), color = (dr.colors && dr.colors[lv.k]) || '#94a3b8';
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.globalAlpha = 0.95;
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.fillText(lv.k + ' (' + lv.price.toFixed(2) + ')', left + 4, y - 2);
+    });
+    ctx.globalAlpha = 0.7; ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(g.xa, g.ya); ctx.lineTo(g.xb, g.yb); ctx.stroke();
+  } else {
+    ctx.strokeStyle = dr.color || _PF_DRAW_LINE; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(g.xa, g.ya); ctx.lineTo(g.xb, g.yb); ctx.stroke();
+  }
+  ctx.restore();
+  if (selected) {
+    ctx.save();
+    [[g.xa, g.ya], [g.xb, g.yb]].forEach(function (pt) {
+      ctx.beginPath(); ctx.arc(pt[0], pt[1], 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = PAL.markRing; ctx.fill();
+      ctx.lineWidth = 1.6; ctx.strokeStyle = dr.color || _PF_DRAW_LINE; ctx.stroke();
+    });
+    ctx.restore();
+  }
+}
+
+function _pfChartCanvasDrawings(c, p, PAL) {
+  var list = ((c.data || {}).drawings) || [];
+  list.forEach(function (dr) { _pfChartCanvasPaintDrawing(c.ctx, c, p, dr, !!dr && dr.id === c.drawSel, PAL); });
+  return list.length;
+}
+
+function _pfChartSegDist(px, py, ax, ay, bx, by) {
+  var dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
+  var t = len ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// The drawing under the pointer: an end within 7px, else its body within 5px.
+function _pfChartDrawHit(c, x, y) {
+  var p = c.projection, list = ((c.data || {}).drawings) || [];
+  if (!p) return null;
+  for (var i = list.length - 1; i >= 0; i--) {
+    var dr = list[i];
+    if (!dr || !dr.a || !dr.b) continue;
+    var g = _pfChartDrawGeom(p, dr);
+    if (Math.hypot(x - g.xa, y - g.ya) <= 7) return { id: dr.id, part: 'a' };
+    if (Math.hypot(x - g.xb, y - g.yb) <= 7) return { id: dr.id, part: 'b' };
+    if (_pfChartSegDist(x, y, g.xa, g.ya, g.xb, g.yb) <= 5) return { id: dr.id, part: 'body' };
+    if (dr.kind === 'fib' && x >= Math.min(g.xa, g.xb) - 4 && x <= p.padL + p.plotW) {
+      var levels = _pfChartFibLevels(dr);
+      for (var k = 0; k < levels.length; k++) {
+        if (Math.abs(y - p.yOf(levels[k].price)) <= 4) return { id: dr.id, part: 'body' };
+      }
+    }
+  }
+  return null;
+}
+
+function _pfChartDrawFind(c, id) {
+  var list = ((c.data || {}).drawings) || [];
+  for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+  return null;
+}
+
+function _pfChartDrawCommit(c) {
+  var d = c.data || {};
+  if (typeof d.onDrawingsChange === 'function') d.onDrawingsChange((d.drawings || []).slice());
+}
+
+function _pfChartDrawFinish(c) {
+  var pend = c.drawPending, armed = _pfDrawArmed, d = c.data || {}, p = c.projection;
+  c.drawPending = null;
+  _pfDrawArmed = null;
+  if (pend && p) {
+    var g = _pfChartDrawGeom(p, pend);
+    // A click that never moved draws nothing.
+    if (Math.hypot(g.xa - g.xb, g.ya - g.yb) >= 4) {
+      var dr = { id: 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), kind: pend.kind, a: pend.a, b: pend.b };
+      if (pend.levels) dr.levels = pend.levels;
+      if (pend.colors) dr.colors = pend.colors;
+      if (pend.extra) Object.keys(pend.extra).forEach(function (k) { dr[k] = pend.extra[k]; });
+      d.drawings = (d.drawings || []).concat([dr]);
+      c.drawSel = dr.id;
+      _pfChartDrawCommit(c);
+    }
+  }
+  _pfChartCanvasClearCrosshair(c);
+  _pfChartCanvasDraw();
+  if (armed && typeof armed.onEnd === 'function') armed.onEnd();
+}
+
+function _pfChartDrawShift(c, pt, bars, dp) {
+  var axis = _pfChartCanvasAxisOf(c);
+  return {
+    t: Math.round(_pfChartCanvasTimeAt(axis, _pfChartCanvasIdxOf(axis, pt.t) + bars)),
+    price: Math.round((Number(pt.price) + dp) * 100) / 100
+  };
+}
+
+// pointerdown on the plot. True when a drawing took it (no pan follows).
+function _pfChartDrawPointerDown(c, point, event) {
+  if (!point || !c.projection) return false;
+  if (c.drawPending) {
+    if (point.plot) c.drawPending.b = _pfChartDrawSnap(c, point.x, point.y);
+    _pfChartDrawFinish(c);
+    return true;
+  }
+  if (!point.plot) return false;
+  if (_pfDrawArmed) {
+    var at = _pfChartDrawSnap(c, point.x, point.y);
+    c.drawPending = {
+      kind: _pfDrawArmed.kind, levels: _pfDrawArmed.levels, colors: _pfDrawArmed.colors, extra: _pfDrawArmed.extra,
+      a: at, b: { t: at.t, price: at.price }, x: point.x, y: point.y, down: true, dragged: false
+    };
+    try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
+    _pfChartCanvasDrawCrosshair(c, point);
+    return true;
+  }
+  var hit = _pfChartDrawHit(c, point.x, point.y), dr = hit && _pfChartDrawFind(c, hit.id);
+  if (dr) {
+    c.drawSel = dr.id;
+    c.drag = {
+      kind: 'draw', id: dr.id, part: hit.part,
+      startIdx: c.projection.tAt(point.x), startPrice: c.projection.pAt(point.y),
+      a: { t: dr.a.t, price: dr.a.price }, b: { t: dr.b.t, price: dr.b.price }
+    };
+    c.host.style.cursor = hit.part === 'body' ? 'move' : 'pointer';
+    try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
+    _pfChartCanvasClearCrosshair(c);
+    _pfChartCanvasDraw();
+    return true;
+  }
+  if (c.drawSel) { c.drawSel = null; _pfChartCanvasDraw(); }
+  return false;
+}
+
+// pointermove. True when a drawing took it.
+function _pfChartDrawPointerMove(c, point) {
+  if (c.drawPending) {
+    c.drawPending.b = _pfChartDrawSnap(c, point.x, point.y);
+    if (c.drawPending.down && Math.hypot(point.x - c.drawPending.x, point.y - c.drawPending.y) > 6) c.drawPending.dragged = true;
+    c.host.style.cursor = 'crosshair';
+    _pfChartCanvasDrawCrosshair(c, point);
+    return true;
+  }
+  if (c.drag && c.drag.kind === 'draw') {
+    var drag = c.drag, dr = _pfChartDrawFind(c, drag.id), p = c.projection;
+    if (!dr || !p) { c.drag = null; return true; }
+    if (drag.part === 'a' || drag.part === 'b') dr[drag.part] = _pfChartDrawSnap(c, point.x, point.y);
+    else {
+      var bars = Math.round(p.tAt(point.x) - drag.startIdx), dp = p.pAt(point.y) - drag.startPrice;
+      dr.a = _pfChartDrawShift(c, drag.a, bars, dp);
+      dr.b = _pfChartDrawShift(c, drag.b, bars, dp);
+    }
+    drag.moved = true;
+    _pfChartCanvasDraw();
+    // Kept as it moves: a refresh mid-drag rebuilds the list from the page.
+    _pfChartDrawCommit(c);
+    return true;
+  }
+  return false;
+}
+
+// pointerup. True when a drawing took it.
+function _pfChartDrawPointerUp(c, event) {
+  if (c.drawPending) {
+    try { c.host.releasePointerCapture(event.pointerId); } catch (err) {}
+    if (c.drawPending.down && c.drawPending.dragged) _pfChartDrawFinish(c);
+    else c.drawPending.down = false;
+    return true;
+  }
+  if (c.drag && c.drag.kind === 'draw') {
+    try { c.host.releasePointerCapture(event.pointerId); } catch (err) {}
+    c.drag = null;
+    c.host.style.cursor = '';
+    _pfChartDrawCommit(c);
+    return true;
+  }
+  return false;
+}
+
+// Esc cancels a drawing in progress (or lets go of a selection); Delete and
+// Backspace remove the selected drawing. Never while typing in a field.
+document.addEventListener('keydown', function (event) {
+  var c = _pfChartCanvas;
+  if (!c) return;
+  var target = event.target || {};
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName || '') || target.isContentEditable) return;
+  if (event.key === 'Escape') {
+    if (c.drawPending || _pfDrawArmed) {
+      event.stopImmediatePropagation();
+      pfChartDisarmDrawing();
+      _pfChartCanvasDraw();
+    } else if (c.drawSel) {
+      event.stopImmediatePropagation();
+      c.drawSel = null;
+      _pfChartCanvasDraw();
+    }
+    return;
+  }
+  if ((event.key === 'Delete' || event.key === 'Backspace') && c.drawSel) {
+    var d = c.data || {};
+    d.drawings = (d.drawings || []).filter(function (dr) { return dr && dr.id !== c.drawSel; });
+    c.drawSel = null;
+    event.preventDefault();
+    _pfChartDrawCommit(c);
+    _pfChartCanvasDraw();
+  }
+}, true);
+
 function _pfChartCanvasBindInteraction(c) {
   if (!c || !c.host) return;
   function bind(name, fn, opts) {
@@ -1594,6 +1878,9 @@ function _pfChartCanvasBindInteraction(c) {
       var picked = window.pfChartPickHandler({ t: Math.round(c.projection.timeAt(pickIdx)), price: pickPrice }, c.host);
       if (picked) { event.preventDefault(); return; }
     }
+    if (event.pointerType !== 'touch' || !c.touches.size) {
+      if (_pfChartDrawPointerDown(c, point, event)) { event.preventDefault(); return; }
+    }
     if (event.pointerType === 'touch' && point) {
       c.touches.set(event.pointerId, { x: point.x, y: point.y });
       try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
@@ -1619,8 +1906,11 @@ function _pfChartCanvasBindInteraction(c) {
       c.touches.set(event.pointerId, { x: point.x, y: point.y });
       if (c.pinch) { movePinch(); return; }
     }
+    if (_pfChartDrawPointerMove(c, point)) return;
     if (!c.drag) {
-      c.host.style.cursor = point.plot ? 'crosshair' : (point.priceAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : ''));
+      var over = point.plot && !_pfDrawArmed ? _pfChartDrawHit(c, point.x, point.y) : null;
+      c.host.style.cursor = over ? (over.part === 'body' ? 'move' : 'pointer')
+        : (point.plot ? 'crosshair' : (point.priceAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
       _pfChartCanvasDrawCrosshair(c, point);
       return;
     }
@@ -1652,8 +1942,14 @@ function _pfChartCanvasBindInteraction(c) {
       });
     }
   });
-  bind('pointerup', endDrag);
-  bind('pointercancel', endDrag);
+  bind('pointerup', function (event) {
+    if (_pfChartDrawPointerUp(c, event)) return;
+    endDrag(event);
+  });
+  bind('pointercancel', function (event) {
+    if (c.drag && c.drag.kind === 'draw') { c.drag = null; _pfChartDrawCommit(c); }
+    endDrag(event);
+  });
   bind('pointerleave', function () { if (!c.drag) _pfChartCanvasClearCrosshair(c); });
   bind('wheel', function (event) {
     var point = _pfChartCanvasPoint(c, event), p = c.projection, v = c.viewport;

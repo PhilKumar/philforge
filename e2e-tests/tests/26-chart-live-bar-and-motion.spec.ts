@@ -215,41 +215,59 @@ test('Supertrend (10, 2) is drawn on the option chart and its switch turns it of
   await expect.poll(async () => (await st()).runs).toBe(on.runs);
 });
 
-test('Fib presets and a trendline are drawn by two clicks, kept per contract, and cleared', async ({ page }) => {
-  // Phil, 2026-10-16: "Draw it myself but only with 3 settings... 0,1,2,4,8
-  // ... 0, 0.5, 1 ... 0, 0.25, 0.5, 0.75, 1" and "Draw it myself" for lines.
+test('Fibs and trendlines draw, edit and delete the way TradingView does', async ({ page }) => {
+  // Phil, 2026-10-16: three Fib sets drawn by hand, then "I want same like the
+  // trading view": the first click starts the line and it follows the pointer,
+  // a drawn line can be taken by its ends or moved whole, arming a tool leaves
+  // the view alone, no instructions in the toolbar, and the Fib menu folds
+  // away on a click anywhere else.
   await page.setViewportSize({ width: 1400, height: 1000 });
   const candles = [...oneMinuteBars('2026-10-13', '15:29:00'), ...oneMinuteBars('2026-10-14', '15:29:00')];
   await scalpChart(page, candles, 150);
   await page.evaluate(() => { try { localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
-  // Each click must land on the chart itself -- nothing (a toast once did)
-  // may sit over the plot while a tool waits for its points. The chart is
-  // measured afresh each time: clicking a tool button can scroll the page.
-  const at = async (fx: number, fy: number) => {
+  const chart = page.locator('#scalp-dock-chart-body canvas').first();
+  const xy = async (fx: number, fy: number) => {
     await page.locator('#scalp-dock-chart-body').scrollIntoViewIfNeeded();
-    const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
-    const x = box.x + box.width * fx, y = box.y + box.height * fy;
-    const onChart = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('#scalp-dock-chart-body'), [x, y]);
-    expect(onChart, `the click at ${fx},${fy} lands on the chart`).toBe(true);
-    await page.mouse.click(x, y);
+    const box = (await chart.boundingBox())!;
+    return [box.x + box.width * fx, box.y + box.height * fy] as const;
   };
+  const click = async (fx: number, fy: number) => { const [x, y] = await xy(fx, fy); await page.mouse.click(x, y); };
   const tools = page.locator('#scalp-dock-chart-actions .scalp-chart-tools');
-  const fibLines = () => page.evaluate(() => (window as any)._pfChartCanvas.data.lines.filter((l: any) => /^F/.test(l.label)).map((l: any) => [l.label, l.price]));
+  const stored = () => page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('pf_scalp_chart_drawings_v1') || '{}'))[0] as any || { fibs: [], lines: [] });
+  const view = () => page.evaluate(() => JSON.stringify((window as any)._pfChartCanvas.viewport));
+  // A drawing's end, in page pixels.
+  const endAt = (kind: string, end: 'a' | 'b') => page.evaluate(([k, e]) => {
+    const c = (window as any)._pfChartCanvas, dr = c.data.drawings.find((d: any) => d.kind === k);
+    const box = c.host.getBoundingClientRect();
+    return [box.left + c.projection.xOf(dr[e].t), box.top + c.projection.yOf(dr[e].price)];
+  }, [kind, end]);
 
+  // The menu folds on a click elsewhere.
   await tools.locator('.scalp-fib-btn').click();
   await expect(tools.locator('.scalp-fib-item')).toHaveText(['0 · 1 · 2 · 4 · 8', '0 · 0.5 · 1', '0 · 0.25 · 0.5 · 0.75 · 1']);
+  await page.locator('#scalp-dock-chart-title').click();
+  await expect(tools.locator('.scalp-fib-menu')).toBeHidden();
+
+  // Arming changes nothing on the chart, and says nothing.
+  const before = await view();
+  await tools.locator('.scalp-fib-btn').click();
   await tools.locator('[data-fib-preset="half"]').click();
   await expect(tools.locator('.scalp-fib-btn')).toHaveClass(/is-armed/);
-  await expect(tools.locator('.scalp-draw-hint')).toHaveText('Fib 0 · 0.5 · 1: click the 0 point');
-  await at(0.4, 0.7);
-  await expect(tools.locator('.scalp-draw-hint')).toHaveText('Click the 1 point · Esc cancels');
-  await at(0.7, 0.3);
+  await expect(tools.locator('.scalp-draw-hint')).toHaveCount(0);
+  expect(await view()).toBe(before);
+
+  // First click: the Fib is already drawing, and follows the pointer.
+  await click(0.4, 0.7);
+  const [mx, my] = await xy(0.7, 0.3);
+  await page.mouse.move(mx, my, { steps: 4 });
+  const pending = await page.evaluate(() => (window as any)._pfChartCanvas.drawPending);
+  expect(pending.b.price).toBeGreaterThan(pending.a.price);
+  await page.mouse.click(mx, my);
   await expect(tools.locator('.scalp-fib-btn')).not.toHaveClass(/is-armed/);
-  const drawn = await page.evaluate(() => JSON.parse(localStorage.getItem('pf_scalp_chart_drawings_v1') || '{}'));
-  const fib = (Object.values(drawn)[0] as any).fibs[0];
+  expect(await view()).toBe(before);
+  const fib = (await stored()).fibs[0];
   expect(fib.preset).toBe('half');
-  const a = fib.a.price, b = fib.b.price;
-  expect(b).toBeGreaterThan(a); // the second click was higher on the chart
+  expect(fib.b.price).toBeGreaterThan(fib.a.price);
   // The magnet: each point sits on its candle's open, high, low or close.
   const onCandle = await page.evaluate(([p1, p2]) => {
     const bars = (window as any)._pfChartCanvas.data.candles;
@@ -257,34 +275,103 @@ test('Fib presets and a trendline are drawn by two clicks, kept per contract, an
     return [ohlc(p1), ohlc(p2)];
   }, [fib.a, fib.b]);
   expect(onCandle).toEqual([true, true]);
-  const lines = await fibLines();
-  expect(lines.map((l: any) => l[0])).toEqual(['F0', 'F0.5', 'F1']);
-  expect(lines[0][1]).toBeCloseTo(a, 1);
-  expect(lines[1][1]).toBeCloseTo((a + b) / 2, 1);
-  expect(lines[2][1]).toBeCloseTo(b, 1);
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.paint.drawings)).toBe(1);
 
-  // The 0-1-2-4-8 set measures out from the same two points.
+  // Press, drag, let go draws one too.
   await tools.locator('.scalp-fib-btn').click();
   await tools.locator('[data-fib-preset="x2"]').click();
-  await at(0.45, 0.8);
-  await at(0.6, 0.75);
-  await expect.poll(async () => (await fibLines()).length).toBe(3 + 5);
+  const [dx0, dy0] = await xy(0.45, 0.8), [dx1, dy1] = await xy(0.6, 0.75);
+  await page.mouse.move(dx0, dy0);
+  await page.mouse.down();
+  await page.mouse.move(dx1, dy1, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await stored()).fibs.length).toBe(2);
 
-  // A trendline: two clicks, an overlay running on to the right.
+  // A trendline by two clicks: a segment between them.
   await tools.locator('.scalp-line-btn').click();
-  await at(0.3, 0.8);
-  await at(0.6, 0.6);
-  const trend = await page.evaluate(() => (window as any)._pfChartCanvas.data.overlays.filter((o: any) => !o.supertrend && !o.group && (o.points || []).length === 2 && o.color === '#e2e8f0'));
-  expect(trend).toHaveLength(1);
-  expect(trend[0].points[1].t).toBeGreaterThan(trend[0].points[0].t);
+  await click(0.3, 0.8);
+  await click(0.6, 0.6);
+  await expect.poll(async () => (await stored()).lines.length).toBe(1);
+  const line = (await stored()).lines[0];
+  expect(line.b.t).toBeGreaterThan(line.a.t);
 
-  // A new timeframe keeps them: they belong to the contract.
+  // Its end is taken and moved...
+  const [bx, by] = await endAt('line', 'b');
+  await page.mouse.move(bx, by);
+  await page.mouse.down();
+  await page.mouse.move(bx + 60, by - 50, { steps: 5 });
+  await page.mouse.up();
+  const moved = (await stored()).lines[0];
+  expect(moved.a).toEqual(line.a);
+  expect(moved.b.t).toBeGreaterThan(line.b.t);
+  expect(moved.b.price).toBeGreaterThan(line.b.price);
+  // ...and the whole line is moved by its middle, without panning the chart.
+  const [ax, ay] = await endAt('line', 'a'), [ex, ey] = await endAt('line', 'b');
+  const v0 = await view();
+  await page.mouse.move((ax + ex) / 2, (ay + ey) / 2);
+  await page.mouse.down();
+  await page.mouse.move((ax + ex) / 2 + 40, (ay + ey) / 2 + 30, { steps: 5 });
+  await page.mouse.up();
+  const shifted = (await stored()).lines[0];
+  expect(shifted.a.t).toBeGreaterThan(moved.a.t);
+  expect(shifted.a.price).toBeLessThan(moved.a.price);
+  expect(shifted.b.t - shifted.a.t).toBe(moved.b.t - moved.a.t);
+  expect(await view()).toBe(v0);
+
+  // Selected (just moved), Delete removes it.
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await stored()).lines.length).toBe(0);
+
+  // A new timeframe keeps the Fibs: they belong to the contract.
   await page.locator('#scalp-dock-chart-actions').getByRole('radio', { name: /^5m$/i }).click();
-  await expect.poll(async () => (await fibLines()).length).toBe(8);
+  await expect.poll(() => page.evaluate(() => (window as any)._pfChartCanvas.data.drawings.length)).toBe(2);
 
   // Clear takes this contract's drawings away.
   await tools.locator('.scalp-clear-btn').click();
-  await expect.poll(async () => (await fibLines()).length).toBe(0);
+  await expect.poll(() => page.evaluate(() => (window as any)._pfChartCanvas.data.drawings.length)).toBe(0);
+});
+
+test('the docked chart opens big in a pop-up and comes back when it closes', async ({ page }) => {
+  // Phil, 2026-10-16: "give a zoom button to view in a pop-up window for a nice big view".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
+  await page.locator('#scalp-dock-chart-actions .scalp-popout-btn').click();
+  const dialog = page.locator('#scalp-option-chart-overlay.is-open .scalp-option-chart-dialog.is-big');
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('#scalp-option-chart-body canvas').first()).toBeVisible();
+  const size = await page.locator('#scalp-option-chart-body canvas').first().boundingBox();
+  expect(size!.width).toBeGreaterThan(1200);
+  expect(size!.height).toBeGreaterThan(700);
+  await page.locator('#scalp-option-chart-actions [data-strip-close]').click();
+  await expect(page.locator('#scalp-option-chart-overlay.is-open')).toHaveCount(0);
+  await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
+});
+
+test('an open trade on the form\'s contract does not hold the chart when CE turns to PE', async ({ page }) => {
+  // Phil, 2026-10-16: "The options chart is also not changing while toggling
+  // from PE to CE or vice versa".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  const candles = oneMinuteBars('2026-10-14', '15:29:00');
+  await page.route('**/api/scalp/trades/7/chart**', (route) => route.fulfill({ json: {
+    status: 'ok', timeframe: '1m', candles, entries: [], overlays: [], lines: [], live_price: 150,
+    instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+  } }));
+  await page.route('**/api/scalp/contract-chart**', (route) => {
+    const q = new URL(route.request().url()).searchParams;
+    return route.fulfill({ json: {
+      status: 'ok', timeframe: '1m', candles, entries: [], overlays: [], lines: [], live_price: 150,
+      instrument: { underlying: 'NIFTY', strike: Number(q.get('strike')), option_type: q.get('option_type'), expiry: q.get('expiry'), security_id: '1' },
+    } });
+  });
+  await scalpChart(page, candles, 150, false);
+  const trade = { trade_id: 7, status: 'open', underlying: 'NIFTY', strike: 22700, expiry: '2026-10-19', option_type: 'PE' };
+  await page.evaluate((t) => (window as any)._scalpDockFollow([t]), trade);
+  await expect(page.locator('#scalp-dock-chart-title')).toHaveText('NIFTY 22700PE · your trade');
+  await page.evaluate((t) => {
+    (document.getElementById('scalp-option-type') as HTMLInputElement).value = 'CE';
+    (window as any)._scalpDockFollow([t]);
+  }, trade);
+  await expect(page.locator('#scalp-dock-chart-title')).toHaveText('NIFTY 22700CE');
 });
 
 test('the CPR switch hides and shows the pivot set as one', async ({ page }) => {
