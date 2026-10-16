@@ -798,6 +798,66 @@ def option_instrument_type(underlying) -> str:
     return "OPTFUT" if is_mcx_underlying(underlying) else "OPTIDX"
 
 
+# Crude's options move in 10 paise, the other three in 5 -- Dhan's contract
+# file and Kite's agree. Index options are all 5.
+MCX_OPTION_TICK = {"CRUDEOIL": 0.10}
+
+
+def option_tick_size(underlying) -> float:
+    return MCX_OPTION_TICK.get(str(underlying or "").strip().upper(), 0.05)
+
+
+# THE ENGINES COUNT UNITS; MCX COUNTS LOTS. Every rupee of P&L here is premium
+# x quantity, so one crude lot is held as 100 (barrels). Dhan and Zerodha both
+# take and report MCX quantity in LOTS -- Dhan's margin calculator, 16-Oct-2026:
+# quantity 1 of crude 9100 CE at Rs 580 needs Rs 58,000, which is 580 x 100.
+# So the brokers convert at their edge, both ways, and nothing behind them
+# ever sees a lot: sending 100 units as 100 would be a hundred lots.
+_MCX_QTY_FIELDS = (
+    "quantity",
+    "filledQty",
+    "remainingQuantity",
+    "disclosedQuantity",
+    "tradedQuantity",
+    "triggeredQuantity",
+    "netQty",
+    "buyQty",
+    "sellQty",
+    "dayBuyQty",
+    "daySellQty",
+    "carryForwardBuyQty",
+    "carryForwardSellQty",
+)
+
+
+def mcx_lots(underlying, units) -> int:
+    """Units -> the lots MCX counts in. Anything but whole lots is refused."""
+    name = str(underlying or "").strip().upper()
+    size = MCX_OPTION_MULTIPLIER[name]
+    units = int(units)
+    if units <= 0 or units % size:
+        raise ValueError(f"{units} is not a whole number of {name} lots ({size} each)")
+    return units // size
+
+
+def mcx_row_to_units(row: dict, size: int, fields=_MCX_QTY_FIELDS) -> dict:
+    """A broker row's MCX lot counts, as units (in place; marked so it is done once)."""
+    if not isinstance(row, dict) or size <= 1 or row.get("_qty_in_units"):
+        return row
+    for field in fields:
+        value = row.get(field)
+        if value in (None, "") or isinstance(value, bool):
+            continue
+        try:
+            row[field] = int(round(float(value) * size))
+        except (TypeError, ValueError):
+            continue
+    for leg in row.get("legDetails") or []:
+        mcx_row_to_units(leg, size, fields)
+    row["_qty_in_units"] = True
+    return row
+
+
 class ScripMaster:
     """
     Download, cache, and lookup Dhan instrument security IDs for option contracts.
@@ -1093,6 +1153,20 @@ class ScripMaster:
             return monthlies[idx] if idx < len(monthlies) else monthlies[-1]
 
         return future[0]
+
+    @classmethod
+    def mcx_underlying_for(cls, security_id) -> str:
+        """The commodity an MCX option's security id belongs to ('' if none of ours)."""
+        cls.ensure_loaded()
+        stamp = (cls._loaded_date, len(cls._options_cache))
+        if getattr(cls, "_mcx_by_id_stamp", None) != stamp:
+            cls._mcx_by_id = {
+                str(sid): key.rsplit("_", 3)[0]
+                for key, sid in cls._options_cache.items()
+                if key.rsplit("_", 3)[0] in MCX_OPTION_MULTIPLIER
+            }
+            cls._mcx_by_id_stamp = stamp
+        return cls._mcx_by_id.get(str(security_id), "")
 
     @classmethod
     def mcx_future_for(cls, symbol: str, option_expiry: str) -> str:
@@ -1731,6 +1805,29 @@ class DhanClient:
     # ──────────────────────────────────────────────────────────
     # Order Management
     # ──────────────────────────────────────────────────────────
+    @staticmethod
+    def _mcx_order_terms(commodity: str, quantity) -> tuple[int, float]:
+        """(lots, tick) for an MCX order -- refused outright for a contract
+        whose size is not known, rather than sent in the wrong count."""
+        if not is_mcx_underlying(commodity):
+            raise ValueError("Unknown MCX contract: its lot size is not known here, so no order was sent.")
+        return mcx_lots(commodity, quantity), option_tick_size(commodity)
+
+    @staticmethod
+    def _rows_in_units(rows):
+        """Dhan's MCX rows count lots; the engines count units (see mcx_lots)."""
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict) or str(row.get("exchangeSegment") or "").upper() != "MCX_COMM":
+                continue
+            size = MCX_OPTION_MULTIPLIER.get(ScripMaster.mcx_underlying_for(row.get("securityId")), 0)
+            if not size:
+                try:
+                    size = int(float(row.get("multiplier") or 0))
+                except (TypeError, ValueError):
+                    size = 0
+            mcx_row_to_units(row, size)
+        return rows
+
     def place_order(
         self,
         security_id: str,
@@ -1753,6 +1850,9 @@ class DhanClient:
         """Place an order via Dhan API"""
         if not self._is_configured():
             raise ConnectionError("Dhan credentials not set. Edit config.py first.")
+        tick = 0.05
+        if exchange_segment == "MCX_COMM":
+            quantity, tick = self._mcx_order_terms(ScripMaster.mcx_underlying_for(security_id), quantity)
 
         payload = {
             "dhanClientId": self.client_id,
@@ -1763,8 +1863,8 @@ class DhanClient:
             "validity": validity,
             "securityId": str(security_id),
             "quantity": int(quantity),
-            "price": round_to_tick(float(price)) if price else 0.0,
-            "triggerPrice": round_to_tick(float(trigger_price)) if trigger_price else 0.0,
+            "price": round_to_tick(float(price), tick) if price else 0.0,
+            "triggerPrice": round_to_tick(float(trigger_price), tick) if trigger_price else 0.0,
             "correlationId": (tag or "")[:25],
         }
         if disclosed_quantity:
@@ -1838,6 +1938,8 @@ class DhanClient:
         """Place a Dhan Forever Order (GTT/GTC/VTT), including OCO orders."""
         if not self._is_configured():
             raise ConnectionError("Dhan credentials not set. Edit config.py first.")
+        if exchange_segment == "MCX_COMM":
+            raise ValueError("Forever orders are not sent for MCX contracts.")
 
         payload = {
             "dhanClientId": self.client_id,
@@ -1993,6 +2095,9 @@ class DhanClient:
             )
 
         exchange_seg = option_exchange_segment(underlying)
+        tick = 0.05
+        if exchange_seg == "MCX_COMM":
+            quantity, tick = self._mcx_order_terms(underlying, quantity)
         payload = {
             "dhanClientId": self.client_id,
             "correlationId": (tag or "PhilForgeSO")[:30],
@@ -2002,10 +2107,10 @@ class DhanClient:
             "orderType": _dhan_order_type(order_type),
             "securityId": str(security_id),
             "quantity": int(quantity),
-            "price": round_to_tick(float(price)) if price else 0.0,
-            "targetPrice": round_to_tick(float(target_price)),
-            "stopLossPrice": round_to_tick(float(stop_loss_price)),
-            "trailingJump": round_to_tick(float(trailing_jump)) if trailing_jump else 0.0,
+            "price": round_to_tick(float(price), tick) if price else 0.0,
+            "targetPrice": round_to_tick(float(target_price), tick),
+            "stopLossPrice": round_to_tick(float(stop_loss_price), tick),
+            "trailingJump": round_to_tick(float(trailing_jump), tick) if trailing_jump else 0.0,
         }
         _dhan_log.info(
             "[DHAN] Submitting super order side=%s exchange=%s type=%s product=%s",
@@ -2047,25 +2152,30 @@ class DhanClient:
         target_price: float = None,
         stop_loss_price: float = None,
         trailing_jump: float = None,
+        underlying: str = "",
     ) -> dict:
-        """Modify a Dhan Super Order leg."""
+        """Modify a Dhan Super Order leg. `underlying` names an MCX order's
+        commodity, so its quantity goes as lots and its prices on its tick."""
         payload = {
             "dhanClientId": self.client_id,
             "orderId": order_id,
             "legName": leg_name,
         }
+        tick = option_tick_size(underlying)
         if order_type:
             payload["orderType"] = _dhan_order_type(order_type)
         if quantity is not None:
+            if is_mcx_underlying(underlying):
+                quantity, tick = self._mcx_order_terms(underlying, quantity)
             payload["quantity"] = int(quantity)
         if price is not None:
-            payload["price"] = round_to_tick(float(price)) if price else 0.0
+            payload["price"] = round_to_tick(float(price), tick) if price else 0.0
         if target_price is not None:
-            payload["targetPrice"] = round_to_tick(float(target_price)) if target_price else 0.0
+            payload["targetPrice"] = round_to_tick(float(target_price), tick) if target_price else 0.0
         if stop_loss_price is not None:
-            payload["stopLossPrice"] = round_to_tick(float(stop_loss_price)) if stop_loss_price else 0.0
+            payload["stopLossPrice"] = round_to_tick(float(stop_loss_price), tick) if stop_loss_price else 0.0
         if trailing_jump is not None:
-            payload["trailingJump"] = round_to_tick(float(trailing_jump)) if trailing_jump else 0.0
+            payload["trailingJump"] = round_to_tick(float(trailing_jump), tick) if trailing_jump else 0.0
 
         resp = _request_with_retry(
             "PUT",
@@ -2127,7 +2237,7 @@ class DhanClient:
         if resp.status_code != 200:
             raise Exception(f"Super order fetch failed {resp.status_code}: {resp.text}")
         data = resp.json()
-        return data if isinstance(data, list) else []
+        return self._rows_in_units(data) if isinstance(data, list) else []
 
     def get_forever_orders(self) -> list:
         """Fetch Dhan Forever/GTT orders."""
@@ -2186,8 +2296,8 @@ class DhanClient:
             raise Exception(f"Order book failed: {resp.text}")
         data = resp.json()
         if isinstance(data, list):
-            return data
-        return data.get("data", []) if isinstance(data, dict) else []
+            return self._rows_in_units(data)
+        return self._rows_in_units(data.get("data", []) if isinstance(data, dict) else [])
 
     def get_trades(self, from_date: str = None, to_date: str = None) -> list:
         """Get all executed trades (trade book)
@@ -2226,7 +2336,7 @@ class DhanClient:
                 trades = data if isinstance(data, list) else []
 
             print(f"[DHAN] ✅ Retrieved {len(trades)} trades")
-            return trades
+            return self._rows_in_units(trades)
 
         except requests.exceptions.Timeout:
             raise Exception("Connection timeout - please check your internet")
@@ -2279,7 +2389,7 @@ class DhanClient:
 
             trades = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
             _dhan_log.info("[DHAN] Retrieved %s historical trades", len(trades))
-            return trades
+            return self._rows_in_units(trades)
 
         except Exception as e:
             _dhan_log.warning("[DHAN] Trade-history request error: %s", e)
@@ -2325,7 +2435,7 @@ class DhanClient:
                 normalized.append(item)
             elif isinstance(item, list):
                 queue[:0] = item
-        return normalized
+        return self._rows_in_units(normalized)
 
     def get_funds(self) -> dict:
         """Get available margin/funds"""
@@ -2602,17 +2712,22 @@ class DhanClient:
         quantity: int = None,
         price: float = None,
         trigger_price: float = None,
+        underlying: str = "",
     ) -> dict:
-        """Modify an existing order"""
+        """Modify an existing order. `underlying` names an MCX order's
+        commodity, so its quantity goes as lots and its prices on its tick."""
         payload = {"dhanClientId": self.client_id, "orderId": order_id}
+        tick = option_tick_size(underlying)
         if order_type:
             payload["orderType"] = _dhan_order_type(order_type)
         if quantity:
+            if is_mcx_underlying(underlying):
+                quantity, tick = self._mcx_order_terms(underlying, quantity)
             payload["quantity"] = quantity
         if price is not None:
-            payload["price"] = round_to_tick(float(price)) if price else 0.0
+            payload["price"] = round_to_tick(float(price), tick) if price else 0.0
         if trigger_price is not None:
-            payload["triggerPrice"] = round_to_tick(float(trigger_price)) if trigger_price else 0.0
+            payload["triggerPrice"] = round_to_tick(float(trigger_price), tick) if trigger_price else 0.0
 
         resp = _request_with_retry(
             "PUT",
@@ -2662,7 +2777,7 @@ class DhanClient:
             body = body[0]
         if not isinstance(body, dict):
             return {"orderStatus": "UNKNOWN", "message": "unrecognised order payload"}
-        return body
+        return self._rows_in_units([body])[0]
 
     # ──────────────────────────────────────────────────────────
     # Order Verification (#7) — poll until filled or timeout
@@ -2828,6 +2943,9 @@ class DhanClient:
         """Place an order via httpx (true async — no thread pool)."""
         if not self._is_configured():
             raise ConnectionError("Dhan credentials not set.")
+        tick = 0.05
+        if exchange_segment == "MCX_COMM":
+            quantity, tick = self._mcx_order_terms(ScripMaster.mcx_underlying_for(security_id), quantity)
         payload = {
             "dhanClientId": self.client_id,
             "transactionType": transaction_type,
@@ -2837,8 +2955,8 @@ class DhanClient:
             "validity": validity,
             "securityId": str(security_id),
             "quantity": int(quantity),
-            "price": round_to_tick(float(price)) if price else 0.0,
-            "triggerPrice": round_to_tick(float(trigger_price)) if trigger_price else 0.0,
+            "price": round_to_tick(float(price), tick) if price else 0.0,
+            "triggerPrice": round_to_tick(float(trigger_price), tick) if trigger_price else 0.0,
             "correlationId": (tag or "")[:25],
         }
         _dhan_log.info(

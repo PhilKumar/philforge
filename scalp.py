@@ -567,13 +567,6 @@ class ScalpEngine:
         quantity = lots * lot_size
         product_type = _normalize_scalp_product_type(product_type)
         broker = normalize_scalp_broker(broker)
-        # Step one is paper: MCX live orders (lots, not units, at Dhan; the
-        # MCX contract at Zerodha) come after crude and gas have been tried.
-        if mode == "live" and is_mcx_underlying(underlying):
-            return {
-                "status": "error",
-                "message": f"{underlying} options trade on paper for now; live MCX orders come next.",
-            }
         if mode == "live" and broker == "zerodha" and self.zerodha is None:
             return {"status": "error", "message": "Log in to Zerodha from Settings first."}
         if mode == "live":
@@ -1686,6 +1679,7 @@ class ScalpEngine:
                         price=0.0,
                         target_price=trade.target_premium,
                         stop_loss_price=trade.sl_premium,
+                        underlying=trade.underlying,
                     )
                     trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
                     self._log(
@@ -1705,6 +1699,7 @@ class ScalpEngine:
                         trade.super_order_id,
                         "TARGET_LEG",
                         target_price=new_tp,
+                        underlying=trade.underlying,
                     )
                     trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
                     self._log("info", f"🎯 Super Order TP modified: limit=₹{new_tp} orderId={trade.super_order_id}")
@@ -1719,6 +1714,7 @@ class ScalpEngine:
                         trade.super_order_id,
                         "STOP_LOSS_LEG",
                         stop_loss_price=new_sl,
+                        underlying=trade.underlying,
                     )
                     trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
                     self._log("info", f"🛡️ Super Order SL modified: trigger=₹{new_sl} orderId={trade.super_order_id}")
@@ -1738,6 +1734,7 @@ class ScalpEngine:
                     order_id=trade.broker_sl_order_id,
                     price=sl_price,
                     trigger_price=new_sl,
+                    underlying=trade.underlying,
                 )
                 self._log("info", f"🛡️ Broker SL modified: trigger=₹{new_sl} orderId={trade.broker_sl_order_id}")
             except Exception as e:
@@ -1756,6 +1753,7 @@ class ScalpEngine:
                     self.dhan.modify_order,
                     order_id=trade.broker_tp_order_id,
                     price=new_tp,
+                    underlying=trade.underlying,
                 )
                 self._log("info", f"🎯 Broker TP modified: limit=₹{new_tp} orderId={trade.broker_tp_order_id}")
             except Exception as e:
@@ -2082,7 +2080,9 @@ class ScalpEngine:
                 option_type=trade.option_type,
                 expiry=trade.expiry,
                 transaction_type=exit_txn,
-                quantity=filled,
+                # Never more than the trade holds: a fill count read in the
+                # wrong unit must not become a bigger order than the entry.
+                quantity=min(filled, trade.quantity),
                 order_type="LIMIT",
                 product_type=trade.product_type,
                 price=exit_price,

@@ -1,8 +1,9 @@
 import { test, expect, Page } from '@playwright/test';
 
 // Phil, 2026-10-16: "I need crude oil and natural gas options to be added to
-// the scalp section" -- paper first, full and mini contracts. MCX options are
-// options on the futures, trading 09:00 to 23:30.
+// the scalp section" -- full and mini contracts, then "build live MCX for
+// both" (Dhan and Zerodha). MCX options are options on the futures, trading
+// 09:00 to 23:30.
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
@@ -19,7 +20,7 @@ async function login(page: Page) {
 
 const ist = (s: string) => Math.floor(new Date(`${s}+05:30`).getTime() / 1000);
 
-test('Scalp: crude oil options trade on paper with the contract size, the future and MCX hours', async ({ page }) => {
+test('Scalp: crude oil options take the contract size, the future and MCX hours', async ({ page }) => {
   test.setTimeout(60_000);
   await page.clock.setFixedTime(new Date('2026-10-16T22:07:30+05:30'));
   await page.setViewportSize({ width: 1400, height: 1000 });
@@ -50,10 +51,9 @@ test('Scalp: crude oil options trade on paper with the contract size, the future
   // Two strikes in the money off the 19-Nov future (9,110 -> ATM 9,100).
   await expect(page.locator('#scalp-strike')).toHaveValue('9000');
   expect(asked[0]).toEqual({ underlying: 'CRUDEOIL', expiry: '2026-11-17' });
-  // Paper only for now.
-  await expect(page.locator('#scalp-mode')).toHaveValue('paper');
-  await expect(page.locator('#scalp-mode-toggle [data-value="live"]')).toBeDisabled();
-  await expect(page.locator('#scalp-live-note')).toContainText('paper only for now');
+  // Live is offered, and the note gives MCX's hours.
+  await expect(page.locator('#scalp-mode-toggle [data-value="live"]')).toBeEnabled();
+  await expect(page.locator('#scalp-live-note')).toContainText('CRUDEOIL trades on MCX from 09:00 to 23:30');
   // Margin: premium x lots x 100 barrels.
   const lots = Number(await page.locator('#scalp-lots').inputValue());
   await expect(page.locator('#scalp-margin')).toHaveText('₹' + Math.round(524.4 * lots * 100).toLocaleString('en-IN'));
@@ -77,7 +77,7 @@ test('Scalp: crude oil options trade on paper with the contract size, the future
   expect(now.fit).toBe(174);
 });
 
-test('Scalp: back to NIFTY, Live is offered again', async ({ page }) => {
+test('Scalp: natural gas mini can go live on either broker', async ({ page }) => {
   await page.route('**/api/expiry-list/NATGASMINI', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-10-23'] } }));
   await page.route('**/api/scalp/underlying-price**', (route) => route.fulfill({ json: { status: 'ok', price: 303.9 } }));
   await login(page);
@@ -85,8 +85,11 @@ test('Scalp: back to NIFTY, Live is offered again', async ({ page }) => {
   await page.selectOption('#scalp-underlying', 'NATGASMINI');
   await expect(page.locator('#scalp-lot-size-label')).toHaveText('250');
   await expect(page.locator('#scalp-strike')).toHaveValue('295'); // ATM 305, CE two 5-point steps in
-  await expect(page.locator('#scalp-mode-toggle [data-value="live"]')).toBeDisabled();
+  await expect(page.locator('#scalp-mode-toggle [data-value="live"]')).toBeEnabled();
+  await page.evaluate(() => (window as unknown as { setScalpBroker: (v: string) => void }).setScalpBroker('zerodha'));
+  await expect(page.locator('#scalp-live-note')).toContainText('Live on Zerodha');
+  await expect(page.locator('#scalp-live-note')).toContainText('NATGASMINI trades on MCX');
   await page.selectOption('#scalp-underlying', 'NIFTY');
   await expect(page.locator('#scalp-lot-size-label')).toHaveText('65');
-  await expect(page.locator('#scalp-mode-toggle [data-value="live"]')).toBeEnabled();
+  await expect(page.locator('#scalp-live-note')).not.toContainText('MCX');
 });

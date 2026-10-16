@@ -38,10 +38,13 @@ import pandas as pd
 import requests
 
 from broker.dhan import (
+    MCX_OPTION_MULTIPLIER,
     AmbiguousOrderSubmission,
     DhanOrderError,
     ScripMaster,
     _first_positive_price,
+    mcx_lots,
+    option_tick_size,
     round_to_tick,
 )
 
@@ -171,7 +174,7 @@ def _strike_key(strike) -> str:
 class KiteInstruments:
     """Kite's option contracts, keyed the way Dhan's scrip master keys them.
 
-    Loaded once a day from Kite's instrument dump (NFO and BFO). The key
+    Loaded once a day from Kite's instrument dump (NFO, BFO, and MCX's crude and gas). The key
     `NIFTY_23600_2026-09-22_CE` is exactly `ScripMaster`'s, which is what lets
     a Dhan security id and a Kite tradingsymbol meet.
     """
@@ -196,9 +199,14 @@ class KiteInstruments:
                 continue
             if not name or not expiry or strike <= 0:
                 continue
-            key = f"{name}_{_strike_key(strike)}_{expiry}_{row['instrument_type']}"
             exchange = str(row.get("exchange") or "NFO")
+            if exchange == "MCX" and name not in MCX_OPTION_MULTIPLIER:
+                continue  # MCX lists gold, silver, metals...; the desk trades crude and gas
+            key = f"{name}_{_strike_key(strike)}_{expiry}_{row['instrument_type']}"
             info = {
+                "name": name,
+                # Kite lists an MCX option's lot as 1: quantity there is LOTS.
+                "multiplier": MCX_OPTION_MULTIPLIER.get(name, 1) if exchange == "MCX" else 1,
                 "tradingsymbol": str(row.get("tradingsymbol") or ""),
                 "exchange": exchange,
                 "instrument_token": int(float(row.get("instrument_token") or 0)),
@@ -218,7 +226,7 @@ class KiteInstruments:
         if cls._loaded_on == today and cls._by_key:
             return True
         rows: list[dict] = []
-        for exchange in ("NFO", "BFO"):
+        for exchange in ("NFO", "BFO", "MCX"):
             resp = requests.get(f"{KITE_API}/instruments/{exchange}", headers=headers, timeout=30)
             if resp.status_code != 200:
                 log.warning("[ZERODHA] instrument dump %s returned %s", exchange, resp.status_code)
@@ -238,6 +246,29 @@ class KiteInstruments:
     @classmethod
     def key_for_symbol(cls, exchange: str, tradingsymbol: str) -> str | None:
         return cls._by_symbol.get(f"{exchange}:{tradingsymbol}")
+
+    @classmethod
+    def multiplier_for(cls, exchange: str, tradingsymbol: str) -> int:
+        """Units in one of Kite's counted quantities: an MCX lot's size, else 1."""
+        if str(exchange or "").upper() != "MCX":
+            return 1
+        key = cls.key_for_symbol("MCX", tradingsymbol)
+        info = cls._by_key.get(key) if key else None
+        return int((info or {}).get("multiplier") or 1)
+
+
+def _kite_units(row: dict, *fields: str) -> dict:
+    """Kite's MCX quantities are LOTS; the engines count units (broker.dhan.mcx_lots)."""
+    size = KiteInstruments.multiplier_for(row.get("exchange"), row.get("tradingsymbol"))
+    if size <= 1:
+        return row
+    row = dict(row)
+    for field in fields:
+        try:
+            row[field] = int(row.get(field) or 0) * size
+        except (TypeError, ValueError):
+            pass
+    return row
 
 
 def _dhan_id_to_key() -> dict[str, str]:
@@ -360,6 +391,15 @@ class ZerodhaClient:
         if not kite_type:
             raise DhanOrderError("Order placement", 400, f"Order type {order_type!r} is not supported on Zerodha")
         tick = info.get("tick_size") or 0.05
+        if info.get("exchange") == "MCX":
+            # Zerodha blocks MARKET and SL-M on commodity options; only LIMIT and SL go.
+            if kite_type in ("MARKET", "SL-M"):
+                refusal = DhanOrderError(
+                    "Order placement", 400, f"Zerodha takes only LIMIT and SL orders on MCX options, not {kite_type}"
+                )
+                refusal.rejected = True
+                raise refusal
+            quantity = mcx_lots(info.get("name"), quantity)
         form = {
             "tradingsymbol": info["tradingsymbol"],
             "exchange": info["exchange"],
@@ -456,21 +496,29 @@ class ZerodhaClient:
         quantity: int = None,
         price: float = None,
         trigger_price: float = None,
+        underlying: str = "",
     ) -> dict:
         """Move a resting order (Scalp moves its stop with this). Dhan's call,
-        Dhan's answer shape; option ticks are 0.05 on NFO and BFO alike."""
+        Dhan's answer shape. Option ticks are 0.05 on NFO and BFO alike;
+        `underlying` names an MCX order's commodity -- crude ticks in 0.10, and
+        its quantity goes as lots."""
         form: dict = {}
+        tick = option_tick_size(underlying)
         if order_type:
             kite_type = _ORDER_TYPE.get(str(order_type).upper())
             if not kite_type:
                 raise DhanOrderError("Order modify", 400, f"Order type {order_type!r} is not supported on Zerodha")
             form["order_type"] = kite_type
         if quantity:
-            form["quantity"] = int(quantity)
+            form["quantity"] = (
+                mcx_lots(underlying, quantity)
+                if str(underlying or "").upper() in MCX_OPTION_MULTIPLIER
+                else int(quantity)
+            )
         if price is not None:
-            form["price"] = round_to_tick(float(price or 0), 0.05)
+            form["price"] = round_to_tick(float(price or 0), tick)
         if trigger_price is not None:
-            form["trigger_price"] = round_to_tick(float(trigger_price or 0), 0.05)
+            form["trigger_price"] = round_to_tick(float(trigger_price or 0), tick)
         resp, body = self._call("PUT", f"/orders/regular/{order_id}", data=form)
         if resp.status_code != 200 or body.get("status") != "success":
             raise DhanOrderError(
@@ -492,6 +540,7 @@ class ZerodhaClient:
     @staticmethod
     def _dhan_order(row: dict) -> dict:
         raw = str(row.get("status") or "").upper()
+        row = _kite_units(row, "quantity", "filled_quantity")
         return {
             "orderId": str(row.get("order_id") or ""),
             "orderStatus": _STATUS.get(raw, "TRANSIT"),
@@ -557,6 +606,7 @@ class ZerodhaClient:
         for row in data.get("net") or []:
             exchange = str(row.get("exchange") or "")
             symbol = str(row.get("tradingsymbol") or "")
+            row = _kite_units(row, "quantity", "buy_quantity", "sell_quantity")
             rows.append(
                 {
                     "securityId": self._dhan_id_for(exchange, symbol),
@@ -582,6 +632,7 @@ class ZerodhaClient:
         for row in self._get_data("/trades") or []:
             exchange = str(row.get("exchange") or "")
             symbol = str(row.get("tradingsymbol") or "")
+            row = _kite_units(row, "quantity")
             rows.append(
                 {
                     "securityId": self._dhan_id_for(exchange, symbol),

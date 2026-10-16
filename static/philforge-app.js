@@ -12909,20 +12909,12 @@ const _SCALP_DEFAULT_SL_PREMIUM = 100;
 const _LOT_SIZES = { NIFTY: 65, BANKNIFTY: 30, MIDCPNIFTY: 50, SENSEX: 20, CRUDEOIL: 100, CRUDEOILM: 10, NATURALGAS: 1250, NATGASMINI: 250 };
 // Strike step intervals per underlying
 const _STRIKE_STEPS = { NIFTY: 50, BANKNIFTY: 100, MIDCPNIFTY: 25, SENSEX: 100, CRUDEOIL: 50, CRUDEOILM: 50, NATURALGAS: 5, NATGASMINI: 5 };
-// Crude oil and natural gas options (MCX). Step one is paper; live MCX orders
-// come after they have been tried (Phil, 2026-10-16).
+// Crude oil and natural gas options (MCX), paper and live on Dhan or Zerodha
+// (Phil, 2026-10-16). The brokers count MCX in lots; the server converts.
 const _SCALP_MCX = new Set(['CRUDEOIL', 'CRUDEOILM', 'NATURALGAS', 'NATGASMINI']);
 function _isScalpMcx(underlying) { return _SCALP_MCX.has(String(underlying || '').toUpperCase()); }
 
 function _syncScalpMcxMode() {
-  const underlying = document.getElementById('scalp-underlying')?.value;
-  const mcx = _isScalpMcx(underlying);
-  const live = document.querySelector('#scalp-mode-toggle [data-value="live"]');
-  if (mcx && document.getElementById('scalp-mode')?.value === 'live') setScalpMode('paper');
-  if (live) {
-    live.disabled = mcx;
-    live.title = mcx ? `${underlying} options trade on paper for now; live MCX orders come next` : '';
-  }
   _updateScalpBrokerNote();
 }
 
@@ -13051,13 +13043,12 @@ function _updateScalpBrokerNote() {
   const note = document.getElementById('scalp-live-note');
   if (!note) return;
   const underlying = document.getElementById('scalp-underlying')?.value;
-  if (_isScalpMcx(underlying)) {
-    note.textContent = `${underlying} is an MCX option on the future: paper only for now. MCX trades 09:00 to 23:30 (23:55 from November to March).`;
-    return;
-  }
-  note.innerHTML = document.getElementById('scalp-broker')?.value === 'zerodha'
+  const mcx = _isScalpMcx(underlying)
+    ? ` ${underlying} trades on MCX from 09:00 to 23:30 (23:55 from November to March).`
+    : '';
+  note.innerHTML = (document.getElementById('scalp-broker')?.value === 'zerodha'
     ? 'Live on Zerodha: your <strong>SL Premium</strong> rests at Zerodha as a stop order; PhilForge watches the <strong>Target Premium</strong> and exits when it is hit. Log in to Zerodha from Settings each morning.'
-    : 'Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.';
+    : 'Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.') + mcx;
 }
 
 function setScalpBroker(value) {
