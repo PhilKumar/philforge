@@ -222,11 +222,12 @@ test('Fib presets and a trendline are drawn by two clicks, kept per contract, an
   const candles = [...oneMinuteBars('2026-10-13', '15:29:00'), ...oneMinuteBars('2026-10-14', '15:29:00')];
   await scalpChart(page, candles, 150);
   await page.evaluate(() => { try { localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
-  await page.locator('#scalp-dock-chart').scrollIntoViewIfNeeded();
-  const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
   // Each click must land on the chart itself -- nothing (a toast once did)
-  // may sit over the plot while a tool waits for its points.
+  // may sit over the plot while a tool waits for its points. The chart is
+  // measured afresh each time: clicking a tool button can scroll the page.
   const at = async (fx: number, fy: number) => {
+    await page.locator('#scalp-dock-chart-body').scrollIntoViewIfNeeded();
+    const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
     const x = box.x + box.width * fx, y = box.y + box.height * fy;
     const onChart = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('#scalp-dock-chart-body'), [x, y]);
     expect(onChart, `the click at ${fx},${fy} lands on the chart`).toBe(true);
