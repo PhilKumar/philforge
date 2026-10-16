@@ -60,7 +60,9 @@
     min-height: 100vh;
     min-height: 100dvh;
     padding: 0 16px calc(16px + env(safe-area-inset-bottom));
-    max-width: 1440px;
+    /* 1440 -> 1600 (Phil, 2026-10-16: "slightly widen the whole site"). Only
+       screens wider than 1440px see a change. */
+    max-width: 1600px;
     margin: 0 auto;
     overscroll-behavior-y: contain;
     overscroll-behavior-x: none;

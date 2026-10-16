@@ -117,7 +117,7 @@ body::after {
 }
 
 .movers-page {
-  width: min(1440px, calc(100% - 28px));
+  width: min(1600px, calc(100% - 28px));
   margin: 0 auto;
   padding: 26px 0 34px;
 }
