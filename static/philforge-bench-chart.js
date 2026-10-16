@@ -1355,6 +1355,22 @@ function _pfChartCanvasZoom(factor, reset, anchor) {
   });
 }
 
+// TradingView's magnet, while a drawing tool waits for a point (Phil,
+// 2026-10-16: "It is not sticking to the candle like we use magnet in TV"):
+// the price is the candle's open, high, low or close nearest the pointer.
+function _pfChartCanvasMagnet(c, idx, y) {
+  var p = c.projection, bars = ((c.data || {}).candles || []);
+  if (!p || idx < 0 || idx >= bars.length) return null;
+  var bar = bars[idx], best = null;
+  [bar.o, bar.h, bar.l, bar.c].forEach(function (v) {
+    v = Number(v);
+    if (!isFinite(v)) return;
+    var dist = Math.abs(p.yOf(v) - y);
+    if (best === null || dist < best.dist) best = { price: v, y: p.yOf(v), dist: dist };
+  });
+  return best;
+}
+
 function _pfChartCanvasDrawCrosshair(c, point) {
   var ctx = c.octx, p = c.projection;
   if (!ctx || !p) return;
@@ -1370,6 +1386,10 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   if (bars) idx = Math.max(0, Math.min(bars - 1, idx));
   var barTime = p.timeAt(idx), lineX = p.xOf(barTime);
   if (!isFinite(lineX)) lineX = point.x;
+  if (typeof window.pfChartPickHandler === 'function') {
+    var snap = _pfChartCanvasMagnet(c, idx, point.y);
+    if (snap) { price = snap.price; point = { x: point.x, y: snap.y, plot: point.plot }; }
+  }
   ctx.save();
   ctx.strokeStyle = PAL.axis; ctx.lineWidth = 0.7; ctx.globalAlpha = 0.8; ctx.setLineDash([4, 3]);
   ctx.beginPath(); ctx.moveTo(p.padL, point.y); ctx.lineTo(p.padL + p.plotW, point.y); ctx.stroke();
@@ -1560,7 +1580,10 @@ function _pfChartCanvasBindInteraction(c) {
     // the bar under the pointer (snapped, as the crosshair is) and its price.
     if (point && point.plot && c.projection && typeof window.pfChartPickHandler === 'function') {
       var pickIdx = Math.round(c.projection.tAt(point.x));
-      var picked = window.pfChartPickHandler({ t: Math.round(c.projection.timeAt(pickIdx)), price: c.projection.pAt(point.y) }, c.host);
+      // Past the last candle (a trendline's far end) there is nothing to stick to.
+      var magnet = _pfChartCanvasMagnet(c, pickIdx, point.y);
+      var pickPrice = magnet ? magnet.price : c.projection.pAt(point.y);
+      var picked = window.pfChartPickHandler({ t: Math.round(c.projection.timeAt(pickIdx)), price: pickPrice }, c.host);
       if (picked) { event.preventDefault(); return; }
     }
     if (event.pointerType === 'touch' && point) {

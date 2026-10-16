@@ -250,6 +250,13 @@ test('Fib presets and a trendline are drawn by two clicks, kept per contract, an
   expect(fib.preset).toBe('half');
   const a = fib.a.price, b = fib.b.price;
   expect(b).toBeGreaterThan(a); // the second click was higher on the chart
+  // The magnet: each point sits on its candle's open, high, low or close.
+  const onCandle = await page.evaluate(([p1, p2]) => {
+    const bars = (window as any)._pfChartCanvas.data.candles;
+    const ohlc = (pt: any) => { const bar = bars.find((x: any) => x.t === pt.t); return bar ? [bar.o, bar.h, bar.l, bar.c].includes(pt.price) : false; };
+    return [ohlc(p1), ohlc(p2)];
+  }, [fib.a, fib.b]);
+  expect(onCandle).toEqual([true, true]);
   const lines = await fibLines();
   expect(lines.map((l: any) => l[0])).toEqual(['F0', 'F0.5', 'F1']);
   expect(lines[0][1]).toBeCloseTo(a, 1);
