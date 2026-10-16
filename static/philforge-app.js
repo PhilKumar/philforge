@@ -12980,6 +12980,7 @@ async function _restoreScalpFormState() {
     _applyScalpFieldValue('scalp-broker', saved.broker);
     _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
     _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
+    _syncScalpUnderlyingPicker();
     _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
     _applyScalpFieldValue('scalp-lots', saved.lots);
     _applyScalpFieldValue('scalp-sl-rs', saved.sl_rs);
@@ -13341,7 +13342,136 @@ async function _fetchScalpSpotPrices() {
   } catch(e) { /* silent */ }
 }
 
+// ── The underlying picker ─────────────────────────────────────
+// Phil, 2026-10-16: the native list "is not neat ... if I need to add more
+// options data, like stock options". The <select> stays the one source of
+// truth (and is what a phone shows); this draws it as tabs -- one per
+// <optgroup> -- over a grid of symbols with their lot sizes. A new optgroup
+// is a new tab; a long one gets a search box.
+const _SCALP_LOT_UNIT = { CRUDEOIL: 'bbl', CRUDEOILM: 'bbl', NATURALGAS: 'mmBtu', NATGASMINI: 'mmBtu' };
+const _SCALP_ULY_SEARCH_AT = 12;
+let _scalpUlyTab = '';
+
+function _scalpUlyGroups() {
+  const select = document.getElementById('scalp-underlying');
+  if (!select) return [];
+  const groups = [];
+  Array.from(select.children).forEach(node => {
+    if (node.tagName === 'OPTGROUP') {
+      groups.push({ label: node.label, options: Array.from(node.querySelectorAll('option')) });
+    } else if (node.tagName === 'OPTION') {
+      if (!groups.length || groups[groups.length - 1].label !== '') groups.push({ label: '', options: [] });
+      groups[groups.length - 1].options.push(node);
+    }
+  });
+  return groups.filter(g => g.options.length);
+}
+
+function _scalpUlyMeta(value) {
+  const lot = _LOT_SIZES[value];
+  if (!lot) return '';
+  const unit = _SCALP_LOT_UNIT[value];
+  return unit ? `${lot.toLocaleString('en-IN')} ${unit} / lot` : `Lot ${lot}`;
+}
+
+function _scalpUlyGroupOf(value) {
+  const g = _scalpUlyGroups().find(group => group.options.some(o => o.value === value));
+  return g ? g.label : '';
+}
+
+function _renderScalpUlyGrid() {
+  const root = document.getElementById('scalp-uly');
+  if (!root) return;
+  const select = document.getElementById('scalp-underlying');
+  const groups = _scalpUlyGroups();
+  const group = groups.find(g => g.label === _scalpUlyTab) || groups[0];
+  if (!group) return;
+  root.querySelectorAll('.scalp-uly-tab').forEach(tab => {
+    const on = tab.dataset.group === group.label;
+    tab.classList.toggle('is-active', on);
+    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const search = root.querySelector('.scalp-uly-search');
+  const searchable = group.options.length >= _SCALP_ULY_SEARCH_AT;
+  search.hidden = !searchable;
+  const q = searchable ? search.value.trim().toUpperCase() : '';
+  const shown = group.options.filter(o => !q || o.value.includes(q) || o.textContent.toUpperCase().includes(q));
+  const grid = root.querySelector('.scalp-uly-grid');
+  grid.innerHTML = shown.length
+    ? shown.map(o => `<button type="button" role="option" class="scalp-uly-item${o.value === select.value ? ' is-selected' : ''}" data-value="${escapeHtml(o.value)}" aria-selected="${o.value === select.value}"><b>${escapeHtml(o.textContent.trim())}</b><small>${escapeHtml(_scalpUlyMeta(o.value))}</small></button>`).join('')
+    : '<div class="scalp-uly-empty">No match</div>';
+}
+
+function _scalpUlyOpen(open) {
+  const root = document.getElementById('scalp-uly');
+  if (!root) return;
+  const panel = root.querySelector('.scalp-uly-panel');
+  const btn = root.querySelector('.scalp-uly-btn');
+  if (open) {
+    _scalpUlyTab = _scalpUlyGroupOf(document.getElementById('scalp-underlying')?.value) || _scalpUlyTab;
+    const search = root.querySelector('.scalp-uly-search');
+    if (search) search.value = '';
+    _renderScalpUlyGrid();
+  }
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function _syncScalpUnderlyingPicker() {
+  const root = document.getElementById('scalp-uly');
+  const select = document.getElementById('scalp-underlying');
+  if (!root || !select) return;
+  if (!root.firstChild) {
+    root.innerHTML = `<button type="button" class="scalp-uly-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Underlying">
+        <span class="scalp-uly-name"></span><span class="scalp-uly-tag"></span><span class="scalp-uly-caret">▾</span>
+      </button>
+      <div class="scalp-uly-panel" hidden>
+        <div class="scalp-uly-tabs" role="tablist"></div>
+        <input type="search" class="scalp-uly-search" placeholder="Search" autocomplete="off" hidden>
+        <div class="scalp-uly-grid" role="listbox"></div>
+      </div>`;
+    root.querySelector('.scalp-uly-btn').addEventListener('click', () => _scalpUlyOpen(root.querySelector('.scalp-uly-panel').hidden));
+    root.querySelector('.scalp-uly-tabs').addEventListener('click', (event) => {
+      const tab = event.target.closest('.scalp-uly-tab');
+      if (!tab) return;
+      _scalpUlyTab = tab.dataset.group;
+      root.querySelector('.scalp-uly-search').value = '';
+      _renderScalpUlyGrid();
+    });
+    root.querySelector('.scalp-uly-search').addEventListener('input', _renderScalpUlyGrid);
+    root.querySelector('.scalp-uly-grid').addEventListener('click', (event) => {
+      const item = event.target.closest('.scalp-uly-item');
+      if (!item) return;
+      _scalpUlyOpen(false);
+      if (select.value !== item.dataset.value) {
+        select.value = item.dataset.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+    document.addEventListener('pointerdown', (event) => {
+      if (!root.contains(event.target)) _scalpUlyOpen(false);
+    }, true);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !root.querySelector('.scalp-uly-panel').hidden) _scalpUlyOpen(false);
+    });
+  }
+  const groups = _scalpUlyGroups();
+  root.querySelector('.scalp-uly-tabs').innerHTML = groups
+    .map(g => `<button type="button" role="tab" class="scalp-uly-tab" data-group="${escapeHtml(g.label)}">${escapeHtml(g.label || 'All')}<em>${g.options.length}</em></button>`).join('');
+  root.querySelector('.scalp-uly-tabs').hidden = groups.length < 2;
+  const chosen = select.selectedOptions && select.selectedOptions[0];
+  root.querySelector('.scalp-uly-name').textContent = chosen ? chosen.textContent.trim() : select.value;
+  const tag = root.querySelector('.scalp-uly-tag');
+  tag.textContent = _scalpUlyGroupOf(select.value);
+  tag.hidden = !tag.textContent;
+  if (!root.querySelector('.scalp-uly-panel').hidden) _renderScalpUlyGrid();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _syncScalpUnderlyingPicker);
+else _syncScalpUnderlyingPicker();
+
 async function loadScalpExpiries(options = {}) {
+  _syncScalpUnderlyingPicker();
   try {
     const preserve = options && options.preserveState ? options.preserveState : null;
     const underlying = document.getElementById('scalp-underlying').value;

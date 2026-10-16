@@ -18,6 +18,18 @@ async function login(page: Page) {
   await page.waitForFunction(() => typeof (window as unknown as { showPage?: unknown }).showPage === 'function');
 }
 
+// The underlying is chosen from the picker's tabs (desktop), as Phil does.
+async function pick(page: Page, value: string) {
+  await page.click('#scalp-uly .scalp-uly-btn');
+  const item = page.locator(`#scalp-uly .scalp-uly-item[data-value="${value}"]`);
+  if (!(await item.isVisible())) {
+    const group = await page.evaluate((v) => (document.querySelector(`#scalp-underlying option[value="${v}"]`)!.parentElement as HTMLOptGroupElement).label, value);
+    await page.click(`#scalp-uly .scalp-uly-tab[data-group="${group}"]`);
+  }
+  await item.click();
+  await expect(page.locator('#scalp-uly .scalp-uly-panel')).toBeHidden();
+}
+
 const ist = (s: string) => Math.floor(new Date(`${s}+05:30`).getTime() / 1000);
 
 test('Scalp: crude oil options take the contract size, the future and MCX hours', async ({ page }) => {
@@ -45,7 +57,7 @@ test('Scalp: crude oil options take the contract size, the future and MCX hours'
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
 
-  await page.selectOption('#scalp-underlying', 'CRUDEOIL');
+  await pick(page, 'CRUDEOIL');
   await expect(page.locator('#scalp-lot-size-label')).toHaveText('100');
   await expect(page.locator('#scalp-expiry option')).toHaveText([/17 Nov 26/, /16 Dec 26/]);
   // Two strikes in the money off the 19-Nov future (9,110 -> ATM 9,100).
@@ -82,14 +94,50 @@ test('Scalp: natural gas mini can go live on either broker', async ({ page }) =>
   await page.route('**/api/scalp/underlying-price**', (route) => route.fulfill({ json: { status: 'ok', price: 303.9 } }));
   await login(page);
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
-  await page.selectOption('#scalp-underlying', 'NATGASMINI');
+  await pick(page, 'NATGASMINI');
   await expect(page.locator('#scalp-lot-size-label')).toHaveText('250');
   await expect(page.locator('#scalp-strike')).toHaveValue('295'); // ATM 305, CE two 5-point steps in
   await expect(page.locator('#scalp-mode-toggle [data-value="live"]')).toBeEnabled();
   await page.evaluate(() => (window as unknown as { setScalpBroker: (v: string) => void }).setScalpBroker('zerodha'));
   await expect(page.locator('#scalp-live-note')).toContainText('Live on Zerodha');
   await expect(page.locator('#scalp-live-note')).toContainText('NATGASMINI trades on MCX');
-  await page.selectOption('#scalp-underlying', 'NIFTY');
+  await pick(page, 'NIFTY');
   await expect(page.locator('#scalp-lot-size-label')).toHaveText('65');
   await expect(page.locator('#scalp-live-note')).not.toContainText('MCX');
+});
+
+test('Scalp: the underlying picker has a tab per group, lot sizes, and folds away', async ({ page }) => {
+  // Phil, 2026-10-16: the plain list "is not neat ... if I need to add more
+  // options data, like stock options".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.route('**/api/expiry-list/CRUDEOILM', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-11-17'] } }));
+  await page.route('**/api/scalp/underlying-price**', (route) => route.fulfill({ json: { status: 'ok', price: 9110 } }));
+  await login(page);
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await expect(page.locator('#scalp-underlying')).toBeHidden();
+  const btn = page.locator('#scalp-uly .scalp-uly-btn');
+  await expect(btn.locator('.scalp-uly-tag')).toHaveText('Index');
+  await btn.click();
+  await expect(page.locator('#scalp-uly .scalp-uly-tab')).toHaveText(['Index4', 'Commodity4']);
+  await expect(page.locator('#scalp-uly .scalp-uly-item[data-value="NIFTY"] small')).toHaveText('Lot 65');
+  // A click elsewhere folds it.
+  await page.locator('#scalp-form-title').click();
+  await expect(page.locator('#scalp-uly .scalp-uly-panel')).toBeHidden();
+  await btn.click();
+  await page.click('#scalp-uly .scalp-uly-tab[data-group="Commodity"]');
+  await expect(page.locator('#scalp-uly .scalp-uly-item small')).toHaveText(['100 bbl / lot', '10 bbl / lot', '1,250 mmBtu / lot', '250 mmBtu / lot']);
+  await page.click('#scalp-uly .scalp-uly-item[data-value="CRUDEOILM"]');
+  await expect(page.locator('#scalp-underlying')).toHaveValue('CRUDEOILM');
+  await expect(btn.locator('.scalp-uly-name')).toHaveText('CRUDEOIL MINI');
+  await expect(btn.locator('.scalp-uly-tag')).toHaveText('Commodity');
+  await expect(page.locator('#scalp-lot-size-label')).toHaveText('10');
+  // Opened again, it is on the chosen symbol's tab with it marked.
+  await btn.click();
+  await expect(page.locator('#scalp-uly .scalp-uly-tab.is-active')).toHaveAttribute('data-group', 'Commodity');
+  await expect(page.locator('#scalp-uly .scalp-uly-item.is-selected')).toHaveAttribute('data-value', 'CRUDEOILM');
+  // A phone keeps its own list.
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#scalp-uly')).toBeHidden();
+  await expect(page.locator('#scalp-underlying')).toBeVisible();
 });

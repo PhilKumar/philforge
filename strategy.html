@@ -4443,18 +4443,23 @@
           <!-- Row 1: UNDERLYING | EXPIRY -->
           <div>
             <label for="scalp-underlying" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Underlying</label>
-            <select id="scalp-underlying" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
-              <option value="NIFTY">NIFTY</option>
-              <option value="BANKNIFTY">BANKNIFTY</option>
-              <option value="MIDCPNIFTY">MIDCAPNIFTY</option>
-              <option value="SENSEX">SENSEX</option>
-              <optgroup label="MCX">
+            <!-- Each optgroup is a tab in the picker beside it (desktop); a new
+                 group -- stock options, say -- is a new tab with no other change. -->
+            <select id="scalp-underlying" class="scalp-underlying-native" style="font-size: 13px; padding: 8px 10px;" onchange="loadScalpExpiries()">
+              <optgroup label="Index">
+                <option value="NIFTY">NIFTY</option>
+                <option value="BANKNIFTY">BANKNIFTY</option>
+                <option value="MIDCPNIFTY">MIDCAPNIFTY</option>
+                <option value="SENSEX">SENSEX</option>
+              </optgroup>
+              <optgroup label="Commodity">
                 <option value="CRUDEOIL">CRUDEOIL</option>
                 <option value="CRUDEOILM">CRUDEOIL MINI</option>
                 <option value="NATURALGAS">NATURALGAS</option>
                 <option value="NATGASMINI">NATGAS MINI</option>
               </optgroup>
             </select>
+            <div class="scalp-uly" id="scalp-uly"></div>
           </div>
           <div>
             <label for="scalp-expiry" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Expiry</label>
