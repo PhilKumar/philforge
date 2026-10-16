@@ -794,8 +794,30 @@ def option_feed_exchange(underlying) -> int:
     return {"MCX_COMM": 5, "BSE_FNO": 8}.get(option_exchange_segment(underlying), 2)
 
 
+_INDEX_UNDERLYINGS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX", "NIFTYNXT50"}
+
+
+def is_stock_underlying(underlying) -> bool:
+    """An NSE F&O stock with listed options (RELIANCE, M&M, BAJAJ-AUTO...)."""
+    name = str(underlying or "").strip().upper()
+    if not name or name in MCX_OPTION_MULTIPLIER or name in _INDEX_UNDERLYINGS:
+        return False
+    ScripMaster.ensure_loaded()
+    return name in ScripMaster._stock_cache
+
+
 def option_instrument_type(underlying) -> str:
-    return "OPTFUT" if is_mcx_underlying(underlying) else "OPTIDX"
+    if is_mcx_underlying(underlying):
+        return "OPTFUT"
+    return "OPTSTK" if is_stock_underlying(underlying) else "OPTIDX"
+
+
+def strike_text(strike) -> str:
+    """A strike spelled one way everywhere: 24350, 147.5 -- never 147.50000."""
+    value = float(strike)
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.4f}".rstrip("0").rstrip(".")
 
 
 # Crude's options move in 10 paise, the other three in 5 -- Dhan's contract
@@ -869,6 +891,7 @@ class ScripMaster:
     _expiry_cache: Dict[str, list] = {}  # symbol -> [expiry_dates]
     _lot_cache: Dict[str, int] = {}  # key -> lot_size
     _futures_cache: Dict[str, Dict[str, str]] = {}  # MCX symbol -> {expiry: security_id}
+    _stock_cache: set = set()  # NSE F&O stocks with listed options
     _equity_cache: Dict[str, dict] = {}  # symbol -> {security_id, trading_symbol, name}
     _loaded_date: Optional[str] = None
     _equity_loaded_date: Optional[str] = None
@@ -883,8 +906,9 @@ class ScripMaster:
             return True
 
         # Try disk cache first
-        # v2 carries the MCX contracts; a v1 file from earlier today has none.
-        cache_file = os.path.join(SCRIP_CACHE_DIR, f"options_v2_{today}.json")
+        # v3 carries the NSE stock options (and v2 the MCX contracts); an older
+        # file from earlier today has neither.
+        cache_file = os.path.join(SCRIP_CACHE_DIR, f"options_v3_{today}.json")
         if os.path.exists(cache_file):
             try:
                 with open(cache_file) as f:
@@ -893,6 +917,7 @@ class ScripMaster:
                 cls._expiry_cache = data.get("expiries", {})
                 cls._lot_cache = data.get("lots", {})
                 cls._futures_cache = data.get("futures", {})
+                cls._stock_cache = set(data.get("stocks", []))
                 cls._loaded_date = today
                 print(f"[SCRIP] ✅ Loaded {len(cls._options_cache)} options from disk cache")
                 return True
@@ -925,6 +950,7 @@ class ScripMaster:
         expiries: Dict[str, set] = {}
         lots = {}
         futures: Dict[str, Dict[str, str]] = {}
+        stocks: set = set()
         # Map trading symbol prefix → canonical name used as key
         supported_prefixes = {
             "NIFTY": "NIFTY",
@@ -985,17 +1011,27 @@ class ScripMaster:
                     if fut_id and fut_exp:
                         futures.setdefault(sym_prefix, {})[fut_exp] = fut_id
                     continue
-                if not ((inst_name == "OPTIDX" and not mcx) or (inst_name == "OPTFUT" and mcx)):
+                # NSE stock options (Phil, 2026-10-16: "add all F&O stocks"). BSE
+                # lists the same names; only NSE's are traded here.
+                stock = inst_name == "OPTSTK" and exch == "NSE"
+                if not ((inst_name == "OPTIDX" and not mcx) or (inst_name == "OPTFUT" and mcx) or stock):
                     continue
 
                 # Extract symbol from SEM_TRADING_SYMBOL (e.g., "NIFTY-Mar2026-24000-CE",
-                # "CRUDEOIL-17Nov2026-7900-CE")
-                symbol = sym_prefix if mcx else supported_prefixes.get(sym_prefix, "")
+                # "CRUDEOIL-17Nov2026-7900-CE"). A stock's name may carry its own
+                # hyphen ("BAJAJ-AUTO-Oct2026-12600-PE"), so it is everything
+                # before the last three parts.
+                if stock:
+                    symbol = trading_sym.rsplit("-", 3)[0] if trading_sym.count("-") >= 3 else ""
+                else:
+                    symbol = sym_prefix if mcx else supported_prefixes.get(sym_prefix, "")
                 if not symbol:
                     continue
+                if stock:
+                    stocks.add(symbol)
 
                 # Only NSE for most, BSE for SENSEX, MCX for the commodities
-                if not mcx:
+                if not mcx and not stock:
                     if symbol == "SENSEX" and exch != "BSE":
                         continue
                     if symbol != "SENSEX" and exch != "NSE":
@@ -1010,10 +1046,9 @@ class ScripMaster:
                 if not sec_id or not strike_raw or not opt_type:
                     continue
 
-                # Normalize strike (remove trailing .00000)
+                # Normalize strike: 24350.00000 -> "24350", 147.50000 -> "147.5"
                 try:
-                    strike_f = float(strike_raw)
-                    strike_key = str(int(strike_f)) if strike_f == int(strike_f) else strike_raw
+                    strike_key = strike_text(strike_raw)
                 except ValueError:
                     continue
 
@@ -1050,13 +1085,23 @@ class ScripMaster:
         cls._expiry_cache = expiries_serial
         cls._lot_cache = lots
         cls._futures_cache = futures
+        cls._stock_cache = stocks
         cls._loaded_date = today
         cls._loading = False
 
         # Save to disk cache
         try:
             with open(cache_file, "w") as f:
-                json.dump({"options": options, "expiries": expiries_serial, "lots": lots, "futures": futures}, f)
+                json.dump(
+                    {
+                        "options": options,
+                        "expiries": expiries_serial,
+                        "lots": lots,
+                        "futures": futures,
+                        "stocks": sorted(stocks),
+                    },
+                    f,
+                )
             print(f"[SCRIP] ✅ Cached {count} option contracts for {list(expiries_serial.keys())}")
         except Exception as e:
             print(f"[SCRIP] Cache write error: {e}")
@@ -1075,7 +1120,7 @@ class ScripMaster:
     def strike_key(cls, strike) -> str:
         """The strike spelled the way the cache spells it.
 
-        The cache is built with `str(int(strike_f))` above, so 24350 is stored
+        The cache is built with `strike_text` above, so 24350 is stored
         as "24350". A caller holding a FLOAT strike asked for "24350.0" and
         missed every time -- and every Fib Boundary fill holds a float, because
         `atm_strike` multiplies. The ".0" fallback below only ever rescued an
@@ -1083,10 +1128,9 @@ class ScripMaster:
         priced live and the ladder could not be killed at all.
         """
         try:
-            value = float(strike)
+            return strike_text(strike)
         except (TypeError, ValueError):
             return str(strike)
-        return str(int(value)) if value == int(value) else str(strike)
 
     @classmethod
     def lookup(cls, symbol: str, strike, expiry: str, option_type: str) -> str:
@@ -1153,6 +1197,12 @@ class ScripMaster:
             return monthlies[idx] if idx < len(monthlies) else monthlies[-1]
 
         return future[0]
+
+    @classmethod
+    def stock_underlyings(cls) -> list:
+        """The NSE F&O stocks with listed options, A to Z."""
+        cls.ensure_loaded()
+        return sorted(cls._stock_cache)
 
     @classmethod
     def mcx_underlying_for(cls, security_id) -> str:

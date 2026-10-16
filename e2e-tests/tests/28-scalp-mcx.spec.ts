@@ -110,6 +110,7 @@ test('Scalp: the underlying picker has a tab per group, lot sizes, and folds awa
   // Phil, 2026-10-16: the plain list "is not neat ... if I need to add more
   // options data, like stock options".
   await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.route('**/api/scalp/underlyings', (route) => route.fulfill({ json: { status: 'ok', stocks: [] } }));
   await page.route('**/api/expiry-list/CRUDEOILM', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-11-17'] } }));
   await page.route('**/api/scalp/underlying-price**', (route) => route.fulfill({ json: { status: 'ok', price: 9110 } }));
   await login(page);
@@ -140,4 +141,48 @@ test('Scalp: the underlying picker has a tab per group, lot sizes, and folds awa
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('#scalp-uly')).toBeHidden();
   await expect(page.locator('#scalp-underlying')).toBeVisible();
+});
+
+test('Scalp: stock options are searched in their own tab and take each stock\'s lot and strike gap', async ({ page }) => {
+  // Phil, 2026-10-16: "add all F&O stocks both live and paper".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.route('**/api/scalp/underlyings', (route) => route.fulfill({ json: { status: 'ok', stocks: [
+    { symbol: 'BAJAJ-AUTO', lot: 75 }, { symbol: 'CROMPTON', lot: 1800 }, { symbol: 'RELIANCE', lot: 500 },
+    ...Array.from({ length: 12 }, (_, i) => ({ symbol: `STOCK${i}`, lot: 100 })),
+  ] } }));
+  await page.route('**/api/expiry-list/CROMPTON', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-10-27', '2026-11-23'] } }));
+  await page.route('**/api/scalp/contract-spec**', (route) => route.fulfill({ json: { status: 'ok', lot: 1800, step: 2.5 } }));
+  const asked: string[] = [];
+  await page.route('**/api/scalp/underlying-price**', (route) => {
+    asked.push(new URL(route.request().url()).searchParams.get('underlying')!);
+    return route.fulfill({ json: { status: 'ok', underlying: 'CROMPTON', price: 147.4 } });
+  });
+  await page.route('**/api/option-ltp**', (route) => route.fulfill({ json: { status: 'ok', ltp: 6.35 } }));
+  await login(page);
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  const btn = page.locator('#scalp-uly .scalp-uly-btn');
+  await btn.click();
+  await expect(page.locator('#scalp-uly .scalp-uly-tab')).toHaveText(['Index4', 'Commodity4', 'Stocks15']);
+  await page.click('#scalp-uly .scalp-uly-tab[data-group="Stocks"]');
+  // A long group is searched.
+  const search = page.locator('#scalp-uly .scalp-uly-search');
+  await expect(search).toBeVisible();
+  await search.fill('crom');
+  await expect(page.locator('#scalp-uly .scalp-uly-item')).toHaveCount(1);
+  await expect(page.locator('#scalp-uly .scalp-uly-item small')).toHaveText('Lot 1800');
+  await page.click('#scalp-uly .scalp-uly-item[data-value="CROMPTON"]');
+  await expect(btn.locator('.scalp-uly-tag')).toHaveText('Stocks');
+  await expect(page.locator('#scalp-lot-size-label')).toHaveText('1800');
+  // Two 2.5-point strikes in the money off the share (147.4 -> ATM 147.5), and
+  // the stepper keeps the half.
+  await expect(page.locator('#scalp-strike')).toHaveValue('142.5');
+  expect(asked).toContain('CROMPTON');
+  await page.evaluate(() => (window as unknown as { stepScalpStrike: (d: number) => void }).stepScalpStrike(1));
+  await expect(page.locator('#scalp-strike')).toHaveValue('145');
+  // A reload comes back to the stock, before and after its list arrives.
+  await page.reload();
+  await page.waitForSelector('.nav-tab', { timeout: 15_000 });
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await expect(page.locator('#scalp-uly .scalp-uly-name')).toHaveText('CROMPTON');
+  await expect(page.locator('#scalp-underlying')).toHaveValue('CROMPTON');
 });

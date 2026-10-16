@@ -12973,6 +12973,7 @@ async function _restoreScalpFormState() {
   }
   _scalpRestoringState = true;
   try {
+    _scalpEnsureStockOption(String(saved.underlying || '').toUpperCase());
     _applyScalpFieldValue('scalp-underlying', saved.underlying);
     _applyScalpFieldValue('scalp-product-type', saved.product_type);
     _applyScalpFieldValue('scalp-option-type', saved.option_type);
@@ -13005,6 +13006,7 @@ async function initScalpPage() {
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
   _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
+  _loadScalpStocks();
   await _restoreScalpFormState();
   _updateScalpExitRulesNote();
   _scalpFormInitialized = true;
@@ -13094,9 +13096,9 @@ function stepScalpStrike(dir) {
   const underlying = document.getElementById('scalp-underlying').value;
   const step = _STRIKE_STEPS[underlying] || 50;
   const inp = document.getElementById('scalp-strike');
-  const cur = parseInt(inp.value) || 0;
+  const cur = parseFloat(inp.value) || 0;
   if (cur === 0) return;  // Don't step from 0 — wait for auto-populate
-  inp.value = cur + dir * step;
+  inp.value = _scalpStrikeText(cur + dir * step);
   fetchScalpLTP();
   _persistScalpFormState();
 }
@@ -13156,7 +13158,7 @@ function fetchScalpLTPThrottled() {
 async function fetchScalpLTP() {
   _syncScalpContractChartLabel();
   const el = document.getElementById('scalp-live-ltp');
-  const strike = parseInt(document.getElementById('scalp-strike').value) || 0;
+  const strike = parseFloat(document.getElementById('scalp-strike').value) || 0;
   const underlying = document.getElementById('scalp-underlying').value;
   const optType = document.getElementById('scalp-option-type').value;
   const expiry = document.getElementById('scalp-expiry').value;
@@ -13258,7 +13260,7 @@ function updateScalpMargin(forceRecalc) {
   _syncScalpAutoExits();
   const el = document.getElementById('scalp-margin');
   const underlying = document.getElementById('scalp-underlying').value;
-  const strike = parseInt(document.getElementById('scalp-strike').value) || 0;
+  const strike = parseFloat(document.getElementById('scalp-strike').value) || 0;
   const optType = document.getElementById('scalp-option-type').value;
   const lots = parseInt(document.getElementById('scalp-lots').value) || 0;
   const lotSize = parseInt(document.getElementById('scalp-lot-size').value) || 0;
@@ -13298,11 +13300,17 @@ function updateScalpMargin(forceRecalc) {
   }
 }
 
+// A stock's strike can be fractional (CROMPTON 147.5): 2.5-point steps must
+// not drift into 147.49999.
+function _scalpStrikeText(value) {
+  return String(Math.round(Number(value) * 100) / 100);
+}
+
 function _scalpITMStrike(spotPrice, underlying, optionType) {
   const step = _STRIKE_STEPS[underlying] || 50;
   const atm = Math.round(spotPrice / step) * step;
   // Default to 2 strikes in-the-money.
-  return optionType === 'CE' ? atm - 2 * step : atm + 2 * step;
+  return _scalpStrikeText(optionType === 'CE' ? atm - 2 * step : atm + 2 * step);
 }
 
 function updateScalpStrike() {
@@ -13326,7 +13334,8 @@ async function _fetchScalpMcxPrice(underlying, expiry) {
 
 async function _fetchScalpSpotPrices() {
   const underlying = document.getElementById('scalp-underlying')?.value;
-  if (_isScalpMcx(underlying)) {
+  // An MCX option is priced off its future, a stock option off the share.
+  if (_isScalpMcx(underlying) || _isScalpStock(underlying)) {
     await _fetchScalpMcxPrice(underlying, document.getElementById('scalp-expiry')?.value);
     return;
   }
@@ -13340,6 +13349,86 @@ async function _fetchScalpSpotPrices() {
       if (d.sensex) _scalpSpotCache['SENSEX'] = d.sensex.price;
     }
   } catch(e) { /* silent */ }
+}
+
+// ── Stock options ─────────────────────────────────────────────
+// Phil, 2026-10-16: "add all F&O stocks both live and paper". NSE's F&O
+// stocks come from the server as a third group of the underlying list (the
+// picker's Stocks tab, searchable). Each stock's lot and strike gap differ,
+// and are read for the expiry chosen; its default strike is set off the share.
+const _SCALP_INDEX = new Set(['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX']);
+let _scalpStocksLoaded = false;
+
+function _isScalpStock(underlying) {
+  const name = String(underlying || '').toUpperCase();
+  return !!name && !_SCALP_INDEX.has(name) && !_isScalpMcx(name);
+}
+
+function _scalpStocksGroup() {
+  const select = document.getElementById('scalp-underlying');
+  if (!select) return null;
+  let group = select.querySelector('optgroup[label="Stocks"]');
+  if (!group) {
+    group = document.createElement('optgroup');
+    group.label = 'Stocks';
+    select.appendChild(group);
+  }
+  return group;
+}
+
+// A saved stock is offered before the full list arrives, so a reload keeps it.
+function _scalpEnsureStockOption(symbol) {
+  const select = document.getElementById('scalp-underlying');
+  if (!select || !symbol || !_isScalpStock(symbol)) return;
+  if (Array.from(select.options).some(o => o.value === symbol)) return;
+  const opt = document.createElement('option');
+  opt.value = symbol;
+  opt.textContent = symbol;
+  _scalpStocksGroup().appendChild(opt);
+}
+
+async function _loadScalpStocks() {
+  if (_scalpStocksLoaded) return;
+  try {
+    const r = await fetch('/api/scalp/underlyings', { cache: 'no-store' });
+    const d = await r.json();
+    if (!r.ok || d.status !== 'ok' || !Array.isArray(d.stocks)) return;
+    const select = document.getElementById('scalp-underlying');
+    const group = _scalpStocksGroup();
+    if (!select || !group) return;
+    const current = select.value;
+    group.innerHTML = '';
+    d.stocks.forEach(row => {
+      if (!row || !row.symbol) return;
+      if (row.lot > 0 && !_LOT_SIZES[row.symbol]) _LOT_SIZES[row.symbol] = row.lot;
+      const opt = document.createElement('option');
+      opt.value = row.symbol;
+      opt.textContent = row.symbol;
+      group.appendChild(opt);
+    });
+    if (!group.children.length) group.remove();
+    if (current) select.value = current;
+    _scalpStocksLoaded = true;
+    _syncScalpUnderlyingPicker();
+  } catch (_) { /* the indices and commodities still work */ }
+}
+
+// The chosen stock's lot and strike gap for this expiry.
+async function _scalpLoadStockSpec(underlying, expiry) {
+  if (!underlying || !expiry) return;
+  try {
+    const r = await fetch(`/api/scalp/contract-spec?${new URLSearchParams({ underlying, expiry })}`, { cache: 'no-store' });
+    const d = await r.json();
+    if (!r.ok || d.status !== 'ok') return;
+    if (d.lot > 0) _LOT_SIZES[underlying] = d.lot;
+    if (d.step > 0) _STRIKE_STEPS[underlying] = d.step;
+    const ls = document.getElementById('scalp-lot-size');
+    const lsLabel = document.getElementById('scalp-lot-size-label');
+    if (document.getElementById('scalp-underlying')?.value === underlying) {
+      if (ls) ls.value = d.lot;
+      if (lsLabel) lsLabel.textContent = d.lot;
+    }
+  } catch (_) { /* silent */ }
 }
 
 // ── The underlying picker ─────────────────────────────────────
@@ -13478,9 +13567,9 @@ async function loadScalpExpiries(options = {}) {
     // Update lot size (read-only, auto)
     const ls = document.getElementById('scalp-lot-size');
     const lsLabel = document.getElementById('scalp-lot-size-label');
-    const lotVal = _LOT_SIZES[underlying] || 65;
-    if (ls) ls.value = lotVal;
-    if (lsLabel) lsLabel.textContent = lotVal;
+    const lotVal = _LOT_SIZES[underlying] || (_isScalpStock(underlying) ? 0 : 65);
+    if (ls) ls.value = lotVal || '';
+    if (lsLabel) lsLabel.textContent = lotVal || '—';
     // Fetch actual expiry dates from scrip master
     const res = await fetch(`/api/expiry-list/${underlying}`);
     const data = await res.json();
@@ -13506,9 +13595,10 @@ async function loadScalpExpiries(options = {}) {
       sel.selectedIndex = 0;
     }
     _syncScalpMcxMode();
+    if (_isScalpStock(underlying)) await _scalpLoadStockSpec(underlying, sel.value);
     // Set ITM-2 default strike from live spot per underlying
     await _fetchScalpSpotPrices();
-    const preservedStrike = parseInt(preserve?.strike, 10) || 0;
+    const preservedStrike = parseFloat(preserve?.strike) || 0;
     if (preservedStrike > 0) {
       document.getElementById('scalp-strike').value = preservedStrike;
       fetchScalpLTP();
@@ -13540,7 +13630,12 @@ const _SCALP_FORM_IDS = new Set([
 document.addEventListener('change', function(e) {
   const id = e.target && e.target.id;
   if (!_SCALP_FORM_IDS.has(id)) return;
-  if (id === 'scalp-expiry') fetchScalpLTPThrottled();
+  if (id === 'scalp-expiry') {
+    const underlying = document.getElementById('scalp-underlying')?.value;
+    // A stock's lot can change from one expiry to the next.
+    if (_isScalpStock(underlying)) _scalpLoadStockSpec(underlying, e.target.value).then(() => updateScalpMargin(true));
+    fetchScalpLTPThrottled();
+  }
   _persistScalpFormState();
 });
 
@@ -13597,7 +13692,7 @@ async function submitScalpEntry(direction) {
   try {
     const payload = {
       underlying: document.getElementById('scalp-underlying').value,
-      strike: parseInt(document.getElementById('scalp-strike').value),
+      strike: parseFloat(document.getElementById('scalp-strike').value),
       option_type: document.getElementById('scalp-option-type').value,
       expiry: document.getElementById('scalp-expiry').value,
       product_type: document.getElementById('scalp-product-type').value || 'INTRADAY',
@@ -14569,7 +14664,7 @@ function _scalpLiveTick() {
 
 // The contract the entry form is pointing at, or null while it is incomplete.
 function _scalpFormContract() {
-  const strike = parseInt(document.getElementById('scalp-strike')?.value, 10) || 0;
+  const strike = parseFloat(document.getElementById('scalp-strike')?.value) || 0;
   const expiry = document.getElementById('scalp-expiry')?.value || '';
   if (!strike || !expiry) return null;
   return {
@@ -21447,7 +21542,7 @@ function _renderScalpStatusWS(data) {
 function _updateLivePremiumFromWS(openTrades) {
   if (!openTrades || !openTrades.length) return;
   const underlying = document.getElementById('scalp-underlying')?.value;
-  const strike = parseInt(document.getElementById('scalp-strike')?.value) || 0;
+  const strike = parseFloat(document.getElementById('scalp-strike')?.value) || 0;
   const optType = document.getElementById('scalp-option-type')?.value;
   const expiry = document.getElementById('scalp-expiry')?.value;
   if (!strike || !expiry) return;

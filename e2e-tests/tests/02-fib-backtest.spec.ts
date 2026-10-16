@@ -152,6 +152,8 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/zerodha/portfolio') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
     // The Scalp page docks the option chart beside the form and asks for the
     // form's contract as soon as it opens (2026-10-15).
+    // The Scalp picker's Stocks tab (2026-10-16).
+    else if (path === '/api/scalp/underlyings') await route.fulfill({ json: { status: 'ok', stocks: [] } });
     else if (path === '/api/scalp/contract-chart') await route.fulfill({ json: {
       status: 'ok', timeframe: '5m', entries: [], overlays: [], lines: [], live_price: 0,
       candles: [0, 1, 2].map((i) => ({ t: 1792040100 + i * 300, o: 120 + i, h: 124 + i, l: 118 + i, c: 122 + i })),

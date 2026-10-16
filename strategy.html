@@ -4493,7 +4493,7 @@
             <label for="scalp-strike" style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px;">Strike</label>
             <div style="display: flex; gap: 6px; align-items: center;">
               <button onclick="stepScalpStrike(-1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">−</button>
-              <input type="number" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;" onchange="fetchScalpLTPThrottled()">
+              <input type="number" step="any" id="scalp-strike" placeholder="ATM" style="font-size: 14px; padding: 8px 10px; font-family: 'JetBrains Mono', monospace; text-align: center; flex: 1; -moz-appearance: textfield; appearance: textfield;" onchange="fetchScalpLTPThrottled()">
               <button onclick="stepScalpStrike(1)" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 14px; font-size: 15px; cursor: pointer; font-weight: 700; flex-shrink: 0; line-height: 1;">+</button>
             </div>
           </div>

@@ -109,8 +109,10 @@ from broker.dhan import (
     DhanOrderError,
     ScripMaster,
     is_mcx_underlying,
+    is_stock_underlying,
     option_exchange_segment,
     option_instrument_type,
+    strike_text,
 )
 from cascade_costs import calculate_nifty_option_round_costs
 from engine.backtest import DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS, get_strike_step, run_backtest
@@ -25734,6 +25736,57 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
 _SCALP_CONTRACT_CHART_CACHE: Dict[tuple, tuple[float, dict]] = {}
 
 
+async def _scalp_stock_price(request: Request, symbol: str) -> dict:
+    """A stock option is struck against the share: its NSE cash price."""
+    equity = await asyncio.to_thread(ScripMaster.lookup_equity, symbol)
+    security_id = str((equity or {}).get("security_id") or "")
+    if not security_id:
+        raise HTTPException(status_code=404, detail=f"No NSE share price is listed for {symbol}.")
+    _, broker_client, _ = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=503, detail="Connect Dhan to price the stock.")
+    try:
+        data = await asyncio.to_thread(broker_client.get_ltp_multi, {"NSE_EQ": [int(security_id)]})
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read the {symbol} share price: {exc}") from exc
+    row = (data or {}).get("NSE_EQ", {})
+    value = row.get(security_id, row.get(int(security_id), 0))
+    price = float(value.get("last_price", value.get("ltp", 0)) if isinstance(value, dict) else value or 0)
+    if price <= 0:
+        raise HTTPException(status_code=503, detail=f"No {symbol} share price yet.")
+    return {"status": "ok", "underlying": symbol, "price": price, "equity_security_id": security_id}
+
+
+@app.get("/api/scalp/underlyings")
+async def scalp_underlyings():
+    """NSE's F&O stocks for the Scalp picker's Stocks tab, with this month's lot."""
+    stocks = await asyncio.to_thread(ScripMaster.stock_underlyings)
+    today = _ist_date_str()
+
+    def lot_of(symbol: str) -> int:
+        upcoming = [e for e in ScripMaster._expiry_cache.get(symbol, []) if e >= today]
+        return int(ScripMaster._lot_cache.get(f"{symbol}_{upcoming[0]}", 0)) if upcoming else 0
+
+    rows = [{"symbol": s, "lot": lot_of(s)} for s in stocks]
+    return {"status": "ok", "stocks": [r for r in rows if r["lot"] > 0]}
+
+
+@app.get("/api/scalp/contract-spec")
+async def scalp_contract_spec(underlying: str = "", expiry: str = ""):
+    """A stock's lot and strike gap for one expiry -- both differ stock by stock."""
+    underlying = str(underlying or "").strip().upper()
+    if not await asyncio.to_thread(is_stock_underlying, underlying):
+        raise HTTPException(status_code=422, detail="Only stocks are looked up here.")
+    lot = await asyncio.to_thread(ScripMaster.get_lot_size, underlying, str(expiry or ""))
+    if lot <= 0:
+        raise HTTPException(status_code=404, detail=f"No {underlying} options expire on {expiry}.")
+    try:
+        step = await asyncio.to_thread(ScripMaster.get_strike_step, underlying, str(expiry or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "ok", "underlying": underlying, "expiry": expiry, "lot": int(lot), "step": step}
+
+
 @app.get("/api/scalp/underlying-price")
 async def scalp_underlying_price(request: Request, underlying: str = "", expiry: str = ""):
     """The price a commodity option is struck against: its MCX futures contract.
@@ -25743,9 +25796,11 @@ async def scalp_underlying_price(request: Request, underlying: str = "", expiry:
     (crude's 17-Nov options -> the 19-Nov crude future).
     """
     underlying = str(underlying or "").strip().upper()
+    if await asyncio.to_thread(is_stock_underlying, underlying):
+        return await _scalp_stock_price(request, underlying)
     if not is_mcx_underlying(underlying):
         raise HTTPException(
-            status_code=422, detail="Only MCX underlyings are priced here; indices come from the ticker."
+            status_code=422, detail="Only MCX underlyings and stocks are priced here; indices come from the ticker."
         )
     security_id = await asyncio.to_thread(ScripMaster.mcx_future_for, underlying, str(expiry or ""))
     if not security_id:
@@ -25769,7 +25824,7 @@ async def scalp_underlying_price(request: Request, underlying: str = "", expiry:
 async def get_scalp_contract_chart(
     request: Request,
     underlying: str = "NIFTY",
-    strike: int = 0,
+    strike: float = 0,
     expiry: str = "",
     option_type: str = "CE",
     timeframe: str = "5m",
@@ -25788,11 +25843,11 @@ async def get_scalp_contract_chart(
     underlying = str(underlying or "").strip().upper()
     option_type = str(option_type or "").strip().upper()
     expiry = str(expiry or "").strip()
-    if underlying not in _SCALP_UNDERLYINGS:
-        raise HTTPException(status_code=422, detail="Pick an index or a commodity first")
-    if int(strike or 0) <= 0 or option_type not in {"CE", "PE"} or not expiry:
+    if not _is_scalp_underlying(underlying):
+        raise HTTPException(status_code=422, detail="Pick an index, a commodity or a stock first")
+    if float(strike or 0) <= 0 or option_type not in {"CE", "PE"} or not expiry:
         raise HTTPException(status_code=422, detail="Pick a strike, CE or PE, and an expiry first")
-    strike = int(strike)
+    strike = _scalp_strike(strike)
 
     tf, candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
     live = {"current_premium": live_price if 0 < float(live_price or 0) < 1e6 else 0}
@@ -25978,13 +26033,15 @@ async def stop_scalp_engine(request: Request):
 
 class ScalpEntryReq(BaseModel):
     underlying: str = Field(min_length=1, max_length=20)
-    strike: int = Field(gt=0, le=1_000_000)
+    # A stock's strikes can be fractional (CROMPTON 147.5).
+    strike: float = Field(gt=0, le=1_000_000)
     option_type: str = Field(min_length=2, max_length=2)
     expiry: str = Field(min_length=10, max_length=10)
     product_type: str = Field(default="INTRADAY", min_length=2, max_length=16)
     transaction_type: str = Field(default="BUY", min_length=3, max_length=4)
     lots: int = Field(default=1, ge=1, le=500)
-    lot_size: int = Field(default=75, ge=1, le=10_000)
+    # A stock's lot can be large (IDEA 71,475); the server sets it anyway.
+    lot_size: int = Field(default=75, ge=1, le=500_000)
     target_premium: float = Field(default=0.0, ge=0, le=1_000_000)
     sl_premium: float = Field(default=0.0, ge=0, le=1_000_000)
     target_pct: float = Field(default=0.0, ge=0, le=1_000)
@@ -26005,6 +26062,21 @@ _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
 _last_scalp_entry_ts: Dict[int, float] = {}
 
 _SCALP_UNDERLYINGS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", *MCX_OPTION_MULTIPLIER}
+# A stock option held into expiry in the money is settled by DELIVERY of the
+# shares. Carried (MARGIN), a live one is refused this close to its expiry;
+# intraday it is squared off the same day.
+_SCALP_STOCK_CARRY_CUTOFF_DAYS = 5
+
+
+def _is_scalp_underlying(underlying: str) -> bool:
+    """An index, an MCX commodity, or one of NSE's F&O stocks."""
+    return underlying in _SCALP_UNDERLYINGS or is_stock_underlying(underlying)
+
+
+def _scalp_strike(value) -> float | int:
+    """24350 stays a whole number; a stock's 147.5 keeps its half."""
+    number = float(value)
+    return int(number) if number == int(number) else float(strike_text(number))
 
 
 def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
@@ -26013,12 +26085,20 @@ def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
     req.transaction_type = str(req.transaction_type or "").strip().upper()
     req.product_type = str(req.product_type or "").strip().upper()
     req.mode = str(req.mode or "").strip().lower()
-    if req.underlying not in _SCALP_UNDERLYINGS:
+    if not _is_scalp_underlying(req.underlying):
         raise HTTPException(status_code=400, detail="Unsupported scalp underlying")
+    req.strike = _scalp_strike(req.strike)
     # An MCX contract's size is fixed by the exchange; it is what each rupee of
     # premium is worth, so it is never taken from the form.
     if is_mcx_underlying(req.underlying):
         req.lot_size = MCX_OPTION_MULTIPLIER[req.underlying]
+    # So is a stock's, and it differs stock by stock (RELIANCE 500, M&M 200).
+    stock = is_stock_underlying(req.underlying)
+    if stock:
+        lot = ScripMaster.get_lot_size(req.underlying, str(req.expiry))
+        if lot <= 0:
+            raise HTTPException(status_code=400, detail=f"No {req.underlying} options expire on {req.expiry}.")
+        req.lot_size = int(lot)
     if req.option_type not in {"CE", "PE"}:
         raise HTTPException(status_code=400, detail="option_type must be CE or PE")
     if req.transaction_type not in {"BUY", "SELL"}:
@@ -26038,6 +26118,17 @@ def _validate_scalp_entry_request(req: ScalpEntryReq) -> None:
         raise HTTPException(status_code=400, detail="expiry must be a real YYYY-MM-DD date") from exc
     if expiry_date < datetime.now(IST).date():
         raise HTTPException(status_code=400, detail="expiry cannot be in the past")
+    if (
+        stock
+        and req.mode == "live"
+        and req.product_type == "MARGIN"
+        and (expiry_date - datetime.now(IST).date()).days <= _SCALP_STOCK_CARRY_CUTOFF_DAYS
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.underlying} options are settled by delivery of the shares: a carried (Margin) position "
+            f"is not opened within {_SCALP_STOCK_CARRY_CUTOFF_DAYS} days of expiry. Use Intraday, or the next expiry.",
+        )
     if bool(req.entry_limit_price) != bool(req.entry_limit_max):
         raise HTTPException(status_code=400, detail="Stop-limit entry requires both minimum and maximum premiums")
     # Blank exit prices are left blank on purpose: scalp.py prices the contract
@@ -26198,7 +26289,7 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
 
 
 @app.get("/api/option-ltp")
-async def get_option_ltp(request: Request, underlying: str, strike: int, expiry: str, option_type: str):
+async def get_option_ltp(request: Request, underlying: str, strike: float, expiry: str, option_type: str):
     """Get live LTP for a specific option contract."""
     _, broker_client, _ = await _request_broker_context(request)
     if not broker_client:
