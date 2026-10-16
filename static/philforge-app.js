@@ -14266,6 +14266,13 @@ function _scalpPaintTools() {
   document.querySelectorAll('.scalp-cpr-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartCprOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartCprOn); });
   document.querySelectorAll('.scalp-fib-btn').forEach(b => b.classList.toggle('is-armed', !!(_scalpDraw && _scalpDraw.tool === 'fib')));
   document.querySelectorAll('.scalp-line-btn').forEach(b => b.classList.toggle('is-armed', !!(_scalpDraw && _scalpDraw.tool === 'line')));
+  // The instruction sits in the toolbar. A toast (fixed top-right) lay over
+  // the chart's upper-right corner and took the clicks meant for it.
+  const hint = !_scalpDraw ? ''
+    : _scalpDraw.tool === 'fib'
+      ? (_scalpDraw.first ? 'Click the 1 point · Esc cancels' : `Fib ${_SCALP_FIB_PRESETS[_scalpDraw.preset].label}: click the 0 point`)
+      : (_scalpDraw.first ? 'Click the second point · Esc cancels' : 'Trendline: click the first point');
+  document.querySelectorAll('.scalp-draw-hint').forEach(h => { h.textContent = hint; h.hidden = !hint; });
 }
 
 function _scalpEndDraw() {
@@ -14283,6 +14290,7 @@ function _scalpStartDraw(tool, preset) {
     if (!host || !host.closest('#scalp-dock-chart, #scalp-option-chart-overlay') || !_scalpDraw) return false;
     if (!_scalpDraw.first) {
       _scalpDraw.first = pt;
+      _scalpPaintTools();
       _scalpRedecorate();
       return true;
     }
@@ -14296,9 +14304,6 @@ function _scalpStartDraw(tool, preset) {
   };
   document.querySelectorAll('.scalp-fib-menu').forEach(m => { m.hidden = true; });
   _scalpPaintTools();
-  toast(tool === 'fib'
-    ? `Fib ${_SCALP_FIB_PRESETS[preset].label}: click the 0 point, then the 1 point. Esc cancels.`
-    : 'Trendline: click the first point, then the second. Esc cancels.', 'info');
 }
 
 function _scalpClearDrawings() {
@@ -14371,7 +14376,10 @@ function _scalpChartTools() {
   });
   const clear = btn('scalp-clear-btn', 'Clear', "Remove this option's Fibs and trendlines");
   clear.addEventListener('click', _scalpClearDrawings);
-  box.append(st, cpr, fibWrap, line, clear);
+  const hint = document.createElement('span');
+  hint.className = 'scalp-draw-hint';
+  hint.hidden = true;
+  box.append(st, cpr, fibWrap, line, clear, hint);
   setTimeout(_scalpPaintTools, 0);
   return box;
 }

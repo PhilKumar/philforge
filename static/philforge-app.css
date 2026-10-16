@@ -6339,6 +6339,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-chart-tools .scalp-cpr-toggle.is-on { opacity: 1; color: #5b9bff; border-color: rgba(91,155,255,.55); }
 .scalp-chart-tools .is-armed { color: #fbbf24; border-color: rgba(251,191,36,.6); box-shadow: 0 0 0 1px rgba(251,191,36,.35) inset; }
 .scalp-fib-wrap { position: relative; }
+.scalp-draw-hint { font: 600 11px var(--font-mono, monospace); color: #fbbf24; white-space: nowrap; }
+.scalp-draw-hint[hidden] { display: none; }
 .scalp-fib-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; display: grid; gap: 2px; padding: 4px; min-width: 190px; background: var(--card, #0f172a); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
 .scalp-fib-menu[hidden] { display: none; }
 .scalp-fib-item { text-align: left; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: 600 11px var(--font-mono, monospace); cursor: pointer; }

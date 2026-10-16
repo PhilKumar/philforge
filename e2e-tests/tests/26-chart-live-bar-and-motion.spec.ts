@@ -224,7 +224,14 @@ test('Fib presets and a trendline are drawn by two clicks, kept per contract, an
   await page.evaluate(() => { try { localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
   await page.locator('#scalp-dock-chart').scrollIntoViewIfNeeded();
   const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
-  const at = (fx: number, fy: number) => page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  // Each click must land on the chart itself -- nothing (a toast once did)
+  // may sit over the plot while a tool waits for its points.
+  const at = async (fx: number, fy: number) => {
+    const x = box.x + box.width * fx, y = box.y + box.height * fy;
+    const onChart = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('#scalp-dock-chart-body'), [x, y]);
+    expect(onChart, `the click at ${fx},${fy} lands on the chart`).toBe(true);
+    await page.mouse.click(x, y);
+  };
   const tools = page.locator('#scalp-dock-chart-actions .scalp-chart-tools');
   const fibLines = () => page.evaluate(() => (window as any)._pfChartCanvas.data.lines.filter((l: any) => /^F/.test(l.label)).map((l: any) => [l.label, l.price]));
 
@@ -232,7 +239,9 @@ test('Fib presets and a trendline are drawn by two clicks, kept per contract, an
   await expect(tools.locator('.scalp-fib-item')).toHaveText(['0 · 1 · 2 · 4 · 8', '0 · 0.5 · 1', '0 · 0.25 · 0.5 · 0.75 · 1']);
   await tools.locator('[data-fib-preset="half"]').click();
   await expect(tools.locator('.scalp-fib-btn')).toHaveClass(/is-armed/);
+  await expect(tools.locator('.scalp-draw-hint')).toHaveText('Fib 0 · 0.5 · 1: click the 0 point');
   await at(0.4, 0.7);
+  await expect(tools.locator('.scalp-draw-hint')).toHaveText('Click the 1 point · Esc cancels');
   await at(0.7, 0.3);
   await expect(tools.locator('.scalp-fib-btn')).not.toHaveClass(/is-armed/);
   const drawn = await page.evaluate(() => JSON.parse(localStorage.getItem('pf_scalp_chart_drawings_v1') || '{}'));
