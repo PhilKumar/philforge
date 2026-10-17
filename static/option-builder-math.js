@@ -30,9 +30,16 @@
   }
   function normPdf(x) { return Math.exp(-x * x / 2) / Math.sqrt(2 * Math.PI); }
 
+  // NSE's options stop at 15:30 on expiry day; MCX's crude and gas at 23:30.
+  // The page sets the underlying's own close (setExpiryClose('23:30')).
+  let EXPIRY_CLOSE = [15, 30];
+  function setExpiryClose(hhmm) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
+    EXPIRY_CLOSE = m ? [Number(m[1]), Number(m[2])] : [15, 30];
+  }
   function expiryCloseMs(expiry) {
     const [y, m, d] = String(expiry).split('-').map(Number);
-    return Date.UTC(y, m - 1, d, 15, 30) - IST_OFFSET_MIN * 60000;
+    return Date.UTC(y, m - 1, d, EXPIRY_CLOSE[0], EXPIRY_CLOSE[1]) - IST_OFFSET_MIN * 60000;
   }
   function yearsBetween(fromMs, toMs) { return Math.max(0, (toMs - fromMs) / YEAR_MS); }
 
@@ -314,7 +321,7 @@
 
   return {
     nextSessionMark, prevSessionMark,
-    RISK_FREE, normCdf, bsPrice, bsGreeks, expiryCloseMs, yearsBetween, intrinsic,
+    RISK_FREE, normCdf, bsPrice, bsGreeks, expiryCloseMs, setExpiryClose, yearsBetween, intrinsic,
     legValue, pnlAt, firstExpiryMs, sameExpiry, priceRange, series, expiryStats,
     probabilityOfProfit, netPremium, currentPnl, positionGreeks, sigmaBands,
     signedQty, activeLegs, TEMPLATES, templateLegs,

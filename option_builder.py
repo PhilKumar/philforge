@@ -23,7 +23,11 @@ import time as _time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
-from broker.dhan import round_to_tick
+from broker.dhan import (
+    ScripMaster,
+    is_mcx_underlying,
+    round_to_tick,
+)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -55,11 +59,76 @@ class OptionBuilderError(ValueError):
     """A request the builder refuses, in words a trader reads."""
 
 
+# Phil, 2026-10-16: "work on the option builder as well with these commodity
+# and stocks addition". Beyond the indices: MCX's crude and gas options (on the
+# FUTURE -- Dhan's chain is asked by the future's id, MCX_COMM) and every NSE
+# F&O stock (asked by the share's id, NSE_EQ). Both answer on Dhan's own chain.
+MCX_LABELS = {
+    "CRUDEOIL": "CRUDE OIL",
+    "CRUDEOILM": "CRUDE OIL MINI",
+    "NATURALGAS": "NATURAL GAS",
+    "NATGASMINI": "NATGAS MINI",
+}
+MCX_EXPIRY_CLOSE = (23, 30)
+
+
+def is_stock_listed(name: str) -> bool:
+    """An F&O stock in the contract list ALREADY loaded -- this never starts the
+    150MB download itself; the routes load the list before they ask."""
+    return str(name or "").strip().upper() in ScripMaster._stock_cache
+
+
 def normalize_underlying(name: str) -> str:
     key = str(name or "").strip().upper()
-    if key not in UNDERLYINGS:
-        raise OptionBuilderError(f"{name or 'That underlying'} is not offered. Pick one of {', '.join(UNDERLYINGS)}.")
-    return key
+    if key in UNDERLYINGS or is_mcx_underlying(key) or is_stock_listed(key):
+        return key
+    raise OptionBuilderError(
+        f"{name or 'That underlying'} is not offered: pick an index, crude or gas, or an F&O stock."
+    )
+
+
+def underlying_spec(name: str, expiry: str = "") -> dict[str, Any]:
+    """Where Dhan's chain for `name` is asked, and its F&O segment.
+
+    An MCX option is struck against one futures contract (crude's 17-Nov
+    options -> the 19-Nov future), so its chain is asked by that future; with
+    no expiry, by the nearest one still trading.
+    """
+    key = normalize_underlying(name)
+    if key in UNDERLYINGS:
+        return {**UNDERLYINGS[key], "kind": "index"}
+    if is_mcx_underlying(key):
+        start = str(expiry or "") or datetime.now(IST).date().isoformat()
+        future = ScripMaster.mcx_future_for(key, start)
+        if not future:
+            raise OptionBuilderError(f"No {key} futures contract is listed to price its options.")
+        return {
+            "scrip": int(future),
+            "seg": "MCX_COMM",
+            "fno": "MCX_COMM",
+            "label": MCX_LABELS.get(key, key),
+            "kind": "mcx",
+        }
+    equity = ScripMaster.lookup_equity(key)
+    if not (equity or {}).get("security_id"):
+        raise OptionBuilderError(f"No NSE share price is listed for {key}.")
+    return {"scrip": int(equity["security_id"]), "seg": "NSE_EQ", "fno": "NSE_FNO", "label": key, "kind": "stock"}
+
+
+def expiry_close(name: str) -> tuple[int, int]:
+    """When an underlying's options stop trading on expiry day."""
+    return MCX_EXPIRY_CLOSE if is_mcx_underlying(name) else EXPIRY_CLOSE
+
+
+def session_open_for(name: str, now: datetime | None = None) -> bool:
+    """NSE's session for indices and stocks; MCX runs on into the night."""
+    moment = now or datetime.now(IST)
+    if not is_mcx_underlying(name):
+        return nse_session_open(moment)
+    if moment.weekday() >= 5:
+        return False
+    minutes = moment.hour * 60 + moment.minute
+    return 9 * 60 <= minutes <= 23 * 60 + 55
 
 
 def nse_session_open(now: datetime | None = None) -> bool:
@@ -158,13 +227,14 @@ def shape_chain(raw: dict, underlying: str, expiry: str, lot_size: int = 0) -> d
 EXPIRY_CLOSE = (15, 30)
 
 
-def open_expiries(expiries: list, now: datetime | None = None) -> list:
+def open_expiries(expiries: list, now: datetime | None = None, close: tuple[int, int] = None) -> list:
     """Expiries still tradable. Dhan keeps listing today's expiry after the
     15:30 close (6-Oct-2026: the page opened on contracts that had expired,
-    ATM IV 2.7%), so an expiry drops off at its own close, not at midnight."""
+    ATM IV 2.7%), so an expiry drops off at its own close, not at midnight --
+    23:30 for MCX's crude and gas."""
     moment = now or datetime.now(IST)
     today = moment.date().isoformat()
-    closed = (moment.hour, moment.minute) >= EXPIRY_CLOSE
+    closed = (moment.hour, moment.minute) >= (close or EXPIRY_CLOSE)
     return [e for e in expiries if e > today or (e == today and not closed)]
 
 
@@ -185,8 +255,9 @@ class ChainCache:
         self._expiries: dict[str, tuple[float, list]] = {}
         self._last_call = -1e9
 
-    def _ttl(self) -> float:
-        return CHAIN_TTL_SEC if self._session_open() else OFF_SESSION_TTL_SEC
+    def _ttl(self, underlying: str = "") -> float:
+        live = self._session_open() or (is_mcx_underlying(underlying) and session_open_for(underlying))
+        return CHAIN_TTL_SEC if live else OFF_SESSION_TTL_SEC
 
     def _paced(self, fn: Callable[[], Any]) -> Any:
         with self._gap_lock:
@@ -205,9 +276,9 @@ class ChainCache:
             lock = self._key_locks.setdefault(key, threading.Lock())
         with lock:
             hit = self._chains.get(key)
-            if hit and self._clock() - hit[0] < self._ttl():
+            if hit and self._clock() - hit[0] < self._ttl(underlying):
                 return hit[1]
-            spec = UNDERLYINGS[underlying]
+            spec = underlying_spec(underlying, expiry)
             try:
                 raw = self._paced(lambda: client.get_option_chain(spec["scrip"], spec["seg"], expiry))
             except Exception:
@@ -215,19 +286,23 @@ class ChainCache:
                     return {**hit[1], "stale": True}
                 raise
             shaped = shape_chain(raw, underlying, expiry, lot_size)
+            shaped["label"] = spec.get("label") or underlying
+            shaped["kind"] = spec.get("kind", "index")
+            shaped["expiry_close"] = "%02d:%02d" % expiry_close(underlying)
             shaped["fetched_at"] = datetime.now(IST).isoformat(timespec="seconds")
             self._chains[key] = (self._clock(), shaped)
             return shaped
 
     def expiries(self, client, underlying: str) -> list:
         underlying = normalize_underlying(underlying)
+        close = expiry_close(underlying)
         hit = self._expiries.get(underlying)
         if hit and self._clock() - hit[0] < EXPIRY_TTL_SEC:
-            return open_expiries(hit[1])
-        spec = UNDERLYINGS[underlying]
+            return open_expiries(hit[1], close=close)
+        spec = underlying_spec(underlying)
         found = self._paced(lambda: client.get_option_chain_expiries(spec["scrip"], spec["seg"]))
         self._expiries[underlying] = (self._clock(), sorted(found))
-        return open_expiries(sorted(found))
+        return open_expiries(sorted(found), close=close)
 
 
 # ── legs ────────────────────────────────────────────────────────────────────
@@ -277,12 +352,14 @@ def normalize_legs(legs: Any) -> list[dict]:
 
 
 def margin_scrip_list(legs: list[dict], lot_size: int, product: str) -> list[dict]:
+    """Dhan's margin calculator rows. It counts MCX in LOTS (quantity 1 of crude
+    9100 CE at Rs 580 asks Rs 58,000), everything else in units."""
     product_type = "MARGIN" if str(product).upper() in ("MARGIN", "NRML") else "INTRADAY"
     return [
         {
-            "exchangeSegment": UNDERLYINGS[leg["underlying"]]["fno"],
+            "exchangeSegment": _fno_segment(leg["underlying"]),
             "transactionType": leg["side"],
-            "quantity": int(leg["lots"]) * int(lot_size),
+            "quantity": int(leg["lots"]) * (1 if is_mcx_underlying(leg["underlying"]) else int(lot_size)),
             "productType": product_type,
             "securityId": leg["security_id"],
             "price": round(leg["price"], 2),
@@ -290,6 +367,20 @@ def margin_scrip_list(legs: list[dict], lot_size: int, product: str) -> list[dic
         }
         for leg in legs
     ]
+
+
+def _fno_segment(name: str) -> str:
+    if name in UNDERLYINGS:
+        return UNDERLYINGS[name]["fno"]
+    return "MCX_COMM" if is_mcx_underlying(name) else "NSE_FNO"
+
+
+def is_offered(name: str) -> bool:
+    try:
+        normalize_underlying(name)
+        return True
+    except OptionBuilderError:
+        return False
 
 
 def shape_margin(raw: dict) -> dict:
@@ -341,15 +432,18 @@ def legs_from_dhan_positions(rows: list[dict]) -> list[dict]:
     """Open option positions as builder legs, at their own average price."""
     legs = []
     for row in rows or []:
-        if str(row.get("exchangeSegment") or "") not in ("NSE_FNO", "BSE_FNO"):
+        if str(row.get("exchangeSegment") or "") not in ("NSE_FNO", "BSE_FNO", "MCX_COMM"):
             continue
         kind = str(row.get("drvOptionType") or "").upper()
         option_type = {"CALL": "CE", "PUT": "PE", "CE": "CE", "PE": "PE"}.get(kind)
         net = int(_num(row.get("netQty")))
         if not option_type or net == 0:
             continue
-        underlying = str(row.get("tradingSymbol") or "").split("-")[0].upper()
-        if underlying not in UNDERLYINGS:
+        # "NIFTY-Oct2026-22700-CE"; a stock may carry its own hyphen
+        # ("BAJAJ-AUTO-Oct2026-12600-PE"), so the name is all but the last three parts.
+        symbol = str(row.get("tradingSymbol") or "").upper()
+        underlying = symbol.rsplit("-", 3)[0] if symbol.count("-") >= 3 else symbol.split("-")[0]
+        if not is_offered(underlying):
             continue
         legs.append(
             {
@@ -381,7 +475,7 @@ def legs_from_zerodha_positions(rows: list[dict], key_for_symbol: Callable[[str,
             underlying, strike, expiry, option_type = key.rsplit("_", 3)
         except ValueError:
             continue
-        if underlying not in UNDERLYINGS or option_type not in ("CE", "PE"):
+        if option_type not in ("CE", "PE") or not is_offered(underlying):
             continue
         legs.append(
             {
@@ -473,7 +567,9 @@ def new_paper_basket(basket_id: int, name: str, legs: list[dict], lot_size: int,
 def expiry_value(strike: float, option_type: str, index_close: float) -> float:
     """What an index option is worth at expiry: NSE settles it in cash at the
     index's closing price on expiry day, so a call is worth what the close is
-    above the strike and a put what it is below; out of the money, nothing."""
+    above the strike and a put what it is below; out of the money, nothing.
+    A stock or MCX option is valued the same way off the share's or the
+    future's close (its intrinsic value), which is what paper settles at."""
     if str(option_type).upper() == "CE":
         return round(max(0.0, float(index_close) - float(strike)), 2)
     return round(max(0.0, float(strike) - float(index_close)), 2)

@@ -10,7 +10,7 @@
 .ob-root .is-warn { color: var(--warn); }
 
 /* top bar: index chips, spot, facts */
-.ob-topbar { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 18px; }
+.ob-topbar { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 18px; position: relative; z-index: 40; }
 .ob-und, .ob-views { display: flex; flex-wrap: wrap; gap: 6px; }
 .ob-chip {
   padding: 6px 11px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,.03);
@@ -18,6 +18,21 @@
   transition: border-color .15s ease, color .15s ease, background .15s ease;
 }
 .ob-chip:hover { color: var(--text); border-color: var(--border-hi); }
+/* Commodity and Stocks: a chip that opens its own menu (2026-10-16). */
+.ob-menu { position: relative; }
+.ob-menu-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 70; min-width: 300px; padding: 10px; background: #0d1526; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 14px 36px rgba(0,0,0,.42); }
+.ob-menu-panel[hidden] { display: none; }
+.ob-menu-grid, .ob-menu-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.ob-menu-list { max-height: 300px; overflow-y: auto; }
+.ob-menu-stocks { width: 340px; }
+.ob-menu-search { width: 100%; margin-bottom: 8px; padding: 7px 9px; font-size: 12px; border-radius: 6px; }
+.ob-menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: rgba(255,255,255,.02); color: var(--text); cursor: pointer; text-align: left; }
+.ob-menu-item b { font: 700 12px var(--font-mono); letter-spacing: .3px; }
+.ob-menu-item small { font: 600 10px var(--font-mono); color: var(--muted); }
+.ob-menu-item:hover { border-color: var(--border-hi); background: rgba(148,163,184,.08); }
+.ob-menu-item.is-active { border-color: color-mix(in srgb, var(--ob-accent) 70%, transparent); background: color-mix(in srgb, var(--ob-accent) 14%, transparent); }
+.ob-menu-list .ob-empty { grid-column: 1 / -1; }
+[data-theme="light"] .ob-menu-panel { background: #ffffff; box-shadow: 0 14px 36px rgba(15,23,42,.18); }
 .ob-chip.is-active { color: var(--text); border-color: color-mix(in srgb, var(--ob-accent) 60%, transparent); background: color-mix(in srgb, var(--ob-accent) 16%, transparent); }
 .ob-view-bullish.is-active { border-color: color-mix(in srgb, var(--green) 60%, transparent); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .ob-view-bearish.is-active { border-color: color-mix(in srgb, var(--red) 60%, transparent); background: color-mix(in srgb, var(--red) 14%, transparent); }

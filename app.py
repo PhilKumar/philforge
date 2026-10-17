@@ -26923,6 +26923,11 @@ async def _ob_chain(client, underlying: str, expiry: str) -> dict:
     return await asyncio.to_thread(_ob_chains.get, client, underlying, expiry, lot)
 
 
+async def _ob_contracts_loaded() -> None:
+    """The contract list (stocks, MCX futures) the builder names underlyings by."""
+    await asyncio.to_thread(ScripMaster.ensure_loaded)
+
+
 def _ob_refusal(exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
 
@@ -26935,6 +26940,7 @@ async def option_builder_expiries(request: Request, underlying: str = "NIFTY"):
             status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
         )
     try:
+        await _ob_contracts_loaded()
         found = await asyncio.to_thread(_ob_chains.expiries, client, underlying)
     except _ob.OptionBuilderError as exc:
         return _ob_refusal(exc)
@@ -26953,6 +26959,7 @@ async def option_builder_chain(request: Request, underlying: str = "NIFTY", expi
             status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
         )
     try:
+        await _ob_contracts_loaded()
         if not expiry:
             found = await asyncio.to_thread(_ob_chains.expiries, client, underlying)
             if not found:
@@ -26968,7 +26975,7 @@ async def option_builder_chain(request: Request, underlying: str = "NIFTY", expi
         return JSONResponse(
             status_code=502, content={"status": "error", "message": f"Dhan did not send the chain: {exc}"}
         )
-    return {"status": "ok", "session_open": _ob.nse_session_open(), **chain}
+    return {"status": "ok", "session_open": _ob.session_open_for(underlying.upper()), **chain}
 
 
 class OptionBuilderBasketReq(BaseModel):
@@ -26992,6 +26999,7 @@ async def option_builder_margin(req: OptionBuilderBasketReq, request: Request):
             status_code=400, content={"status": "error", "message": _broker_not_configured_message(user, source)}
         )
     try:
+        await _ob_contracts_loaded()
         legs = _ob.normalize_legs(req.legs)
     except _ob.OptionBuilderError as exc:
         return _ob_refusal(exc)
@@ -27002,7 +27010,7 @@ async def option_builder_margin(req: OptionBuilderBasketReq, request: Request):
         if not leg["security_id"]:
             leg["security_id"] = str(
                 await asyncio.to_thread(
-                    ScripMaster.lookup, leg["underlying"], int(leg["strike"]), leg["expiry"], leg["option_type"]
+                    ScripMaster.lookup, leg["underlying"], leg["strike"], leg["expiry"], leg["option_type"]
                 )
                 or ""
             )
@@ -27024,6 +27032,7 @@ async def _ob_held_legs(user: dict | None, client) -> tuple[list, list]:
     """Open option positions at both brokers as builder legs, each with its key."""
     legs: list = []
     notes: list = []
+    await _ob_contracts_loaded()
     if client is not None:
         try:
             rows = await asyncio.to_thread(client.get_positions)
@@ -27113,7 +27122,7 @@ async def option_builder_exit(req: OptionBuilderExitReq, request: Request):
                 answer = await asyncio.to_thread(
                     order_client.place_option_order,
                     underlying=leg["underlying"],
-                    strike_price=int(leg["strike"]),
+                    strike_price=leg["strike"],
                     option_type=leg["option_type"],
                     expiry=leg["expiry"],
                     transaction_type=leg["side"],
@@ -27237,6 +27246,7 @@ async def option_builder_portfolio_delete(portfolio_id: int, request: Request):
 async def option_builder_saved_create(req: OptionBuilderBasketReq, request: Request):
     uid = _request_user_id(request)
     try:
+        await _ob_contracts_loaded()
         legs = _ob.normalize_legs(req.legs)
     except _ob.OptionBuilderError as exc:
         return _ob_refusal(exc)
@@ -27269,6 +27279,7 @@ async def option_builder_saved_delete(saved_id: int, request: Request):
 async def option_builder_paper_open(req: OptionBuilderBasketReq, request: Request):
     uid = _request_user_id(request)
     try:
+        await _ob_contracts_loaded()
         legs = _ob.normalize_legs(req.legs)
     except _ob.OptionBuilderError as exc:
         return _ob_refusal(exc)
@@ -27299,9 +27310,31 @@ async def option_builder_paper_open(req: OptionBuilderBasketReq, request: Reques
 
 
 async def _ob_index_close_on(client, underlying: str, day: date) -> float | None:
-    """The index's last in-session close on `day` (its expiry settlement), or None."""
-    index_id = _ROLLING_INDEX_ID.get(str(underlying).upper())
-    if not index_id or client is None:
+    """The underlying's last in-session close on `day` (its expiry settlement),
+    or None: the index, the share for a stock, the future for crude and gas."""
+    name = str(underlying).upper()
+    if client is None:
+        return None
+    if is_mcx_underlying(name) or await asyncio.to_thread(is_stock_underlying, name):
+        try:
+            spec = await asyncio.to_thread(_ob.underlying_spec, name, day.isoformat())
+        except _ob.OptionBuilderError:
+            return None
+        frame = await asyncio.to_thread(
+            client.get_historical_data,
+            security_id=str(spec["scrip"]),
+            exchange_segment=spec["seg"],
+            instrument_type="FUTCOM" if spec["kind"] == "mcx" else "EQUITY",
+            from_date=(day - timedelta(days=4)).isoformat(),
+            to_date=(day + timedelta(days=1)).isoformat(),
+            candle_type="D",
+        )
+        if frame is None or getattr(frame, "empty", True):
+            return None
+        rows = frame[[stamp.date() == day for stamp in frame.index]]
+        return float(rows["close"].iloc[-1]) if len(rows) else None
+    index_id = _ROLLING_INDEX_ID.get(name)
+    if not index_id:
         return None
     frame = await asyncio.to_thread(
         client.get_historical_data,
@@ -27323,6 +27356,7 @@ async def option_builder_paper_add_legs(basket_id: int, req: OptionBuilderBasket
     """New strikes join an open paper strategy at their prices now."""
     uid = _request_user_id(request)
     try:
+        await _ob_contracts_loaded()
         legs = _ob.normalize_legs(req.legs)
     except _ob.OptionBuilderError as exc:
         return _ob_refusal(exc)
@@ -27417,6 +27451,7 @@ async def option_builder_execute(req: OptionBuilderBasketReq, request: Request):
     without its hedge is the one outcome a spread exists to prevent.
     """
     try:
+        await _ob_contracts_loaded()
         legs = _ob.normalize_legs(req.legs)
     except _ob.OptionBuilderError as exc:
         return _ob_refusal(exc)
@@ -27452,7 +27487,7 @@ async def option_builder_execute(req: OptionBuilderBasketReq, request: Request):
             answer = await asyncio.to_thread(
                 order_client.place_option_order,
                 underlying=leg["underlying"],
-                strike_price=int(leg["strike"]),
+                strike_price=leg["strike"],
                 option_type=leg["option_type"],
                 expiry=leg["expiry"],
                 transaction_type=leg["side"],

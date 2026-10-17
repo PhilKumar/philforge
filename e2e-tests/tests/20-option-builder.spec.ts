@@ -347,3 +347,50 @@ test('Option Builder: B in the chain adds, again takes it back, and − lots + s
   await page.locator('[data-ob-lots="SELL:PE:24900:-1"]').click();
   expect(await legs()).toEqual([]);
 });
+
+test('Option Builder: crude and gas from the Commodity menu, any F&O stock from a searched Stocks menu', async ({ page }) => {
+  // Phil, 2026-10-16: "work on the option builder as well with these commodity and stocks addition".
+  const calls: { method: string; url: string; body: any }[] = [];
+  await login(page);
+  await mockBuilder(page, calls);
+  await page.route('**/api/scalp/underlyings', (route) => route.fulfill({ json: { status: 'ok', stocks: [
+    { symbol: 'BAJAJ-AUTO', lot: 75 }, { symbol: 'RELIANCE', lot: 500 }, { symbol: 'SBIN', lot: 750 },
+  ] } }));
+  await openBuilder(page);
+  const asked = () => calls.filter((c) => c.url.endsWith('/expiries')).length;
+
+  // The Commodity menu opens, and folds on a click elsewhere.
+  await page.click('[data-ob-menu="mcx"]');
+  await expect(page.locator('[data-ob-panel="mcx"] .ob-menu-item b')).toHaveText(['CRUDEOIL', 'CRUDEOILM', 'NATURALGAS', 'NATGASMINI']);
+  await page.locator('#ob-spot').click();
+  await expect(page.locator('[data-ob-panel="mcx"]')).toBeHidden();
+
+  const before = asked();
+  await page.click('[data-ob-menu="mcx"]');
+  const [req] = await Promise.all([
+    page.waitForRequest((r) => r.url().includes('/api/option-builder/expiries') && r.url().includes('underlying=CRUDEOIL')),
+    page.click('[data-ob-panel="mcx"] [data-ob-und="CRUDEOIL"]'),
+  ]);
+  expect(req).toBeTruthy();
+  expect(asked()).toBeGreaterThan(before);
+  await expect(page.locator('[data-ob-panel="mcx"]')).toBeHidden();
+  await expect(page.locator('[data-ob-menu="mcx"]')).toHaveText('CRUDEOIL ▾');
+  await expect(page.locator('[data-ob-menu="mcx"]')).toHaveClass(/is-active/);
+  await expect(page.locator('[data-ob-und="NIFTY"]')).not.toHaveClass(/is-active/);
+
+  // Stocks: searched, then picked.
+  await page.click('[data-ob-menu="stocks"]');
+  await expect(page.locator('#ob-stock-list .ob-menu-item')).toHaveCount(3);
+  await page.locator('.ob-menu-search').fill('rel');
+  await expect(page.locator('#ob-stock-list .ob-menu-item')).toHaveCount(1);
+  await expect(page.locator('#ob-stock-list .ob-menu-item small')).toHaveText('Lot 500');
+  await Promise.all([
+    page.waitForRequest((r) => r.url().includes('/api/option-builder/chain') && r.url().includes('underlying=RELIANCE')),
+    page.click('#ob-stock-list [data-ob-und="RELIANCE"]'),
+  ]);
+  await expect(page.locator('[data-ob-menu="stocks"]')).toHaveText('RELIANCE ▾');
+  await expect(page.locator('[data-ob-menu="mcx"]')).toHaveText('Commodity ▾');
+  // Back to an index in one click.
+  await page.click('[data-ob-und="NIFTY"]');
+  await expect(page.locator('[data-ob-menu="stocks"]')).toHaveText('Stocks ▾');
+});

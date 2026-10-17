@@ -17,6 +17,11 @@
   if (!M) return;
 
   const UNDERLYINGS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'];
+  // Phil, 2026-10-16: the builder takes MCX's crude and gas and every F&O
+  // stock too. Indices stay one click; the others open from two menus.
+  const COMMODITIES = [['CRUDEOIL', 'Crude oil'], ['CRUDEOILM', 'Crude mini'], ['NATURALGAS', 'Natural gas'], ['NATGASMINI', 'Natgas mini']];
+  const isCommodity = (u) => COMMODITIES.some(([k]) => k === u);
+  let STOCKS = null; // [{symbol, lot}] once asked for
   const VIEWS = [['bullish', 'Bullish'], ['bearish', 'Bearish'], ['neutral', 'Neutral'], ['volatile', 'Volatile']];
   const STATE_KEY = 'philforge_option_builder_v1';
   const CHAIN_WINDOW = 14; // strikes either side of ATM shown in the chain
@@ -125,7 +130,8 @@
     try {
       const raw = JSON.parse(localStorage.getItem(STATE_KEY) || 'null');
       if (!raw || typeof raw !== 'object') return;
-      if (UNDERLYINGS.includes(raw.underlying)) S.underlying = raw.underlying;
+      // Any underlying the server offers: an index, crude or gas, or a stock.
+      if (typeof raw.underlying === 'string' && /^[A-Z0-9&-]{1,20}$/.test(raw.underlying)) S.underlying = raw.underlying;
       S.expiry = String(raw.expiry || '');
       for (const k of ['view', 'leftTab', 'anaTab', 'product', 'broker']) if (raw[k]) S[k] = raw[k];
       S.showOI = raw.showOI !== false; S.showSigma = raw.showSigma !== false;
@@ -192,12 +198,13 @@
     const body = await api(`/api/option-builder/chain?underlying=${encodeURIComponent(S.underlying)}&expiry=${encodeURIComponent(expiry)}`);
     S.chains[expiry] = { data: body, at: Date.now() };
     S.sessionOpen = !!body.session_open;
+    if (typeof M.setExpiryClose === 'function') M.setExpiryClose(body.expiry_close);
     return body;
   }
   async function refresh(force) {
     try {
       if (!S.expiries.length || force === 'expiries') await loadExpiries();
-      if (!S.expiry) throw new Error('Dhan lists no open expiries for this index.');
+      if (!S.expiry) throw new Error('Dhan lists no open expiries for this underlying.');
       await loadChain(S.expiry);
       const others = [...new Set(S.legs.map((l) => l.expiry))].filter((e) => e !== S.expiry);
       for (const e of others) {
@@ -246,7 +253,12 @@
   function buildShell(root) {
     root.innerHTML = `
       <div class="ob-topbar card">
-        <div class="ob-und" role="tablist" aria-label="Underlying">${UNDERLYINGS.map((u) => `<button type="button" class="ob-chip" data-ob-und="${u}">${u}</button>`).join('')}</div>
+        <div class="ob-und" role="tablist" aria-label="Underlying">${UNDERLYINGS.map((u) => `<button type="button" class="ob-chip" data-ob-und="${u}">${u}</button>`).join('')}
+          <div class="ob-menu"><button type="button" class="ob-chip ob-menu-btn" data-ob-menu="mcx" aria-haspopup="true">Commodity ▾</button>
+            <div class="ob-menu-panel" data-ob-panel="mcx" hidden><div class="ob-menu-grid">${COMMODITIES.map(([k, label]) => `<button type="button" class="ob-menu-item" data-ob-und="${k}"><b>${k}</b><small>${label}</small></button>`).join('')}</div></div></div>
+          <div class="ob-menu"><button type="button" class="ob-chip ob-menu-btn" data-ob-menu="stocks" aria-haspopup="true">Stocks ▾</button>
+            <div class="ob-menu-panel ob-menu-stocks" data-ob-panel="stocks" hidden><input type="search" class="ob-menu-search" placeholder="Search F&amp;O stocks" autocomplete="off" aria-label="Search stocks"><div class="ob-menu-list" id="ob-stock-list"><div class="ob-empty">Loading…</div></div></div></div>
+        </div>
         <div class="ob-spot"><span class="ob-spot-label" id="ob-spot-label">NIFTY</span><strong id="ob-spot">—</strong><span class="ob-live" id="ob-live"><i></i><span>connecting</span></span></div>
         <div class="ob-facts" id="ob-facts"></div>
       </div>
@@ -329,6 +341,36 @@
     // 2026-10-11: "not able to edit the name more than 2 sec").
     renderTop(); if (!namingOpen()) renderLeft(); renderLegs(); renderStats(); renderAnalysis();
   }
+  // ── the Commodity and Stocks menus ───────────────────────────────────────
+  function closeMenus() { document.querySelectorAll('.ob-menu-panel').forEach((p) => { p.hidden = true; }); }
+  function toggleMenu(which) {
+    const panel = document.querySelector(`[data-ob-panel="${which}"]`);
+    if (!panel) return;
+    const opening = panel.hidden;
+    closeMenus();
+    panel.hidden = !opening;
+    if (opening && which === 'stocks') {
+      const search = panel.querySelector('.ob-menu-search');
+      if (search) { search.value = ''; setTimeout(() => search.focus(), 0); }
+      loadStocks().then(renderStocks);
+    }
+  }
+  async function loadStocks() {
+    if (STOCKS) return STOCKS;
+    try { STOCKS = (await api('/api/scalp/underlyings')).stocks || []; }
+    catch (err) { STOCKS = null; notify(err.message, 'error'); return []; }
+    return STOCKS;
+  }
+  function renderStocks() {
+    const list = $('#ob-stock-list');
+    if (!list) return;
+    const q = String(document.querySelector('.ob-menu-search')?.value || '').trim().toUpperCase();
+    const rows = (STOCKS || []).filter((r) => !q || r.symbol.includes(q));
+    list.innerHTML = rows.length
+      ? rows.map((r) => `<button type="button" class="ob-menu-item${r.symbol === S.underlying ? ' is-active' : ''}" data-ob-und="${esc(r.symbol)}"><b>${esc(r.symbol)}</b><small>Lot ${esc(String(r.lot))}</small></button>`).join('')
+      : `<div class="ob-empty">${STOCKS ? 'No match' : 'Loading…'}</div>`;
+  }
+
   function namingOpen() {
     return !!(S.naming && document.querySelector('#ob-left-body .ob-naming input'));
   }
@@ -336,6 +378,12 @@
   function renderTop() {
     const chain = primary();
     document.querySelectorAll('[data-ob-und]').forEach((b) => b.classList.toggle('is-active', b.dataset.obUnd === S.underlying));
+    // The menu chips wear the commodity or stock in use.
+    const mcxBtn = document.querySelector('[data-ob-menu="mcx"]');
+    const stockBtn = document.querySelector('[data-ob-menu="stocks"]');
+    const isStock = !UNDERLYINGS.includes(S.underlying) && !isCommodity(S.underlying);
+    if (mcxBtn) { mcxBtn.textContent = isCommodity(S.underlying) ? `${S.underlying} ▾` : 'Commodity ▾'; mcxBtn.classList.toggle('is-active', isCommodity(S.underlying)); }
+    if (stockBtn) { stockBtn.textContent = isStock ? `${S.underlying} ▾` : 'Stocks ▾'; stockBtn.classList.toggle('is-active', isStock); }
     $('#ob-spot-label').textContent = chain?.label || S.underlying;
     $('#ob-spot').textContent = chain ? price(chain.spot) : '—';
     const live = $('#ob-live');
@@ -901,6 +949,8 @@
       const t = e.target.closest('button, [data-ob-pf-toggle]');
       if (!t) return;
       const d = t.dataset;
+      if (d.obMenu) { toggleMenu(d.obMenu); return; }
+      if (d.obUnd) closeMenus();
       if (d.obUnd && d.obUnd !== S.underlying) {
         S.underlying = d.obUnd; S.expiries = []; S.expiry = ''; S.chains = {}; S.margin = null; chainCentredFor = '';
         S.legs = []; // a strategy belongs to one index
@@ -988,7 +1038,11 @@
     });
     // sliders redraw on every frame they move, without touching the network
     let pending = 0;
+    // A menu folds on a click anywhere outside it, and on Esc.
+    document.addEventListener('pointerdown', (e) => { if (!e.target.closest || !e.target.closest('.ob-menu')) closeMenus(); }, true);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
     root.addEventListener('input', (e) => {
+      if (e.target.matches('.ob-menu-search')) { renderStocks(); return; }
       if (e.target.matches('.ob-naming input')) { if (S.naming) S.naming.value = e.target.value; return; }
       if (e.target.id !== 'ob-target' && e.target.id !== 'ob-iv') return;
       if (e.target.id === 'ob-target') {
