@@ -222,6 +222,8 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   // the view alone, no instructions in the toolbar, and the Fib menu folds
   // away on a click anywhere else.
   await page.setViewportSize({ width: 1400, height: 1000 });
+  // The RSI pane takes the bottom of the plot; this test draws there, so RSI is off.
+  await page.addInitScript(() => { try { localStorage.setItem('pf_scalp_chart_rsi', '0'); } catch (_) {} });
   const candles = [...oneMinuteBars('2026-10-13', '15:29:00'), ...oneMinuteBars('2026-10-14', '15:29:00')];
   await scalpChart(page, candles, 150);
   await page.evaluate(() => { try { localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
@@ -389,6 +391,43 @@ test('an open trade on the form\'s contract does not hold the chart when CE turn
     (window as any)._scalpDockFollow([t]);
   }, trade);
   await expect(page.locator('#scalp-dock-chart-title')).toHaveText('NIFTY 22700CE');
+});
+
+test('RSI (14) sits under the option chart as TradingView draws it, and its switch hides it', async ({ page }) => {
+  // Phil, 2026-10-19: "Add RSI to my options chart... same like the trading view".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.evaluate(() => { try { localStorage.removeItem('pf_scalp_chart_rsi'); } catch (_) {} });
+  const candles = oneMinuteBars('2026-10-14', '15:29:00').map((b, i) => {
+    const mid = 150 + 12 * Math.sin(i / 17) + (i % 5);
+    return { ...b, o: mid - 0.5, h: mid + 1.5, l: mid - 1.5, c: mid };
+  });
+  await scalpChart(page, candles, 150);
+  const rsi = () => page.evaluate(() => {
+    const c = (window as any)._pfChartCanvas, ind = c.data.indicators || {};
+    return { n: (ind.rsi || []).length, last: (ind.rsi || []).at(-1)?.v, period: ind.rsi_period, painted: c.paint.rsi, paneH: Math.round(c.projection.rsiH), bars: c.data.candles.length };
+  });
+  const on = await rsi();
+  expect(on.period).toBe(14);
+  expect(on.n).toBe(on.bars - 14);
+  expect(on.painted).toBeGreaterThan(0);
+  expect(on.paneH).toBeGreaterThan(40);
+  // Wilder's RSI on the chart's own closes, worked out here independently.
+  const expected = await page.evaluate(() => {
+    const k = (window as any)._pfChartCanvas.data.candles.map((b: any) => b.c), n = 14;
+    let g = 0, l = 0;
+    for (let i = 1; i <= n; i++) { const d = k[i] - k[i - 1]; g += Math.max(d, 0); l += Math.max(-d, 0); }
+    g /= n; l /= n;
+    for (let i = n + 1; i < k.length; i++) { const d = k[i] - k[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; }
+    return Math.round((l === 0 ? 100 : 100 - 100 / (1 + g / l)) * 100) / 100;
+  });
+  expect(on.last).toBeCloseTo(expected, 2);
+  const toggle = page.locator('#scalp-dock-chart-actions .scalp-rsi-toggle');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
+  await expect.poll(async () => (await rsi()).paneH).toBe(0);
+  expect(await page.evaluate(() => localStorage.getItem('pf_scalp_chart_rsi'))).toBe('0');
+  await toggle.click();
+  await expect.poll(async () => (await rsi()).painted).toBeGreaterThan(0);
 });
 
 test('the CPR switch hides and shows the pivot set as one', async ({ page }) => {

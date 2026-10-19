@@ -6341,9 +6341,10 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* The option chart's tools: ST and CPR switches, Fib presets, trendline, Clear. */
 .scalp-chart-tools { display: flex; align-items: center; gap: 4px; margin-right: 6px; flex-wrap: wrap; }
 .scalp-chart-tools .terminal-cascade-chart-control { width: auto; min-width: 0; padding: 0 9px; font: 700 11px var(--font-mono, monospace); white-space: nowrap; flex: none; }
-.scalp-chart-tools .scalp-st-toggle, .scalp-chart-tools .scalp-cpr-toggle { opacity: .6; }
+.scalp-chart-tools .scalp-st-toggle, .scalp-chart-tools .scalp-cpr-toggle, .scalp-chart-tools .scalp-rsi-toggle { opacity: .6; }
 .scalp-chart-tools .scalp-st-toggle.is-on { opacity: 1; color: #4caf50; border-color: rgba(76,175,80,.55); }
 .scalp-chart-tools .scalp-cpr-toggle.is-on { opacity: 1; color: #5b9bff; border-color: rgba(91,155,255,.55); }
+.scalp-chart-tools .scalp-rsi-toggle.is-on { opacity: 1; color: #b39ddb; border-color: rgba(126,87,194,.65); }
 .scalp-chart-tools .is-armed { color: #fbbf24; border-color: rgba(251,191,36,.6); box-shadow: 0 0 0 1px rgba(251,191,36,.35) inset; }
 .scalp-fib-wrap { position: relative; }
 .scalp-fib-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; display: grid; gap: 2px; padding: 4px; min-width: 190px; background: #0d1526; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }

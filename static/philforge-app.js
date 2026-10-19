@@ -14506,6 +14506,36 @@ function _supertrendRuns(candles, period, multiplier) {
 // from the payload as it came (kept in data._base): the CPR/pivot set when its
 // switch is on, Supertrend (10, 2), and the Fibs and trendlines drawn by hand.
 const _SCALP_CPR_KEY = 'pf_scalp_chart_cpr';
+// RSI (14) under the option chart, as TradingView's (Phil, 2026-10-19: "Add
+// RSI to my options chart... same like the trading view"): Wilder's smoothing
+// seeded with a simple average, from the chart's own candles -- forming bar
+// included -- in the renderer's RSI pane.
+const _SCALP_RSI = { period: 14, upper: 70, lower: 30 };
+const _SCALP_RSI_KEY = 'pf_scalp_chart_rsi';
+let _scalpChartRsiOn = (() => {
+  try { return localStorage.getItem(_SCALP_RSI_KEY) !== '0'; } catch (_) { return true; }
+})();
+
+function _rsiSeries(candles, period) {
+  const out = [];
+  if (!Array.isArray(candles) || candles.length <= period) return out;
+  let gain = 0, loss = 0;
+  for (let i = 1; i < candles.length; i++) {
+    const change = Number(candles[i].c) - Number(candles[i - 1].c);
+    const up = Math.max(change, 0), down = Math.max(-change, 0);
+    if (i <= period) {
+      gain += up; loss += down;
+      if (i < period) continue;
+      gain /= period; loss /= period;
+    } else {
+      gain = (gain * (period - 1) + up) / period;
+      loss = (loss * (period - 1) + down) / period;
+    }
+    const v = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+    out.push({ t: candles[i].t, v: Math.round(v * 100) / 100 });
+  }
+  return out;
+}
 let _scalpChartCprOn = (() => {
   try { return localStorage.getItem(_SCALP_CPR_KEY) !== '0'; } catch (_) { return true; }
 })();
@@ -14562,7 +14592,16 @@ function _scalpKeepDrawings(key, list) {
 
 function _scalpDecorate(data) {
   if (!data) return;
-  if (!data._base) data._base = { overlays: (data.overlays || []).slice(), lines: (data.lines || []).slice() };
+  if (!data._base) data._base = { overlays: (data.overlays || []).slice(), lines: (data.lines || []).slice(), indicators: data.indicators || null };
+  if (_scalpChartRsiOn) {
+    data.indicators = {
+      ...(data._base.indicators || {}),
+      rsi: _rsiSeries(data.candles || [], _SCALP_RSI.period),
+      rsi_period: _SCALP_RSI.period, rsi_upper: _SCALP_RSI.upper, rsi_lower: _SCALP_RSI.lower,
+    };
+  } else {
+    data.indicators = data._base.indicators;
+  }
   const overlays = data._base.overlays.filter(ov => _scalpChartCprOn || !ov || ov.group !== 'cpr');
   const lines = data._base.lines.slice();
   if (_scalpChartSupertrendOn) {
@@ -14596,6 +14635,7 @@ function _scalpRedecorate() {
 function _scalpPaintTools() {
   document.querySelectorAll('.scalp-st-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartSupertrendOn); });
   document.querySelectorAll('.scalp-cpr-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartCprOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartCprOn); });
+  document.querySelectorAll('.scalp-rsi-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartRsiOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartRsiOn); });
   document.querySelectorAll('.scalp-fib-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'fib'));
   document.querySelectorAll('.scalp-line-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'line'));
 }
@@ -14678,6 +14718,13 @@ function _scalpChartTools(options = {}) {
     _scalpPaintTools();
     _scalpRedecorate();
   });
+  const rsi = btn('scalp-rsi-toggle', 'RSI', `RSI (${_SCALP_RSI.period}) under this chart`);
+  rsi.addEventListener('click', () => {
+    _scalpChartRsiOn = !_scalpChartRsiOn;
+    try { localStorage.setItem(_SCALP_RSI_KEY, _scalpChartRsiOn ? '1' : '0'); } catch (_) {}
+    _scalpPaintTools();
+    _scalpRedecorate();
+  });
   const fibWrap = document.createElement('div');
   fibWrap.className = 'scalp-fib-wrap';
   const fib = btn('scalp-fib-btn', 'Fib ▾', 'Fib: pick a set, then click the 0 point and the 1 point');
@@ -14707,7 +14754,7 @@ function _scalpChartTools(options = {}) {
   });
   const clear = btn('scalp-clear-btn', 'Clear', "Remove this option's Fibs and trendlines");
   clear.addEventListener('click', _scalpClearDrawings);
-  box.append(st, cpr, fibWrap, line, clear);
+  box.append(st, cpr, rsi, fibWrap, line, clear);
   if (options.popout) {
     const big = btn('scalp-popout-btn', '⤢', 'Open this chart big');
     big.setAttribute('aria-label', 'Open this chart big');

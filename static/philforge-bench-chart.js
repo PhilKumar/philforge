@@ -86,7 +86,7 @@ var _PF_CHART_DARK = {
   avg: '#e2e8f0', fill: '#22c55e', fillRing: '#0b1220',
   buyMark: '#ffffff', sellMark: '#fbbf24', markRing: '#0b1220',
   fibs: ['#3b82f6', '#22c55e', '#ef4444'],
-  ema: '#5b9bff', rsi: '#c084fc', rsiGuide: 'rgba(148,163,184,0.45)', rsiBand: 'rgba(192,132,252,0.10)'
+  ema: '#5b9bff', rsi: '#7e57c2', rsiGuide: 'rgba(148,163,184,0.55)', rsiBand: 'rgba(126,87,194,0.10)'
 };
 var _PF_CHART_LIGHT = {
   grid: 'rgba(15,23,42,0.10)', axis: 'rgba(51,65,85,0.75)',
@@ -94,7 +94,7 @@ var _PF_CHART_LIGHT = {
   avg: '#334155', fill: '#15803d', fillRing: '#ffffff',
   buyMark: '#1e293b', sellMark: '#b45309', markRing: '#ffffff',
   fibs: ['#1d4ed8', '#15803d', '#be123c'],
-  ema: '#2962ff', rsi: '#7e22ce', rsiGuide: 'rgba(51,65,85,0.45)', rsiBand: 'rgba(126,34,206,0.08)'
+  ema: '#2962ff', rsi: '#7e57c2', rsiGuide: 'rgba(51,65,85,0.45)', rsiBand: 'rgba(126,87,194,0.10)'
 };
 
 function _pfChartPalette() {
@@ -1213,17 +1213,19 @@ function _pfChartCanvasRsiPane(c, p, PAL) {
   ctx.fillStyle = PAL.rsiBand;
   ctx.fillRect(p.padL, p.rsiYOf(upper), p.plotW, Math.max(1, p.rsiYOf(lower) - p.rsiYOf(upper)));
 
+  // As TradingView draws it: the 70 and 30 bands dashed, the middle 50 dotted.
   ctx.strokeStyle = PAL.rsiGuide;
   ctx.lineWidth = 1;
-  ctx.setLineDash([]);
-  [upper, 50, lower].forEach(function (level) {
-    var y = p.rsiYOf(level);
+  [[upper, [4, 4]], [50, [1, 3]], [lower, [4, 4]]].forEach(function (band) {
+    var y = p.rsiYOf(band[0]);
+    ctx.setLineDash(band[1]);
     ctx.beginPath();
     ctx.moveTo(p.padL, y);
     ctx.lineTo(p.padL + p.plotW, y);
     ctx.stroke();
-    _pfChartCanvasText(ctx, String(Math.round(level)), p.padL - 6, y, PAL.axis, 9, 'right', '400', scale);
+    _pfChartCanvasText(ctx, String(Math.round(band[0])), p.padL - 6, y, PAL.axis, 9, 'right', '400', scale);
   });
+  ctx.setLineDash([]);
 
   ctx.save();
   ctx.beginPath();
@@ -1245,7 +1247,19 @@ function _pfChartCanvasRsiPane(c, p, PAL) {
   if (started) ctx.stroke();
   ctx.restore();
 
-  _pfChartCanvasText(ctx, 'RSI' + (ind.rsi_period || 14), p.padL + 6, p.rsiTop + 8 * scale, PAL.rsi, 9, 'left', '700', scale);
+  // The latest value, beside the name and as a tag on the right axis.
+  var last = null;
+  for (var j = series.length - 1; j >= 0; j--) {
+    if (series[j] && isFinite(Number(series[j].v)) && series[j].v !== null) { last = Number(series[j].v); break; }
+  }
+  var name = 'RSI ' + (ind.rsi_period || 14) + (last !== null ? '  ' + last.toFixed(2) : '');
+  _pfChartCanvasText(ctx, name, p.padL + 6, p.rsiTop + 8 * scale, PAL.rsi, 9, 'left', '700', scale);
+  if (last !== null) {
+    var ty = p.rsiYOf(last), tw = 38;
+    ctx.fillStyle = PAL.rsi;
+    ctx.fillRect(p.padL + p.plotW + 2, ty - 7, tw, 14);
+    _pfChartCanvasText(ctx, last.toFixed(2), p.padL + p.plotW + 2 + tw / 2, ty + 0.5, '#ffffff', 9, 'center', '700', scale);
+  }
   return drawn;
 }
 
