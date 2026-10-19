@@ -1383,7 +1383,42 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     strike_step,
                 )
                 pricing_mode = "synthetic"
-                # A SPREAD'S SOLD LEG: N points from the leg bought before it
+                # THE STRIKE NEAREST THE INDEX, priced from the archive (opt-in:
+                # a credit spread's sold leg; plain "atm" stays on the model).
+                if str(leg.get("strike_type") or "").lower() == "atm_archive":
+                    atm_strike = round(float(entry_spot) / float(strike_step or 50)) * float(strike_step or 50)
+                    selector = historical_premium_selector
+                    atm_expiry = (
+                        selector._expiry_for(entry_ts.date(), leg.get("expiry") or "current_week")
+                        if selector is not None and hasattr(selector, "_expiry_for")
+                        else None
+                    )
+                    resolution = (
+                        selector.select_strike(
+                            entry_ts, atm_strike, atm_expiry, leg["option_type"], execution_timeframe
+                        )
+                        if atm_expiry is not None and hasattr(selector, "select_strike")
+                        else None
+                    )
+                    if resolution is None:
+                        option_data_gaps.append(
+                            {
+                                "timestamp": entry_ts.isoformat(timespec="minutes"),
+                                "leg": leg_num,
+                                "reason": getattr(selector, "last_gap", "") or "ATM leg unpriced",
+                            }
+                        )
+                        return []
+                    history_key = resolution.history_key
+                    option_history_map[history_key] = resolution.history
+                    strike_used = resolution.strike
+                    contract_expiry = resolution.expiry
+                    if user_lot_size <= 0:
+                        position_lot_size = get_option_contract_lot_size(instrument, resolution.expiry)
+                    entry_price = resolution.entry_price
+                    display_symbol = f"{_instrument_label(instrument)} {strike_used} {leg['option_type']}"
+                    pricing_mode = "historical"
+                # A SPREAD'S SECOND LEG: N points from the leg before it
                 # (PE: -200 sells the put 200 below; CE: +200 the call above),
                 # same expiry, same size.
                 if str(leg.get("strike_type") or "").lower() == "leg_offset" and positions:
