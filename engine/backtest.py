@@ -974,6 +974,13 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
     tp_rupees = float(sc.get("target_profit_rupees", 0) or 0)
     combined_sl_rupees = float(sc.get("combined_sl_rupees", 0) or 0)
     combined_target_rupees = float(sc.get("combined_target_rupees", 0) or 0)
+    # A DEBIT SPREAD'S STOP (Phil, 2026-10-19: "in CE and PE what if we go for
+    # spreads?"). Opt-in: the stop is this per cent of the spread's net debit,
+    # and the legs are judged TOGETHER -- a bought and a sold option of the
+    # same type move the same way, so one candle cannot put both at their own
+    # worst. Off (0) for every config that does not ask for it.
+    spread_sl_pct = float(sc.get("spread_sl_pct", 0) or 0)
+    carry_gaps_by_intrinsic = bool(sc.get("carry_gaps_by_intrinsic", False))
     fee_pct = float(sc.get("fee_pct", 0) or 0)
     initial_capital = float(sc.get("initial_capital", 500000) or 500000)
     trailing_sl_pct = float(sc.get("trailing_sl_pct", 0) or 0)
@@ -1023,6 +1030,7 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         execution_timeframe_minutes=execution_timeframe,
     )
     is_daily = len(df) >= 2 and (df.index[1] - df.index[0]).total_seconds() >= 86400
+    spot_series = df["close"] if carry_gaps_by_intrinsic else None
     # No entry before the first 5-minute candle of the session has closed. A
     # strategy running on 1-minute execution can legitimately want an earlier
     # floor, so the time is configurable; the default keeps every existing run
@@ -1109,6 +1117,29 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             row = row.iloc[-1]
         return row
 
+    def _carry_by_intrinsic(position, last_price, last_ts, ts):
+        """A contract the archive stopped printing, moved with its intrinsic value.
+
+        Dhan's archive keeps the strikes near the money, so a leg that goes
+        deep in the money drops out of it -- and held at its last print, a
+        spread's bought leg froze while its sold leg kept moving, which read
+        as a collapse on the very days it paid (24-Feb-2022: 16900 PE last
+        printed at 14:51, the 16700 PE ran on to 15:29). Opt-in
+        (`carry_gaps_by_intrinsic`): the last price, less the intrinsic value
+        then, plus the intrinsic value now.
+        """
+        try:
+            spot_then = float(spot_series.asof(last_ts))
+            spot_now = float(spot_series.asof(ts))
+            strike = float(position.get("strike") or 0)
+        except (TypeError, ValueError):
+            return last_price
+        if not strike or pd.isna(spot_then) or pd.isna(spot_now):
+            return last_price
+        call = position.get("option_type") == "CE"
+        value = lambda spot: max(0.0, spot - strike) if call else max(0.0, strike - spot)  # noqa: E731
+        return max(0.05, last_price - value(spot_then) + value(spot_now))
+
     def _history_value(position, ts, field, default=None, raw=False):
         row = _history_row(position, ts, raw=raw)
         if row is None and ts is not None:
@@ -1119,9 +1150,21 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             if history_df is not None and not history_df.empty:
                 prior = history_df.loc[history_df.index <= ts]
                 if not prior.empty and prior.index[-1].date() == ts.date():
+                    if field not in ("open", "high", "low", "close"):
+                        # Only a PRICE is carried. Asked for "strike", this
+                        # used to answer with the last close -- and the
+                        # snapshot wrote it back as the position's strike
+                        # (24-Feb-2022's 16900 PE became "NIFTY 513 PE").
+                        kept = prior.iloc[-1].get(field)
+                        try:
+                            return default if kept is None or pd.isna(kept) else float(kept)
+                        except (TypeError, ValueError):
+                            return default
                     carried = prior.iloc[-1].get("close")
                     try:
                         if carried is not None and not pd.isna(carried):
+                            if carry_gaps_by_intrinsic and position.get("option_type") in ("CE", "PE"):
+                                return _carry_by_intrinsic(position, float(carried), prior.index[-1], ts)
                             return float(carried)
                     except (TypeError, ValueError):
                         pass
@@ -1340,6 +1383,48 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     strike_step,
                 )
                 pricing_mode = "synthetic"
+                # A SPREAD'S SOLD LEG: N points from the leg bought before it
+                # (PE: -200 sells the put 200 below; CE: +200 the call above),
+                # same expiry, same size.
+                if str(leg.get("strike_type") or "").lower() == "leg_offset" and positions:
+                    first = positions[0]
+                    offset_strike = float(first["strike"]) + float(leg.get("strike_value", 0) or 0)
+                    first_expiry = (
+                        date.fromisoformat(first["contract_expiry"]) if first.get("contract_expiry") else None
+                    )
+                    if (
+                        historical_premium_selector is None
+                        or not hasattr(historical_premium_selector, "select_strike")
+                        or first_expiry is None
+                    ):
+                        option_data_gaps.append(
+                            {
+                                "timestamp": entry_ts.isoformat(timespec="minutes"),
+                                "leg": leg_num,
+                                "reason": "no archive to price the sold leg",
+                            }
+                        )
+                        return []
+                    resolution = historical_premium_selector.select_strike(
+                        entry_ts, offset_strike, first_expiry, leg["option_type"], execution_timeframe
+                    )
+                    if resolution is None:
+                        option_data_gaps.append(
+                            {
+                                "timestamp": entry_ts.isoformat(timespec="minutes"),
+                                "leg": leg_num,
+                                "reason": historical_premium_selector.last_gap or "sold leg unpriced",
+                            }
+                        )
+                        return []
+                    history_key = resolution.history_key
+                    option_history_map[history_key] = resolution.history
+                    strike_used = resolution.strike
+                    contract_expiry = resolution.expiry
+                    position_lot_size = first["lot_size"]
+                    entry_price = resolution.entry_price
+                    display_symbol = f"{_instrument_label(instrument)} {strike_used} {leg['option_type']}"
+                    pricing_mode = "historical"
                 premium_target = str(leg.get("strike_type") or "").lower() in {
                     "premium_near",
                     "premium_above",
@@ -1419,6 +1504,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                         extra = int(max(0.0, total_pnl) // rung)
                         max_lots = int(sc.get("compound_max_lots", 20) or 20)
                         leg_lots = max(1, min(leg_lots + extra, max_lots))
+                if str(leg.get("strike_type") or "").lower() == "leg_offset" and positions:
+                    leg_lots = int(positions[0]["lots"])
 
                 positions.append(
                     {
@@ -1493,6 +1580,11 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
         sl_rupee_limit = combined_sl_rupees if combined_sl_rupees > 0 else sl_rupees
         tp_rupee_limit = combined_target_rupees if combined_target_rupees > 0 else tp_rupees
         strategy_sl_val = sl_rupee_limit if sl_rupee_limit > 0 else entry_notional * sl_pct / 100 if sl_pct > 0 else 0.0
+        if spread_sl_pct > 0 and positions:
+            net_debit = sum(
+                (1 if p["transaction_type"] == "BUY" else -1) * p["entry_price"] * p["qty"] for p in positions
+            )
+            strategy_sl_val = max(0.0, net_debit) * spread_sl_pct / 100
         strategy_tp_val = tp_rupee_limit if tp_rupee_limit > 0 else entry_notional * tp_pct / 100 if tp_pct > 0 else 0.0
         return positions
 
@@ -1545,18 +1637,42 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 snap = _position_snapshots(position, ts, close_spot, high_spot, low_spot)
                 snapshots[id(position)] = snap
                 portfolio_cur_pnl += _position_pnl(position, snap["current"])
-                portfolio_worst_pnl += _position_pnl(position, snap["worst"])
-                portfolio_best_pnl += _position_pnl(position, snap["best"])
+                if spread_sl_pct > 0 and position["transaction_type"] == "SELL":
+                    # The sold leg is at ITS best when the bought one is at its
+                    # worst: same type, same direction (see spread_sl_pct).
+                    snap["paired_worst"], snap["paired_best"] = snap["best"], snap["worst"]
+                else:
+                    snap["paired_worst"], snap["paired_best"] = snap["worst"], snap["best"]
+                portfolio_worst_pnl += _position_pnl(
+                    position, snap["paired_worst"] if spread_sl_pct > 0 else snap["worst"]
+                )
+                portfolio_best_pnl += _position_pnl(
+                    position, snap["paired_best"] if spread_sl_pct > 0 else snap["best"]
+                )
 
             trade_peak_pnl = max(trade_peak_pnl, portfolio_cur_pnl)
 
             if strategy_sl_val > 0 and portfolio_worst_pnl <= -strategy_sl_val:
-                _close_selected_positions(
-                    list(open_positions),
-                    ts,
-                    lambda position, snap_map=snapshots: snap_map[id(position)]["worst"],
-                    "StrategySL",
-                )
+                if spread_sl_pct > 0:
+                    # Filled AT the stop, as a leg's stop is: each leg moved
+                    # from its current price toward its paired worst until the
+                    # spread has lost exactly the stop.
+                    span = portfolio_cur_pnl - portfolio_worst_pnl
+                    reach = (portfolio_cur_pnl + strategy_sl_val) / span if span > 0 else 1.0
+                    reach = min(1.0, max(0.0, reach))
+
+                    def exit_at_stop(position, snap_map=snapshots, f=reach):
+                        snap = snap_map[id(position)]
+                        return snap["current"] + (snap["paired_worst"] - snap["current"]) * f
+
+                    _close_selected_positions(list(open_positions), ts, exit_at_stop, "StrategySL")
+                else:
+                    _close_selected_positions(
+                        list(open_positions),
+                        ts,
+                        lambda position, snap_map=snapshots: snap_map[id(position)]["worst"],
+                        "StrategySL",
+                    )
                 exited_this_candle = True
             if not exited_this_candle and strategy_tp_val > 0 and portfolio_best_pnl >= strategy_tp_val:
                 # Fill AT the target, never at the candle's best price. The

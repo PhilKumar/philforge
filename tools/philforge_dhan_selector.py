@@ -210,5 +210,54 @@ class DhanHistoricalPremiumSelector:
             f"dhan|{which}|{expiry.isoformat()}|{strike}|{option_type}", history, strike, expiry, entry_price
         )
 
+    def select_strike(
+        self, entry_time: datetime, strike: float, expiry: date, option_type: str, timeframe_minutes: int
+    ):
+        """One named contract -- a spread's sold leg, N points from the bought one.
+
+        Same store routing and the same series shape as `select`; the strike
+        is given rather than found by premium. None (with last_gap) when the
+        archive has no priced bar for it at the entry minute.
+        """
+        self.last_gap = ""
+        option_type = str(option_type or "CE").upper()
+        stamp = entry_time.replace(second=0, microsecond=0, tzinfo=None)
+        which = self._store_for(stamp.date(), expiry)
+        if which is None or which not in self.stores:
+            self.gaps["no_store"] += 1
+            self.last_gap = f"no Dhan store holds the {expiry} contract on {stamp.date()}"
+            return None
+        frame = self._month(which, f"{stamp:%Y-%m}")
+        side = (
+            frame[(frame["side"].str.upper() == option_type) & (frame["strike"] == int(strike))]
+            if len(frame)
+            else frame
+        )
+        if side.empty or stamp not in side.index:
+            self.gaps["no_bar"] += 1
+            self.last_gap = f"no Dhan {int(strike)}{option_type} bar at {stamp:%Y-%m-%d %H:%M}"
+            return None
+        at_entry = side.loc[[stamp]]
+        at_entry = at_entry[at_entry["open"] > 0]
+        if at_entry.empty:
+            self.gaps["no_candidate"] += 1
+            self.last_gap = f"no priced Dhan {int(strike)}{option_type} at {stamp:%Y-%m-%d %H:%M}"
+            return None
+        entry_price = float(at_entry.iloc[-1]["open"])
+        history = side.loc[stamp:][["open", "high", "low", "close"]].copy()
+        history["strike"] = int(strike)
+        history = history[~history.index.duplicated(keep="last")]
+        if int(timeframe_minutes or 1) > 1:
+            rule = f"{int(timeframe_minutes)}min"
+            history = (
+                history.resample(rule, origin=pd.Timestamp("2021-01-01 09:15"))
+                .agg({"open": "first", "high": "max", "low": "min", "close": "last", "strike": "last"})
+                .dropna(subset=["open"])
+            )
+        self.served += 1
+        return HistoricalOptionSelection(
+            f"dhan|{which}|{expiry.isoformat()}|{int(strike)}|{option_type}", history, int(strike), expiry, entry_price
+        )
+
     def report(self) -> str:
         return f"served={self.served} gaps={self.gaps}"
