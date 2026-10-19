@@ -12901,8 +12901,6 @@ let _scalpLTPTimer = null;
 let _scalpFormInitialized = false;
 let _scalpRestoringState = false;
 const _SCALP_FORM_STORAGE_KEY = 'philforge_scalp_form_state_v1';
-const _SCALP_DEFAULT_TARGET_PREMIUM = 300;
-const _SCALP_DEFAULT_SL_PREMIUM = 100;
 // Correct lot sizes as of Jan 2026
 // MCX lot sizes are the contract sizes (barrels, mmBtu): what a rupee of
 // premium is worth. The server fixes them too, whatever the form sends.
@@ -12936,6 +12934,7 @@ function _readScalpFormState() {
     entry_limit_price: read('scalp-limit-price'),
     entry_limit_max: read('scalp-limit-max'),
     auto_exits: document.getElementById('scalp-auto-exits')?.checked === false ? 'off' : 'on',
+    exit_mode: _scalpExitMode(),
     sl_pts: read('scalp-sl-pts'),
     target_pts: read('scalp-target-pts'),
   };
@@ -12992,9 +12991,9 @@ async function _restoreScalpFormState() {
     _applyScalpFieldValue('scalp-limit-max', saved.entry_limit_max);
     _applyScalpFieldValue('scalp-sl-pts', saved.sl_pts);
     _applyScalpFieldValue('scalp-target-pts', saved.target_pts);
-    const autoBox = document.getElementById('scalp-auto-exits');
-    if (autoBox && saved.auto_exits) autoBox.checked = saved.auto_exits !== 'off';
-    _syncScalpAutoExits();
+    // A form saved before the three ways existed: the points switch on is
+    // Points, off was the premium boxes.
+    setScalpExitMode(saved.exit_mode || (saved.auto_exits === 'off' ? 'premium' : 'points'), { silent: true });
     await loadScalpExpiries({ preserveState: saved });
   } finally {
     _scalpRestoringState = false;
@@ -13068,9 +13067,8 @@ function _updateScalpExitRulesNote() {
   const note = document.getElementById('scalp-exit-rules-note');
   const mode = document.getElementById('scalp-mode')?.value;
   if (!note) return;
-  note.textContent = mode === 'live'
-    ? 'Exit Rules (Live: 0 uses Target ₹300 / SL ₹100)'
-    : 'Exit Rules (optional — leave 0 to skip)';
+  note.textContent = 'Exit rules';
+  _syncScalpAutoExits();
 }
 
 function setScalpOptionType(value) {
@@ -13235,25 +13233,85 @@ var _marginCache = { underlying: '', strike: 0, optType: '', lots: 0, lotSize: 0
 // kept in step with its live price while "Set SL and Target from the premium"
 // is on. The server works them out again from the real entry, so the form's
 // figures are a preview and can never be on the wrong side of the price.
+// ── Exit rules: one way at a time ─────────────────────────────
+// Phil, 2026-10-19: "Why this settings got jumbled and not usable?". Three
+// ways to set the same two exits (points, premium, rupees) all showed and all
+// counted at once, and live mode silently filled a blank with a flat Rs 300 /
+// Rs 100 premium. Now the form uses one way, shows only its pair, and says
+// what each exit will be. Points and rupees go to the server as DISTANCES,
+// measured from the price it actually trades at; a blank is no exit (live:
+// the server sets it 25% from the price).
+const _SCALP_EXIT_MODES = ['points', 'premium', 'rupees'];
+
+function _scalpExitMode() {
+  const v = document.getElementById('scalp-exit-mode')?.value;
+  return _SCALP_EXIT_MODES.includes(v) ? v : 'points';
+}
+
+function setScalpExitMode(mode, opts = {}) {
+  if (!_SCALP_EXIT_MODES.includes(mode)) mode = 'points';
+  const input = document.getElementById('scalp-exit-mode');
+  if (input) input.value = mode;
+  document.querySelectorAll('#scalp-exit-mode-toggle .scalp-exit-mode').forEach(b => b.classList.toggle('active', b.dataset.value === mode));
+  document.querySelectorAll('.scalp-exit-pair').forEach(p => { p.hidden = p.dataset.exitMode !== mode; });
+  const box = document.getElementById('scalp-auto-exits');
+  if (box) box.checked = mode === 'points';
+  _syncScalpAutoExits();
+  if (!opts.silent) _persistScalpFormState();
+}
+
+// The exits as distances in premium points, or null when they are typed as premiums.
 function _scalpAutoExitPoints() {
-  if (document.getElementById('scalp-auto-exits')?.checked === false) return null;
-  const sl = parseFloat(document.getElementById('scalp-sl-pts')?.value) || 0;
-  const target = parseFloat(document.getElementById('scalp-target-pts')?.value) || 0;
-  return sl > 0 || target > 0 ? { sl, target } : null;
+  const mode = _scalpExitMode();
+  const num = (id) => Math.max(0, parseFloat(document.getElementById(id)?.value) || 0);
+  if (mode === 'points') {
+    const sl = num('scalp-sl-pts'), target = num('scalp-target-pts');
+    return sl > 0 || target > 0 ? { sl, target } : null;
+  }
+  if (mode === 'rupees') {
+    // Rupees of P&L across the whole position -> points per unit.
+    const qty = (parseInt(document.getElementById('scalp-lots')?.value) || 0) * (parseInt(document.getElementById('scalp-lot-size')?.value) || 0);
+    if (qty <= 0) return null;
+    const pts = (rs) => Math.round(rs / qty * 20) / 20;
+    const sl = pts(num('scalp-sl-rs')), target = pts(num('scalp-target-rs'));
+    return sl > 0 || target > 0 ? { sl, target } : null;
+  }
+  return null;
 }
 
 function _syncScalpAutoExits() {
-  const auto = _scalpAutoExitPoints();
+  const mode = _scalpExitMode();
   const slEl = document.getElementById('scalp-sl-prem');
   const tgEl = document.getElementById('scalp-target-prem');
+  const preview = document.getElementById('scalp-exit-preview');
   if (!slEl || !tgEl) return;
-  slEl.readOnly = !!(auto && auto.sl > 0);
-  tgEl.readOnly = !!(auto && auto.target > 0);
   const ltp = Number(_scalpCurrentLTP) || 0;
-  if (!auto || ltp <= 0) return;
-  const cents = (v) => Math.max(0.05, Math.round(v * 20) / 20).toFixed(2);
-  if (auto.sl > 0) slEl.value = cents(ltp - auto.sl);
-  if (auto.target > 0) tgEl.value = cents(ltp + auto.target);
+  const cents = (v) => Math.max(0.05, Math.round(v * 20) / 20);
+  let sl = 0, target = 0;
+  if (mode === 'premium') {
+    sl = parseFloat(slEl.value) || 0;
+    target = parseFloat(tgEl.value) || 0;
+  } else {
+    const auto = _scalpAutoExitPoints() || { sl: 0, target: 0 };
+    if (ltp > 0) {
+      // Read for a BUY; a SELL's exits mirror these about the price.
+      sl = auto.sl > 0 ? cents(ltp - auto.sl) : 0;
+      target = auto.target > 0 ? cents(ltp + auto.target) : 0;
+    }
+    // Kept in step so the premium boxes show the same exits if switched to.
+    slEl.value = sl > 0 ? sl.toFixed(2) : '0';
+    tgEl.value = target > 0 ? target.toFixed(2) : '0';
+  }
+  if (!preview) return;
+  const live = document.getElementById('scalp-mode')?.value === 'live';
+  const qty = (parseInt(document.getElementById('scalp-lots')?.value) || 0) * (parseInt(document.getElementById('scalp-lot-size')?.value) || 0);
+  const rupees = (v) => (ltp > 0 && qty > 0 && v > 0 ? ` (₹${Math.round(Math.abs(v - ltp) * qty).toLocaleString('en-IN')})` : '');
+  const fmt = (v) => `₹${v.toFixed(2)}`;
+  // Live, a blank is set 25% from the price by the server -- shown as that price.
+  const exit = (v, dflt) => (v > 0 ? `${fmt(v)}${rupees(v)}` : live ? `${fmt(dflt)} <small>(default 25%)</small>${rupees(dflt)}` : 'none');
+  preview.innerHTML = ltp > 0
+    ? `On a BUY at <b>${fmt(ltp)}</b>: SL <b class="is-sl">${exit(sl, cents(ltp * 0.75))}</b> · Target <b class="is-tg">${exit(target, cents(ltp * 1.25))}</b>`
+    : `Blank or 0 is ${live ? 'set 25% from the price' : 'no exit'}.`;
 }
 
 function updateScalpMargin(forceRecalc) {
@@ -13718,10 +13776,12 @@ async function submitScalpEntry(direction) {
       transaction_type: direction || 'BUY',
       lots: parseInt(document.getElementById('scalp-lots').value),
       lot_size: parseInt(document.getElementById('scalp-lot-size').value),
-      target_rupees: parseFloat(document.getElementById('scalp-target-rs').value) || 0,
-      sl_rupees: parseFloat(document.getElementById('scalp-sl-rs').value) || 0,
-      target_premium: parseFloat(document.getElementById('scalp-target-prem').value) || 0,
-      sl_premium: parseFloat(document.getElementById('scalp-sl-prem').value) || 0,
+      // One way at a time: premiums only when typed as premiums; points and
+      // rupees go as distances (below). Rupee exits are not sent as rupees.
+      target_rupees: 0,
+      sl_rupees: 0,
+      target_premium: _scalpExitMode() === 'premium' ? (parseFloat(document.getElementById('scalp-target-prem').value) || 0) : 0,
+      sl_premium: _scalpExitMode() === 'premium' ? (parseFloat(document.getElementById('scalp-sl-prem').value) || 0) : 0,
       sqoff_time: '',
       mode: document.getElementById('scalp-mode').value,
       broker: document.getElementById('scalp-broker')?.value || 'dhan',
@@ -13739,17 +13799,7 @@ async function submitScalpEntry(direction) {
       statusEl.style.color = 'var(--danger)';
       return;
     }
-    if (payload.mode === 'live') {
-      if (payload.target_premium <= 0) {
-        payload.target_premium = _SCALP_DEFAULT_TARGET_PREMIUM;
-        document.getElementById('scalp-target-prem').value = _SCALP_DEFAULT_TARGET_PREMIUM;
-      }
-      if (payload.sl_premium <= 0) {
-        payload.sl_premium = _SCALP_DEFAULT_SL_PREMIUM;
-        document.getElementById('scalp-sl-prem').value = _SCALP_DEFAULT_SL_PREMIUM;
-      }
-      _persistScalpFormState();
-    }
+    // A blank exit in live is set by the server from the price it trades at.
     // Pre-flight validation: warn if SL premium is on the wrong side of entry
     const liveLtp = parseFloat(document.getElementById('scalp-live-ltp')?.textContent?.replace(/[₹,]/g, '')) || 0;
     if (liveLtp > 0 && payload.sl_premium > 0) {

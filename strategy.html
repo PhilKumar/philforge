@@ -4518,38 +4518,35 @@
             <small>Exit rules + stop-limit entry</small>
           </summary>
           <div class="scalp-advanced-body">
-        <!-- Exit Rules: IDs and values are deliberately unchanged. -->
-        <div class="scalp-exit-rules" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-          <div id="scalp-exit-rules-note" style="font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px;">Exit Rules (optional — leave 0 to skip)</div>
-          <!-- SL and Target a set distance from the premium, worked out live
-               (Phil, 2026-10-14: "SL 100 pts less and 100 points more for Target"). -->
-          <div class="scalp-auto-exits">
-            <label class="scalp-auto-exits-toggle"><input type="checkbox" id="scalp-auto-exits" checked onchange="_syncScalpAutoExits(); _persistScalpFormState()"> Set SL and Target from the premium</label>
-            <div class="scalp-auto-exits-pts">
-              <label for="scalp-sl-pts">SL pts</label>
-              <input type="number" id="scalp-sl-pts" value="100" min="0" step="5" oninput="_syncScalpAutoExits(); _persistScalpFormState()">
-              <label for="scalp-target-pts">Target pts</label>
-              <input type="number" id="scalp-target-pts" value="100" min="0" step="5" oninput="_syncScalpAutoExits(); _persistScalpFormState()">
+        <!-- Exit Rules (Phil, 2026-10-19: "this settings got jumbled and not
+             usable"). One way at a time: points from the premium, the premium
+             itself, or rupees of P&L; only that pair is shown. 0 or blank is
+             none (live: set 25% from the price). The field ids are unchanged. -->
+        <div class="scalp-exit-rules">
+          <div class="scalp-exit-head">
+            <span id="scalp-exit-rules-note">Exit rules</span>
+            <input type="hidden" id="scalp-exit-mode" value="points">
+            <div id="scalp-exit-mode-toggle" class="scalp-exit-modes" role="group" aria-label="Set SL and Target by">
+              <button type="button" class="scalp-exit-mode active" data-value="points" onclick="setScalpExitMode('points')">Points</button>
+              <button type="button" class="scalp-exit-mode" data-value="premium" onclick="setScalpExitMode('premium')">Premium</button>
+              <button type="button" class="scalp-exit-mode" data-value="rupees" onclick="setScalpExitMode('rupees')">₹ P&amp;L</button>
             </div>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div>
-              <label for="scalp-sl-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL ₹ (max loss)</label>
-              <input type="number" id="scalp-sl-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-            </div>
-            <div>
-              <label for="scalp-target-rs" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target ₹ (total P&L)</label>
-              <input type="number" id="scalp-target-rs" value="0" step="100" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-            </div>
-            <div>
-              <label for="scalp-sl-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">SL Premium ₹</label>
-              <input type="number" id="scalp-sl-prem" value="100" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-            </div>
-            <div>
-              <label for="scalp-target-prem" style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 3px;">Target Premium ₹</label>
-              <input type="number" id="scalp-target-prem" value="300" min="0" step="10" style="font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace;">
-            </div>
+          <!-- Kept for saved forms: on = Points. -->
+          <input type="checkbox" id="scalp-auto-exits" checked hidden onchange="_syncScalpAutoExits(); _persistScalpFormState()">
+          <div class="scalp-exit-pair" data-exit-mode="points">
+            <label><span>SL pts</span><input type="number" id="scalp-sl-pts" value="100" min="0" step="5" inputmode="decimal" oninput="_syncScalpAutoExits(); _persistScalpFormState()"></label>
+            <label><span>Target pts</span><input type="number" id="scalp-target-pts" value="100" min="0" step="5" inputmode="decimal" oninput="_syncScalpAutoExits(); _persistScalpFormState()"></label>
           </div>
+          <div class="scalp-exit-pair" data-exit-mode="premium" hidden>
+            <label><span>SL premium ₹</span><input type="number" id="scalp-sl-prem" value="0" min="0" step="0.05" inputmode="decimal" oninput="_syncScalpAutoExits()"></label>
+            <label><span>Target premium ₹</span><input type="number" id="scalp-target-prem" value="0" min="0" step="0.05" inputmode="decimal" oninput="_syncScalpAutoExits()"></label>
+          </div>
+          <div class="scalp-exit-pair" data-exit-mode="rupees" hidden>
+            <label><span>SL ₹ (max loss)</span><input type="number" id="scalp-sl-rs" value="0" min="0" step="100" inputmode="decimal" oninput="_syncScalpAutoExits()"></label>
+            <label><span>Target ₹ (profit)</span><input type="number" id="scalp-target-rs" value="0" min="0" step="100" inputmode="decimal" oninput="_syncScalpAutoExits()"></label>
+          </div>
+          <div class="scalp-exit-preview" id="scalp-exit-preview"></div>
         </div>
 
         <!-- Stop-Limit Entry (optional) -->

@@ -133,12 +133,17 @@ test('Scalp panels size to content and Advanced preserves every execution field'
 
   await advanced.locator('summary').click();
   await expect(advanced).toHaveAttribute('open', '');
-  for (const id of [
-    'scalp-sl-rs', 'scalp-target-rs', 'scalp-sl-prem',
-    'scalp-target-prem', 'scalp-limit-price', 'scalp-limit-max',
-  ]) {
-    await expect(page.locator(`#${id}`)).toBeVisible();
+  // Exit rules show one way at a time (2026-10-19); each pair is a click away.
+  for (const [mode, ids] of [
+    ['points', ['scalp-sl-pts', 'scalp-target-pts']],
+    ['premium', ['scalp-sl-prem', 'scalp-target-prem']],
+    ['rupees', ['scalp-sl-rs', 'scalp-target-rs']],
+  ] as const) {
+    await page.click(`#scalp-exit-mode-toggle [data-value="${mode}"]`);
+    for (const id of ids) await expect(page.locator(`#${id}`)).toBeVisible();
   }
+  await page.click('#scalp-exit-mode-toggle [data-value="points"]');
+  for (const id of ['scalp-limit-price', 'scalp-limit-max']) await expect(page.locator(`#${id}`)).toBeVisible();
   await expect(page.locator('[onclick="submitScalpEntry(\'BUY\')"]')).toHaveCount(1);
   await expect(page.locator('[onclick="submitScalpEntry(\'SELL\')"]')).toHaveCount(1);
 });

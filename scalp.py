@@ -570,12 +570,15 @@ class ScalpEngine:
         if mode == "live" and broker == "zerodha" and self.zerodha is None:
             return {"status": "error", "message": "Log in to Zerodha from Settings first."}
         if mode == "live":
-            # A stop-limit entry fills at its TRIGGER, not at today's price, so
-            # its exits are judged when that trigger arrives -- here only the
-            # blanks are filled, as the form does.
+            # A BLANK EXIT IS SET FROM THE PRICE, never from a flat number. The
+            # Rs 300 target / Rs 100 stop that used to fill the blanks here meant
+            # nothing to an option at Rs 232 (a stop 132 points away) and stood
+            # on the wrong side of one at Rs 50 (Phil, 2026-10-19: "this settings
+            # got jumbled and not usable"). A market entry is resolved against
+            # its quote below, a stop-limit one when its trigger arrives
+            # (`_activate_pending_trade`); both fill a blank 25% from the price.
             typed_target, typed_sl = float(target_premium or 0), float(sl_premium or 0)
-            target_premium = typed_target if typed_target > 0 else SCALP_DEFAULT_TARGET_PREMIUM
-            sl_premium = typed_sl if typed_sl > 0 else SCALP_DEFAULT_SL_PREMIUM
+            target_premium, sl_premium = typed_target, typed_sl
 
         # ── Stop-limit entry: create pending trade, no order yet ──
         if entry_limit_price > 0 and entry_limit_max > 0:
@@ -1112,6 +1115,25 @@ class ScalpEngine:
             f"{trade.strike}{trade.option_type} | LTP ₹{trade.current_premium:.2f} "
             f"in range ₹{trade.entry_limit_price:.2f}–₹{trade.entry_limit_max:.2f} | product={trade.product_type}",
         )
+
+        if trade.mode == "live":
+            # The exits are judged now, against the price the trigger arrived
+            # at: points measured from it, a blank set 25% from it, and a
+            # wrong-sided exit refused before the broker sees it.
+            trade.rebase_points(trade.current_premium)
+            target, stop, problem = resolve_scalp_exit_prices(
+                trade.transaction_type,
+                trade.current_premium,
+                trade.target_premium,
+                trade.sl_premium,
+                broker="Zerodha" if self._is_zerodha_trade(trade) else "Dhan",
+            )
+            if problem:
+                self._log("error", f"❌ Stop-limit entry not sent: {problem}")
+                self.open_trades.pop(tid, None)
+                self._sync_marketfeed_throttle()
+                return
+            trade.target_premium, trade.sl_premium = target, stop
 
         if trade.mode == "paper":
             order_id = "PAPER"

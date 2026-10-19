@@ -171,10 +171,12 @@ test('Scalp: SL and Target follow the premium by the points set, and go to the s
     (window as unknown as { _scalpCurrentLTP: number })._scalpCurrentLTP = 480.85;
     (window as unknown as { _syncScalpAutoExits: () => void })._syncScalpAutoExits();
   });
-  await expect(page.locator('#scalp-auto-exits')).toBeChecked();
+  // Points is the way chosen; the exits it gives are said in words.
+  await expect(page.locator('#scalp-exit-mode')).toHaveValue('points');
   await expect(page.locator('#scalp-sl-prem')).toHaveValue('380.85');
   await expect(page.locator('#scalp-target-prem')).toHaveValue('580.85');
-  expect(await page.locator('#scalp-sl-prem').evaluate((el: HTMLInputElement) => el.readOnly)).toBe(true);
+  await expect(page.locator('#scalp-exit-preview')).toContainText('SL ₹380.85');
+  await expect(page.locator('#scalp-exit-preview')).toContainText('Target ₹580.85');
 
   // The price moves: so do they.
   await page.evaluate(() => {
@@ -184,20 +186,41 @@ test('Scalp: SL and Target follow the premium by the points set, and go to the s
   await expect(page.locator('#scalp-sl-prem')).toHaveValue('400.00');
   await expect(page.locator('#scalp-target-prem')).toHaveValue('600.00');
 
-  // Sent as distances, for the server to measure from the price it trades at.
+  // Sent as distances, for the server to measure from the price it trades at,
+  // and nothing else: no premiums, no rupees.
   await page.evaluate(() => (window as unknown as { submitScalpEntry: (d: string) => Promise<void> }).submitScalpEntry('BUY'));
   await expect.poll(() => sent).not.toBeNull();
   expect([sent.sl_points, sent.target_points]).toEqual([100, 100]);
+  expect([sent.sl_premium, sent.target_premium, sent.sl_rupees, sent.target_rupees]).toEqual([0, 0, 0, 0]);
 
-  // Off: the prices are typed by hand again and no points are sent.
-  sent = null;
-  // The switch lives under Advanced.
+  // Phil, 2026-10-19: a 0 SL is no SL -- not a stop at Rs 0.05.
   await page.locator('#scalp-page details.scalp-advanced > summary').click();
-  await page.locator('#scalp-auto-exits').uncheck();
-  expect(await page.locator('#scalp-sl-prem').evaluate((el: HTMLInputElement) => el.readOnly)).toBe(false);
+  await page.fill('#scalp-sl-pts', '0');
+  await page.fill('#scalp-target-pts', '10');
+  await expect(page.locator('#scalp-exit-preview')).toContainText('SL none');
+  await expect(page.locator('#scalp-sl-prem')).toHaveValue('0');
+
+  // Premium: only that pair shows, typed prices go, no points.
+  sent = null;
+  await page.click('#scalp-exit-mode-toggle [data-value="premium"]');
+  await expect(page.locator('#scalp-sl-pts')).toBeHidden();
+  await expect(page.locator('#scalp-sl-prem')).toBeVisible();
+  await page.fill('#scalp-sl-prem', '450');
+  await page.fill('#scalp-target-prem', '560');
   await page.evaluate(() => (window as unknown as { submitScalpEntry: (d: string) => Promise<void> }).submitScalpEntry('BUY'));
   await expect.poll(() => sent).not.toBeNull();
   expect(sent.sl_points).toBeUndefined();
+  expect([sent.sl_premium, sent.target_premium]).toEqual([450, 560]);
+
+  // Rupees of P&L become points per unit of the position.
+  sent = null;
+  await page.click('#scalp-exit-mode-toggle [data-value="rupees"]');
+  const qty = await page.evaluate(() => (parseInt((document.getElementById('scalp-lots') as HTMLInputElement).value) || 0) * (parseInt((document.getElementById('scalp-lot-size') as HTMLInputElement).value) || 0));
+  await page.fill('#scalp-sl-rs', String(qty * 20));
+  await page.fill('#scalp-target-rs', String(qty * 40));
+  await page.evaluate(() => (window as unknown as { submitScalpEntry: (d: string) => Promise<void> }).submitScalpEntry('BUY'));
+  await expect.poll(() => sent).not.toBeNull();
+  expect([sent.sl_points, sent.target_points, sent.sl_rupees, sent.sl_premium]).toEqual([20, 40, 0, 0]);
 });
 
 test('Scalp: the docked chart leaves the NIFTY 5m chart alone while it is open', async ({ page }) => {
