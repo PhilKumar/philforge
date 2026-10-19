@@ -430,6 +430,54 @@ test('RSI (14) sits under the option chart as TradingView draws it, and its swit
   await expect.poll(async () => (await rsi()).painted).toBeGreaterThan(0);
 });
 
+test('a new strike or CE<->PE keeps the stretch of time on screen; only the price axis refits', async ({ page }) => {
+  // Phil, 2026-10-19: "the chart resets again and again if I move to other
+  // strike price or CE to PE ... make it stay what I have viewed before".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  const day = oneMinuteBars('2026-10-14', '15:29:00');
+  await page.route('**/api/scalp/contract-chart**', (route) => {
+    const q = new URL(route.request().url()).searchParams;
+    const base = q.get('option_type') === 'CE' ? 60 : 300;
+    const candles = day.map((b, i) => ({ t: b.t, o: base + i * 0.05, h: base + i * 0.05 + 2, l: base + i * 0.05 - 2, c: base + i * 0.05 + 1 }));
+    return route.fulfill({ json: {
+      status: 'ok', timeframe: '1m', candles, entries: [], overlays: [], lines: [], live_price: 0,
+      instrument: { underlying: 'NIFTY', strike: Number(q.get('strike')), option_type: q.get('option_type'), expiry: q.get('expiry'), security_id: '1' },
+    } });
+  });
+  await scalpChart(page, day, 150, false);
+  const win = () => page.evaluate(() => {
+    const c = (window as any)._pfChartCanvas, w = (window as any).pfChartCurrentWindow();
+    return { from: Math.round(w.from), to: Math.round(w.to), follow: w.followRight, pMin: c.viewport.pMin, pMax: c.viewport.pMax, type: c.data.instrument.option_type };
+  });
+  // Pan back to 11:00-12:00, off the live edge.
+  const t11 = Math.floor(new Date('2026-10-14T11:00:00+05:30').getTime() / 1000);
+  await page.evaluate((from) => {
+    const c = (window as any)._pfChartCanvas;
+    (window as any).pfChartApplyWindow({ from, to: from + 3600, followRight: false });
+    c.viewport.pMin = c.viewport.pMin; // keep
+  }, t11);
+  const before = await win();
+  expect([before.from, before.to, before.follow, before.type]).toEqual([t11, t11 + 3600, false, 'PE']);
+  // Switch to CE: same times; prices refit to the CE's ~60s.
+  await page.evaluate(() => {
+    (document.getElementById('scalp-option-type') as HTMLInputElement).value = 'CE';
+    (window as any)._syncScalpContractChartLabel();
+  });
+  await expect.poll(async () => (await win()).type).toBe('CE');
+  const after = await win();
+  expect([after.from, after.to, after.follow]).toEqual([t11, t11 + 3600, false]);
+  expect(after.pMax).toBeLessThan(80);
+  expect(after.pMin).toBeGreaterThan(50);
+  // A new strike keeps it too.
+  await page.evaluate(() => {
+    (document.getElementById('scalp-strike') as HTMLInputElement).value = '22800';
+    (window as any)._syncScalpContractChartLabel();
+  });
+  await expect.poll(() => page.evaluate(() => (window as any)._pfChartCanvas.data.instrument.strike)).toBe(22800);
+  const strike = await win();
+  expect([strike.from, strike.to]).toEqual([t11, t11 + 3600]);
+});
+
 test('the CPR switch hides and shows the pivot set as one', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 1000 });
   const candles = oneMinuteBars('2026-10-14', '15:29:00');

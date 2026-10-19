@@ -608,6 +608,45 @@ function _pfChartCanvasRefresh(d, saved) {
 // Phase 3 uses the inverse pair for cursor-anchored zoom and the crosshair.
 // The horizontal domain is bar indices; xOf accepts epoch seconds and converts
 // through the axis, so every draw layer keeps passing timestamps unchanged.
+// THE WINDOW IN TIME, carried from one chart to the next (Phil, 2026-10-19:
+// "the chart resets again and again if I move to other strike price or CE to
+// PE ... make it stay what I have viewed before"). Read as clock times, so it
+// survives a new contract or a new timeframe: the same stretch of the day,
+// still riding the live edge if it was. Only the price axis is fitted afresh,
+// to the new contract's own candles in that stretch.
+function pfChartCurrentWindow() {
+  var c = _pfChartCanvas;
+  if (!c || !c.viewport || !((c.data || {}).candles || []).length) return null;
+  var axis = _pfChartCanvasAxisOf(c), fit = _pfChartCanvasFit(c);
+  var tolerance = Math.max(0.5, (c.viewport.tMax - c.viewport.tMin) * 0.001);
+  return {
+    from: _pfChartCanvasTimeAt(axis, c.viewport.tMin),
+    to: _pfChartCanvasTimeAt(axis, c.viewport.tMax),
+    followRight: !!fit && Math.abs(c.viewport.tMax - fit.tMax) <= tolerance
+  };
+}
+
+function pfChartApplyWindow(win) {
+  var c = _pfChartCanvas, bars = ((c && c.data) || {}).candles || [];
+  if (!c || !win || !bars.length) return false;
+  var axis = _pfChartCanvasAxisOf(c), fit = _pfChartCanvasFit(c);
+  if (!fit) return false;
+  var a = _pfChartCanvasIdxOf(axis, win.from), b = _pfChartCanvasIdxOf(axis, win.to);
+  if (!isFinite(a) || !isFinite(b) || b <= a) return false;
+  if (win.followRight) { var span = b - a; b = fit.tMax; a = b - span; }
+  var from = Math.max(0, Math.ceil(a)), to = Math.min(bars.length - 1, Math.floor(b));
+  if (to < from) { from = Math.max(0, Math.min(bars.length - 1, Math.round(a))); to = from; }
+  var lo = Infinity, hi = -Infinity;
+  for (var i = from; i <= to; i++) {
+    lo = Math.min(lo, Number(bars[i].l));
+    hi = Math.max(hi, Number(bars[i].h));
+  }
+  if (!isFinite(lo) || !isFinite(hi)) { lo = fit.pMin; hi = fit.pMax; }
+  else { var pad = ((hi - lo) || Math.max(Math.abs(hi) * 0.02, 1)) * 0.06; lo -= pad; hi += pad; }
+  _pfChartCanvasSetViewport(c, { tMin: a, tMax: b, pMin: lo, pMax: hi });
+  return true;
+}
+
 function _pfChartCanvasProjection(c) {
   var v = c.viewport;
   if (!v) return null;

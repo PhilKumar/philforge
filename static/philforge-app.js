@@ -14416,6 +14416,7 @@ function _scalpRememberChartSpan(tfSec) {
 }
 let _scalpLiveBar = null;   // {key, tf, t, o, h, l}: survives the 20s refreshes
 let _scalpChartShown = null; // {key, data}: the payload on screen
+let _scalpChartWindow = null; // {from, to, followRight}: the time on screen, kept until reload
 let _scalpLiveTimer = null;
 
 function _scalpChartLivePrice(key) {
@@ -14953,6 +14954,11 @@ async function openScalpOptionChart(tradeId, options = {}) {
       const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#' + els.canvasId) === host;
       const drawnKey = `${targetKey}|${data.timeframe || _scalpOptionChartTf}`;
       const view = canvasIsThisChart && drawnKey === _scalpOptionChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      // A new strike, CE<->PE, timeframe or window: the stretch of time on
+      // screen comes with it (see pfChartCurrentWindow).
+      const scalpCanvas = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas && _pfChartCanvas.host && _pfChartCanvas.host.isConnected
+        && _pfChartCanvas.host.closest('#scalp-dock-chart, #scalp-option-chart-overlay');
+      if (!view && scalpCanvas && typeof pfChartCurrentWindow === 'function') _scalpChartWindow = pfChartCurrentWindow() || _scalpChartWindow;
       const refreshed = canvasIsThisChart && (data.candles || []).length && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
       _scalpOptionChartDrawnKey = drawnKey;
       if (!refreshed) {
@@ -14968,6 +14974,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
         }
         if (!pfBenchDrawChart(host, data)) throw new Error('Option chart could not be drawn.');
       }
+      if (!view && _scalpChartWindow && typeof pfChartApplyWindow === 'function') pfChartApplyWindow(_scalpChartWindow);
     }
     if (docked && _scalpDockFailed.key === targetKey) _scalpDockFailed = { key: '', at: 0 };
     if (!liveRefresh || !_scalpOptionChartPollTimer) _startScalpOptionChartPolling();
