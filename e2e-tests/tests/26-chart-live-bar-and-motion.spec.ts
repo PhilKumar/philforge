@@ -504,3 +504,118 @@ test('the CPR switch hides and shows the pivot set as one', async ({ page }) => 
   await cpr.click();
   await expect.poll(count).toBe(3);
 });
+
+test('a trendline reaches right while it is being drawn, not only after the second click', async ({ page }) => {
+  // Phil, 2026-10-20: "while starting from a point it is not extending once the
+  // second point is done it extends its ray".
+  await page.setViewportSize({ width: 1400, height: 1400 });
+  await page.addInitScript(() => { try { localStorage.setItem('pf_scalp_chart_rsi', '0'); localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
+  await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
+  await page.locator('#scalp-dock-chart-actions .scalp-line-btn').click();
+  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.6);
+  await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.4, { steps: 4 });
+  const ray = await page.evaluate(() => {
+    const w = window as any, c = w._pfChartCanvas, pend = c.drawPending;
+    const end = w._pfChartLineEnd(c.projection, pend, w._pfChartDrawGeom(c.projection, pend));
+    return { extend: pend.extend, endX: end && Math.round(end.x), right: Math.round(c.projection.padL + c.projection.plotW) };
+  });
+  expect(ray.extend).toBe('right');
+  expect(ray.endX).toBe(ray.right);
+  await page.keyboard.press('Escape');
+});
+
+test('the RSI pane has TradingView\'s buttons: move up, move down, collapse', async ({ page }) => {
+  // Phil, 2026-10-20: "Need right up and down arrows for RSI same like trading view".
+  await page.setViewportSize({ width: 1400, height: 1400 });
+  await page.addInitScript(() => { try { localStorage.removeItem('pf_scalp_chart_rsi'); localStorage.removeItem('pf_chart_rsi_pane'); } catch (_) {} });
+  const candles = oneMinuteBars('2026-10-14', '15:29:00').map((b, i) => ({ ...b, c: 150 + 12 * Math.sin(i / 17) }));
+  await scalpChart(page, candles, 150);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const pane = () => page.evaluate(() => {
+    const c = (window as any)._pfChartCanvas;
+    return { ...c.paint.rsiPane, priceTop: Math.round(c.projection.padT) };
+  });
+  const tools = page.locator('#scalp-dock-chart-body [data-pane-tools]');
+  const press = async (name: string) => {
+    const host = (await page.locator('#scalp-dock-chart-body .pf-bench-canvas-host').boundingBox())!;
+    const p = await pane();
+    await page.mouse.move(host.x + host.width / 2, host.y + p.top + p.h / 2);
+    await expect(tools).toHaveClass(/is-on/);
+    const b = (await tools.locator(`button[data-pane="${name}"]`).boundingBox())!;
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  };
+  let p = await pane();
+  expect(p.pos).toBe('below');
+  expect(p.top).toBeGreaterThan(p.priceTop);
+  // Off the pane, the buttons keep out of the way.
+  const host = (await page.locator('#scalp-dock-chart-body .pf-bench-canvas-host').boundingBox())!;
+  await page.mouse.move(host.x + host.width / 2, host.y + 60);
+  await expect(tools).not.toHaveClass(/is-on/);
+  await expect(tools.locator('button[data-pane="down"]')).toBeDisabled();
+
+  await press('up');
+  await expect.poll(async () => (await pane()).pos).toBe('above');
+  p = await pane();
+  expect(p.top).toBeLessThan(p.priceTop);
+  expect(JSON.parse(await page.evaluate(() => localStorage.getItem('pf_chart_rsi_pane') || '{}')).pos).toBe('above');
+  await expect(tools.locator('button[data-pane="up"]')).toBeDisabled();
+
+  await press('down');
+  await expect.poll(async () => (await pane()).pos).toBe('below');
+
+  await press('fold');
+  await expect.poll(async () => (await pane()).collapsed).toBe(true);
+  expect((await pane()).h).toBeLessThan(24);
+  await press('fold');
+  await expect.poll(async () => (await pane()).h).toBeGreaterThan(40);
+});
+
+test('the broker pair spans its row with no BROKER label', async ({ page }) => {
+  // Phil, 2026-10-20: "Remove the text broker and justify the both broker on the space correctly".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
+  const row = page.locator('#scalp-page .scalp-broker-row');
+  await expect(row).not.toContainText('BROKER');
+  await expect(page.locator('#scalp-broker-toggle')).toHaveAttribute('aria-label', 'Broker');
+  const fit = await page.evaluate(() => {
+    const r = document.querySelector('#scalp-page .scalp-broker-row')!.getBoundingClientRect();
+    const t = document.getElementById('scalp-broker-toggle')!.getBoundingClientRect();
+    const [d, z] = Array.from(document.querySelectorAll('#scalp-broker-toggle .scalp-toggle-btn')).map((b) => b.getBoundingClientRect().width);
+    return { gap: Math.round(r.width - t.width), even: Math.abs(d - z) < 1 };
+  });
+  expect(fit.gap).toBeLessThanOrEqual(1);
+  expect(fit.even).toBe(true);
+});
+
+test('the Scalp desk freezes down to Active Positions; the rest scrolls beneath', async ({ page }) => {
+  // Phil, 2026-10-20: "Let the page freeze starts from the Active positions".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
+  const at = (y: number) => page.evaluate(async (v) => {
+    window.scrollTo(0, v);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const card = document.querySelector('#scalp-page > .card')!;
+    const head = card.querySelector(':scope > .ocp-head')!.getBoundingClientRect();
+    const pos = card.querySelector(':scope > .scalp-positions-card')!.getBoundingClientRect();
+    const chart = document.getElementById('scalp-dock-chart-body')!.getBoundingClientRect();
+    return { head: Math.round(head.top), headBottom: Math.round(head.bottom), pos: Math.round(pos.top), chart: Math.round(chart.top), stuck: card.classList.contains('pf-scalp-stuck') };
+  }, y);
+  const rest = await at(0);
+  expect(rest.stuck).toBe(false);
+  await at(500);
+  await expect.poll(async () => (await at(500)).stuck).toBe(true);
+  const a = await at(500);
+  await at(900);
+  const b = await at(900);
+  expect(b.head).toBe(a.head);
+  expect(b.pos).toBe(a.pos);
+  expect(a.pos).toBe(a.headBottom);
+  expect(b.chart).toBeLessThan(a.chart);  // the chart scrolled on under them
+  // A short window keeps the old flow: nothing pinned below the banner.
+  await page.setViewportSize({ width: 1400, height: 760 });
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('#scalp-page > .card > .scalp-positions-card')!).position)).toBe('static');
+});

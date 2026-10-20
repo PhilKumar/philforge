@@ -1967,8 +1967,40 @@ window.addEventListener('scroll', () => {
   _bannerFoldFrame = requestAnimationFrame(() => {
     _bannerFoldFrame = 0;
     if (_foldFrozenBanner()) _syncFrozenTops();
+    _syncScalpFreezeStuck();
   });
 }, { passive: true });
+
+// THE SCALP DESK FREEZES DOWN TO ITS POSITIONS. Phil, 2026-10-20: "Let the
+// page freeze starts from the Active positions". The Scalp Engine line pins
+// under the Trading banner and Active Positions under it, so an open trade's
+// target and SL stay in reach while the chart, form and history scroll
+// beneath. Their offsets come from the same measure as the banner's.
+const _SCALP_FREEZE_HEAD = '#scalp-page.active-page > .card > .ocp-head';
+function _scalpFreezeActive() {
+  return _frozenTopsActive() && window.matchMedia('(min-width: 1080px) and (min-height: 820px)').matches;
+}
+function _syncScalpFreeze(top) {
+  const head = document.querySelector(_SCALP_FREEZE_HEAD);
+  if (!head || !_scalpFreezeActive()) return;
+  const root = document.documentElement;
+  root.style.setProperty('--pf-freeze-scalp-head', `${top}px`);
+  root.style.setProperty('--pf-freeze-scalp-pos', `${top + Math.ceil(head.getBoundingClientRect().height)}px`);
+  _syncScalpFreezeStuck();
+}
+// Solid only while pinned: the card is glass, and at rest it should look
+// exactly as it did; pinned, the page must not show through.
+function _syncScalpFreezeStuck() {
+  const head = document.querySelector(_SCALP_FREEZE_HEAD);
+  if (!head) return;
+  const card = head.parentElement;
+  let stuck = false;
+  if (_scalpFreezeActive() && window.scrollY > 0) {
+    const top = parseFloat(window.getComputedStyle(head).top);
+    stuck = Number.isFinite(top) && head.getBoundingClientRect().top <= top + 0.5;
+  }
+  card.classList.toggle('pf-scalp-stuck', stuck);
+}
 function _syncFrozenTops() {
   document.body.classList.add('pf-frozen-tops');
   _foldFrozenBanner();
@@ -1980,6 +2012,7 @@ function _syncFrozenTops() {
   const heroH = hero ? Math.ceil(hero.getBoundingClientRect().height) : 0;
   const gap = hero ? parseFloat(window.getComputedStyle(hero).getPropertyValue('--pf-workspace-gap')) || 14 : 0;
   root.style.setProperty('--pf-freeze-viewbar-top', `${headerH + heroH + gap}px`);
+  _syncScalpFreeze(headerH + heroH);
   if (document.body.classList.contains('pf-blueprint-open')) _syncBlueprintStickyOffset();
 }
 window.addEventListener('resize', () => { _foldFrozenBanner(true); _syncFrozenTops(); });

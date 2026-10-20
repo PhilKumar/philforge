@@ -7307,6 +7307,17 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   position: absolute; inset: 0; display: block; width: 100%; height: 100%;
 }
 .pf-bench-canvas-host canvas + canvas { pointer-events: none; }
+/* The RSI pane's own buttons, top right of the pane: move up, move down,
+   collapse. Shown while the pointer is over the pane, as TradingView does. */
+.pf-chart-pane-tools { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.pf-chart-pane-tools.is-on, .pf-chart-pane-tools:hover, .pf-chart-pane-tools:focus-within { opacity: 1; pointer-events: auto; }
+.pf-chart-pane-tools button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--card); color: var(--text);
+}
+.pf-chart-pane-tools button:hover:not(:disabled) { border-color: var(--border-hi); background: var(--border); }
+.pf-chart-pane-tools button:disabled { opacity: .35; cursor: default; }
 .pf-bench-empty { font-size: 12px; color: var(--muted); padding: 40px 0; text-align: center; }
 
 @media (max-width: 640px) {
@@ -10028,6 +10039,40 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 /* "AF prev close 23,414.30" beside the desk's NIFTY chart buttons -- see _cepePaintPrevClose. */
 .cepe-prevclose { font: 700 10.5px 'JetBrains Mono', monospace; color: var(--muted); background: transparent; border: 1px dashed var(--border); border-radius: 7px; padding: 5px 9px; cursor: copy; white-space: nowrap; }
 .cepe-prevclose:hover { color: var(--text); border-color: var(--accent); }
+
+/* The Scalp desk pins down to Active Positions (Phil, 2026-10-20: "Let the
+   page freeze starts from the Active positions"). The engine line pins right
+   under the Trading banner and the positions card right under it; the chart,
+   form, log and history scroll beneath. Offsets measured in
+   _syncScalpFreeze; the solid fill only while pinned (.pf-scalp-stuck), so
+   the glass card is unchanged at rest. Desktop and tall windows only. */
+@media (min-width: 1080px) and (min-height: 820px) {
+  body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-head {
+    position: sticky;
+    top: var(--pf-freeze-scalp-head, 0px);
+    z-index: 22;
+    /* Its own 14px below, so the pinned positions card meets it flush and
+       nothing slides through between them. Same layout at rest. */
+    padding-bottom: 14px;
+  }
+  body.pf-frozen-tops #scalp-page.active-page > .card > .scalp-positions-card {
+    position: sticky;
+    top: var(--pf-freeze-scalp-pos, 0px);
+    z-index: 21;
+    margin-top: 0 !important;
+  }
+  body.pf-frozen-tops #scalp-page.active-page > .card.pf-scalp-stuck > .ocp-head {
+    background: var(--bg);
+    /* Up to the banner: the card's top padding and the gap above it. */
+    box-shadow: 0 -40px 0 var(--bg), -18px 0 0 var(--bg), 18px 0 0 var(--bg);
+  }
+  body.pf-frozen-tops #scalp-page.active-page > .card.pf-scalp-stuck > .scalp-positions-card {
+    /* Its own (skin-aware) gradient stays on top; the page colour under it
+       makes it solid. */
+    background-color: var(--bg);
+    box-shadow: -18px 0 0 var(--bg), 18px 0 0 var(--bg), 0 12px 18px rgba(2, 6, 14, .35);
+  }
+}
 
 /* ═══ FROZEN TOPS, EVERY PAGE ═══
    Phil, 2026-10-03: "In all pages like this... I need to see the top headings

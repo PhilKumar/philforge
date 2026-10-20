@@ -4569,9 +4569,11 @@
 
         <!-- Broker: Dhan places a Super Order; Zerodha an entry plus a resting stop -->
         <div class="scalp-broker-row" style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
-          <span style="font-size: 11px; color: var(--muted); font-weight: 700; letter-spacing: 0.4px;">BROKER</span>
           <input type="hidden" id="scalp-broker" value="dhan">
-          <div id="scalp-broker-toggle" class="scalp-toggle compact" style="width: 146px; flex-shrink: 0;">
+          <!-- No "BROKER" label: the two names say it, and the pair spans the
+               row (Phil, 2026-10-20: "Remove the text broker and justify the
+               both broker on the space"). -->
+          <div id="scalp-broker-toggle" class="scalp-toggle compact" role="group" aria-label="Broker" style="flex: 1 1 auto; min-width: 0;">
             <button type="button" class="scalp-toggle-btn active" data-value="dhan" data-tone="dhan" onclick="setScalpBroker('dhan')"><span>Dhan</span></button>
             <button type="button" class="scalp-toggle-btn" data-value="zerodha" data-tone="zerodha" onclick="setScalpBroker('zerodha')"><span>Zerodha</span></button>
           </div>
