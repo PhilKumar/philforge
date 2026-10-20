@@ -15531,6 +15531,7 @@ function renderTickerPayload(data) {
   if (!data || data.status !== 'ok') return false;
   if (data.nifty) setTickerValue('ticker-nifty', 'ticker-nifty-chg', data.nifty);
   if (data.sensex) setTickerValue('ticker-sensex', 'ticker-sensex-chg', data.sensex);
+  if (data.giftnifty && data.giftnifty.price > 0) setTickerValue('ticker-giftnifty', 'ticker-giftnifty-chg', data.giftnifty);
   if (data.vix) setTickerValue('ticker-vix', 'ticker-vix-chg', data.vix);
   if (data.atmCE) setTickerValue('ticker-atm-ce', 'ticker-atm-ce-chg', data.atmCE);
   if (data.atmPE) setTickerValue('ticker-atm-pe', 'ticker-atm-pe-chg', data.atmPE);

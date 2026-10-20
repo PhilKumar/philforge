@@ -531,51 +531,42 @@ test('a trendline reaches right while it is being drawn, not only after the seco
   await page.keyboard.press('Escape');
 });
 
-test('the RSI pane has TradingView\'s buttons: move up, move down, collapse', async ({ page }) => {
-  // Phil, 2026-10-20: "Need right up and down arrows for RSI same like trading view".
+test('the RSI axis stretches like the price axis: hover shows the up-down cursor, drag scales, double-click resets', async ({ page }) => {
+  // Phil, 2026-10-20: "the chart Y axis when we hover we get a up and down
+  // arrow right? the same way RSI Y axis has to have it".
   await page.setViewportSize({ width: 1400, height: 1400 });
-  await page.addInitScript(() => { try { localStorage.removeItem('pf_scalp_chart_rsi'); localStorage.removeItem('pf_chart_rsi_pane'); } catch (_) {} });
+  await page.addInitScript(() => { try { localStorage.removeItem('pf_scalp_chart_rsi'); } catch (_) {} });
   const candles = oneMinuteBars('2026-10-14', '15:29:00').map((b, i) => ({ ...b, c: 150 + 12 * Math.sin(i / 17) }));
   await scalpChart(page, candles, 150);
   await page.evaluate(() => window.scrollTo(0, 0));
-  const pane = () => page.evaluate(() => {
-    const c = (window as any)._pfChartCanvas;
-    return { ...c.paint.rsiPane, priceTop: Math.round(c.projection.padT) };
-  });
-  const tools = page.locator('#scalp-dock-chart-body [data-pane-tools]');
-  const press = async (name: string) => {
-    const host = (await page.locator('#scalp-dock-chart-body .pf-bench-canvas-host').boundingBox())!;
-    const p = await pane();
-    await page.mouse.move(host.x + host.width / 2, host.y + p.top + p.h / 2);
-    await expect(tools).toHaveClass(/is-on/);
-    const b = (await tools.locator(`button[data-pane="${name}"]`).boundingBox())!;
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
-    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
-  };
-  let p = await pane();
-  expect(p.pos).toBe('below');
-  expect(p.top).toBeGreaterThan(p.priceTop);
-  // Off the pane, the buttons keep out of the way.
+  const pane = () => page.evaluate(() => (window as any)._pfChartCanvas.paint.rsiPane);
   const host = (await page.locator('#scalp-dock-chart-body .pf-bench-canvas-host').boundingBox())!;
-  await page.mouse.move(host.x + host.width / 2, host.y + 60);
-  await expect(tools).not.toHaveClass(/is-on/);
-  await expect(tools.locator('button[data-pane="down"]')).toBeDisabled();
-
-  await press('up');
-  await expect.poll(async () => (await pane()).pos).toBe('above');
-  p = await pane();
-  expect(p.top).toBeLessThan(p.priceTop);
-  expect(JSON.parse(await page.evaluate(() => localStorage.getItem('pf_chart_rsi_pane') || '{}')).pos).toBe('above');
-  await expect(tools.locator('button[data-pane="up"]')).toBeDisabled();
-
-  await press('down');
-  await expect.poll(async () => (await pane()).pos).toBe('below');
-
-  await press('fold');
-  await expect.poll(async () => (await pane()).collapsed).toBe(true);
-  expect((await pane()).h).toBeLessThan(24);
-  await press('fold');
-  await expect.poll(async () => (await pane()).h).toBeGreaterThan(40);
+  const p0 = await pane();
+  expect([p0.lo, p0.hi]).toEqual([0, 100]);
+  const ax = host.x + host.width - 20, ay = host.y + p0.top + p0.h / 2;
+  await page.mouse.move(ax, ay);
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.host.style.cursor)).toBe('ns-resize');
+  // Up tightens the range...
+  await page.mouse.down();
+  await page.mouse.move(ax, ay - 60, { steps: 4 });
+  await page.mouse.up();
+  const tight = await pane();
+  expect(tight.hi - tight.lo).toBeLessThan(80);
+  // ...down widens it...
+  await page.mouse.move(ax, ay);
+  await page.mouse.down();
+  await page.mouse.move(ax, ay + 160, { steps: 6 });
+  await page.mouse.up();
+  const wide = await pane();
+  expect(wide.hi - wide.lo).toBeGreaterThan(tight.hi - tight.lo);
+  // ...and the price scale was never touched.
+  const price = await page.evaluate(() => { const v = (window as any)._pfChartCanvas.viewport; return [v.pMin, v.pMax]; });
+  // A double-click on the RSI axis puts it back to 0-100.
+  await page.mouse.dblclick(ax, ay);
+  await expect.poll(async () => { const q = await pane(); return [q.lo, q.hi]; }).toEqual([0, 100]);
+  expect(await page.evaluate(() => { const v = (window as any)._pfChartCanvas.viewport; return [v.pMin, v.pMax]; })).toEqual(price);
+  // The pane itself keeps no move or collapse buttons.
+  await expect(page.locator('#scalp-dock-chart-body [data-pane-tools]')).toHaveCount(0);
 });
 
 test('the broker pair spans its row with no BROKER label', async ({ page }) => {

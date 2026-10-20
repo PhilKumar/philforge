@@ -26600,6 +26600,10 @@ def _build_historical_ticker_payload(ticker_client, ticker_source: str, *, ce_si
     }
 
 
+# Dhan's IDX_I id for GIFT NIFTY (contract file: NSE,I,5024,INDEX,...,GIFTNIFTY).
+_GIFT_NIFTY_SID = 5024
+
+
 @app.get("/api/ticker")
 async def get_ticker(request: Request):
     """Fetch live index + ATM prices — Dhan OHLC (single call), change% from yfinance prev close"""
@@ -26650,8 +26654,9 @@ async def get_ticker(request: Request):
                 print(f"[TICKER] ATM lookup error: {e}")
 
             # SINGLE Dhan API call: IDX_I + NSE_FNO together
-            # sid 13=NIFTY, 25=BANKNIFTY, 49=MIDCPNIFTY, 51=SENSEX (IDX_I). VIX from yfinance.
-            segments = {"IDX_I": [13, 25, 49, 51]}
+            # sid 13=NIFTY, 25=BANKNIFTY, 49=MIDCPNIFTY, 51=SENSEX, 5024=GIFT NIFTY
+            # (IDX_I, per Dhan's contract file). VIX from NSE.
+            segments = {"IDX_I": [13, 25, 49, 51, _GIFT_NIFTY_SID]}
             if ce_sid and pe_sid:
                 segments["NSE_FNO"] = [int(ce_sid), int(pe_sid)]
 
@@ -26679,6 +26684,17 @@ async def get_ticker(request: Request):
             banknifty_ltp = _extract_ltp(idx, 25)
             midcpnifty_ltp = _extract_ltp(idx, 49)
             sensex_ltp = _extract_ltp(idx, 51)
+            # GIFT NIFTY trades on NSE IX into the night and on most Indian
+            # holidays -- exactly when NIFTY has no live quote -- so it rides
+            # on whichever payload goes out below. Phil, 2026-10-20: "Add
+            # Giftnifty next to SENSEX in the top bar before INDIA VIX".
+            gift_ltp = _extract_ltp(idx, _GIFT_NIFTY_SID)
+            gift_prev = _extract_prev_close(idx, _GIFT_NIFTY_SID)
+            gift = {
+                "price": round(gift_ltp, 2),
+                "change": round(gift_ltp - gift_prev, 2) if gift_ltp > 0 and gift_prev > 0 else 0,
+                "pct": round((gift_ltp - gift_prev) / gift_prev * 100, 2) if gift_ltp > 0 and gift_prev > 0 else 0,
+            }
 
             if nifty_ltp > 0:
                 # ATM check
@@ -26758,6 +26774,7 @@ async def get_ticker(request: Request):
                     "banknifty": {"price": round(banknifty_ltp, 2), "change": bn_chg, "pct": bn_pct},
                     "midcpnifty": {"price": round(midcpnifty_ltp, 2), "change": mc_chg, "pct": mc_pct},
                     "sensex": {"price": round(sensex_ltp, 2), "change": s_chg, "pct": s_pct},
+                    "giftnifty": gift,
                     "vix": {"price": round(vix_ltp, 2), "change": v_chg, "pct": v_pct},
                     "atmCE": atm_ce,
                     "atmPE": atm_pe,
@@ -26776,6 +26793,8 @@ async def get_ticker(request: Request):
                     pe_sid=pe_sid,
                 )
                 if historical_result:
+                    if gift["price"] > 0:
+                        historical_result["giftnifty"] = gift
                     _ticker_cache["data"] = historical_result
                     _ticker_cache["timestamp"] = time.time()
                     print(

@@ -647,75 +647,6 @@ function pfChartApplyWindow(win) {
   return true;
 }
 
-// Where the RSI pane sits and whether it is folded, remembered per browser
-// across charts (Phil, 2026-10-20: "right up and down arrows for RSI same like
-// trading view").
-var _PF_RSI_PANE_KEY = 'pf_chart_rsi_pane';
-var _pfRsiPaneState = null;
-function _pfChartRsiPane() {
-  if (_pfRsiPaneState) return _pfRsiPaneState;
-  var saved = {};
-  try { saved = JSON.parse(localStorage.getItem(_PF_RSI_PANE_KEY) || '{}') || {}; } catch (err) { saved = {}; }
-  _pfRsiPaneState = { pos: saved.pos === 'above' ? 'above' : 'below', collapsed: !!saved.collapsed };
-  return _pfRsiPaneState;
-}
-function pfChartSetRsiPane(next) {
-  var pane = _pfChartRsiPane();
-  if (next && (next.pos === 'above' || next.pos === 'below')) pane.pos = next.pos;
-  if (next && typeof next.collapsed === 'boolean') pane.collapsed = next.collapsed;
-  try { localStorage.setItem(_PF_RSI_PANE_KEY, JSON.stringify(pane)); } catch (err) {}
-  _pfChartCanvasDraw();
-}
-
-var _PF_PANE_ICONS = {
-  up: '<svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><path d="M9 14V4M4.5 8.5 9 4l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  down: '<svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><path d="M9 4v10M4.5 9.5 9 14l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  fold: '<svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><path d="M5 7l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  unfold: '<svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true"><path d="M5 11l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-};
-
-// The buttons at the pane's top right, placed after every paint. They show
-// while the pointer is over the pane, as TradingView's do.
-function _pfChartPaneTools(c, p) {
-  var box = c.host.querySelector('.pf-chart-pane-tools');
-  if (!p || !p.rsiH) { if (box) box.hidden = true; return; }
-  if (!box) {
-    box = document.createElement('div');
-    box.className = 'pf-chart-pane-tools';
-    box.setAttribute('data-pane-tools', 'rsi');
-    box.style.cssText = 'position:absolute;display:flex;gap:2px;z-index:3;';
-    box.addEventListener('pointerdown', function (event) { event.stopPropagation(); });
-    box.addEventListener('click', function (event) {
-      var btn = event.target.closest('button[data-pane]');
-      if (!btn || btn.disabled) return;
-      event.stopPropagation();
-      var act = btn.getAttribute('data-pane'), pane = _pfChartRsiPane();
-      if (act === 'up') pfChartSetRsiPane({ pos: 'above' });
-      else if (act === 'down') pfChartSetRsiPane({ pos: 'below' });
-      else if (act === 'fold') pfChartSetRsiPane({ collapsed: !pane.collapsed });
-    });
-    c.host.appendChild(box);
-    var host = c.host;
-    host.addEventListener('pointermove', function (event) {
-      var cc = _pfChartCanvas, pp = cc && cc.host === host ? cc.projection : null;
-      if (!pp || !pp.rsiH) { box.classList.remove('is-on'); return; }
-      var y = event.clientY - host.getBoundingClientRect().top;
-      box.classList.toggle('is-on', y >= pp.rsiTop - 2 && y <= pp.rsiTop + pp.rsiH + 2);
-    });
-    host.addEventListener('pointerleave', function () { box.classList.remove('is-on'); });
-  }
-  var collapsed = p.rsiCollapsed;
-  var html = '<button type="button" data-pane="up" title="Move pane up"' + (p.rsiAbove ? ' disabled' : '') + '>' + _PF_PANE_ICONS.up + '</button>'
-    + '<button type="button" data-pane="down" title="Move pane down"' + (p.rsiAbove ? '' : ' disabled') + '>' + _PF_PANE_ICONS.down + '</button>'
-    + '<button type="button" data-pane="fold" title="' + (collapsed ? 'Restore pane' : 'Collapse pane') + '">' + (collapsed ? _PF_PANE_ICONS.unfold : _PF_PANE_ICONS.fold) + '</button>';
-  if (box.getAttribute('data-html') !== html) { box.innerHTML = html; box.setAttribute('data-html', html); }
-  box.hidden = false;
-  box.style.top = Math.round(p.rsiTop + 1) + 'px';
-  box.style.right = Math.round(c.w - (p.padL + p.plotW) + 4) + 'px';
-  box.setAttribute('data-pos', p.rsiAbove ? 'above' : 'below');
-  box.setAttribute('data-collapsed', collapsed ? '1' : '0');
-}
-
 function _pfChartCanvasProjection(c) {
   var v = c.viewport;
   if (!v) return null;
@@ -739,15 +670,15 @@ function _pfChartCanvasProjection(c) {
   // height, capped, and simply not drawn when the surface is too short for a
   // readable one -- the price pane always keeps at least ~three quarters.
   var rsiH = rsi && rsi.length && fullH >= 190 ? Math.min(120, fullH * 0.22) : 0;
-  // TradingView's pane buttons: the pane can sit above the price or below it,
-  // and collapse to its name line. The price plot keeps everything else.
-  var pane = _pfChartRsiPane();
-  if (rsiH && pane.collapsed) rsiH = 18;
   var rsiGap = rsiH ? Math.max(10, padT * 0.5) : 0;
   var plotH = Math.max(fullH - rsiH - rsiGap, 40);
-  var above = !!(rsiH && pane.pos === 'above');
-  var priceTop = above ? padT + rsiH + rsiGap : padT;
-  var rsiTop = above ? padT : padT + plotH + rsiGap;
+  var priceTop = padT;
+  var rsiTop = padT + plotH + rsiGap;
+  // The RSI axis stretches like the price axis (drag it; double-click puts it
+  // back to 0-100). Phil, 2026-10-20: "the chart Y axis when we hover we get
+  // a up and down arrow right? the same way RSI Y axis has to have it".
+  var rr = c.rsiRange || { lo: 0, hi: 100 };
+  var rSpan = Math.max(rr.hi - rr.lo, 1);
   var tSpan = Math.max(v.tMax - v.tMin, 1);
   var pSpan = Math.max(v.pMax - v.pMin, Number.EPSILON);
   var p = {
@@ -759,13 +690,14 @@ function _pfChartCanvasProjection(c) {
     timeAt: function (idx) { return _pfChartCanvasTimeAt(axis, idx); },
     pAt: function (y) { return v.pMax - ((Number(y) - priceTop) / plotH) * pSpan; },
     inPrice: function (price) { return Number(price) >= v.pMin && Number(price) <= v.pMax; },
-    rsiH: rsiH, rsiGap: rsiGap, rsiTop: rsiTop, rsiAbove: above, rsiCollapsed: !!(rsiH && pane.collapsed),
-    // RSI is bounded 0-100 by construction, so this axis is fixed rather than
-    // fitted -- a fitted one would silently rescale the 70/30 lines that are
-    // the whole point of looking at it.
+    rsiH: rsiH, rsiGap: rsiGap, rsiTop: rsiTop, rsiLo: rr.lo, rsiHi: rr.hi,
+    // RSI is bounded 0-100 by construction, so this axis is never fitted to
+    // the data -- a fitted one would silently rescale the 70/30 lines that
+    // are the whole point of looking at it. Only a hand on the axis moves it.
     rsiYOf: function (value) {
-      return rsiTop + (1 - Math.max(0, Math.min(100, Number(value))) / 100) * rsiH;
-    }
+      return rsiTop + ((rr.hi - Number(value)) / rSpan) * rsiH;
+    },
+    rsiAt: function (y) { return rr.hi - ((Number(y) - rsiTop) / rsiH) * rSpan; }
   };
   c.projection = p;
   return p;
@@ -1318,35 +1250,27 @@ function _pfChartCanvasRsiPane(c, p, PAL) {
   var series = ind && ind.rsi;
   if (!series || !series.length || !p.rsiH) return 0;
   var ctx = c.ctx, scale = p.fontScale;
-  if (p.rsiCollapsed) {
-    var tail = null;
-    for (var k = series.length - 1; k >= 0; k--) {
-      if (series[k] && series[k].v !== null && isFinite(Number(series[k].v))) { tail = Number(series[k].v); break; }
-    }
-    _pfChartCanvasText(ctx, 'RSI ' + (ind.rsi_period || 14) + (tail !== null ? '  ' + tail.toFixed(2) : ''),
-      p.padL + 6, p.rsiTop + 9 * scale, PAL.rsi, 9, 'left', '700', scale);
-    ctx.strokeStyle = PAL.rsiGuide;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(p.padL, p.rsiTop + p.rsiH);
-    ctx.lineTo(p.padL + p.plotW, p.rsiTop + p.rsiH);
-    ctx.stroke();
-    return 0;
-  }
   var upper = Number(ind.rsi_upper);
   var lower = Number(ind.rsi_lower);
   if (!isFinite(upper)) upper = 70;
   if (!isFinite(lower)) lower = 30;
 
   // The band between the two thresholds is the "nothing happens" zone.
+  // Clipped to the pane: a stretched axis can push it past the edges.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(p.padL, p.rsiTop, p.plotW, p.rsiH);
+  ctx.clip();
   ctx.fillStyle = PAL.rsiBand;
   ctx.fillRect(p.padL, p.rsiYOf(upper), p.plotW, Math.max(1, p.rsiYOf(lower) - p.rsiYOf(upper)));
+  ctx.restore();
 
   // As TradingView draws it: the 70 and 30 bands dashed, the middle 50 dotted.
   ctx.strokeStyle = PAL.rsiGuide;
   ctx.lineWidth = 1;
   [[upper, [4, 4]], [50, [1, 3]], [lower, [4, 4]]].forEach(function (band) {
     var y = p.rsiYOf(band[0]);
+    if (y < p.rsiTop - 0.5 || y > p.rsiTop + p.rsiH + 0.5) return;
     ctx.setLineDash(band[1]);
     ctx.beginPath();
     ctx.moveTo(p.padL, y);
@@ -1384,7 +1308,7 @@ function _pfChartCanvasRsiPane(c, p, PAL) {
   var name = 'RSI ' + (ind.rsi_period || 14) + (last !== null ? '  ' + last.toFixed(2) : '');
   _pfChartCanvasText(ctx, name, p.padL + 6, p.rsiTop + 8 * scale, PAL.rsi, 9, 'left', '700', scale);
   if (last !== null) {
-    var ty = p.rsiYOf(last), tw = 38;
+    var ty = Math.max(p.rsiTop + 7, Math.min(p.rsiTop + p.rsiH - 7, p.rsiYOf(last))), tw = 38;
     ctx.fillStyle = PAL.rsi;
     ctx.fillRect(p.padL + p.plotW + 2, ty - 7, tw, 14);
     _pfChartCanvasText(ctx, last.toFixed(2), p.padL + p.plotW + 2 + tw / 2, ty + 0.5, '#ffffff', 9, 'center', '700', scale);
@@ -1456,7 +1380,6 @@ function _pfChartCanvasDraw() {
   var drawingCount = _pfChartCanvasDrawings(c, p, PAL);
   var emaCount = _pfChartCanvasIndicators(c, p, PAL, labels);
   var rsiCount = _pfChartCanvasRsiPane(c, p, PAL);
-  _pfChartPaneTools(c, p);
   var markerCount = _pfChartCanvasMarkers(c, p, PAL, labels);
   var labelCount = _pfChartCanvasLabels(c, p, labels);
   var tag = _pfChartCanvasLastPriceTag(c, p, PAL);
@@ -1466,7 +1389,7 @@ function _pfChartCanvasDraw() {
   c.paint = {
     candles: candleCount, trendlines: trendlineCount, fibs: fibCount, markers: markerCount,
     overlays: overlayCount, drawings: drawingCount, ema: emaCount, rsi: rsiCount,
-    rsiPane: p.rsiH ? { pos: p.rsiAbove ? 'above' : 'below', collapsed: p.rsiCollapsed, top: p.rsiTop, h: p.rsiH } : null,
+    rsiPane: p.rsiH ? { top: p.rsiTop, h: p.rsiH, lo: p.rsiLo, hi: p.rsiHi } : null,
     gaps: gapCount, labels: axisLabelCount + labelCount,
     labelTexts: labels.map(function (label) { return label.text; }),
     lastPrice: tag.price, countdown: tag.countdown,
@@ -1485,7 +1408,11 @@ function _pfChartCanvasPoint(c, event) {
     x: x, y: y,
     plot: x >= p.padL && x <= p.padL + p.plotW && y >= p.padT && y <= p.padT + p.plotH,
     priceAxis: x > p.padL + p.plotW && y >= p.padT && y <= p.padT + p.plotH,
+    // The RSI pane's axis: its scale on the right (where its value tag sits)
+    // and its 70/50/30 labels on the left.
+    rsiAxis: !!p.rsiH && (x > p.padL + p.plotW || x < p.padL) && y >= p.rsiTop && y <= p.rsiTop + p.rsiH,
     timeAxis: y > p.padT + p.plotH && x >= p.padL && x <= p.padL + p.plotW
+      && !(p.rsiH && y >= p.rsiTop && y <= p.rsiTop + p.rsiH)
   };
 }
 
@@ -2076,6 +2003,14 @@ function _pfChartCanvasBindInteraction(c) {
       if (c.touches.size === 2) { beginPinch(); return; }
       if (c.touches.size > 2) return;
     }
+    if (point && point.rsiAxis && c.projection) {
+      var rr0 = c.rsiRange || { lo: 0, hi: 100 };
+      c.drag = { kind: 'rsi', y: point.y, range: { lo: rr0.lo, hi: rr0.hi }, anchor: c.projection.rsiAt(point.y) };
+      c.host.style.cursor = 'ns-resize';
+      try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
+      _pfChartCanvasClearCrosshair(c);
+      return;
+    }
     if (!point || !v || (!point.plot && !point.priceAxis && !point.timeAxis)) return;
     c.drag = {
       kind: point.plot ? 'pan' : (point.priceAxis ? 'price' : 'time'),
@@ -2099,8 +2034,18 @@ function _pfChartCanvasBindInteraction(c) {
     if (!c.drag) {
       var over = point.plot && !_pfDrawArmed ? _pfChartDrawHit(c, point.x, point.y) : null;
       c.host.style.cursor = over ? (over.part === 'body' ? 'move' : 'pointer')
-        : (point.plot ? 'crosshair' : (point.priceAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
+        : (point.plot ? 'crosshair' : (point.priceAxis || point.rsiAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
       _pfChartCanvasDrawCrosshair(c, point);
+      return;
+    }
+    if (c.drag.kind === 'rsi') {
+      // As the price axis: pulling up tightens the range, pulling down widens
+      // it, about the value first taken.
+      var d0 = c.drag, span0 = d0.range.hi - d0.range.lo;
+      var span1 = Math.max(5, Math.min(400, span0 * Math.exp((point.y - d0.y) / 160)));
+      var ratio0 = (d0.anchor - d0.range.lo) / span0;
+      c.rsiRange = { lo: d0.anchor - ratio0 * span1, hi: d0.anchor + (1 - ratio0) * span1 };
+      _pfChartCanvasDraw();
       return;
     }
     var drag = c.drag, start = drag.viewport, p = c.projection;
@@ -2168,6 +2113,7 @@ function _pfChartCanvasBindInteraction(c) {
   }, { passive: false });
   bind('dblclick', function (event) {
     var point = _pfChartCanvasPoint(c, event), fit = _pfChartCanvasFit(c);
+    if (point && point.rsiAxis) { c.rsiRange = null; _pfChartCanvasDraw(); return; }
     if (!point || !fit || !c.viewport) return;
     if (point.priceAxis) _pfChartCanvasSetViewport(c, { tMin: c.viewport.tMin, tMax: c.viewport.tMax, pMin: fit.pMin, pMax: fit.pMax });
     else if (point.timeAxis) _pfChartCanvasSetViewport(c, { tMin: fit.tMin, tMax: fit.tMax, pMin: c.viewport.pMin, pMax: c.viewport.pMax });

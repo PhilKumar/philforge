@@ -84,6 +84,7 @@ class _DummyTickerWorkingBroker:
                 "25": {"last_price": 53010.0, "ohlc": {"close": 52900.0}},
                 "49": {"last_price": 12455.0, "ohlc": {"close": 12400.0}},
                 "51": {"last_price": 80050.0, "ohlc": {"close": 79900.0}},
+                "5024": {"last_price": 24100.0, "ohlc": {"close": 24000.0}},
             }
         }
 
@@ -99,6 +100,8 @@ class _DummyTickerHistoricalBroker:
                 "25": {"last_price": 0.0, "ohlc": {"close": 52900.0}},
                 "49": {"last_price": 0.0, "ohlc": {"close": 12400.0}},
                 "51": {"last_price": 0.0, "ohlc": {"close": 79900.0}},
+                # A holiday: NSE is shut, GIFT NIFTY still trades on NSE IX.
+                "5024": {"last_price": 24110.5, "ohlc": {"close": 24000.0}},
             },
             "NSE_FNO": {},
         }
@@ -210,6 +213,7 @@ class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["broker_source"], "global")
         self.assertEqual(payload["nifty"]["price"], 24025.0)
         self.assertEqual(payload["sensex"]["price"], 80050.0)
+        self.assertEqual(payload["giftnifty"], {"price": 24100.0, "change": 100.0, "pct": 0.42})
 
     async def test_get_ticker_uses_global_broker_when_context_lookup_fails(self):
         with (
@@ -250,6 +254,7 @@ class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["sensex"]["price"], 80050.0)
         self.assertEqual(payload["atmCE"]["price"], 125.88)
         self.assertEqual(payload["atmPE"]["price"], 137.88)
+        self.assertEqual(payload["giftnifty"]["price"], 24110.5)
 
 
 if __name__ == "__main__":
