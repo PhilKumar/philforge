@@ -1967,7 +1967,7 @@ window.addEventListener('scroll', () => {
   _bannerFoldFrame = requestAnimationFrame(() => {
     _bannerFoldFrame = 0;
     if (_foldFrozenBanner()) _syncFrozenTops();
-    _syncScalpFreezeStuck();
+    _syncScalpFreeze();
   });
 }, { passive: true });
 
@@ -1980,26 +1980,35 @@ const _SCALP_FREEZE_HEAD = '#scalp-page.active-page > .card > .ocp-head';
 function _scalpFreezeActive() {
   return _frozenTopsActive() && window.matchMedia('(min-width: 1080px) and (min-height: 820px)').matches;
 }
-function _syncScalpFreeze(top) {
-  const head = document.querySelector(_SCALP_FREEZE_HEAD);
-  if (!head || !_scalpFreezeActive()) return;
-  const root = document.documentElement;
-  root.style.setProperty('--pf-freeze-scalp-head', `${top}px`);
-  root.style.setProperty('--pf-freeze-scalp-pos', `${top + Math.ceil(head.getBoundingClientRect().height)}px`);
-  _syncScalpFreezeStuck();
-}
-// Solid only while pinned: the card is glass, and at rest it should look
-// exactly as it did; pinned, the page must not show through.
-function _syncScalpFreezeStuck() {
+// Measured afresh on every scroll frame, not only when the banner folds or
+// the window resizes: switching to the Scalp tab is neither, and offsets left
+// unset pinned the desk at the top of the window, under the nav.
+let _scalpFreezeTops = '';
+function _syncScalpFreeze() {
   const head = document.querySelector(_SCALP_FREEZE_HEAD);
   if (!head) return;
   const card = head.parentElement;
-  let stuck = false;
-  if (_scalpFreezeActive() && window.scrollY > 0) {
-    const top = parseFloat(window.getComputedStyle(head).top);
-    stuck = Number.isFinite(top) && head.getBoundingClientRect().top <= top + 0.5;
+  if (!_scalpFreezeActive()) { card.classList.remove('pf-scalp-stuck'); return; }
+  const header = document.querySelector('.header-shell');
+  const hero = document.querySelector(_FROZEN_BANNER);
+  const top = (header ? Math.ceil(header.getBoundingClientRect().height) : 0)
+    + (hero ? Math.ceil(hero.getBoundingClientRect().height) : 0);
+  const tops = `${top}|${top + Math.ceil(head.getBoundingClientRect().height)}`;
+  if (tops !== _scalpFreezeTops) {
+    _scalpFreezeTops = tops;
+    const [h, p] = tops.split('|');
+    document.documentElement.style.setProperty('--pf-freeze-scalp-head', `${h}px`);
+    document.documentElement.style.setProperty('--pf-freeze-scalp-pos', `${p}px`);
   }
-  card.classList.toggle('pf-scalp-stuck', stuck);
+  // Solid only while pinned: the card is glass, and at rest it should look
+  // exactly as it did; pinned, the page must not show through.
+  // Judged by where the line WOULD sit unpinned (the card's own top and
+  // padding), not by where it sits: a pinned head lands on a fractional pixel
+  // (245.6 for a 245 target, and not the same on every machine), and testing
+  // its own position against the target flickered with that.
+  const cs = window.getComputedStyle(card);
+  const natural = card.getBoundingClientRect().top + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
+  card.classList.toggle('pf-scalp-stuck', natural < top - 0.5);
 }
 function _syncFrozenTops() {
   document.body.classList.add('pf-frozen-tops');
@@ -2012,7 +2021,7 @@ function _syncFrozenTops() {
   const heroH = hero ? Math.ceil(hero.getBoundingClientRect().height) : 0;
   const gap = hero ? parseFloat(window.getComputedStyle(hero).getPropertyValue('--pf-workspace-gap')) || 14 : 0;
   root.style.setProperty('--pf-freeze-viewbar-top', `${headerH + heroH + gap}px`);
-  _syncScalpFreeze(headerH + heroH);
+  _syncScalpFreeze();
   if (document.body.classList.contains('pf-blueprint-open')) _syncBlueprintStickyOffset();
 }
 window.addEventListener('resize', () => { _foldFrozenBanner(true); _syncFrozenTops(); });
@@ -2192,6 +2201,8 @@ function syncTradingSectionControls(page) {
   document.querySelectorAll('.trading-workspace-head').forEach((header) => {
     if (section) header.setAttribute('data-trading-current', section);
   });
+  // The Scalp desk's freeze offsets need the page shown to be measured.
+  requestAnimationFrame(_syncScalpFreeze);
 }
 
 let _mobileNavSyncTimer = null;

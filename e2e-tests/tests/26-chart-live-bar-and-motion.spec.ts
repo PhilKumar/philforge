@@ -224,7 +224,9 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   // a drawn line can be taken by its ends or moved whole, arming a tool leaves
   // the view alone, no instructions in the toolbar, and the Fib menu folds
   // away on a click anywhere else.
-  await page.setViewportSize({ width: 1400, height: 1000 });
+  // 800 tall: under the Scalp freeze (>= 820) the pinned stack covers the
+  // chart's top, and this test is about drawing, not the freeze.
+  await page.setViewportSize({ width: 1400, height: 800 });
   // The RSI pane takes the bottom of the plot; this test draws there, so RSI is off.
   await page.addInitScript(() => { try { localStorage.setItem('pf_scalp_chart_rsi', '0'); } catch (_) {} });
   const candles = [...oneMinuteBars('2026-10-13', '15:29:00'), ...oneMinuteBars('2026-10-14', '15:29:00')];
@@ -601,7 +603,8 @@ test('the Scalp desk freezes down to Active Positions; the rest scrolls beneath'
     const head = card.querySelector(':scope > .ocp-head')!.getBoundingClientRect();
     const pos = card.querySelector(':scope > .scalp-positions-card')!.getBoundingClientRect();
     const chart = document.getElementById('scalp-dock-chart-body')!.getBoundingClientRect();
-    return { head: Math.round(head.top), headBottom: Math.round(head.bottom), pos: Math.round(pos.top), chart: Math.round(chart.top), stuck: card.classList.contains('pf-scalp-stuck') };
+    const hero = document.querySelector('#scalp-page > .trading-workspace-head')!.getBoundingClientRect();
+    return { head: Math.round(head.top), headBottom: Math.round(head.bottom), pos: Math.round(pos.top), chart: Math.round(chart.top), hero: Math.round(hero.bottom), stuck: card.classList.contains('pf-scalp-stuck') };
   }, y);
   const rest = await at(0);
   expect(rest.stuck).toBe(false);
@@ -613,6 +616,8 @@ test('the Scalp desk freezes down to Active Positions; the rest scrolls beneath'
   expect(b.head).toBe(a.head);
   expect(b.pos).toBe(a.pos);
   expect(a.pos).toBe(a.headBottom);
+  // Right under the Trading banner -- not at the window's top, under the nav.
+  expect(Math.abs(a.head - a.hero)).toBeLessThanOrEqual(1);
   expect(b.chart).toBeLessThan(a.chart);  // the chart scrolled on under them
   // A short window keeps the old flow: nothing pinned below the banner.
   await page.setViewportSize({ width: 1400, height: 760 });
