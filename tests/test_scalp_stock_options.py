@@ -244,6 +244,36 @@ class TheEntryTakesTheStocksOwnTerms(unittest.TestCase):
         )
         spec = asyncio.run(self.app.scalp_contract_spec(underlying="reliance", expiry=FAR))
         self.assertEqual((spec["lot"], spec["step"]), (500, 20.0))
+        # The listed strikes come too, so the form never offers one that is not.
+        self.assertEqual(spec["strikes"], [1400, 1420, 1440, 1460])
+
+    def test_the_share_price_falls_back_to_its_last_close(self):
+        """Phil, 2026-10-20: on a holiday the Scalp form kept crude's 9350 strike
+        on APLAPOLLO -- Dhan had no live share price, so no default strike."""
+        import pandas as pd
+
+        class Client:
+            def __init__(self, live):
+                self.live = live
+
+            def get_ltp_multi(self, segments):
+                return {"NSE_EQ": {"2885": {"last_price": self.live}}} if self.live else {}
+
+            def get_historical_data(self, **kw):
+                assert kw["exchange_segment"] == "NSE_EQ" and kw["candle_type"] == "D"
+                return pd.DataFrame({"close": [1398.0, 1411.4]}, index=pd.to_datetime(["2026-10-16", "2026-10-19"]))
+
+        def run(live):
+            ctx = mock.AsyncMock(return_value=({"id": 1}, Client(live), "user"))
+            with (
+                mock.patch.object(self.app, "_request_broker_context", ctx),
+                mock.patch.object(self.app.ScripMaster, "lookup_equity", lambda sym: {"security_id": "2885"}),
+            ):
+                return asyncio.run(self.app._scalp_stock_price(None, "RELIANCE"))
+
+        self.assertEqual(run(1415.2)["price"], 1415.2)
+        closed = run(0)
+        self.assertEqual((closed["price"], closed.get("last_close")), (1411.4, True))
 
 
 if __name__ == "__main__":

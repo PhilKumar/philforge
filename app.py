@@ -25752,9 +25752,45 @@ async def _scalp_stock_price(request: Request, symbol: str) -> dict:
     row = (data or {}).get("NSE_EQ", {})
     value = row.get(security_id, row.get(int(security_id), 0))
     price = float(value.get("last_price", value.get("ltp", 0)) if isinstance(value, dict) else value or 0)
-    if price <= 0:
-        raise HTTPException(status_code=503, detail=f"No {symbol} share price yet.")
-    return {"status": "ok", "underlying": symbol, "price": price, "equity_security_id": security_id}
+    if price > 0:
+        return {"status": "ok", "underlying": symbol, "price": price, "equity_security_id": security_id}
+    # No live quote -- a holiday, before the open, after the close. The share's
+    # last daily close still puts the default strike near the money; without
+    # it the form kept the strike of whatever was picked before (crude's 9350
+    # on APLAPOLLO, whose strikes run 2700-3000; Phil, 2026-10-20).
+    close = await _scalp_stock_last_close(broker_client, security_id)
+    if close > 0:
+        return {
+            "status": "ok",
+            "underlying": symbol,
+            "price": close,
+            "equity_security_id": security_id,
+            "last_close": True,
+        }
+    raise HTTPException(status_code=503, detail=f"No {symbol} share price yet.")
+
+
+async def _scalp_stock_last_close(broker_client, security_id: str) -> float:
+    """The share's most recent daily close on NSE, or 0."""
+    today = datetime.now(IST).date()
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(security_id),
+            exchange_segment="NSE_EQ",
+            instrument_type="EQUITY",
+            from_date=(today - timedelta(days=10)).isoformat(),
+            to_date=(today + timedelta(days=1)).isoformat(),
+            candle_type="D",
+        )
+    except Exception:
+        return 0.0
+    if frame is None or getattr(frame, "empty", True) or "close" not in frame:
+        return 0.0
+    try:
+        return float(frame["close"].iloc[-1] or 0)
+    except Exception:
+        return 0.0
 
 
 @app.get("/api/scalp/underlyings")
@@ -25784,7 +25820,16 @@ async def scalp_contract_spec(underlying: str = "", expiry: str = ""):
         step = await asyncio.to_thread(ScripMaster.get_strike_step, underlying, str(expiry or ""))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"status": "ok", "underlying": underlying, "expiry": expiry, "lot": int(lot), "step": step}
+    # The strikes themselves, so the form never offers one the stock does not list.
+    strikes = await asyncio.to_thread(ScripMaster.get_strikes, underlying, str(expiry or ""))
+    return {
+        "status": "ok",
+        "underlying": underlying,
+        "expiry": expiry,
+        "lot": int(lot),
+        "step": step,
+        "strikes": [int(k) if float(k).is_integer() else float(k) for k in strikes],
+    }
 
 
 @app.get("/api/scalp/underlying-price")

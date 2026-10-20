@@ -188,3 +188,37 @@ test('Scalp: stock options are searched in their own tab and take each stock\'s 
   await expect(page.locator('#scalp-uly .scalp-uly-name')).toHaveText('CROMPTON');
   await expect(page.locator('#scalp-underlying')).toHaveValue('CROMPTON');
 });
+
+test('Scalp: a stock picked after crude takes a strike it lists, never crude\'s strike or premium', async ({ page }) => {
+  // Phil, 2026-10-20: APLAPOLLO kept crude's 9350 (its strikes run 2700-3000)
+  // and crude's ₹575.55 premium on a holiday with no live share price, so the
+  // chart found no contract and the margin read ₹8 lakh.
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.route('**/api/scalp/underlyings', (route) => route.fulfill({ json: { status: 'ok', stocks: [{ symbol: 'APLAPOLLO', lot: 350 }] } }));
+  await page.route('**/api/expiry-list/CRUDEOIL', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-11-17'] } }));
+  await page.route('**/api/expiry-list/APLAPOLLO', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-10-27'] } }));
+  const listed = [2700, 2760, 2820, 2880, 2940, 3000];
+  await page.route('**/api/scalp/contract-spec**', (route) => route.fulfill({ json: { status: 'ok', lot: 350, step: 60, strikes: listed } }));
+  await page.route('**/api/scalp/underlying-price**', (route) => {
+    const u = new URL(route.request().url()).searchParams.get('underlying');
+    return u === 'APLAPOLLO'
+      ? route.fulfill({ status: 503, json: { detail: 'No APLAPOLLO share price yet.' } })
+      : route.fulfill({ json: { status: 'ok', underlying: u, price: 9350 } });
+  });
+  await page.route('**/api/option-ltp**', (route) => {
+    const q = new URL(route.request().url()).searchParams;
+    return route.fulfill({ json: { status: 'ok', ltp: q.get('underlying') === 'CRUDEOIL' ? 575.55 : 0 } });
+  });
+  await login(page);
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await pick(page, 'CRUDEOIL');
+  await expect(page.locator('#scalp-live-ltp')).toHaveText('₹575.55');
+  const crudeStrike = await page.locator('#scalp-strike').inputValue();
+  expect(Number(crudeStrike)).toBeGreaterThan(8000);
+  await page.locator('#scalp-uly .scalp-uly-btn').click();
+  await page.click('#scalp-uly .scalp-uly-tab[data-group="Stocks"]');
+  await page.click('#scalp-uly .scalp-uly-item[data-value="APLAPOLLO"]');
+  await expect.poll(async () => Number(await page.locator('#scalp-strike').inputValue())).not.toBe(Number(crudeStrike));
+  expect(listed).toContain(Number(await page.locator('#scalp-strike').inputValue()));
+  await expect(page.locator('#scalp-live-ltp')).toHaveText('N/A');
+});

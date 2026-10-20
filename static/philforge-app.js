@@ -13253,23 +13253,29 @@ async function fetchScalpLTP() {
       _scalpCurrentLTP = d.ltp;
       _scalpLTPKey = formKey;
     } else {
-      // Fallback: keep last known LTP if we had one, show N/A only if truly unknown
-      if (_scalpCurrentLTP > 0) {
+      // Keep the last known LTP only if it was THIS contract's (a passing
+      // refusal). Another contract's premium is not a stand-in: switching to a
+      // stock kept crude's 575.55 on screen, and the margin and exits with it.
+      if (_scalpCurrentLTP > 0 && _scalpLTPKey === formKey) {
         el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
         el.style.color = 'var(--scalp-info)';
       } else {
         el.textContent = 'N/A';
         el.style.color = 'var(--muted)';
+        _scalpCurrentLTP = 0;
+        _scalpLTPKey = formKey;
       }
     }
   } catch(e) {
     if (e.name !== 'AbortError') {
-      if (_scalpCurrentLTP > 0) {
+      if (_scalpCurrentLTP > 0 && _scalpLTPKey === formKey) {
         el.textContent = '₹' + _scalpCurrentLTP.toFixed(2);
         el.style.color = 'rgba(52,211,153,0.5)';
       } else {
         el.textContent = 'N/A';
         el.style.color = 'var(--muted)';
+        _scalpCurrentLTP = 0;
+        _scalpLTPKey = formKey;
       }
     }
   }
@@ -13423,12 +13429,32 @@ function _scalpITMStrike(spotPrice, underlying, optionType) {
   return _scalpStrikeText(optionType === 'CE' ? atm - 2 * step : atm + 2 * step);
 }
 
+// A stock's listed strikes for one expiry (from /api/scalp/contract-spec).
+const _SCALP_STOCK_STRIKES = {};
+
+// The nearest strike the stock actually lists, or the strike as given when
+// the list is not known. Its strikes are not one even ladder (APLAPOLLO runs
+// 2700-3000), so stepping from another underlying's strike lands on nothing.
+function _scalpListedStrike(underlying, expiry, strike) {
+  const listed = _SCALP_STOCK_STRIKES[`${underlying}|${expiry}`];
+  if (!_isScalpStock(underlying) || !listed || !listed.length) return strike;
+  if (!(strike > 0)) return listed[Math.floor(listed.length / 2)];
+  return listed.reduce((best, k) => (Math.abs(k - strike) < Math.abs(best - strike) ? k : best), listed[0]);
+}
+
 function updateScalpStrike() {
   const underlying = document.getElementById('scalp-underlying').value;
+  const expiry = document.getElementById('scalp-expiry')?.value || '';
   const optType = document.getElementById('scalp-option-type').value;
   const spot = _scalpSpotCache[underlying] || 0;
+  const input = document.getElementById('scalp-strike');
   if (spot > 0) {
-    document.getElementById('scalp-strike').value = _scalpITMStrike(spot, underlying, optType);
+    input.value = _scalpListedStrike(underlying, expiry, _scalpITMStrike(spot, underlying, optType));
+  } else if (_isScalpStock(underlying)) {
+    // No share price at all: at least a strike this stock lists.
+    const current = parseFloat(input.value) || 0;
+    const listed = _SCALP_STOCK_STRIKES[`${underlying}|${expiry}`] || [];
+    if (!listed.includes(current)) input.value = _scalpListedStrike(underlying, expiry, 0);
   }
   fetchScalpLTP();
 }
@@ -13532,6 +13558,7 @@ async function _scalpLoadStockSpec(underlying, expiry) {
     if (!r.ok || d.status !== 'ok') return;
     if (d.lot > 0) _LOT_SIZES[underlying] = d.lot;
     if (d.step > 0) _STRIKE_STEPS[underlying] = d.step;
+    if (Array.isArray(d.strikes) && d.strikes.length) _SCALP_STOCK_STRIKES[`${underlying}|${expiry}`] = d.strikes.map(Number);
     const ls = document.getElementById('scalp-lot-size');
     const lsLabel = document.getElementById('scalp-lot-size-label');
     if (document.getElementById('scalp-underlying')?.value === underlying) {
@@ -13727,7 +13754,10 @@ async function loadScalpExpiries(options = {}) {
     // Set ITM-2 default strike from live spot per underlying
     await _fetchScalpSpotPrices();
     _scalpPaintCmp();
-    const preservedStrike = parseFloat(preserve?.strike) || 0;
+    let preservedStrike = parseFloat(preserve?.strike) || 0;
+    const listedNow = _SCALP_STOCK_STRIKES[`${underlying}|${sel.value}`];
+    // A saved strike the stock does not list is not kept.
+    if (preservedStrike > 0 && _isScalpStock(underlying) && listedNow && !listedNow.includes(preservedStrike)) preservedStrike = 0;
     if (preservedStrike > 0) {
       document.getElementById('scalp-strike').value = preservedStrike;
       fetchScalpLTP();
