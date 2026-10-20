@@ -1411,6 +1411,7 @@ function _pfChartCanvasPoint(c, event) {
     // The RSI pane's axis: its scale on the right (where its value tag sits)
     // and its 70/50/30 labels on the left.
     rsiAxis: !!p.rsiH && (x > p.padL + p.plotW || x < p.padL) && y >= p.rsiTop && y <= p.rsiTop + p.rsiH,
+    rsiPlot: !!p.rsiH && x >= p.padL && x <= p.padL + p.plotW && y >= p.rsiTop && y <= p.rsiTop + p.rsiH,
     timeAxis: y > p.padT + p.plotH && x >= p.padL && x <= p.padL + p.plotW
       && !(p.rsiH && y >= p.rsiTop && y <= p.rsiTop + p.rsiH)
   };
@@ -1479,8 +1480,11 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   var ctx = c.octx, p = c.projection;
   if (!ctx || !p) return;
   ctx.clearRect(0, 0, c.w, c.h);
-  if (!point || !point.plot) return;
+  if (!point || !(point.plot || point.rsiPlot)) return;
   var PAL = _pfChartPalette(), price = p.pAt(point.y);
+  // Over the RSI pane the line across reads the RSI, not a price (Phil,
+  // 2026-10-20: "Make the cross-hair flow till RSI").
+  var inRsi = !point.plot && point.rsiPlot;
   // THE VERTICAL LINE SITS ON A CANDLE, never between two (Phil, 2026-10-14:
   // "the cross hair has to jump ... on the minute and not all the places").
   // As on TradingView it steps from bar to bar as the pointer moves, and the
@@ -1490,16 +1494,19 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   if (bars) idx = Math.max(0, Math.min(bars - 1, idx));
   var barTime = p.timeAt(idx), lineX = p.xOf(barTime);
   if (!isFinite(lineX)) lineX = point.x;
-  if (typeof window.pfChartPickHandler === 'function' || _pfChartDrawSnapping(c)) {
+  if (!inRsi && (typeof window.pfChartPickHandler === 'function' || _pfChartDrawSnapping(c))) {
     var snap = _pfChartCanvasMagnet(c, idx, point.y);
     if (snap) { price = snap.price; point = { x: point.x, y: snap.y, plot: point.plot }; }
   }
   ctx.save();
   ctx.strokeStyle = PAL.axis; ctx.lineWidth = 0.7; ctx.globalAlpha = 0.8; ctx.setLineDash([4, 3]);
   ctx.beginPath(); ctx.moveTo(p.padL, point.y); ctx.lineTo(p.padL + p.plotW, point.y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(lineX, p.padT); ctx.lineTo(lineX, p.padT + p.plotH); ctx.stroke();
+  // The upright runs down through the RSI pane too, as on TradingView.
+  var lineBottom = p.rsiH ? p.rsiTop + p.rsiH : p.padT + p.plotH;
+  ctx.beginPath(); ctx.moveTo(lineX, p.padT); ctx.lineTo(lineX, lineBottom); ctx.stroke();
   ctx.setLineDash([]); ctx.globalAlpha = 1;
-  var priceText = Number(price).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  var priceText = inRsi ? Number(p.rsiAt(point.y)).toFixed(2)
+    : Number(price).toLocaleString('en-US', { maximumFractionDigits: 2 });
   ctx.font = '9.5px monospace';
   var priceW = Math.max(ctx.measureText(priceText).width + 10, 42), timeText = _pfChartIst(Math.round(barTime)) + ' IST';
   var timeW = Math.max(ctx.measureText(timeText).width + 10, 84);
@@ -1509,11 +1516,14 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   _pfChartCanvasText(ctx, priceText, p.padL + p.plotW + 6, point.y + 0.5, PAL.fillRing, 9.5, 'left');
   _pfChartCanvasText(ctx, timeText, lineX, c.h - 12, PAL.fillRing, 9, 'center');
   ctx.restore();
+  // A test seam, like c.paint: where the crosshair was last drawn.
+  c.crosshair = { x: lineX, y: point.y, top: p.padT, bottom: lineBottom, label: priceText, pane: inRsi ? 'rsi' : 'price' };
   // The drawing being made follows the pointer, here on the overlay.
   if (c.drawPending) _pfChartCanvasPaintDrawing(ctx, c, p, c.drawPending, true, PAL);
 }
 
 function _pfChartCanvasClearCrosshair(c) {
+  if (c) c.crosshair = null;
   if (c && c.octx) c.octx.clearRect(0, 0, c.w, c.h);
 }
 
@@ -2034,7 +2044,7 @@ function _pfChartCanvasBindInteraction(c) {
     if (!c.drag) {
       var over = point.plot && !_pfDrawArmed ? _pfChartDrawHit(c, point.x, point.y) : null;
       c.host.style.cursor = over ? (over.part === 'body' ? 'move' : 'pointer')
-        : (point.plot ? 'crosshair' : (point.priceAxis || point.rsiAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
+        : (point.plot || point.rsiPlot ? 'crosshair' : (point.priceAxis || point.rsiAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
       _pfChartCanvasDrawCrosshair(c, point);
       return;
     }

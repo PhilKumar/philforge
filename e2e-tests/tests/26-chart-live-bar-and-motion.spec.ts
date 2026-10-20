@@ -323,6 +323,7 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   await page.mouse.down();
   await page.mouse.move(bx + 60, by - 50, { steps: 5 });
   await page.mouse.up();
+  await expect.poll(async () => (await stored()).lines[0].b.t).toBeGreaterThan(line.b.t);
   const moved = (await stored()).lines[0];
   expect(moved.a).toEqual(line.a);
   expect(moved.b.t).toBeGreaterThan(line.b.t);
@@ -569,6 +570,37 @@ test('the RSI axis stretches like the price axis: hover shows the up-down cursor
   await expect(page.locator('#scalp-dock-chart-body [data-pane-tools]')).toHaveCount(0);
 });
 
+test('the crosshair runs down through the RSI pane, and reads the RSI there', async ({ page }) => {
+  // Phil, 2026-10-20: "Make the cross-hair flow till RSI".
+  await page.setViewportSize({ width: 1400, height: 1400 });
+  await page.addInitScript(() => { try { localStorage.removeItem('pf_scalp_chart_rsi'); } catch (_) {} });
+  const candles = oneMinuteBars('2026-10-14', '15:29:00').map((b, i) => ({ ...b, c: 150 + 12 * Math.sin(i / 17) }));
+  await scalpChart(page, candles, 150);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const hair = () => page.evaluate(() => (window as any)._pfChartCanvas.crosshair);
+  // Measured and pointed in one go, again if the page shifted in between.
+  const pointAt = async (pane: 'price' | 'rsi') => {
+    await expect.poll(async () => {
+      const at = await page.evaluate((which) => {
+        const c = (window as any)._pfChartCanvas, box = c.host.getBoundingClientRect(), p = c.projection;
+        return { x: box.left + p.padL + p.plotW / 2, y: box.top + (which === 'rsi' ? p.rsiTop + p.rsiH * 0.25 : p.padT + p.plotH * 0.4) };
+      }, pane);
+      await page.mouse.move(at.x, at.y);
+      return (await hair())?.pane;
+    }).toBe(pane);
+    return hair();
+  };
+  const onPrice = await pointAt('price');
+  const pane = await page.evaluate(() => (window as any)._pfChartCanvas.paint.rsiPane);
+  expect(Math.round(onPrice.bottom)).toBe(Math.round(pane.top + pane.h));
+  const onRsi = await pointAt('rsi');
+  // The label is the RSI where the line crosses: a quarter down 0-100 is ~75.
+  const at = await page.evaluate((y) => (window as any)._pfChartCanvas.projection.rsiAt(y), onRsi.y);
+  expect(Math.abs(Number(onRsi.label) - at)).toBeLessThan(0.01);
+  expect(Math.abs(at - 75)).toBeLessThan(3);
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.host.style.cursor)).toBe('crosshair');
+});
+
 test('the broker pair spans its row with no BROKER label', async ({ page }) => {
   // Phil, 2026-10-20: "Remove the text broker and justify the both broker on the space correctly".
   await page.setViewportSize({ width: 1400, height: 1000 });
@@ -604,14 +636,17 @@ test('the Scalp desk freezes down to Active Positions; the rest scrolls beneath'
   expect(rest.stuck).toBe(false);
   await at(500);
   await expect.poll(async () => (await at(500)).stuck).toBe(true);
+  // Right under the Trading banner (not at the window's top, under the nav),
+  // Active Positions flush under the engine line -- at two scroll depths.
+  const settled = (y: number) => expect.poll(async () => {
+    const q = await at(y);
+    return q.stuck && Math.abs(q.head - q.hero) <= 1 && Math.abs(q.pos - q.headBottom) <= 1;
+  }).toBe(true);
+  await settled(500);
   const a = await at(500);
-  await at(900);
+  await settled(900);
   const b = await at(900);
-  expect(b.head).toBe(a.head);
-  expect(b.pos).toBe(a.pos);
-  expect(a.pos).toBe(a.headBottom);
-  // Right under the Trading banner -- not at the window's top, under the nav.
-  expect(Math.abs(a.head - a.hero)).toBeLessThanOrEqual(1);
+  expect(Math.abs(b.head - a.head)).toBeLessThanOrEqual(1);
   expect(b.chart).toBeLessThan(a.chart);  // the chart scrolled on under them
   // A short window keeps the old flow: nothing pinned below the banner.
   await page.setViewportSize({ width: 1400, height: 760 });

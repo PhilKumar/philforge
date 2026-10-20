@@ -1984,6 +1984,14 @@ function _scalpFreezeActive() {
 // the window resizes: switching to the Scalp tab is neither, and offsets left
 // unset pinned the desk at the top of the window, under the nav.
 let _scalpFreezeTops = '';
+// The nav and the banner change height without a scroll (ticker values land,
+// the banner folds): the pinned offsets follow them.
+if (window.ResizeObserver) {
+  const _scalpFreezeRO = new ResizeObserver(() => requestAnimationFrame(_syncScalpFreeze));
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.header-shell, #scalp-page > .trading-workspace-head').forEach((el) => _scalpFreezeRO.observe(el));
+  });
+}
 function _syncScalpFreeze() {
   const head = document.querySelector(_SCALP_FREEZE_HEAD);
   if (!head) return;
