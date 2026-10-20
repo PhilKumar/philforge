@@ -249,6 +249,9 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
     return [box.left + c.projection.xOf(dr[e].t), box.top + c.projection.yOf(dr[e].price)];
   }, [kind, end]);
 
+  // The contract's name keeps its room beside the tools (it was squeezed to
+  // 0px at this width once the chart moved left).
+  expect((await page.locator('#scalp-dock-chart-title').boundingBox())!.width).toBeGreaterThan(100);
   // The menu folds on a click elsewhere.
   await tools.locator('.scalp-fib-btn').click();
   await expect(tools.locator('.scalp-fib-item')).toHaveText(['0 · 1 · 2 · 4 · 8', '0 · 0.5 · 1', '0 · 0.25 · 0.5 · 0.75 · 1']);

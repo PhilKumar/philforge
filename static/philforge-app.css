@@ -6339,6 +6339,12 @@ body.terminal-cascade-chart-open { overflow: hidden; }
    side by side (1080px up); narrower, the button opens the pop-up instead. */
 .scalp-dock-chart { margin-top: 12px; padding: 14px 16px 16px; }
 .scalp-dock-chart-toolbar { padding: 0 0 10px; }
+/* The tools never shrink and the title may, so in the narrower chart-left
+   column the title was squeezed to nothing (3px at 1400 wide, 0 at 1280).
+   The title keeps room for the contract name; the tools wrap under it. */
+.scalp-dock-chart-toolbar { flex-wrap: wrap; row-gap: 8px; }
+.scalp-dock-chart-toolbar .terminal-cascade-chart-title { flex: 1 0 170px; }
+.scalp-dock-chart-toolbar .terminal-cascade-chart-actions { flex: 0 1 auto; min-width: 0; }
 /* The option chart's tools: ST and CPR switches, Fib presets, trendline, Clear. */
 .scalp-chart-tools { display: flex; align-items: center; gap: 4px; margin-right: 6px; flex-wrap: wrap; }
 .scalp-chart-tools .terminal-cascade-chart-control { width: auto; min-width: 0; padding: 0 9px; font: 700 11px var(--font-mono, monospace); white-space: nowrap; flex: none; }
