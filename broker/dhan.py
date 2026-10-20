@@ -48,9 +48,16 @@ def _is_invalid_token_response(resp) -> bool:
         return False
     try:
         body = resp.json() if hasattr(resp, "json") else {}
-        # Format 1: Order/trade endpoints
+        # Format 1: Order/trade endpoints. DH-906 is Dhan's code for ANY order
+        # error, not just a dead token: "Order Has Traded", "Nothing to Cancel"
+        # and "Profit Price ..." all come back under it. On 19-Oct-2026 every
+        # Dhan Scalp exit cancelled a traded Super Order's ENTRY_LEG, got
+        # "Order Has Traded", and re-minted the token on the strength of it;
+        # twice the mint stalled ~10s, and that was the delay Phil felt on
+        # Dhan exits. Only the message tells the two apart.
         if body.get("errorCode") == "DH-906":
-            return True
+            message = str(body.get("errorMessage", "") or "").lower()
+            return not message or "token" in message
         # Format 2: Data/funds/trades endpoints
         data = body.get("data")
         if isinstance(data, dict):

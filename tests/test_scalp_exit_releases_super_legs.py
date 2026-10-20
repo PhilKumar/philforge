@@ -106,7 +106,7 @@ class TheReleaseRunsBeforeOurOwnExitOrder(unittest.TestCase):
         src = Path(__file__).resolve().parent.parent.joinpath("scalp.py").read_text(encoding="utf-8")
         block = src.split("elif self._is_super_order_trade(trade) and trade.super_filled_qty <= 0:")[1]
         block = block.split("exit_prem = exit_prem_override")[0]
-        self.assertLess(block.index("_cancel_super_order(trade)"), block.index("place_option_order("))
+        self.assertLess(block.index("_cancel_super_order(trade)"), block.index("place_option_order"))
 
 
 if __name__ == "__main__":

@@ -485,6 +485,12 @@ class ScalpEngine:
         self._task: Optional[asyncio.Task] = None
         self._ws_subs: Dict[int, str] = {}  # trade_id → ws_sec_id
         self._broker_sync_tasks: Dict[int, asyncio.Task] = {}
+        # Trades whose exit is being sent right now. A second Exit for the same
+        # trade while the first is still talking to the broker must not send a
+        # second SELL (19-Oct-2026: a stalled Dhan exit woke after Phil's second
+        # click had closed the trade, and sent its own SELL; only the missing
+        # margin for a naked sell stopped it opening a short).
+        self._exits_in_flight: set[int] = set()
         self._ltp_cache: Dict[tuple[str, int], tuple[float, float]] = {}
         self._ltp_backoff_until_mono: float = 0.0
         self._ltp_backoff_delay_sec: float = 0.0
@@ -2147,6 +2153,50 @@ class ScalpEngine:
         exit_prem_override: float = 0.0,
         exit_order_id_override: str = "",
     ):
+        """Close a trade, one exit ORDER at a time per trade.
+
+        A close that sends nothing (the broker already flattened it: target or
+        stop hit, closed by hand) is a record of fact and always goes through,
+        even mid-exit; the exit in flight sees it closed and sends no SELL.
+        """
+        if skip_broker_exit:
+            return await self._close_trade_once(
+                trade,
+                reason,
+                skip_broker_exit=True,
+                exit_prem_override=exit_prem_override,
+                exit_order_id_override=exit_order_id_override,
+            )
+        if trade.trade_id in self._exits_in_flight:
+            self._log("info", f"⏳ Trade {trade.trade_id} exit already being sent, ignoring the repeat")
+            return
+        self._exits_in_flight.add(trade.trade_id)
+        try:
+            return await self._close_trade_once(
+                trade,
+                reason,
+                exit_prem_override=exit_prem_override,
+                exit_order_id_override=exit_order_id_override,
+            )
+        finally:
+            self._exits_in_flight.discard(trade.trade_id)
+
+    def _closed_meanwhile(self, trade: ScalpTrade) -> bool:
+        """Whether the trade was closed while this exit waited on the broker."""
+        if trade.trade_id not in self.open_trades or trade.status == "closed":
+            self._log("info", f"ℹ️ Trade {trade.trade_id} closed while its exit was in flight — no exit order sent")
+            return True
+        return False
+
+    async def _close_trade_once(
+        self,
+        trade: ScalpTrade,
+        reason: str,
+        *,
+        skip_broker_exit: bool = False,
+        exit_prem_override: float = 0.0,
+        exit_order_id_override: str = "",
+    ):
         """Place exit order (or simulate in paper mode) and move trade to closed_trades."""
         # Guard against double-close (race between manual exit and auto-exit monitor)
         if trade.trade_id not in self.open_trades or trade.status == "closed":
@@ -2192,6 +2242,8 @@ class ScalpEngine:
                     reason = "cancelled"
             else:
                 await self._cancel_super_order(trade)
+                if self._closed_meanwhile(trade):
+                    return
                 try:
                     ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium
                     if exit_txn == "SELL":
@@ -2199,7 +2251,8 @@ class ScalpEngine:
                     else:
                         exit_price = round(ltp * 1.05, 2)
                     self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp})")
-                    result = self.dhan.place_option_order(
+                    result = await asyncio.to_thread(
+                        self.dhan.place_option_order,
                         underlying=trade.underlying,
                         strike_price=trade.strike,
                         option_type=trade.option_type,
@@ -2224,6 +2277,8 @@ class ScalpEngine:
                 await self._cancel_broker_orders(trade)
                 if self._is_zerodha_trade(trade) and stop_oid:
                     stop_fill = await self._stop_fill_price(trade, stop_oid)
+            if self._closed_meanwhile(trade):
+                return
             zerodha_exit = None
             if stop_fill <= 0 and self._is_zerodha_trade(trade):
                 zerodha_exit = await self._zerodha_exit(trade, reason, exit_txn)
@@ -2262,7 +2317,8 @@ class ScalpEngine:
                         # Buy at 5% above LTP to guarantee immediate fill
                         exit_price = round(ltp * 1.05, 2)
                     self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp})")
-                    result = self._orders_for(trade).place_option_order(
+                    result = await asyncio.to_thread(
+                        self._orders_for(trade).place_option_order,
                         underlying=trade.underlying,
                         strike_price=trade.strike,
                         option_type=trade.option_type,
