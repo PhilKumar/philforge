@@ -26696,6 +26696,46 @@ def _build_historical_ticker_payload(ticker_client, ticker_source: str, *, ce_si
 
 # Dhan's IDX_I id for GIFT NIFTY (contract file: NSE,I,5024,INDEX,...,GIFTNIFTY).
 _GIFT_NIFTY_SID = 5024
+_GIFT_NIFTY_HISTORY_TTL_SEC = 30.0
+_gift_nifty_history_cache: dict = {}
+
+
+def _gift_nifty_from_history(client) -> tuple[float, float]:
+    """(last price, previous day's close) from GIFT NIFTY's own candles, or (0, 0).
+
+    The newest 5-minute close is the price; the last daily close before the
+    newest bar's date is the close it is compared with. Two history calls,
+    so the answer is kept for half a minute.
+    """
+    hit = _gift_nifty_history_cache.get("v")
+    if hit and time.monotonic() - hit[0] < _GIFT_NIFTY_HISTORY_TTL_SEC:
+        return hit[1], hit[2]
+    if client is None:
+        return 0.0, 0.0
+    today = datetime.now(IST).date()
+    ask = dict(security_id=str(_GIFT_NIFTY_SID), exchange_segment="IDX_I", instrument_type="INDEX")
+    try:
+        bars = client.get_historical_data(
+            **ask, from_date=(today - timedelta(days=6)).isoformat(), to_date=(today + timedelta(days=1)).isoformat(),
+            candle_type="5",
+        )  # fmt: skip
+        if bars is None or bars.empty:
+            return 0.0, 0.0
+        price = float(bars["close"].iloc[-1] or 0)
+        last_day = bars.index[-1].date()
+        days = client.get_historical_data(
+            **ask, from_date=(today - timedelta(days=12)).isoformat(), to_date=(today + timedelta(days=1)).isoformat(),
+            candle_type="D",
+        )  # fmt: skip
+        prev = 0.0
+        if days is not None and not days.empty:
+            earlier = days[[stamp.date() < last_day for stamp in days.index]]
+            prev = float(earlier["close"].iloc[-1]) if len(earlier) else 0.0
+    except Exception as exc:
+        print(f"[TICKER] GIFT NIFTY history failed: {str(exc)[:120]}")
+        return 0.0, 0.0
+    _gift_nifty_history_cache["v"] = (time.monotonic(), price, prev)
+    return price, prev
 
 
 @app.get("/api/ticker")
@@ -26784,6 +26824,11 @@ async def get_ticker(request: Request):
             # Giftnifty next to SENSEX in the top bar before INDIA VIX".
             gift_ltp = _extract_ltp(idx, _GIFT_NIFTY_SID)
             gift_prev = _extract_prev_close(idx, _GIFT_NIFTY_SID)
+            if gift_ltp <= 0:
+                # No live quote -- an Indian holiday or after hours, when NSE IX
+                # still trades. Its own candles have the price (2026-10-20, a
+                # holiday: the tile sat on "--").
+                gift_ltp, gift_prev = await asyncio.to_thread(_gift_nifty_from_history, ticker_client)
             gift = {
                 "price": round(gift_ltp, 2),
                 "change": round(gift_ltp - gift_prev, 2) if gift_ltp > 0 and gift_prev > 0 else 0,

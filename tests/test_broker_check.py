@@ -257,5 +257,43 @@ class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["giftnifty"]["price"], 24110.5)
 
 
+class GiftNiftyFromItsOwnCandles(unittest.TestCase):
+    """Phil, 2026-10-20 (a holiday): "gift nifty is not showing any data?" --
+    no live quote for 5024, so the price comes from its candles."""
+
+    def setUp(self):
+        app_module._gift_nifty_history_cache.clear()
+        self.addCleanup(app_module._gift_nifty_history_cache.clear)
+
+    def test_last_five_minute_close_against_the_previous_days_close(self):
+        class Client:
+            calls = 0
+
+            def get_historical_data(self, **kw):
+                Client.calls += 1
+                assert kw["security_id"] == "5024" and kw["exchange_segment"] == "IDX_I"
+                if kw["candle_type"] == "5":
+                    return pd.DataFrame(
+                        {"close": [22930.0, 22944.5]},
+                        index=pd.to_datetime(["2026-10-20 15:20:00", "2026-10-20 15:25:00"]),
+                    )
+                return pd.DataFrame(
+                    {"close": [22790.0, 22875.5, 22950.0]},
+                    index=pd.to_datetime(["2026-10-16", "2026-10-19", "2026-10-20"]),
+                )
+
+        self.assertEqual(app_module._gift_nifty_from_history(Client()), (22944.5, 22875.5))
+        # Kept for half a minute: a second ticker refresh asks Dhan nothing.
+        self.assertEqual(app_module._gift_nifty_from_history(Client()), (22944.5, 22875.5))
+        self.assertEqual(Client.calls, 2)
+
+    def test_no_candles_is_nothing(self):
+        class Client:
+            def get_historical_data(self, **kw):
+                raise RuntimeError("429")
+
+        self.assertEqual(app_module._gift_nifty_from_history(Client()), (0.0, 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()
