@@ -57,6 +57,39 @@ class TheTimeframes(unittest.TestCase):
         self.assertEqual((made[0]["o"], made[0]["c"]), (100, 102.5))
 
 
+class ThreeDaysEachWithItsOwnCpr(unittest.TestCase):
+    """Phil, 20-Oct-2026: "Put the CPR EMA at least for 3 days including current
+    day in the options chart.... let the chart shows 3 days of data"."""
+
+    def _days(self, *days):
+        bars = []
+        for day in days:
+            bars += _minute_bars(datetime.fromisoformat(f"{day}T09:15:00").replace(tzinfo=IST), 30)
+        return bars
+
+    def test_the_newest_four_sessions_are_kept(self):
+        bars = self._days("2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16")
+        kept = app_module._scalp_chart_last_sessions(bars)
+        days = sorted({datetime.fromtimestamp(b["t"], IST).date().isoformat() for b in kept})
+        self.assertEqual(days, ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"])
+
+    def test_three_days_carry_their_own_cpr_and_the_ema_runs_through(self):
+        # Thu, Fri, then a long weekend, Tue: today and the two before it.
+        kept = app_module._scalp_chart_last_sessions(self._days("2026-10-08", "2026-10-09", "2026-10-16", "2026-10-20"))
+        overlays = app_module._chart_session_analytics(kept)["overlays"]
+        pivots = [o for o in overlays if o.get("group") == "cpr" and o["color"] == "#d946ef"]
+        starts = sorted(datetime.fromtimestamp(o["points"][0]["t"], IST).date().isoformat() for o in pivots)
+        self.assertEqual(starts, ["2026-10-09", "2026-10-16", "2026-10-20"])
+        ema = next(o for o in overlays if o["label"] == "EMA 20")
+        self.assertLess(ema["points"][0]["t"], pivots[0]["points"][0]["t"])
+
+    def test_the_fetch_reaches_back_past_a_long_weekend(self):
+        from datetime import date
+
+        self.assertEqual(app_module._scalp_chart_from_date(date(2026, 10, 20), "5"), "2026-10-08")
+        self.assertEqual(app_module._scalp_chart_from_date(date(2026, 10, 20), "60"), "2026-10-04")
+
+
 class TheLevelsWearTradingViewsColours(unittest.TestCase):
     def test_cpr_is_blue_its_pivot_magenta_resistance_red_support_green(self):
         bars = []

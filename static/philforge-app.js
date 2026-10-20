@@ -13195,7 +13195,8 @@ var _scalpLTPFromWS = 0;  // timestamp (ms) of last WS-driven LTP update
 // SL/Target read it too.
 var _scalpLTPKey = '';
 function _scalpContractKey(underlying, strike, expiry, optionType) {
-  return `form:${underlying}|${parseInt(strike, 10) || 0}|${expiry}|${optionType}`;
+  // The whole strike: a stock's can be 147.5, and the chart keys it so.
+  return `form:${underlying}|${Number(strike) || 0}|${expiry}|${optionType}`;
 }
 let _ltpThrottleTimer = null;
 
@@ -14471,23 +14472,14 @@ let _scalpDockOpenTrades = [];
 // 09:15 grid. Only on a day the chart already holds a bar from, so a holiday
 // or a closed market never grows bars from a stale price.
 const _SCALP_TF_SEC = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600 };
-// Phil, 2026-10-15: "one day amount of candles ... and stays till I refresh".
-// The chart opens on one session's worth of bars (375 minutes); once the
-// viewer zooms, that span -- kept in minutes so it carries across timeframes
-// -- is reused by every redraw (timeframe, contract, refresh button) until the
-// page is reloaded. The 100% button still returns to one day.
-const _SCALP_SESSION_MIN = 375;
+// The chart opens on three trading days -- today and the two before it, each
+// with its own CPR (Phil, 2026-10-20: "let the chart shows 3 days of data";
+// it was one day from 2026-10-15). Once the viewer zooms, that span -- kept in
+// minutes so it carries across timeframes -- is reused by every redraw
+// (timeframe, contract, refresh button) until the page is reloaded; the 100%
+// button returns to the three days.
+const _SCALP_CHART_DAYS = 3;
 let _scalpChartSpanMin = 0;
-
-// One session's worth of bars: 375 minutes on NSE, 09:00-23:30 on MCX.
-function _scalpSessionMinutes(session) {
-  const hm = (t, f) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : f; };
-  const span = session ? hm(session.close, 930) - hm(session.open, 555) : _SCALP_SESSION_MIN;
-  return span > 0 ? span : _SCALP_SESSION_MIN;
-}
-function _scalpOneDayBars(tfSec, session) {
-  return Math.max(5, Math.ceil(_scalpSessionMinutes(session) * 60 / tfSec));
-}
 
 // Remember the span on screen while the Scalp chart owns the canvas.
 function _scalpRememberChartSpan(tfSec) {
@@ -14667,11 +14659,65 @@ function _scalpDrawingsFor(key) {
   return lines.concat(fibs);
 }
 function _scalpKeepDrawings(key, list) {
-  _scalpWriteDrawings(key, {
+  _scalpRecordDrawings(key, {
     lines: list.filter(dr => dr.kind === 'line').map(dr => ({ id: dr.id, a: dr.a, b: dr.b })),
     fibs: list.filter(dr => dr.kind === 'fib').map(dr => ({ id: dr.id, preset: dr.preset, a: dr.a, b: dr.b })),
   });
 }
+
+// UNDO AND REDO, per contract. Phil, 2026-10-20: "If I draw one or more TLs or
+// Fibs and if I click clear, all is getting cleared ... Give me a undo button".
+// Every change -- a drawing added, moved, deleted, or Clear -- keeps the state
+// before it; Undo steps back through them and Redo forward again. Kept for
+// this page's life, 50 steps deep.
+const _SCALP_UNDO_DEPTH = 50;
+const _scalpDrawHistory = {};
+function _scalpHistoryOf(key) {
+  if (!_scalpDrawHistory[key]) _scalpDrawHistory[key] = { past: [], future: [] };
+  return _scalpDrawHistory[key];
+}
+function _scalpRecordDrawings(key, next) {
+  const before = _scalpReadDrawings(key);
+  if (JSON.stringify(before) === JSON.stringify(next)) return;
+  const h = _scalpHistoryOf(key);
+  h.past.push(before);
+  if (h.past.length > _SCALP_UNDO_DEPTH) h.past.shift();
+  h.future = [];
+  _scalpWriteDrawings(key, next);
+  _scalpPaintUndo();
+}
+function _scalpStepDrawings(direction) {
+  const shown = _scalpChartShown;
+  if (!shown) return;
+  const key = _scalpDrawKey(shown.data), h = _scalpHistoryOf(key);
+  const from = direction < 0 ? h.past : h.future, to = direction < 0 ? h.future : h.past;
+  if (!from.length) return;
+  _scalpEndDraw();
+  to.push(_scalpReadDrawings(key));
+  _scalpWriteDrawings(key, from.pop());
+  _scalpRedecorate();
+  _scalpPaintUndo();
+}
+function undoScalpDrawing() { _scalpStepDrawings(-1); }
+function redoScalpDrawing() { _scalpStepDrawings(1); }
+function _scalpPaintUndo() {
+  const shown = _scalpChartShown;
+  const h = shown ? _scalpHistoryOf(_scalpDrawKey(shown.data)) : { past: [], future: [] };
+  document.querySelectorAll('.scalp-undo-btn').forEach(b => { b.disabled = !h.past.length; });
+  document.querySelectorAll('.scalp-redo-btn').forEach(b => { b.disabled = !h.future.length; });
+}
+// Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y), while the Scalp chart is out
+// and the keys are not meant for a field being typed in.
+document.addEventListener('keydown', (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const k = String(event.key || '').toLowerCase();
+  if (k !== 'z' && k !== 'y') return;
+  const t = event.target;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if (!_scalpChartShown || !document.querySelector('#scalp-page.active-page, .scalp-option-chart-overlay.is-open')) return;
+  event.preventDefault();
+  if (k === 'y' || event.shiftKey) redoScalpDrawing(); else undoScalpDrawing();
+});
 
 function _scalpDecorate(data) {
   if (!data) return;
@@ -14754,7 +14800,8 @@ function _scalpClearDrawings() {
   const shown = _scalpChartShown;
   if (!shown) return;
   _scalpEndDraw();
-  _scalpWriteDrawings(_scalpDrawKey(shown.data), { fibs: [], lines: [] });
+  // Kept in the history, so Undo brings them all back.
+  _scalpRecordDrawings(_scalpDrawKey(shown.data), { fibs: [], lines: [] });
   _scalpRedecorate();
 }
 
@@ -14837,14 +14884,20 @@ function _scalpChartTools(options = {}) {
   });
   const clear = btn('scalp-clear-btn', 'Clear', "Remove this option's Fibs and trendlines");
   clear.addEventListener('click', _scalpClearDrawings);
-  box.append(st, cpr, rsi, fibWrap, line, clear);
+  const undo = btn('scalp-undo-btn', '↶', 'Undo the last drawing change (Ctrl/⌘+Z)');
+  undo.setAttribute('aria-label', 'Undo');
+  undo.addEventListener('click', undoScalpDrawing);
+  const redo = btn('scalp-redo-btn', '↷', 'Redo (Ctrl/⌘+Shift+Z)');
+  redo.setAttribute('aria-label', 'Redo');
+  redo.addEventListener('click', redoScalpDrawing);
+  box.append(st, cpr, rsi, fibWrap, line, undo, redo, clear);
   if (options.popout) {
     const big = btn('scalp-popout-btn', '⤢', 'Open this chart big');
     big.setAttribute('aria-label', 'Open this chart big');
     big.addEventListener('click', popOutScalpOptionChart);
     box.append(big);
   }
-  setTimeout(_scalpPaintTools, 0);
+  setTimeout(() => { _scalpPaintTools(); _scalpPaintUndo(); }, 0);
   return box;
 }
 
@@ -14999,11 +15052,13 @@ async function openScalpOptionChart(tradeId, options = {}) {
     const data = await response.json().catch(() => ({}));
     if (requestId !== _scalpOptionChartRequest || _scalpChartTargetKey() !== targetKey) return;
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${response.status})`));
-    // One day's worth of bars, or the span last chosen on this page.
+    // Three days' worth of bars, or the span last chosen on this page.
     const tfSec = _SCALP_TF_SEC[data.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300;
     const shownTf = _scalpChartShown && _scalpChartShown.data ? (_SCALP_TF_SEC[_scalpChartShown.data.timeframe] || tfSec) : tfSec;
     _scalpRememberChartSpan(shownTf);
-    data.fit_bars = _scalpOneDayBars(tfSec, data.session);
+    // By trading day, not by bar count: today is usually a part session, and
+    // three days of bars would reach back into a fourth.
+    data.fit_sessions = _SCALP_CHART_DAYS;
     if (_scalpChartSpanMin > 0) data.initial_bars = Math.max(5, Math.round(_scalpChartSpanMin * 60 / tfSec));
     // The price tag with the time to bar close, and the forming bar grown
     // from the live premium before it is drawn.
@@ -15011,6 +15066,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     _scalpApplyLiveBar(data, targetKey);
     _scalpDecorate(data);
     _scalpChartShown = { key: targetKey, data };
+    _scalpPaintUndo();
     if (!_scalpLiveTimer) _scalpLiveTimer = setInterval(_scalpLiveTick, 1000);
     const instrument = data.instrument || {};
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();

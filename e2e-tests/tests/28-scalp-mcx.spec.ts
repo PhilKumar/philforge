@@ -81,12 +81,13 @@ test('Scalp: crude oil options take the contract size, the future and MCX hours'
     w._syncScalpContractChartLabel();
   });
   await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
-  const c = () => page.evaluate(() => { const k = (window as any)._pfChartCanvas; return { last: k.data.candles.at(-1), countdown: k.paint.countdown, fit: k.data.fit_bars }; });
+  const c = () => page.evaluate(() => { const k = (window as any)._pfChartCanvas; return { last: k.data.candles.at(-1), countdown: k.paint.countdown, fit: k.data.fit_sessions }; });
   await expect.poll(async () => (await c()).last.t).toBe(ist('2026-10-16T22:05:00'));
   const now = await c();
   expect(now.last.c).toBe(524.4);
   expect(now.countdown).toBe('02:30');
-  expect(now.fit).toBe(174);
+  // Three trading days on screen, whatever the session's length (MCX runs to 23:30).
+  expect(now.fit).toBe(3);
 });
 
 test('Scalp: natural gas mini can go live on either broker', async ({ page }) => {

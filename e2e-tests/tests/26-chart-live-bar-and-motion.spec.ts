@@ -335,6 +335,7 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   await page.mouse.down();
   await page.mouse.move((ax + ex) / 2 + 40, (ay + ey) / 2 + 30, { steps: 5 });
   await page.mouse.up();
+  await expect.poll(async () => (await stored()).lines[0].a.t).toBeGreaterThan(moved.a.t);
   const shifted = (await stored()).lines[0];
   expect(shifted.a.t).toBeGreaterThan(moved.a.t);
   expect(shifted.a.price).toBeLessThan(moved.a.price);
@@ -599,6 +600,54 @@ test('the crosshair runs down through the RSI pane, and reads the RSI there', as
   expect(Math.abs(Number(onRsi.label) - at)).toBeLessThan(0.01);
   expect(Math.abs(at - 75)).toBeLessThan(3);
   expect(await page.evaluate(() => (window as any)._pfChartCanvas.host.style.cursor)).toBe('crosshair');
+});
+
+test('Undo and Redo step through drawing changes, Clear included', async ({ page }) => {
+  // Phil, 2026-10-20: "If I draw one or more TLs or Fibs and if I click clear,
+  // all is getting cleared ... Give me a undo button or previous button".
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.addInitScript(() => { try { localStorage.setItem('pf_scalp_chart_rsi', '0'); localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
+  await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
+  const tools = page.locator('#scalp-dock-chart-actions .scalp-chart-tools');
+  const undo = tools.locator('.scalp-undo-btn'), redo = tools.locator('.scalp-redo-btn');
+  const count = () => page.evaluate(() => (window as any)._pfChartCanvas.data.drawings.length);
+  const click = async (fx: number, fy: number) => {
+    await page.locator('#scalp-dock-chart-body').scrollIntoViewIfNeeded();
+    const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
+    await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  };
+  await expect(undo).toBeDisabled();
+  await expect(redo).toBeDisabled();
+  // A trendline, then a Fib.
+  await tools.locator('.scalp-line-btn').click();
+  await click(0.3, 0.7); await click(0.5, 0.5);
+  await expect.poll(count).toBe(1);
+  await tools.locator('.scalp-fib-btn').click();
+  await tools.locator('[data-fib-preset="half"]').click();
+  await click(0.6, 0.7); await click(0.7, 0.4);
+  await expect.poll(count).toBe(2);
+  await expect(undo).toBeEnabled();
+  // Clear takes both; Undo brings both back.
+  await tools.locator('.scalp-clear-btn').click();
+  await expect.poll(count).toBe(0);
+  await undo.click();
+  await expect.poll(count).toBe(2);
+  // Undo again: the Fib goes, the trendline stays. Redo puts the Fib back.
+  await undo.click();
+  await expect.poll(count).toBe(1);
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.data.drawings[0].kind)).toBe('line');
+  await expect(redo).toBeEnabled();
+  await redo.click();
+  await expect.poll(count).toBe(2);
+  // The keys do the same.
+  await page.locator('#scalp-dock-chart-title').click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(count).toBe(1);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(count).toBe(2);
+  // What is on screen is what is kept.
+  const kept = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('pf_scalp_chart_drawings_v1') || '{}'))[0] as any);
+  expect(kept.lines.length + kept.fibs.length).toBe(2);
 });
 
 test('the broker pair spans its row with no BROKER label', async ({ page }) => {

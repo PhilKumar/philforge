@@ -25545,6 +25545,28 @@ def _chart_session_analytics(candles: list[dict], session_close_hm: tuple[int, i
 _SCALP_CHART_TIMEFRAMES = {"1m": ("1", 1), "3m": ("1", 3), "5m": ("5", 5), "15m": ("15", 15), "1h": ("60", 60)}
 
 
+# The option chart shows three sessions, each with its own CPR -- today and the
+# two before it (Phil, 2026-10-20: "Put the CPR EMA at least for 3 days
+# including current day in the options chart"). A day's CPR comes from the day
+# before it, so a fourth, older session rides along to feed the first one; the
+# chart opens on the newest three. Twelve calendar days of candles cover a
+# weekend and a holiday or two (1h asks further back, being sparser).
+_SCALP_CHART_SESSIONS = 4
+
+
+def _scalp_chart_from_date(today: date, candle_type: str) -> str:
+    return (today - timedelta(days=12 if candle_type != "60" else 16)).isoformat()
+
+
+def _scalp_chart_last_sessions(candles: list[dict], sessions: int = _SCALP_CHART_SESSIONS) -> list[dict]:
+    """The candles of the newest `sessions` trading days (IST), in order."""
+    days = sorted({datetime.fromtimestamp(int(bar["t"]), IST).date() for bar in candles})
+    if len(days) <= sessions:
+        return candles
+    first = days[-sessions]
+    return [bar for bar in candles if datetime.fromtimestamp(int(bar["t"]), IST).date() >= first]
+
+
 def _scalp_chart_timeframe(timeframe: str) -> tuple[str, str, int]:
     """(label, Dhan candle type, minutes) for a requested timeframe; 5m if unknown."""
     tf = str(timeframe or "5m").strip().lower()
@@ -25649,7 +25671,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
     today = datetime.now(IST).date()
     # Dhan intraday requests need business-day room across weekends/holidays,
     # and the pivots need a complete previous session behind the chart.
-    from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
+    from_date = _scalp_chart_from_date(today, candle_type)
     exchange_segment = option_exchange_segment(underlying)
     session = _scalp_session(underlying, today)
     try:
@@ -25688,6 +25710,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
     close_hm = tuple(int(x) for x in session["close"].split(":"))
     if str(tf_minutes) != candle_type:
         candles = _regroup_chart_candles(candles, tf_minutes, open_hm)
+    candles = _scalp_chart_last_sessions(candles)
 
     entry_time = _scalp_option_chart_timestamp(trade.get("entry_time"))
     entry_price = float(trade.get("entry_premium") or 0)
@@ -25912,7 +25935,7 @@ async def get_scalp_contract_chart(
         raise HTTPException(status_code=503, detail="Broker connection is required to load the option chart")
 
     today = datetime.now(IST).date()
-    from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
+    from_date = _scalp_chart_from_date(today, candle_type)
     try:
         frame = await asyncio.to_thread(
             broker_client.get_historical_data,
@@ -25933,6 +25956,7 @@ async def get_scalp_contract_chart(
     close_hm = tuple(int(x) for x in session["close"].split(":"))
     if str(tf_minutes) != candle_type:
         candles = _regroup_chart_candles(candles, tf_minutes, open_hm)
+    candles = _scalp_chart_last_sessions(candles)
 
     analytics = _chart_session_analytics(
         candles, (close_hm[0], close_hm[1] - 1) if close_hm[1] else (close_hm[0] - 1, 59)

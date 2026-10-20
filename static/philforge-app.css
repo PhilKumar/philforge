@@ -6351,6 +6351,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-chart-tools .scalp-st-toggle, .scalp-chart-tools .scalp-cpr-toggle, .scalp-chart-tools .scalp-rsi-toggle { opacity: .6; }
 .scalp-chart-tools .scalp-st-toggle.is-on { opacity: 1; color: #4caf50; border-color: rgba(76,175,80,.55); }
 .scalp-chart-tools .scalp-cpr-toggle.is-on { opacity: 1; color: #5b9bff; border-color: rgba(91,155,255,.55); }
+.scalp-chart-tools :is(.scalp-undo-btn, .scalp-redo-btn) { min-width: 30px; font-size: 14px; line-height: 1; }
+.scalp-chart-tools :is(.scalp-undo-btn, .scalp-redo-btn):disabled { opacity: .38; cursor: default; }
 .scalp-chart-tools .scalp-rsi-toggle.is-on { opacity: 1; color: #b39ddb; border-color: rgba(126,87,194,.65); }
 .scalp-chart-tools .is-armed { color: #fbbf24; border-color: rgba(251,191,36,.6); box-shadow: 0 0 0 1px rgba(251,191,36,.35) inset; }
 .scalp-fib-wrap { position: relative; }

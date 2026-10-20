@@ -170,6 +170,9 @@ test('Scalp: SL and Target follow the premium by the points set, and go to the s
   await page.evaluate(() => {
     (document.getElementById('scalp-strike') as HTMLInputElement).value = '73000';
     (window as unknown as { _scalpCurrentLTP: number })._scalpCurrentLTP = 480.85;
+    // This contract's premium: a premium of no known contract is not reused.
+    const w = window as any, v = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
+    w._scalpLTPKey = w._scalpContractKey(v('scalp-underlying'), v('scalp-strike'), v('scalp-expiry'), v('scalp-option-type'));
     (window as unknown as { _syncScalpAutoExits: () => void })._syncScalpAutoExits();
   });
   // Points is the way chosen; the exits it gives are said in words.
@@ -269,9 +272,9 @@ test('Scalp: the docked chart leaves the NIFTY 5m chart alone while it is open',
   await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
 });
 
-test('Scalp: the option chart opens on one day of candles and keeps a chosen zoom', async ({ page }) => {
+test('Scalp: the option chart opens on three days of candles and keeps a chosen zoom', async ({ page }) => {
   // Phil, 2026-10-15: "Need options chart view to one day amount of candles
-  // ... I want only one day quantity and stays till I refresh".
+  // ... stays till I refresh"; 2026-10-20: "let the chart shows 3 days of data".
   test.setTimeout(60_000);
   await login(page);
   const days = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15'];
@@ -302,9 +305,9 @@ test('Scalp: the option chart opens on one day of candles and keeps a chosen zoo
   const view = () => page.evaluate(() => ({ ...(window as unknown as { _pfChartCanvas: { viewport: V } })._pfChartCanvas.viewport }));
   const span = async () => { const v = await view(); return Math.round(v.tMax - v.tMin); };
 
-  // One day on 5m is 75 bars, ending at the newest of the 300.
+  // Three days on 5m are 225 bars, ending at the newest of the 300.
   const first = await view();
-  expect(first.tMin).toBeCloseTo(224.5, 0);
+  expect(first.tMin).toBeCloseTo(74.5, 0);
   expect(first.tMax).toBeCloseTo(299.5, 0);
 
   // Zoom in to 30 bars (150 minutes): the refreshes and the refresh button keep it.
@@ -324,8 +327,8 @@ test('Scalp: the option chart opens on one day of candles and keeps a chosen zoo
   await strip.getByRole('radio', { name: /^15m$/i }).click();
   await expect.poll(span).toBe(10);
 
-  // The 100% button goes back to one day: 25 bars of 15m.
+  // The 100% button goes back to three days: 75 bars of 15m.
   await page.locator('#scalp-dock-chart-body [data-bench-zoom-reset]').click();
-  await expect.poll(span).toBe(25);
+  await expect.poll(span).toBe(75);
   await strip.getByRole('radio', { name: /^5m$/i }).click();
 });
