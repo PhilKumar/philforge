@@ -136,5 +136,66 @@ class MatchScalpToZerodhaFills(unittest.TestCase):
         self.assertIsNone(missing)
 
 
+class AHandCloseInKiteIsBookedAtKitesFill(unittest.IsolatedAsyncioTestCase):
+    """Phil, 2026-10-20: the row's "Kite" button retired -- the engine reads the
+    fills itself. Trade 247 (19-Oct), closed by hand in Kite, had been booked at
+    the last price seen instead of Kite's fill."""
+
+    def _engine(self, fills=None, fails=False):
+        from datetime import timedelta
+        from unittest import mock
+
+        from scalp import ScalpEngine, ScalpTrade, _now_ist
+
+        class Kite:
+            def get_positions(self):
+                return []  # the position is gone: closed in Kite
+
+            def _contract(self, *a):
+                return {"tradingsymbol": SYM}
+
+            def get_trades(self):
+                if fails:
+                    raise RuntimeError("Kite is down")
+                return fills or []
+
+        engine = ScalpEngine(mock.MagicMock())
+        engine.zerodha = Kite()
+        engine._log = lambda *a: None
+        trade = ScalpTrade(
+            trade_id=216, underlying="SENSEX", strike=73000, option_type="PE", expiry="2026-10-15",
+            transaction_type="BUY", lots=4, lot_size=20, entry_premium=505.55, mode="live",
+            order_id="261014220870046",
+        )  # fmt: skip
+        trade.broker = "zerodha"
+        trade.entry_time = _now_ist() - timedelta(minutes=2)
+        trade.current_premium = 514.65
+        engine.open_trades[216] = trade
+        self.patches = [
+            mock.patch("scalp.ScripMaster.lookup", lambda *a: "1100"),
+            mock.patch.object(engine, "_get_ltp", lambda *a: 514.65),
+        ]
+        for p in self.patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in self.patches])
+        return engine, trade
+
+    async def test_kites_fill_not_the_last_price(self):
+        engine, trade = self._engine(KITE_14_OCT)
+        await engine._sync_positions_with([trade], engine.zerodha.get_positions)
+        row = engine.closed_trades[-1]
+        self.assertEqual(
+            (row["exit_reason"], row["entry_premium"], row["exit_premium"]), ("broker_manual_exit", 510.6, 521.6)
+        )
+        self.assertEqual(row["pnl"], 880.0)
+        self.assertEqual(row["exit_order_id"], "261014220872491")
+
+    async def test_unreadable_fills_fall_back_to_the_last_price(self):
+        engine, trade = self._engine(fails=True)
+        await engine._sync_positions_with([trade], engine.zerodha.get_positions)
+        row = engine.closed_trades[-1]
+        self.assertEqual((row["entry_premium"], row["exit_premium"]), (505.55, 514.65))
+
+
 if __name__ == "__main__":
     unittest.main()

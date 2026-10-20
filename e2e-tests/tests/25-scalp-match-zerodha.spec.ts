@@ -1,8 +1,9 @@
 import { test, expect, Page } from '@playwright/test';
 
 // Phil, 2026-10-14: a Zerodha scalp's exit was refused and he sold by hand in
-// Kite, so the row kept the site's prices (+728) instead of Kite's (+880).
-// "Match from Zerodha" re-books the row from Kite's own fills, on the day only.
+// Kite, so the row kept the site's prices (+728) instead of Kite's (+880). The
+// Scalp row's match button is retired (2026-10-20: the engine books the fills);
+// the live books' match on the Portfolio page stays.
 
 const USERNAME = process.env.E2E_USERNAME || 'admin';
 const PIN = process.env.E2E_PIN || '123456';
@@ -17,7 +18,10 @@ async function login(page: Page) {
   await page.waitForFunction(() => !!(history.state && (history.state as { page?: string }).page));
 }
 
-test('Scalp history: a live Zerodha row from today can be matched with Kite', async ({ page }) => {
+test('Scalp history: no Kite match button -- the engine books Kite\'s fills itself', async ({ page }) => {
+  // Phil, 2026-10-20: "Why we are having this kite button when scalp does
+  // exactly what kite has". Since 14-Oct the engine books Zerodha's fills;
+  // a hand close in Kite now reads them too, so the row needs no button.
   await login(page);
   const today = await page.evaluate(() => {
     const d = new Date();
@@ -25,15 +29,9 @@ test('Scalp history: a live Zerodha row from today can be matched with Kite', as
   });
   const row = (id: number, extra: Record<string, unknown>) => ({
     trade_id: id, underlying: 'SENSEX', strike: 73000, option_type: 'PE', transaction_type: 'BUY',
-    lots: 4, lot_size: 20, quantity: 80, entry_premium: 505.55, exit_premium: 514.65, pnl: 728,
-    entry_time: today + ' 13:06:32', exit_time: today + ' 13:06:40', exit_reason: 'manual', ...extra,
+    lots: 4, lot_size: 20, quantity: 80, entry_premium: 510.6, exit_premium: 521.6, pnl: 880,
+    entry_time: today + ' 13:06:32', exit_time: today + ' 13:06:40', exit_reason: 'broker_manual_exit', ...extra,
   });
-  let asked = '';
-  await page.route('**/api/scalp/trades/*/match-broker', async (route) => {
-    asked = new URL(route.request().url()).pathname;
-    await route.fulfill({ json: { status: 'ok', trade: row(916, { mode: 'live', broker: 'zerodha', entry_premium: 510.6, exit_premium: 521.6, pnl: 880 }) } });
-  });
-
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
   await page.evaluate((rows) => {
@@ -42,21 +40,13 @@ test('Scalp history: a live Zerodha row from today can be matched with Kite', as
     w._scalpAllClosed = rows;
     w._renderScalpHistoryPage();
   }, [
-    row(916, { mode: 'live', broker: 'zerodha' }),
-    row(915, { mode: 'live', broker: 'dhan' }),
-    row(914, { mode: 'paper' }),
-    row(913, { mode: 'live', broker: 'zerodha', entry_time: '2026-01-02 10:00:00' }),
+    row(916, { mode: 'live', broker: 'zerodha', broker_match: { matched_at: today + ' 13:10:00', was: {} } }),
+    row(915, { mode: 'live', broker: 'zerodha' }),
+    row(914, { mode: 'live', broker: 'dhan' }),
   ]);
-
-  // Only today's live Zerodha row offers it: Dhan, paper and old rows do not.
-  const buttons = page.locator('#scalp-history-body .scalp-match-btn');
-  await expect(buttons).toHaveCount(1);
-  await expect(buttons.first()).toHaveText('⇄ Kite');
-
-  await buttons.first().click();
-  await page.click('#confirm-ok-btn');
-  await expect.poll(() => asked).toBe('/api/scalp/trades/916/match-broker');
-  await expect(page.locator('body')).toContainText('+₹880.00');
+  await expect(page.locator('#scalp-history-body tr')).toHaveCount(3);
+  await expect(page.locator('#scalp-history-body .scalp-match-btn')).toHaveCount(0);
+  await expect(page.locator('#scalp-history-body')).not.toContainText('Kite');
 });
 
 test('Live book: today\'s Zerodha trade can be matched with Kite, a Dhan one cannot', async ({ page }) => {

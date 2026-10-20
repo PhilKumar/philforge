@@ -14045,37 +14045,6 @@ async function modifyScalpTrade(tradeId) {
 
 // A live Zerodha scalp can be re-priced from Kite's own fills, but only on the
 // day it traded: Kite keeps no older fills.
-function _scalpCanMatchZerodha(t) {
-  if (!t || t.mode !== 'live' || t.broker !== 'zerodha') return false;
-  const d = new Date();
-  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  return String(t.entry_time || '').slice(0, 10) === today || !!t.broker_match;
-}
-
-function _scalpMatchTitle(t) {
-  const m = t.broker_match;
-  if (!m) return 'Match with Zerodha: book the entry and exit Kite actually filled';
-  const was = m.was || {};
-  return 'Matched with Zerodha at ' + (m.matched_at || '') + '. The site had booked ₹'
-    + Number(was.entry_premium || 0).toFixed(2) + ' → ₹' + Number(was.exit_premium || 0).toFixed(2)
-    + ' (' + (Number(was.pnl || 0) >= 0 ? '+' : '') + '₹' + Number(was.pnl || 0).toFixed(2) + '). Click to match again.';
-}
-
-async function matchScalpWithZerodha(tid) {
-  const ok = await customConfirm('Replace this trade\'s entry and exit with the prices Zerodha actually filled today?', { title: 'Match with Zerodha', okText: 'Match' });
-  if (!ok) return;
-  try {
-    const r = await fetch('/api/scalp/trades/' + tid + '/match-broker', { method: 'POST', credentials: 'same-origin' });
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) { toast(body.detail || body.message || ('Match failed (' + r.status + ')'), 'error'); return; }
-    const t = body.trade || {};
-    const pnl = Number(t.pnl || 0);
-    toast('Matched with Zerodha: ₹' + Number(t.entry_premium || 0).toFixed(2) + ' → ₹' + Number(t.exit_premium || 0).toFixed(2) + ', ' + (pnl >= 0 ? '+' : '') + '₹' + pnl.toFixed(2), 'success');
-    refreshScalpStatus();
-  } catch (e) {
-    toast('Match failed: ' + e.message, 'error');
-  }
-}
 
 async function deleteScalpHistoryTrade(tid) {
   const ok = await customConfirm('Delete this closed scalp trade?', { title: 'Delete Trade', icon: ICO.trash(28), okText: 'Delete', danger: true });
@@ -14182,7 +14151,6 @@ function _renderScalpHistoryPage() {
         <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${escapeHtml((t.exit_reason||'').replace(/_/g,' '))}</td>
         <td style="padding:7px 6px;text-align:center;">${modeBadge}</td>
         <td style="padding:7px 6px;text-align:center;white-space:nowrap;">
-          ${_scalpCanMatchZerodha(t) ? `<button class="btn btn-secondary btn-sm scalp-match-btn" onclick="matchScalpWithZerodha(${t.trade_id})" title="${escapeAttr(_scalpMatchTitle(t))}" aria-label="Match trade ${escapeAttr(t.trade_id)} with Zerodha" style="padding:2px 6px;font-size:10px;margin-right:4px;">${t.broker_match ? '✓ Kite' : '⇄ Kite'}</button>` : ''}
           <button class="btn btn-danger btn-sm" onclick="deleteScalpHistoryTrade(${t.trade_id})" style="padding:2px 8px;font-size:10px;">✕</button>
         </td>
       </tr>`;

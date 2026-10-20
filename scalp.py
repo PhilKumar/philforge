@@ -1336,18 +1336,49 @@ class ScalpEngine:
             if not sec_id or str(sec_id) in open_security_ids:
                 continue
             exit_prem = self._get_ltp(trade, trade.trade_id) or trade.current_premium or trade.entry_premium or 0.0
+            exit_oid = trade.super_order_id or trade.order_id
+            # Closed by hand in Kite: book Kite's own fill, not the last price
+            # seen (Phil, 2026-10-20, retiring the row's "Kite" match button:
+            # the one trade it still corrected, #247, was a hand close booked
+            # at LTP 237.60 against a 237.55 fill).
+            fill = await self._zerodha_hand_close_fill(trade) if self._is_zerodha_trade(trade) else None
+            if fill:
+                exit_prem = fill["exit_premium"]
+                exit_oid = (fill["broker_match"].get("exit_order_ids") or [exit_oid])[0]
+                if abs(fill["entry_premium"] - trade.entry_premium) >= 0.005:
+                    trade.entry_premium = fill["entry_premium"]
             self._log(
                 "info",
                 f"🔄 Broker position missing — closing local scalp trade as externally exited: "
-                f"{trade.underlying} {trade.strike}{trade.option_type}",
+                f"{trade.underlying} {trade.strike}{trade.option_type}"
+                + (f" at Zerodha's fill ₹{exit_prem:.2f}" if fill else ""),
             )
             await self._close_trade(
                 trade,
                 "broker_manual_exit",
                 skip_broker_exit=True,
                 exit_prem_override=exit_prem,
-                exit_order_id_override=trade.super_order_id or trade.order_id,
+                exit_order_id_override=exit_oid,
             )
+
+    async def _zerodha_hand_close_fill(self, trade: "ScalpTrade") -> Dict[str, Any] | None:
+        """Kite's own entry and exit fills for a scalp closed by hand there, or None."""
+        if self.zerodha is None:
+            return None
+        claimed: set[str] = set()
+        for other in self.closed_trades:
+            claimed.update(str(other.get(k) or "") for k in ("order_id", "exit_order_id"))
+            claimed.update(str(o) for o in (other.get("broker_match") or {}).get("exit_order_ids") or [])
+        claimed.discard("")
+        try:
+            contract = await asyncio.to_thread(
+                self.zerodha._contract, trade.underlying, trade.strike, trade.expiry, trade.option_type
+            )
+            fills = await asyncio.to_thread(self.zerodha.get_trades)
+            return match_scalp_to_broker_fills(trade.to_dict(), fills, contract["tradingsymbol"], claimed)
+        except Exception as e:
+            self._log("info", f"ℹ️ Zerodha fill not read for trade {trade.trade_id} ({e}); booked at the last price")
+            return None
 
     async def _sync_super_orders(self):
         trades = [t for t in self.open_trades.values() if t.status == "open" and self._is_super_order_trade(t)]

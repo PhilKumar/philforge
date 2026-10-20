@@ -25100,66 +25100,6 @@ async def bulk_delete_scalp_trades(request: Request):
     return {"deleted": deleted}
 
 
-@app.post("/api/scalp/trades/{tid}/match-broker")
-async def match_scalp_trade_to_broker(tid: int, request: Request):
-    """Re-price a closed live Zerodha scalp from Kite's own fills.
-
-    The site books what it saw; when an exit was refused and Phil closed by
-    hand in Kite, the row keeps the wrong prices. This reads today's fills
-    (Kite keeps no others) and books the real entry and exit, keeping the old
-    figures under broker_match.was.
-    """
-    import scalp as _scalp_mod
-
-    user_id = _request_user_id(request)
-    trades = await _db_mod.list_scalp_trades(user_id)
-    trade = next((t for t in trades if int(t.get("trade_id") or 0) == tid), None)
-    if trade is None:
-        raise HTTPException(status_code=404, detail="Scalp trade not found")
-    if trade.get("mode") != "live" or str(trade.get("broker") or "") != "zerodha":
-        raise HTTPException(status_code=400, detail="Only a live Zerodha scalp can be matched with Zerodha.")
-    if str(trade.get("entry_time") or "")[:10] != _scalp_mod._now_ist().strftime("%Y-%m-%d"):
-        raise HTTPException(
-            status_code=400, detail="Kite keeps only today's fills, so a scalp can be matched on the day it traded."
-        )
-    user = getattr(request.state, "current_user", None) or await _auth_mod.get_current_user(request)
-    client, source = _user_zerodha_client(user)
-    if client is None:
-        raise HTTPException(status_code=400, detail=_book_broker_missing_message(user, source))
-    try:
-        contract = await asyncio.to_thread(
-            client._contract,
-            trade.get("underlying"),
-            trade.get("strike"),
-            trade.get("expiry"),
-            trade.get("option_type"),
-        )
-        fills = await asyncio.to_thread(client.get_trades)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not read Zerodha's fills: {exc}") from exc
-    claimed = set()
-    for other in trades:
-        if int(other.get("trade_id") or 0) == tid:
-            continue
-        claimed.update(str(other.get(k) or "") for k in ("order_id", "exit_order_id"))
-        claimed.update(str(o) for o in (other.get("broker_match") or {}).get("exit_order_ids") or [])
-    try:
-        changes = _scalp_mod.match_scalp_to_broker_fills(trade, fills, contract["tradingsymbol"], claimed)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if trade.get("broker_match"):
-        # A second match keeps the figures the site first booked.
-        changes["broker_match"]["was"] = trade["broker_match"].get("was") or changes["broker_match"]["was"]
-    updated = await _db_mod.update_scalp_trade(user_id, tid, changes)
-    eng = _scalp_engines.get(int(user_id))
-    if eng is not None:
-        for t in eng.closed_trades:
-            if t.get("trade_id") == tid:
-                t.update(changes)
-    _notify_scalp_ws()
-    return {"status": "ok", "trade": updated}
-
-
 @app.delete("/api/scalp/trades/{tid}")
 async def delete_scalp_trade(tid: int, request: Request):
     """Delete a single persisted scalp trade by trade_id."""
