@@ -13112,6 +13112,9 @@ function setScalpBroker(value) {
   _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
   _updateScalpBrokerNote();
   _persistScalpFormState();
+  // The premium comes from the broker picked, so ask again.
+  _scalpLTPFromWS = 0;
+  fetchScalpLTP();
 }
 
 function _updateScalpExitRulesNote() {
@@ -13246,11 +13249,17 @@ async function fetchScalpLTP() {
   if (_ltpAbort) _ltpAbort.abort();
   _ltpAbort = new AbortController();
   try {
-    const r = await fetch(`/api/option-ltp?underlying=${underlying}&strike=${strike}&expiry=${encodeURIComponent(expiry)}&option_type=${optType}`, { signal: _ltpAbort.signal });
+    // Priced by the broker the trade will go to (Zerodha's own quote for a
+    // Zerodha order); the server falls back to the other, then to the last close.
+    const broker = document.getElementById('scalp-broker')?.value || 'dhan';
+    const r = await fetch(`/api/option-ltp?underlying=${underlying}&strike=${strike}&expiry=${encodeURIComponent(expiry)}&option_type=${optType}&broker=${encodeURIComponent(broker)}`, { signal: _ltpAbort.signal });
     const d = await r.json();
     if (d.status === 'ok' && d.ltp > 0) {
-      el.textContent = '₹' + d.ltp.toFixed(2);
-      el.style.color = 'var(--scalp-info)';
+      const lastClose = d.source === 'last_close';
+      el.textContent = '₹' + d.ltp.toFixed(2) + (lastClose ? ' · close' : '');
+      el.title = lastClose ? 'No live price from either broker -- the last traded close' : (d.source ? `Live from ${d.source === 'zerodha' ? 'Zerodha' : 'Dhan'}` : '');
+      el.dataset.source = d.source || '';
+      el.style.color = lastClose ? 'var(--muted)' : 'var(--scalp-info)';
       _scalpCurrentLTP = d.ltp;
       _scalpLTPKey = formKey;
     } else {

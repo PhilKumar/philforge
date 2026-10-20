@@ -26357,17 +26357,102 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
     return result
 
 
+# One contract's premium, shared for a moment by every screen asking for it.
+# Dhan allows about one price request a second; two devices polling the Scalp
+# form drew a stream of 429s on 20-Oct-2026 and the form showed N/A.
+_OPTION_LTP_TTL_SEC = 1.5
+_OPTION_LTP_CACHE: dict[tuple, tuple[float, float, str]] = {}
+_OPTION_LTP_LOCKS: dict[tuple, asyncio.Lock] = {}
+
+
+def _option_ltp_last_close(underlying: str, strike, expiry: str, option_type: str) -> float:
+    """The contract's last candle close from a chart already fetched, or 0.
+
+    Costs no broker call: a holiday, or both brokers refusing, still shows the
+    price the contract last traded at rather than N/A.
+    """
+    want = (str(underlying).upper(), _scalp_strike(strike), str(expiry), str(option_type).upper())
+    best_t, best_c = 0, 0.0
+    for key, (_, payload) in list(_SCALP_CONTRACT_CHART_CACHE.items()):
+        if tuple(key[1:5]) != want:
+            continue
+        candles = (payload or {}).get("candles") or []
+        if candles and int(candles[-1]["t"]) > best_t:
+            best_t, best_c = int(candles[-1]["t"]), float(candles[-1]["c"] or 0)
+    return best_c
+
+
 @app.get("/api/option-ltp")
-async def get_option_ltp(request: Request, underlying: str, strike: float, expiry: str, option_type: str):
-    """Get live LTP for a specific option contract."""
+async def get_option_ltp(
+    request: Request, underlying: str, strike: float, expiry: str, option_type: str, broker: str = ""
+):
+    """Live LTP for one option contract.
+
+    From the broker the trade will go to (Phil, 2026-10-20, on Zerodha's price
+    for Zerodha-bound trades: "yes.. Please do that"), the other as the
+    fallback when the first has nothing -- a 429, a holiday, no login -- and
+    last, the contract's last chart close. `source` says which answered.
+    """
     _, broker_client, _ = await _request_broker_context(request)
-    if not broker_client:
-        return {"status": "error", "message": "Broker not configured"}
-    try:
-        ltp = await asyncio.to_thread(broker_client.get_option_ltp, underlying, strike, expiry, option_type)
-        return {"status": "ok", "ltp": ltp}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    want_zerodha = str(broker or "").strip().lower() == "zerodha"
+    key = (str(underlying).upper(), _scalp_strike(strike), str(expiry), str(option_type).upper(), want_zerodha)
+    cached = _OPTION_LTP_CACHE.get(key)
+    if cached and time.monotonic() - cached[0] < _OPTION_LTP_TTL_SEC:
+        return {"status": "ok", "ltp": cached[1], "source": cached[2], "cached": True}
+    lock = _OPTION_LTP_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        cached = _OPTION_LTP_CACHE.get(key)
+        if cached and time.monotonic() - cached[0] < _OPTION_LTP_TTL_SEC:
+            return {"status": "ok", "ltp": cached[1], "source": cached[2], "cached": True}
+
+        async def from_dhan() -> float:
+            if not broker_client:
+                return 0.0
+            try:
+                return float(
+                    await asyncio.to_thread(broker_client.get_option_ltp, underlying, strike, expiry, option_type) or 0
+                )
+            except Exception:
+                return 0.0
+
+        async def from_zerodha() -> float:
+            try:
+                user = getattr(request.state, "current_user", None) or await _auth_mod.get_current_user(request)
+                client, _ = _user_zerodha_client(user, require_today=True)
+                if client is None:
+                    return 0.0
+                return float(
+                    await asyncio.to_thread(client.get_option_ltp, underlying, strike, expiry, option_type) or 0
+                )
+            except Exception:
+                return 0.0
+
+        order = (
+            [("zerodha", from_zerodha), ("dhan", from_dhan)]
+            if want_zerodha
+            else [
+                ("dhan", from_dhan),
+                ("zerodha", from_zerodha),
+            ]
+        )
+        ltp, source = 0.0, ""
+        for name, ask in order:
+            ltp = await ask()
+            if ltp > 0:
+                source = name
+                break
+        if ltp <= 0:
+            ltp = _option_ltp_last_close(underlying, strike, expiry, option_type)
+            source = "last_close" if ltp > 0 else ""
+        if not broker_client and not source:
+            return {"status": "error", "message": "Broker not configured"}
+        if ltp > 0:
+            if len(_OPTION_LTP_CACHE) > 256:
+                _OPTION_LTP_CACHE.clear()
+                for stale in [k for k, held in _OPTION_LTP_LOCKS.items() if not held.locked() and k != key]:
+                    _OPTION_LTP_LOCKS.pop(stale, None)
+            _OPTION_LTP_CACHE[key] = (time.monotonic(), ltp, source)
+        return {"status": "ok", "ltp": ltp, "source": source}
 
 
 @app.get("/api/paper/trades/csv")
