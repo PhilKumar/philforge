@@ -10150,9 +10150,39 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page .scalp-engine-name,
   #scalp-page .scalp-recipe { display: none; }
   #scalp-page .scalp-engine-bar { flex: 1 1 auto; flex-wrap: nowrap !important; }
-  #scalp-page .ocp-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: 14px; align-items: start; }
-  #scalp-page .ocp-pane-form { order: 2; }
+  /* 70 / 30, chart to launchpad (Phil, 2026-10-20: "a lil bit wider like
+     30-70"); the launchpad never narrower than its fields need. */
+  #scalp-page .ocp-panes { display: grid; grid-template-columns: minmax(0, 7fr) minmax(440px, 3fr); gap: 14px; align-items: start; }
+  /* Its top level with the chart's: it carried a 14px margin the chart had not. */
+  #scalp-page .ocp-pane-form { order: 2; margin-top: 0 !important; }
   #scalp-page .ocp-pane-live { order: 1; display: flex; flex-direction: column; gap: 12px; }
   #scalp-page .ocp-pane-live > .scalp-dock-chart { order: 1; margin-top: 0; }
   #scalp-page .ocp-pane-live > .scalp-event-card { order: 2; margin-top: 0; align-self: stretch; width: 100%; box-sizing: border-box; }
+
+  /* ONE HEIGHT FOR EVERY CONTROL ON THE LAUNCHPAD (Phil, 2026-10-20: "check
+     all the fields whether they are properly aligned"). Measured before: the
+     underlying 41px beside an expiry of 36, the CE/PE switch 42 beside a
+     strike of 36 with 33px steppers, SELL 37 beside BUY 40. All 40 now -- the
+     switches' own height -- and every label in one style. */
+  #scalp-page .ocp-pane-form :is(.scalp-uly-btn, #scalp-expiry, #scalp-live-ltp, #scalp-margin, #scalp-strike,
+      #scalp-product-type, #scalp-lots, #scalp-limit-price, #scalp-limit-max, .scalp-exit-pair input,
+      .scalp-entry-actions > .btn) {
+    height: 40px; min-height: 40px; box-sizing: border-box;
+  }
+  #scalp-page .ocp-pane-form :is(#scalp-live-ltp, #scalp-margin) { display: flex; align-items: center; padding-top: 0; padding-bottom: 0; }
+  #scalp-page .ocp-pane-form :is(#scalp-strike, .scalp-entry-actions > .btn) { padding-top: 0 !important; padding-bottom: 0 !important; }
+  #scalp-page .ocp-pane-form div:has(> #scalp-strike) > button {
+    width: 40px; height: 40px; padding: 0 !important; box-sizing: border-box;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  #scalp-page .ocp-pane-form #scalp-option-toggle { height: 40px; box-sizing: border-box; }
+  #scalp-page .ocp-pane-form #scalp-option-toggle .scalp-toggle-btn { min-height: 0; height: 100%; padding-top: 0; padding-bottom: 0; }
+  #scalp-page .ocp-pane-form :is(#scalp-broker-toggle, #scalp-mode-toggle) { height: 40px; box-sizing: border-box; }
+  #scalp-page .ocp-pane-form :is(#scalp-broker-toggle, #scalp-mode-toggle) .scalp-toggle-btn { min-height: 0; height: 100%; }
+  #scalp-page .ocp-pane-form .scalp-entry-actions { align-items: stretch !important; }
+  #scalp-page .ocp-pane-form :is(.scalp-exit-pair label span, .scalp-stop-limit label) {
+    font-size: 10px !important; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px;
+    margin-bottom: 0 !important;
+  }
+  #scalp-page .ocp-pane-form .scalp-stop-limit label { display: block; margin-bottom: 4px !important; }
 }

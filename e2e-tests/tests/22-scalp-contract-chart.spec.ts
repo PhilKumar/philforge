@@ -332,3 +332,33 @@ test('Scalp: the option chart opens on three days of candles and keeps a chosen 
   await expect.poll(span).toBe(75);
   await strip.getByRole('radio', { name: /^5m$/i }).click();
 });
+
+test('Scalp: chart and launchpad split 70/30, tops level, every launchpad control one height', async ({ page }) => {
+  // Phil, 2026-10-20: "Make the scalp controls panel a lil bit wider like 30-70
+  // ... check all the fields whether they are properly aligned".
+  await page.setViewportSize({ width: 1920, height: 1200 });
+  await login(page);
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+  await page.evaluate(() => { const d = document.querySelector('#scalp-page details.scalp-advanced') as HTMLDetailsElement; if (d) d.open = true; });
+  const m = await page.evaluate(() => {
+    const r = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    const live = r('#scalp-page .ocp-pane-live'), form = r('#scalp-page .ocp-pane-form'), pos = r('#scalp-page .scalp-positions-card');
+    const rows: Record<string, number[]> = {};
+    const ids = ['.scalp-uly-btn', '#scalp-expiry', '#scalp-live-ltp', '#scalp-margin', '#scalp-option-toggle', '#scalp-strike', '#scalp-product-type', '#scalp-lots',
+      '#scalp-sl-pts', '#scalp-target-pts', '#scalp-limit-price', '#scalp-limit-max', '#scalp-broker-toggle', '#scalp-mode-toggle', '.scalp-entry-actions > .btn'];
+    const heights: Record<string, number> = {};
+    ids.forEach((sel) => document.querySelectorAll(`#scalp-page .ocp-pane-form ${sel}`).forEach((el) => {
+      const b = el.getBoundingClientRect();
+      if (!b.height) return;
+      heights[sel] = Math.round(b.height);
+      (rows[Math.round(b.top)] = rows[Math.round(b.top)] || []).push(Math.round(b.height));
+    }));
+    return { split: Math.round(form.width / (live.width + form.width) * 100), topGap: Math.round(form.top - live.top),
+      right: Math.round(pos.right - form.right), left: Math.round(live.left - pos.left), heights };
+  });
+  expect(m.split).toBe(30);
+  expect(m.topGap).toBe(0);
+  expect([m.left, m.right]).toEqual([0, 0]);
+  expect(new Set(Object.values(m.heights))).toEqual(new Set([40]));
+});
