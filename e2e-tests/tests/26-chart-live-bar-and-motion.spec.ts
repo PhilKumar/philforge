@@ -36,6 +36,9 @@ async function scalpChart(page: Page, candles: unknown[], ltp: number, ownRoutes
     instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
   } }));
   if (ownRoutes) await page.route('**/api/option-ltp**', (route) => route.fulfill({ json: { status: 'ok', ltp } }));
+  // The form's own expiry list, so the page's start-up cannot replace the
+  // 19-Oct expiry these charts are drawn for once that date has passed.
+  await page.route('**/api/expiry-list/**', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-10-19'] } }));
   await login(page);
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);

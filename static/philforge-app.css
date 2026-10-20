@@ -60,9 +60,10 @@
     min-height: 100vh;
     min-height: 100dvh;
     padding: 0 16px calc(16px + env(safe-area-inset-bottom));
-    /* 1440 -> 1600 (Phil, 2026-10-16: "slightly widen the whole site"). Only
-       screens wider than 1440px see a change. */
-    max-width: 1600px;
+    /* 1440 -> 1600 (2026-10-16), then the full window (Phil, 2026-10-20:
+       "how it will look if I widen my site to full screen"). The 16px side
+       padding above is the only margin left. */
+    max-width: none;
     margin: 0 auto;
     overscroll-behavior-y: contain;
     overscroll-behavior-x: none;
@@ -7805,7 +7806,7 @@ input:focus, select:focus {
    to presentation: no functional selectors, states, or visibility rules.
    ═════════════════════════════════════════════════════════════════════ */
 .pf-unified-page {
-  width: min(100%, 1800px);
+  width: 100%; /* the full window (2026-10-20) */
   margin-inline: auto;
   padding-bottom: 28px;
   --pf-workspace-gap: 14px;
@@ -8882,7 +8883,7 @@ body :is(
    hero → working surface → ledger rhythm as Equity and Cascade.
    ═════════════════════════════════════════════════════════════════════ */
 .pf-unified-page {
-  width: min(100%, 1640px);
+  width: 100%; /* the full window (2026-10-20) */
   padding-bottom: 34px;
   --pf-workspace-gap: 16px;
   --pf-workspace-radius: 18px;
@@ -10090,3 +10091,20 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 .pf-zerodha-import { color: #fb923c; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .pf-zerodha-import:hover { color: #fdba74; }
 .pf-import-note { margin-top: 6px; font-size: 10.5px; color: #fbbf24; }
+
+
+/* THE SCALP DESK, chart first (Phil, 2026-10-20: "the scalp section to right
+   side and the chart to left side and shorten the Scalp engine one line").
+   Desktop only -- where the chart docks; a phone keeps its stacked layout. */
+@media (min-width: 1080px) {
+  #scalp-page .ocp-head { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; }
+  #scalp-page .ocp-head .ocp-eyebrow,
+  #scalp-page .scalp-engine-name,
+  #scalp-page .scalp-recipe { display: none; }
+  #scalp-page .scalp-engine-bar { flex: 1 1 auto; flex-wrap: nowrap !important; }
+  #scalp-page .ocp-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: 14px; align-items: start; }
+  #scalp-page .ocp-pane-form { order: 2; }
+  #scalp-page .ocp-pane-live { order: 1; display: flex; flex-direction: column; gap: 12px; }
+  #scalp-page .ocp-pane-live > .scalp-dock-chart { order: 1; margin-top: 0; }
+  #scalp-page .ocp-pane-live > .scalp-event-card { order: 2; margin-top: 0; align-self: stretch; width: 100%; box-sizing: border-box; }
+}

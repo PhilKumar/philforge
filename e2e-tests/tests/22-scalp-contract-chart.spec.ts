@@ -79,7 +79,8 @@ test('Scalp: the option chart button beside the broker charts the contract in th
   const sideBySide = await page.evaluate(() => {
     const form = document.querySelector('#scalp-page .scalp-entry-card')!.getBoundingClientRect();
     const d = document.getElementById('scalp-dock-chart')!.getBoundingClientRect();
-    return d.left >= form.right && d.width > 300 && d.height > 400;
+    // Chart on the left, the form on the right (Phil, 2026-10-20).
+    return d.right <= form.left && d.width > 300 && d.height > 400;
   });
   expect(sideBySide).toBe(true);
   const first = asked.find((u) => u.searchParams.get('strike') === '22700')!.searchParams;

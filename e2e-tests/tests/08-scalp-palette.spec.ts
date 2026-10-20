@@ -117,7 +117,8 @@ test('Scalp panels size to content and Advanced preserves every execution field'
       alignItems: getComputedStyle(panes).alignItems,
       positionsLeadTheDesk: !!(positionsEl.compareDocumentPosition(panes) & Node.DOCUMENT_POSITION_FOLLOWING)
         && !positionsEl.closest('.ocp-panes'),
-      logBesideTheForm: logBox.left >= entry.left + entry.width - 5,
+      // Since 2026-10-20 the chart and the log are on the LEFT, the form on the right.
+      logBesideTheForm: logBox.left + logBox.width <= entry.left + 5,
       logIsItsOwnSection: log.tagName === 'DETAILS',
       logInLiveColumn: !!log.closest('.ocp-pane-live'),
       advancedHeight: advancedBox.height,
