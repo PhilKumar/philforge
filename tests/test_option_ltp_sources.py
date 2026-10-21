@@ -83,6 +83,15 @@ class WhereThePremiumComesFrom(unittest.TestCase):
         self.assertEqual((again["ltp"], again.get("cached")), (120.5, True))
         self.assertEqual(dhan.asked, 1)
 
+    def test_a_refusal_is_not_re_asked_for_three_seconds(self):
+        """21-Oct-2026 open: every screen re-asking Dhan the moment it said 429
+        kept it saying 429, and the site stopped loading."""
+        dhan = _Broker(0.0)
+        self._ask(dhan, None)
+        again = self._ask(dhan, None)
+        self.assertEqual((again["ltp"], again.get("cached")), (0.0, True))
+        self.assertEqual(dhan.asked, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

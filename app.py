@@ -26405,12 +26405,16 @@ async def get_option_ltp(
             source = "last_close" if ltp > 0 else ""
         if not broker_client and not source:
             return {"status": "error", "message": "Broker not configured"}
-        if ltp > 0:
+        # A refusal is kept too, briefly: every screen re-asking Dhan the
+        # moment it says 429 is what kept it saying 429 (21-Oct-2026 open).
+        if ltp > 0 or not source:
             if len(_OPTION_LTP_CACHE) > 256:
                 _OPTION_LTP_CACHE.clear()
                 for stale in [k for k, held in _OPTION_LTP_LOCKS.items() if not held.locked() and k != key]:
                     _OPTION_LTP_LOCKS.pop(stale, None)
-            _OPTION_LTP_CACHE[key] = (time.monotonic(), ltp, source)
+            # A zero is kept twice as long as a price (3s), then asked again.
+            stamp = time.monotonic() if ltp > 0 else time.monotonic() + _OPTION_LTP_TTL_SEC
+            _OPTION_LTP_CACHE[key] = (stamp, ltp, source)
         return {"status": "ok", "ltp": ltp, "source": source}
 
 

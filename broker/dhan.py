@@ -588,9 +588,12 @@ _mf_lock = threading.Lock()
 # The floor is ALWAYS on. The 1s throttle used to apply only while a live scalp
 # trade was open, so every other caller burst freely -- and the header quotes,
 # the monitors' marks and the movers panel landing in the same second produced
-# 2,400+ marketfeed 429s in three days. 0.3s collapses the bursts without
-# slowing any single caller a human would notice.
-_MF_FLOOR_INTERVAL: float = 0.3
+# 2,400+ marketfeed 429s in three days. 0.3s collapsed the bursts, but still
+# let three calls a second leave against Dhan's one: at the open on
+# 21-Oct-2026 nearly every quote was a 429, each retried on a growing sleep
+# that held a worker thread, and the site stopped loading (Phil: "What is
+# happening to my site?"). One a second, Dhan's own limit, always.
+_MF_FLOOR_INTERVAL: float = 1.0
 
 
 def _throttle_marketfeed():
@@ -2582,6 +2585,9 @@ class DhanClient:
             "POST",
             f"{self.base_url}/v2/marketfeed/ltp",
             headers=self.headers,
+            # One retry, not two: a quote refused once is better failed fast than
+            # held on a sleeping worker thread (see _MF_FLOOR_INTERVAL).
+            max_retries=2,
             json=payload,
             timeout=10,
             allow_token_refresh=self._allow_token_refresh,
@@ -2612,6 +2618,9 @@ class DhanClient:
             "POST",
             f"{self.base_url}/v2/marketfeed/ltp",
             headers=self.headers,
+            # One retry, not two: a quote refused once is better failed fast than
+            # held on a sleeping worker thread (see _MF_FLOOR_INTERVAL).
+            max_retries=2,
             json=payload,
             timeout=10,
             allow_token_refresh=self._allow_token_refresh,
@@ -2700,6 +2709,9 @@ class DhanClient:
             "POST",
             f"{self.base_url}/v2/marketfeed/ohlc",
             headers=self.headers,
+            # One retry, not two: a quote refused once is better failed fast than
+            # held on a sleeping worker thread (see _MF_FLOOR_INTERVAL).
+            max_retries=2,
             json=payload,
             timeout=10,
             allow_token_refresh=self._allow_token_refresh,
@@ -2729,6 +2741,9 @@ class DhanClient:
             "POST",
             f"{self.base_url}/v2/marketfeed/quote",
             headers=self.headers,
+            # One retry, not two: a quote refused once is better failed fast than
+            # held on a sleeping worker thread (see _MF_FLOOR_INTERVAL).
+            max_retries=2,
             json=payload,
             timeout=10,
             allow_token_refresh=self._allow_token_refresh,
@@ -3151,6 +3166,9 @@ class DhanClient:
             "POST",
             f"{self.base_url}/v2/marketfeed/ltp",
             headers=self.headers,
+            # One retry, not two: a quote refused once is better failed fast than
+            # held on a sleeping worker thread (see _MF_FLOOR_INTERVAL).
+            max_retries=2,
             json_data=payload,
             timeout=10.0,
             allow_token_refresh=self._allow_token_refresh,
