@@ -3747,7 +3747,10 @@ def _restore_scalp_trade_from_payload(payload: dict):
             entry_limit_price=float(payload.get("entry_limit_price") or 0),
             entry_limit_max=float(payload.get("entry_limit_max") or 0),
             broker=str(payload.get("broker") or "dhan"),
+            st_trail=bool(payload.get("st_trail")),
         )
+        trade.st_trail_armed = bool(payload.get("st_trail_armed"))
+        trade.st_last_bar = int(float(payload.get("st_last_bar") or 0))
         trade.current_premium = float(payload.get("current_premium") or trade.entry_premium or 0)
         trade.status = "pending" if status == "pending" else "open"
         for attr in (
@@ -26086,6 +26089,8 @@ class ScalpEntryReq(BaseModel):
     # Target and stop a set distance from the entry premium, in points.
     target_points: float = Field(default=0.0, ge=0, le=100_000)
     sl_points: float = Field(default=0.0, ge=0, le=100_000)
+    # Trail the stop on Supertrend (10, 2), 5m, and exit on a close through it.
+    st_trail: bool = False
 
 
 _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
@@ -26221,6 +26226,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                 broker=req.broker,
                 target_points=req.target_points,
                 sl_points=req.sl_points,
+                st_trail=req.st_trail,
             )
             broker_line = "\nBroker: Zerodha" if req.broker == "zerodha" and req.mode == "live" else ""
             if result.get("status") == "error":

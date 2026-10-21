@@ -12989,6 +12989,7 @@ function _readScalpFormState() {
     exit_mode: _scalpExitMode(),
     sl_pts: read('scalp-sl-pts'),
     target_pts: read('scalp-target-pts'),
+    st_trail: document.getElementById('scalp-st-trail')?.checked ? 'on' : 'off',
   };
 }
 
@@ -13039,6 +13040,8 @@ async function _restoreScalpFormState() {
     _applyScalpFieldValue('scalp-target-rs', saved.target_rs);
     _applyScalpFieldValue('scalp-sl-prem', saved.sl_prem);
     _applyScalpFieldValue('scalp-target-prem', saved.target_prem);
+    const stTrail = document.getElementById('scalp-st-trail');
+    if (stTrail) stTrail.checked = saved.st_trail === 'on';
     _applyScalpFieldValue('scalp-limit-price', saved.entry_limit_price);
     _applyScalpFieldValue('scalp-limit-max', saved.entry_limit_max);
     _applyScalpFieldValue('scalp-sl-pts', saved.sl_pts);
@@ -13879,6 +13882,7 @@ async function submitScalpEntry(direction) {
       broker: document.getElementById('scalp-broker')?.value || 'dhan',
       entry_limit_price: parseFloat(document.getElementById('scalp-limit-price').value) || 0,
       entry_limit_max: parseFloat(document.getElementById('scalp-limit-max').value) || 0,
+      st_trail: !!document.getElementById('scalp-st-trail')?.checked,
     };
     const autoExits = _scalpAutoExitPoints();
     if (autoExits) {

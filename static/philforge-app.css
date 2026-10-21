@@ -6438,6 +6438,9 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-exit-preview b { color: var(--text); font-weight: 700; }
 .scalp-exit-preview .is-sl { color: var(--red, #ef4444); }
 .scalp-exit-preview .is-tg { color: var(--green, #22c55e); }
+.scalp-st-trail { display: flex; align-items: flex-start; gap: 8px; margin-top: 4px; font-size: 11px; color: var(--muted); line-height: 1.45; cursor: pointer; }
+.scalp-st-trail input { margin-top: 2px; accent-color: #4caf50; }
+.scalp-st-trail b { color: var(--text); }
 /* Light skin: the dark tint above turned the box grey beside the light
    stop-limit box (Phil, 2026-10-20: "Colour mismatch in light mode"). */
 [data-theme="light"] .scalp-exit-rules { background: rgba(255,255,255,.72); border-color: rgba(148,163,184,.35); }

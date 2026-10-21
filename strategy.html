@@ -4552,6 +4552,12 @@
             <label><span>Target ₹ (profit)</span><input type="number" id="scalp-target-rs" value="0" min="0" step="100" inputmode="decimal" oninput="_syncScalpAutoExits()"></label>
           </div>
           <div class="scalp-exit-preview" id="scalp-exit-preview"></div>
+          <!-- Phil, 2026-10-21: "make the supertrend as the trailing stoploss
+               and exit if it closes below supertrend" (5m, both). -->
+          <label class="scalp-st-trail" title="Supertrend (10, 2) on the option's 5-minute candles, the chart's ST line">
+            <input type="checkbox" id="scalp-st-trail" onchange="_persistScalpFormState()">
+            <span><b>Trail with Supertrend</b> (10, 2) · 5m — the stop follows the line up; a 5m close below it exits</span>
+          </label>
         </div>
 
         <!-- Stop-Limit Entry (optional) -->
