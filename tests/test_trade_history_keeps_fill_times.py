@@ -137,7 +137,10 @@ class TheSchemaForcesARepull(unittest.TestCase):
     def test_the_version_is_past_the_one_that_stored_no_times(self):
         """5 collected the times and dropped them in the projection, so rows
         written under 5 are as timeless as those under 4."""
-        self.assertIn("_TRADE_HISTORY_SCHEMA_VERSION = 6", SRC)
+        # 7 (2026-10-21) rebuilds only rows holding MCX; every row under 6 is
+        # still rebuilt, through the floor.
+        self.assertIn("_TRADE_HISTORY_SCHEMA_FLOOR = 6", SRC)
+        self.assertIn("_TRADE_HISTORY_SCHEMA_VERSION = 7", SRC)
 
 
 if __name__ == "__main__":

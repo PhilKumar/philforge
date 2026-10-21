@@ -20540,8 +20540,13 @@ function _renderPortfolioMonthPanel(panel) {
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = ym + '-' + String(d).padStart(2, '0');
-    if (isClosedMarketDay(dateStr)) continue;
-    const entry = daily[dateStr];
+    // An NSE holiday is not a closed day for MCX: crude trades into the night
+    // on Dussehra too (Phil, 2026-10-21: "why yesterday's commodity trade is
+    // not displayed yet?"). Only a closed day with nothing real on it is skipped.
+    const dayRow = daily[dateStr];
+    const realOnDay = !!dayRow && (Number(dayRow.real_trades || dayRow.real_trade_legs || 0) > 0 || Number(dayRow.real_pnl || 0) !== 0);
+    if (isClosedMarketDay(dateStr) && !realOnDay) continue;
+    const entry = dayRow;
     if (entry) {
       const grossRealPnl = Number(entry.real_pnl || 0);
       const paperPnl = Number(entry.paper_pnl || 0);

@@ -1871,6 +1871,14 @@ class DhanClient:
         return mcx_lots(commodity, quantity), option_tick_size(commodity)
 
     @staticmethod
+    def _rows_already_units(rows):
+        """Mark MCX rows that already count units, so no later step converts them."""
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict) and str(row.get("exchangeSegment") or "").upper() == "MCX_COMM":
+                row["_qty_in_units"] = True
+        return rows
+
+    @staticmethod
     def _rows_in_units(rows):
         """Dhan's MCX rows count lots; the engines count units (see mcx_lots)."""
         for row in rows if isinstance(rows, list) else []:
@@ -2446,7 +2454,10 @@ class DhanClient:
 
             trades = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
             _dhan_log.info("[DHAN] Retrieved %s historical trades", len(trades))
-            return self._rows_in_units(trades)
+            # Already units: Dhan's trade-history report counts MCX in units, unlike
+            # its live trade book (lots). Converting it made 20-Oct-2026's crude
+            # trade 100 units and Rs 3,270 where Dhan's own P&L said Rs 327.
+            return self._rows_already_units(trades)
 
         except Exception as e:
             _dhan_log.warning("[DHAN] Trade-history request error: %s", e)

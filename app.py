@@ -652,7 +652,20 @@ _TRADE_BROKERAGE_FIELDS = ("brokerageCharges", "brokerage")
 # 5: per-symbol fill timestamps (first_buy / last_sell). Bumping this makes
 # the startup backfill re-pull every day from Dhan, so existing rows gain the
 # times they were built without.
-_TRADE_HISTORY_SCHEMA_VERSION = 6
+_TRADE_HISTORY_SCHEMA_VERSION = 7
+# Rows older than this are rebuilt whatever they hold. v7 changed only MCX
+# quantities (Dhan's history counts units, and was being converted again), so
+# a v6 row is rebuilt only when it holds an MCX contract.
+_TRADE_HISTORY_SCHEMA_FLOOR = 6
+_MCX_LEDGER_PREFIXES = ("CRUDEOIL", "NATURALGAS", "NATGAS")
+
+
+def _ledger_entry_has_mcx(entry: dict) -> bool:
+    return any(
+        str((d or {}).get("symbol") or "").upper().startswith(_MCX_LEDGER_PREFIXES) for d in entry.get("details") or []
+    )
+
+
 _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
 _trade_history_repair_attempts: dict[int, float] = {}
 
@@ -774,9 +787,12 @@ def _trade_history_entry_needs_refresh(
     if not isinstance(entry, dict) or not entry:
         return True
     try:
-        if int(entry.get("schema_version") or 0) < _TRADE_HISTORY_SCHEMA_VERSION:
-            return True
+        version = int(entry.get("schema_version") or 0)
     except Exception:
+        return True
+    if version < _TRADE_HISTORY_SCHEMA_FLOOR:
+        return True
+    if version < _TRADE_HISTORY_SCHEMA_VERSION and _ledger_entry_has_mcx(entry):
         return True
     if trade_date and trade_date != (today_str or _ist_date_str()):
         if str(entry.get("source") or "") != "historical_fifo":

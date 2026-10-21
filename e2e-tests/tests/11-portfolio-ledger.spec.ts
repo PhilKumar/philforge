@@ -332,3 +332,23 @@ test('A Zerodha Console tradebook fills the older Zerodha months, marked before 
   await expect(summary).toContainText('2 of 2 days imported from the Zerodha Console tradebook, before charges');
   await expect(page.locator('#portfolio-zerodha-monthly-grid .portfolio-monthly-day')).toHaveCount(2);
 });
+
+test('A real MCX trade on an NSE holiday shows in the month; an empty holiday does not', async ({ page }) => {
+  // Phil, 2026-10-21: "why yesterday's commodity trade is not displayed yet?"
+  // -- a crude trade on Dussehra (20-Oct), an NSE holiday, MCX open.
+  await login(page);
+  await page.click('#nav-portfolio');
+  await page.evaluate(() => {
+    (window as any)._portfolioDaily = {
+      '2026-10-19': { real_pnl: -10003.49, real_net_pnl: -10817.11, real_charges: 533.62, real_brokerage: 280, real_trades: 14, real_trade_legs: 14 },
+      '2026-10-20': { real_pnl: 327, real_net_pnl: 270.82, real_charges: 16.18, real_brokerage: 40, real_trades: 2, real_trade_legs: 2 },
+      '2026-10-02': { real_pnl: 0, real_net_pnl: 0, real_trades: 0 },  // Gandhi Jayanti: nothing traded
+    };
+    (window as any)._currentMonthlyView = '2026-10';
+    (window as any).renderMonthlyDailyGrid();
+  });
+  const tiles = page.locator('#portfolio-monthly-grid .portfolio-monthly-day');
+  await expect(tiles).toHaveCount(2);
+  await expect(tiles.nth(1)).toContainText('20 Oct');
+  await expect(tiles.nth(1)).toContainText('₹271');
+});

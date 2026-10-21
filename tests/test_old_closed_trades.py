@@ -177,7 +177,10 @@ class TheStampIsCompleteOrHonest(unittest.TestCase):
         # 5 collected the times but dropped them in the projection, so rows
         # written under it are as timeless as those under 4; 6 forces the
         # re-pull that actually stores them.
-        self.assertIn("_TRADE_HISTORY_SCHEMA_VERSION = 6", APP)
+        # 7 (2026-10-21) rebuilds only rows holding MCX; every row under 6 is
+        # still rebuilt, through the floor.
+        self.assertIn("_TRADE_HISTORY_SCHEMA_FLOOR = 6", APP)
+        self.assertIn("_TRADE_HISTORY_SCHEMA_VERSION = 7", APP)
 
     def test_the_payload_carries_both_stamps(self):
         block = helper_code()

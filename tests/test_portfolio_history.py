@@ -471,5 +471,34 @@ class PortfolioHistoryRouteRepairTests(unittest.IsolatedAsyncioTestCase):
         backfill_mock.assert_not_called()
 
 
+class McxQuantitiesInTheLedger(unittest.TestCase):
+    """Phil, 2026-10-21: "why yesterday's commodity trade is not displayed yet?"
+    Dhan's trade-history report counts MCX in units (its live book counts
+    lots); converting it again made 20-Oct's crude trade 100 units, Rs 3,270,
+    where Dhan said Rs 327."""
+
+    def test_history_rows_are_left_in_units(self):
+        from broker.dhan import DhanClient
+
+        rows = [
+            {"exchangeSegment": "MCX_COMM", "securityId": "1", "tradedQuantity": 10},
+            {"exchangeSegment": "NSE_FNO", "securityId": "2", "tradedQuantity": 65},
+        ]
+        DhanClient._rows_already_units(rows)
+        DhanClient._rows_in_units(rows)  # a later conversion leaves them alone
+        self.assertEqual([r["tradedQuantity"] for r in rows], [10, 65])
+
+    def test_a_v6_row_is_rebuilt_only_when_it_holds_mcx(self):
+        import app as app_module
+
+        crude = {"schema_version": 6, "source": "historical_fifo", "details": [{"symbol": "CRUDEOILM 17 NOV 9600 PUT"}]}
+        nifty = {"schema_version": 6, "source": "historical_fifo", "details": [{"symbol": "NIFTY 27 OCT 22700 CALL"}]}
+        need = app_module._trade_history_entry_needs_refresh
+        self.assertTrue(need(crude, trade_date="2026-10-20", today_str="2026-10-21"))
+        self.assertFalse(need(nifty, trade_date="2026-10-19", today_str="2026-10-21"))
+        self.assertTrue(need({**nifty, "schema_version": 5}, trade_date="2026-10-19", today_str="2026-10-21"))
+        self.assertFalse(need({**crude, "schema_version": 7}, trade_date="2026-10-20", today_str="2026-10-21"))
+
+
 if __name__ == "__main__":
     unittest.main()
