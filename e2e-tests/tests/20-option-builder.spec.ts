@@ -308,6 +308,22 @@ test('Option Builder: an opened strategy takes a new strike instead of being cop
   expect(sent.price).toBeGreaterThan(0);
   expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/option-builder/paper'))).toBe(false);
 
+  // + Add leg puts a strike in without the chain tab (Phil, 2026-10-21): an
+  // at-the-money BUY CE row, turned to what is wanted in its own row.
+  await page.click('[data-ob-left="paper"]');
+  const before = await page.locator('#ob-legs-table tbody tr').count();
+  await page.click('[data-ob-act="add-leg"]');
+  await expect(page.locator('#ob-legs-table tbody tr')).toHaveCount(before + 1);
+  const row = page.locator('#ob-legs-table tbody tr').last();
+  await row.locator('[data-leg-act="side"]').click();      // B -> S
+  await row.locator('[data-leg-act="type"]').click();      // CE -> PE
+  const n = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/paper/2/legs')).length;
+  await add.click();
+  await expect.poll(() => calls.filter((c) => c.method === 'POST' && c.url.endsWith('/paper/2/legs')).length).toBe(n + 1);
+  const viaButton = calls.filter((c) => c.url.endsWith('/paper/2/legs')).at(-1)!.body.legs;
+  expect(viaButton).toHaveLength(1);
+  expect([viaButton[0].side, viaButton[0].option_type, viaButton[0].lots]).toEqual(['SELL', 'PE', 1]);
+
   // Clear goes back to making a new strategy.
   await page.click('[data-ob-act="clear"]');
   await expect(add).toHaveText('Add to portfolio');

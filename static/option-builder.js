@@ -577,7 +577,11 @@
   function renderLegs() {
     const box = $('#ob-legs-table');
     const lot = lotSize();
-    if (!S.legs.length) { box.innerHTML = '<div class="ob-empty ob-empty-legs">No legs yet.</div>'; $('#ob-strategy-name').textContent = 'Your strategy'; return; }
+    // + Add leg: a strike at the money on this expiry, set from its own row
+    // (Phil, 2026-10-21: adding to an opened strategy meant finding the Option
+    // chain tab first).
+    const addLegBtn = '<button type="button" class="btn ob-add-leg" data-ob-act="add-leg" title="Add a leg at the money; set B/S, strike, CE/PE and lots in its row">+ Add leg</button>';
+    if (!S.legs.length) { box.innerHTML = `<div class="ob-empty ob-empty-legs">No legs yet. ${addLegBtn}</div>`; $('#ob-strategy-name').textContent = 'Your strategy'; return; }
     $('#ob-strategy-name').textContent = guessName();
     const expiryOpts = (sel) => S.expiries.slice(0, 10).map((e) => `<option value="${e}" ${e === sel ? 'selected' : ''}>${shortDate(e)}</option>`).join('');
     box.innerHTML = `<div class="ob-legs-scroll"><table class="ob-legs-grid" data-pf-disable-sort>
@@ -602,6 +606,7 @@
         </tr>`;
       }).join('')}</tbody></table></div>
       <div class="ob-legs-foot">
+        ${addLegBtn}
         <span>Lot size <b>${lot || '—'}</b></span>
         <span>${M.netPremium(S.legs, lot) >= 0 ? 'Net credit' : 'Net debit'} <b class="${tone(M.netPremium(S.legs, lot))}">${inr(Math.abs(M.netPremium(S.legs, lot)))}</b></span>
         <span>Live P&amp;L <b class="${tone(M.currentPnl(S.legs, lot))}">${signedInr(M.currentPnl(S.legs, lot))}</b></span>
@@ -1016,6 +1021,12 @@
         case 'load-positions': await loadPositions(); break;
         case 'analyse-positions': analysePositions(); break;
         case 'exit-all': await exitPositions((S.positions || []).filter((p) => p.underlying === S.underlying).map((p) => p.key)); break;
+        case 'add-leg': {
+          const chain = primary();
+          if (!chain || !chain.atm) { notify('The chain has not loaded yet.', 'warning'); break; }
+          addLeg('BUY', 'CE', Number(chain.atm), S.expiry, 1);
+          break;
+        }
         case 'paper': await paperTrade(); break;
         case 'live': await placeLive(); break;
         default: break;
@@ -1212,8 +1223,16 @@
     if (editing) {
       // What the builder holds beyond the strategy: a new contract whole, or
       // the extra lots on one it already has. Fewer lots is not an exit here.
-      const fresh = [];
+      // Rows of one contract are counted together: a second row of a held
+      // strike (+ Add leg makes these) is extra lots, not nothing.
+      const byContract = new Map();
       for (const l of sendable()) {
+        const k = `${l.side}|${l.type}|${Number(l.strike)}|${l.expiry}`;
+        const sum = byContract.get(k);
+        if (sum) sum.lots += Number(l.lots || 0); else byContract.set(k, { ...l, lots: Number(l.lots || 0) });
+      }
+      const fresh = [];
+      for (const l of byContract.values()) {
         const held = editing.legs.find((b) => b.side === l.side && b.option_type === l.type && Number(b.strike) === Number(l.strike) && b.expiry === l.expiry);
         const extra = held ? l.lots - Number(held.lots || 0) : l.lots;
         if (extra > 0) fresh.push({ ...l, lots: extra });
