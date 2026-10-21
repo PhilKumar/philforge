@@ -25417,7 +25417,9 @@ def _chart_session_analytics(candles: list[dict], session_close_hm: tuple[int, i
         if i >= period - 1:
             points.append({"t": bar["t"], "price": round(ema, 4)})
     if len(points) >= 2:
-        overlays.append({"label": "EMA 20", "color": "#2962ff", "width": 1.3, "points": points})
+        # Its own group, so a chart can switch it alone (the Scalp chart's EMA
+        # button, 2026-10-21).
+        overlays.append({"label": "EMA 20", "color": "#2962ff", "width": 1.3, "points": points, "group": "ema"})
 
     # EVERY SESSION CARRIES ITS OWN LEVELS. One set of pivots drawn flat across
     # the whole window is only true for the last day: on a three-day chart the

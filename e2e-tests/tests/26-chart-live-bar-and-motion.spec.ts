@@ -512,6 +512,36 @@ test('the CPR switch hides and shows the pivot set as one', async ({ page }) => 
   await expect.poll(count).toBe(3);
 });
 
+test('the EMA switch hides and shows the 20-EMA alone, like CPR', async ({ page }) => {
+  // Phil, 2026-10-21: "Add EMA also as a button like CPR so that I can turn on
+  // and off on the options chart".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.addInitScript(() => { try { localStorage.removeItem('pf_scalp_chart_ema'); } catch (_) {} });
+  const candles = oneMinuteBars('2026-10-14', '15:29:00');
+  const day = candles[0].t, end = candles[candles.length - 1].t;
+  await page.route('**/api/scalp/contract-chart**', (route) => route.fulfill({ json: {
+    status: 'ok', timeframe: '1m', candles, entries: [], lines: [], live_price: 0,
+    overlays: [
+      { label: 'CPR P (145)', color: '#d946ef', dash: [], width: 1, group: 'cpr', points: [{ t: day, price: 145 }, { t: end, price: 145 }] },
+      { label: 'EMA 20', color: '#2962ff', group: 'ema', points: candles.map((c) => ({ t: c.t, price: c.c })) },
+    ],
+    instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+  } }));
+  await scalpChart(page, candles, 150, false);
+  const has = (label: string) => page.evaluate((l) => (window as any)._pfChartCanvas.data.overlays.some((o: any) => String(o.label).startsWith(l)), label);
+  const ema = page.locator('#scalp-dock-chart-actions .scalp-ema-toggle');
+  await expect(ema).toHaveText('EMA');
+  await expect(ema).toHaveAttribute('aria-pressed', 'true');
+  expect(await has('EMA 20')).toBe(true);
+  await ema.click();
+  await expect.poll(() => has('EMA 20')).toBe(false);
+  await expect(ema).toHaveAttribute('aria-pressed', 'false');
+  expect(await has('CPR P')).toBe(true);  // the pivots stay
+  expect(await page.evaluate(() => localStorage.getItem('pf_scalp_chart_ema'))).toBe('0');
+  await ema.click();
+  await expect.poll(() => has('EMA 20')).toBe(true);
+});
+
 test('a trendline reaches right while it is being drawn, not only after the second click', async ({ page }) => {
   // Phil, 2026-10-20: "while starting from a point it is not extending once the
   // second point is done it extends its ray".

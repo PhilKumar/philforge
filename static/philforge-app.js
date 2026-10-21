@@ -14591,6 +14591,16 @@ function _rsiSeries(candles, period) {
 let _scalpChartCprOn = (() => {
   try { return localStorage.getItem(_SCALP_CPR_KEY) !== '0'; } catch (_) { return true; }
 })();
+// The 20-EMA switches on and off like CPR (Phil, 2026-10-21: "Add EMA also as
+// a button like CPR"). A payload cached from before it had a group is still
+// known by its label.
+const _SCALP_EMA_KEY = 'pf_scalp_chart_ema';
+let _scalpChartEmaOn = (() => {
+  try { return localStorage.getItem(_SCALP_EMA_KEY) !== '0'; } catch (_) { return true; }
+})();
+function _scalpIsEmaOverlay(ov) {
+  return !!ov && (ov.group === 'ema' || /^EMA\b/.test(String(ov.label || '')));
+}
 
 // Phil, 2026-10-16: "Draw it myself but only with 3 settings... 0,1,2,4,8 ...
 // 0, 0.5, 1 ... 0, 0.25, 0.5, 0.75, 1". The first click is 0, the second 1.
@@ -14708,7 +14718,8 @@ function _scalpDecorate(data) {
   } else {
     data.indicators = data._base.indicators;
   }
-  const overlays = data._base.overlays.filter(ov => _scalpChartCprOn || !ov || ov.group !== 'cpr');
+  const overlays = data._base.overlays.filter(ov => (_scalpChartCprOn || !ov || ov.group !== 'cpr')
+    && (_scalpChartEmaOn || !_scalpIsEmaOverlay(ov)));
   const lines = data._base.lines.slice();
   if (_scalpChartSupertrendOn) {
     // Each run stands alone, as on TradingView: a flip is a gap, not a diagonal.
@@ -14741,6 +14752,7 @@ function _scalpRedecorate() {
 function _scalpPaintTools() {
   document.querySelectorAll('.scalp-st-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartSupertrendOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartSupertrendOn); });
   document.querySelectorAll('.scalp-cpr-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartCprOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartCprOn); });
+  document.querySelectorAll('.scalp-ema-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartEmaOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartEmaOn); });
   document.querySelectorAll('.scalp-rsi-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartRsiOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartRsiOn); });
   document.querySelectorAll('.scalp-fib-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'fib'));
   document.querySelectorAll('.scalp-line-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'line'));
@@ -14825,6 +14837,13 @@ function _scalpChartTools(options = {}) {
     _scalpPaintTools();
     _scalpRedecorate();
   });
+  const ema = btn('scalp-ema-toggle', 'EMA', 'EMA (20) on this chart');
+  ema.addEventListener('click', () => {
+    _scalpChartEmaOn = !_scalpChartEmaOn;
+    try { localStorage.setItem(_SCALP_EMA_KEY, _scalpChartEmaOn ? '1' : '0'); } catch (_) {}
+    _scalpPaintTools();
+    _scalpRedecorate();
+  });
   const rsi = btn('scalp-rsi-toggle', 'RSI', `RSI (${_SCALP_RSI.period}) under this chart`);
   rsi.addEventListener('click', () => {
     _scalpChartRsiOn = !_scalpChartRsiOn;
@@ -14867,7 +14886,7 @@ function _scalpChartTools(options = {}) {
   const redo = btn('scalp-redo-btn', '↷', 'Redo (Ctrl/⌘+Shift+Z)');
   redo.setAttribute('aria-label', 'Redo');
   redo.addEventListener('click', redoScalpDrawing);
-  box.append(st, cpr, rsi, fibWrap, line, undo, redo, clear);
+  box.append(st, cpr, ema, rsi, fibWrap, line, undo, redo, clear);
   if (options.popout) {
     const big = btn('scalp-popout-btn', '⤢', 'Open this chart big');
     big.setAttribute('aria-label', 'Open this chart big');
