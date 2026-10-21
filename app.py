@@ -490,6 +490,8 @@ def _new_portfolio_period_bucket() -> dict:
         "total_net_pnl": 0.0,
         "trades": 0,
         "wins": 0,
+        # Broker fills alone: `trades` above adds the paper runs' trades too.
+        "real_trades": 0,
     }
 
 
@@ -618,6 +620,7 @@ def _aggregate_portfolio_history(real_history: dict[str, dict] | None, runs: lis
             bucket["total_net_pnl"] += real_net_pnl + paper_pnl
             bucket["trades"] += total_trades
             bucket["wins"] += total_wins
+            bucket["real_trades"] += int(day.get("real_trades", 0) or 0)
 
     for period in (monthly, yearly):
         for bucket in period.values():

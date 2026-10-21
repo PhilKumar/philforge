@@ -322,6 +322,10 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
         self.assertEqual(yearly["2026"]["total_net_pnl"], 50.0)
         self.assertEqual(yearly["2026"]["trades"], 6)
         self.assertEqual(yearly["2026"]["wins"], 2)
+        # The broker's fills alone, without the paper trades (Phil, 2026-10-21:
+        # the year table's Sep read 424T, 235 of them paper).
+        self.assertEqual(monthly["2026-03"]["real_trades"], 2)
+        self.assertEqual(yearly["2026"]["real_trades"], 4)
 
     def test_aggregate_portfolio_history_falls_back_to_run_level_paper_totals(self):
         daily, monthly, yearly = _aggregate_portfolio_history(

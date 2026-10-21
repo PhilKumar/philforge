@@ -20764,6 +20764,14 @@ function _zerodhaMonthsFromDays(daily) {
 // ── Year-to-Date: Monthly table (Jan–Dec) per year from 2024 ──
 // BOTH ACCOUNTS. Each month is Dhan plus Zerodha (Phil, 13-Oct-2026); the
 // hover card says how much came from each.
+// A month's broker trades -- fills, as the Monthly P&L panel counts them. The
+// bucket's `trades` adds the paper runs' trades too, and this table is real
+// money (Phil, 2026-10-21: Sep read 424T, of which 235 were paper).
+function _portfolioRealTrades(bucket) {
+  if (!bucket) return 0;
+  return Number(bucket.real_trades ?? 0) || 0;
+}
+
 function renderYearlyMonthlyTable() {
   const container = document.getElementById('portfolio-yearly-grid');
   const dhanMonthly = window._portfolioMonthly || {};
@@ -20783,7 +20791,7 @@ function renderYearlyMonthlyTable() {
       real_pnl: Number((d && d.real_pnl) || 0) + z.real_pnl,
       real_charges: Number((d && d.real_charges) || 0) + z.real_charges,
       real_brokerage: Number((d && d.real_brokerage) || 0) + z.real_brokerage,
-      trades: Number((d && d.trades) || 0) + z.trades,
+      real_trades: _portfolioRealTrades(d) + z.trades,
       split: { dhan: dhanNet, zerodha: z.real_net_pnl },
     };
   });
@@ -20815,7 +20823,7 @@ function renderYearlyMonthlyTable() {
         const pnl = Number(data.real_net_pnl ?? data.real_pnl ?? 0);
         yearTotal += pnl;
         const isWin = pnl >= 0;
-        const trades = data.trades || 0;
+        const trades = _portfolioRealTrades(data);
         const grossRealPnl = Number(data.real_pnl || 0);
         const paperPnl = Number(data.paper_pnl || 0);
         const charges = Number(data.real_charges || 0);

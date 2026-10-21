@@ -138,7 +138,8 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   await page.route('**/api/portfolio/history', route => route.fulfill({
     json: {
       status: 'success', daily: {}, yearly: {},
-      monthly: { [month]: { real_pnl: 23500, real_net_pnl: 22721, real_charges: 500, real_brokerage: 279, trades: 19 } },
+      // 30 trades, 11 of them paper runs': the table counts the 19 real ones.
+      monthly: { [month]: { real_pnl: 23500, real_net_pnl: 22721, real_charges: 500, real_brokerage: 279, trades: 30, real_trades: 19 } },
     },
   }));
   await page.evaluate(() => (window as unknown as { loadPortfolioData: () => Promise<void> }).loadPortfolioData());
@@ -179,7 +180,7 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   await expect(page.locator('#portfolio-ytd-brokers')).toBeVisible();
   await expect(page.locator('#portfolio-ytd-brokers')).toHaveText('Dhan+Zerodha');
   const ytd = await page.evaluate((ym) => {
-    const w = window as unknown as { _portfolioMonthly: Record<string, { real_net_pnl?: number; real_pnl?: number; trades?: number }> };
+    const w = window as unknown as { _portfolioMonthly: Record<string, { real_net_pnl?: number; real_pnl?: number; real_trades?: number }> };
     const dhan = w._portfolioMonthly[ym];
     const dhanNet = Number(dhan ? (dhan.real_net_pnl ?? dhan.real_pnl ?? 0) : 0);
     const [year, mm] = ym.split('-');
@@ -189,7 +190,7 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
       shown: cell.querySelector('div')!.textContent!.trim(),
       expected: '₹' + (dhanNet + 1469.75).toFixed(0),
       trades: cell.querySelectorAll('div')[1].textContent!.trim(),
-      expectedTrades: `${Number((dhan && dhan.trades) || 0) + 4}T`,
+      expectedTrades: `${Number((dhan && dhan.real_trades) || 0) + 4}T`,
       title: cell.getAttribute('title') || '',
     };
   }, month);
