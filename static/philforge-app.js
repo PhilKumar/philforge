@@ -15214,12 +15214,24 @@ function _ensureLiveEntryChartOverlay() {
     pfChartStrip(overlay.querySelector('#live-entry-chart-actions'), {
       timeframes: ['5m', '15m', '1h'],
       active: _liveEntryChartTf,
-      onTimeframe: (tf) => { _liveEntryChartTf = tf; _liveJournalTradeId ? openLiveTradeJournal(_liveEntryChartRunId, _liveJournalTradeId) : openLiveEntryChart(_liveEntryChartRunId); },
-      onRefresh: () => (_liveJournalTradeId ? openLiveTradeJournal(_liveEntryChartRunId, _liveJournalTradeId) : openLiveEntryChart(_liveEntryChartRunId)),
+      onTimeframe: (tf) => { _liveEntryChartTf = tf; _liveEntryChartReopen(); },
+      onRefresh: () => _liveEntryChartReopen(),
       onClose: () => hideLiveEntryChart(),
     });
   }
   return overlay;
+}
+
+// The strip's timeframe and refresh redraw THE CHART ON SHOW: the Scalp
+// desk's spot chart and the CE/PE desk's NIFTY chart share this pop-up with
+// the entry chart, and the strip used to reopen the entry chart whatever was
+// showing -- the spot chart turned into NIFTY on a timeframe change (Phil,
+// 2026-10-21).
+function _liveEntryChartReopen() {
+  const key = String(_liveEntryChartDrawnKey || '');
+  if (key.startsWith('__uly__')) return openScalpUnderlyingChart(null, null, _liveEntryChartTf);
+  if (key.startsWith('__index__')) return openCePeIndexChart(null, { dataset: { cepeTf: _liveEntryChartTf } });
+  return _liveJournalTradeId ? openLiveTradeJournal(_liveEntryChartRunId, _liveJournalTradeId) : openLiveEntryChart(_liveEntryChartRunId);
 }
 
 async function openLiveEntryChart(runId, options = {}) {
@@ -15297,14 +15309,15 @@ function _syncScalpUlyChartButton() {
   const btn = document.getElementById('scalp-uly-chart-btn');
   if (!btn) return;
   const label = _scalpUlyChartLabel();
-  btn.textContent = `↗ ${label} 5m`;
+  // The site's one chart icon, as on the option chart button (Phil, 2026-10-21).
+  btn.innerHTML = `<span class="scalp-contract-chart-ico" aria-hidden="true">${ICO.barchart(13)}</span><span>${escapeHtml(label)} 5m</span>`;
   btn.title = `Open the ${label} 5-minute chart with CPR, S1-S5, R1-R4 and the 20-EMA`;
 }
-async function openScalpUnderlyingChart() {
+// `tf`: from the pop-up's own 5m/15m/1h strip; the desk's button opens 5m.
+async function openScalpUnderlyingChart(event, el, tf = '5m') {
   const underlying = document.getElementById('scalp-underlying')?.value || 'NIFTY';
   const expiry = document.getElementById('scalp-expiry')?.value || '';
   const label = _scalpUlyChartLabel();
-  const tf = '5m';
   _liveEntryChartTf = tf;
   _liveJournalTradeId = '';
   _liveEntryChartRunId = '';
@@ -15334,7 +15347,7 @@ async function openScalpUnderlyingChart() {
     if (meta) {
       const last = Number(data.live_price || 0);
       const what = (data.instrument || {}).kind === 'mcx' ? 'the future its options are struck against' : 'the spot';
-      meta.textContent = `5M candles of ${what}${last > 0 ? ` · last ${last.toFixed(2)}` : ''} · CPR, R1-R4, S1-S5, 20-EMA · drag to pan, wheel to zoom`;
+      meta.textContent = `${String(data.timeframe || tf).toUpperCase()} candles of ${what}${last > 0 ? ` · last ${last.toFixed(2)}` : ''} · CPR, R1-R4, S1-S5, 20-EMA · drag to pan, wheel to zoom`;
     }
     let host = document.getElementById('live-entry-chart-canvas');
     if (!host && body) {
@@ -15353,13 +15366,19 @@ async function openScalpUnderlyingChart() {
       if (!pfBenchDrawChart(host, data)) throw new Error('The chart could not be drawn.');
     }
     _liveEntryChartDrawnKey = drawnKey;
+    // The strip shows the timeframe drawn, however the chart was opened.
+    document.querySelectorAll('#live-entry-chart-actions [data-strip-tf]').forEach((b) => {
+      const on = b.dataset.stripTf === tf;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
     if (_scalpUlyChartTimer) clearInterval(_scalpUlyChartTimer);
     _scalpUlyChartTimer = setInterval(() => {
       const open = document.getElementById('live-entry-chart-overlay');
       if (!open || !open.classList.contains('is-open') || _liveEntryChartDrawnKey !== drawnKey) {
         clearInterval(_scalpUlyChartTimer); _scalpUlyChartTimer = null; return;
       }
-      openScalpUnderlyingChart();
+      openScalpUnderlyingChart(null, null, tf);
     }, 15000);
   } catch (error) {
     if (requestId !== _liveEntryChartRequest) return;

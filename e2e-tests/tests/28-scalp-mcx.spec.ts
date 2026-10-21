@@ -245,9 +245,19 @@ test('Scalp: the spot chart button follows the underlying and opens its chart', 
   await pick(page, 'BANKNIFTY');
   const btn = page.locator('#scalp-uly-chart-btn');
   const label = await page.evaluate(() => { const s = document.getElementById('scalp-underlying') as HTMLSelectElement; return s.options[s.selectedIndex].textContent!.trim(); });
-  await expect(btn).toHaveText(`↗ ${label} 5m`);
+  await expect(btn).toHaveText(`${label} 5m`);
+  // The site's chart icon, not an arrow (Phil, 2026-10-21).
+  await expect(btn.locator('.scalp-contract-chart-ico svg rect')).toHaveCount(3);
   await btn.click();
   await expect.poll(() => asked).toContain('BANKNIFTY');
   await expect(page.locator('#live-entry-chart-title')).toHaveText('BANK NIFTY');
   await expect(page.locator('#live-entry-chart-body canvas').first()).toBeVisible();
+  // A new timeframe stays on BANKNIFTY (it turned into NIFTY; Phil, 2026-10-21).
+  const tfs: string[] = [];
+  page.on('request', (r) => { if (r.url().includes('/api/scalp/underlying-chart')) tfs.push(new URL(r.url()).searchParams.get('timeframe') || ''); });
+  await page.locator('#live-entry-chart-actions [data-strip-tf="15m"]').click();
+  await expect.poll(() => tfs).toContain('15m');
+  await expect(page.locator('#live-entry-chart-title')).toHaveText('BANK NIFTY');
+  await expect(page.locator('#live-entry-chart-actions [data-strip-tf="15m"]')).toHaveClass(/is-active/);
+  expect(asked.every((u) => u === 'BANKNIFTY')).toBe(true);
 });
