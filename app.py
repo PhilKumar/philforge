@@ -25947,6 +25947,77 @@ async def get_scalp_contract_chart(
     return _scalp_option_chart_with_live_price(payload, live)
 
 
+# The underlying's own chart for the Scalp desk -- the index, the share, or
+# crude's and gas's future (Phil, 2026-10-21: "I need the respective spot chart
+# on this place instead of only nifty"). Where it is read is the Option
+# Builder's: underlying_spec names the series for every kind.
+_SCALP_UNDERLYING_CHART_CACHE: dict[tuple, tuple[float, dict]] = {}
+_SCALP_UNDERLYING_INSTRUMENT = {"index": "INDEX", "mcx": "FUTCOM", "stock": "EQUITY"}
+
+
+@app.get("/api/scalp/underlying-chart")
+async def scalp_underlying_chart(request: Request, underlying: str = "", expiry: str = "", timeframe: str = "5m"):
+    """Candles of what the form's options are struck against, three days of
+    them with each day's CPR and the 20-EMA, as the option chart draws."""
+    name = str(underlying or "").strip().upper()
+    if not _is_scalp_underlying(name):
+        raise HTTPException(status_code=422, detail="Pick an index, a commodity or a stock first")
+    tf, candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
+    mcx = is_mcx_underlying(name)
+    cache_key = (name, str(expiry or "") if mcx else "", tf)
+    cached = _SCALP_UNDERLYING_CHART_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
+        return {**cached[1], "cached": True}
+    try:
+        spec = await asyncio.to_thread(_ob.underlying_spec, name, str(expiry or ""))
+    except _ob.OptionBuilderError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _user, broker_client, _source = await _request_broker_context(request)
+    if broker_client is None:
+        raise HTTPException(status_code=503, detail="A broker connection is needed to load the candles.")
+    today = datetime.now(IST).date()
+    try:
+        frame = await asyncio.to_thread(
+            broker_client.get_historical_data,
+            security_id=str(spec["scrip"]),
+            exchange_segment=str(spec["seg"]),
+            instrument_type=_SCALP_UNDERLYING_INSTRUMENT.get(spec.get("kind"), "INDEX"),
+            from_date=_scalp_chart_from_date(today, candle_type),
+            to_date=today.isoformat(),
+            candle_type=candle_type,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"{spec.get('label') or name} candles failed: {exc}") from exc
+    candles = _frame_to_chart_candles(frame) if frame is not None and not frame.empty else []
+    if not candles:
+        raise HTTPException(status_code=404, detail=f"No {tf} candles for {spec.get('label') or name} yet.")
+    session = _scalp_session(name, today)
+    open_hm = tuple(int(x) for x in session["open"].split(":"))
+    close_hm = tuple(int(x) for x in session["close"].split(":"))
+    if str(tf_minutes) != candle_type:
+        candles = _regroup_chart_candles(candles, tf_minutes, open_hm)
+    candles = _scalp_chart_last_sessions(candles)
+    analytics = _chart_session_analytics(
+        candles, (close_hm[0], close_hm[1] - 1) if close_hm[1] else (close_hm[0] - 1, 59)
+    )
+    payload = {
+        "status": "ok",
+        "timeframe": tf,
+        "session": session,
+        "instrument": {"underlying": name, "label": spec.get("label") or name, "kind": spec.get("kind")},
+        "candles": candles,
+        "entries": [],
+        "lines": list(analytics["lines"]),
+        "overlays": analytics["overlays"],
+        "live_price": float(candles[-1]["c"]),
+        "fit_sessions": 3,
+    }
+    if len(_SCALP_UNDERLYING_CHART_CACHE) > 64:
+        _SCALP_UNDERLYING_CHART_CACHE.clear()
+    _SCALP_UNDERLYING_CHART_CACHE[cache_key] = (time.monotonic(), payload)
+    return payload
+
+
 def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | None = None):
     if not _HAS_SCALP:
         raise HTTPException(status_code=503, detail="scalp.py not available")

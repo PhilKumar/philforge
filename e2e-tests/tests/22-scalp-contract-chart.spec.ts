@@ -227,8 +227,9 @@ test('Scalp: SL and Target follow the premium by the points set, and go to the s
   expect([sent.sl_points, sent.target_points, sent.sl_rupees, sent.sl_premium]).toEqual([20, 40, 0, 0]);
 });
 
-test('Scalp: the docked chart leaves the NIFTY 5m chart alone while it is open', async ({ page }) => {
-  // Phil, 2026-10-15: "In scalp page my nifty main chart is not opening".
+test('Scalp: the docked chart leaves the spot chart alone while it is open', async ({ page }) => {
+  // Phil, 2026-10-15: "In scalp page my nifty main chart is not opening". The
+  // button is the form's own underlying since 2026-10-21, NIFTY here.
   // The dock redrew itself every few seconds and took back the one canvas.
   test.setTimeout(60_000);
   await login(page);
@@ -238,9 +239,9 @@ test('Scalp: the docked chart leaves the NIFTY 5m chart alone while it is open',
     status: 'ok', timeframe: '5m', candles, entries: [], overlays: [], lines: [], live_price: 0,
     instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
   } }));
-  await page.route('**/api/live/index-chart**', (route) => route.fulfill({ json: {
+  await page.route('**/api/scalp/underlying-chart**', (route) => route.fulfill({ json: {
     status: 'ok', timeframe: '5m', candles: candles.map((c) => ({ ...c, o: c.o * 200, h: c.h * 200, l: c.l * 200, c: c.c * 200 })),
-    entries: [], overlays: [], lines: [], instrument: { underlying: 'NIFTY' },
+    entries: [], overlays: [], lines: [], instrument: { underlying: 'NIFTY', label: 'NIFTY 50', kind: 'index' },
   } }));
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
@@ -252,10 +253,10 @@ test('Scalp: the docked chart leaves the NIFTY 5m chart alone while it is open',
   });
   await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
 
-  await page.locator('#scalp-start-btn + [data-pf-action="openCePeIndexChart"][data-cepe-tf="5m"]').click();
+  await page.locator('#scalp-uly-chart-btn').click();
   await expect(page.locator('#live-entry-chart-overlay')).toHaveClass(/is-open/);
   await expect(page.locator('#live-entry-chart-body canvas').first()).toBeVisible();
-  // Past the dock's 2s poll and the 5s premium refresh: still the NIFTY chart.
+  // Past the dock's 2s poll and the 5s premium refresh: still the spot chart.
   await page.evaluate(() => {
     const w = window as unknown as { _syncScalpContractChartLabel: () => void; _scalpDockFollow: (o: unknown[]) => void };
     w._syncScalpContractChartLabel();

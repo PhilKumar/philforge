@@ -223,3 +223,31 @@ test('Scalp: a stock picked after crude takes a strike it lists, never crude\'s 
   expect(listed).toContain(Number(await page.locator('#scalp-strike').inputValue()));
   await expect(page.locator('#scalp-live-ltp')).toHaveText('N/A');
 });
+
+test('Scalp: the spot chart button follows the underlying and opens its chart', async ({ page }) => {
+  // Phil, 2026-10-21: "I need the respective spot chart on this place instead
+  // of only nifty".
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.route('**/api/scalp/underlyings', (route) => route.fulfill({ json: { status: 'ok', stocks: [] } }));
+  await page.route('**/api/expiry-list/BANKNIFTY', (route) => route.fulfill({ json: { status: 'ok', expiries: ['2026-10-27'] } }));
+  const asked: string[] = [];
+  const t0 = Math.floor(new Date('2026-10-20T09:15:00+05:30').getTime() / 1000);
+  await page.route('**/api/scalp/underlying-chart**', (route) => {
+    asked.push(new URL(route.request().url()).searchParams.get('underlying')!);
+    return route.fulfill({ json: {
+      status: 'ok', timeframe: '5m', candles: Array.from({ length: 60 }, (_, i) => ({ t: t0 + i * 300, o: 52000, h: 52010, l: 51990, c: 52000 + i })),
+      entries: [], lines: [], overlays: [], live_price: 52059, fit_sessions: 3,
+      instrument: { underlying: 'BANKNIFTY', label: 'BANK NIFTY', kind: 'index' },
+    } });
+  });
+  await login(page);
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await pick(page, 'BANKNIFTY');
+  const btn = page.locator('#scalp-uly-chart-btn');
+  const label = await page.evaluate(() => { const s = document.getElementById('scalp-underlying') as HTMLSelectElement; return s.options[s.selectedIndex].textContent!.trim(); });
+  await expect(btn).toHaveText(`↗ ${label} 5m`);
+  await btn.click();
+  await expect.poll(() => asked).toContain('BANKNIFTY');
+  await expect(page.locator('#live-entry-chart-title')).toHaveText('BANK NIFTY');
+  await expect(page.locator('#live-entry-chart-body canvas').first()).toBeVisible();
+});

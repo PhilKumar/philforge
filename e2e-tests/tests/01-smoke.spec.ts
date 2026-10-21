@@ -679,11 +679,12 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
     w._wsSetLiveIndicator = () => {};
   });
   await expect(page.locator('#ws-status-label')).toHaveText('Disconnected');
-  // The NIFTY chart control is intentionally between Start and Stop. Assert it
+  // The spot chart control (NIFTY here; it follows the form's underlying) is
+  // intentionally between Start and Stop. Assert it
   // separately, then remove it only for the legacy launchpad baseline: this
   // snapshot's job is the ticket below, not the command-bar feature count.
   await expect(page.getByRole('button', { name: /NIFTY 5m/ })).toBeVisible();
-  await page.locator('#scalp-start-btn + [data-pf-action="openCePeIndexChart"][data-cepe-tf="5m"]').evaluate((element) => {
+  await page.locator('#scalp-uly-chart-btn').evaluate((element) => {
     (element as HTMLElement).style.display = 'none';
   });
   await expect(page.locator('#scalp-page')).toHaveScreenshot('scalp-launchpad.png', {

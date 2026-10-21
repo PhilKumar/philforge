@@ -150,6 +150,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_option_ltp_sources.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_super_order_edit.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_supertrend_trail.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_scalp_underlying_chart.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_broker.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_tradebook_import.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_reconcile_reads_its_own_product.py'

@@ -2530,6 +2530,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'cepeStop',
   'cepeExit',
   'openCePeIndexChart',
+  'openScalpUnderlyingChart',
   'copyCePePrevClose',
   'setCePeFilter',
   'setCePeMode',
@@ -13657,6 +13658,7 @@ function _scalpUlyOpen(open) {
 }
 
 function _syncScalpUnderlyingPicker() {
+  _syncScalpUlyChartButton();
   const root = document.getElementById('scalp-uly');
   const select = document.getElementById('scalp-underlying');
   if (!root || !select) return;
@@ -15263,6 +15265,92 @@ async function openLiveEntryChart(runId, options = {}) {
 // rather than one per book (Phil, 2026-09-09). It borrows the entry-chart
 // overlay and the same renderer -- there is one chart vocabulary on this page.
 let _cepeIndexTimer = null;
+
+// THE SCALP DESK'S SPOT CHART follows the form's underlying (Phil,
+// 2026-10-21: "If I view Crudeoil, I need to have the spot chart on that, and
+// if it is banknifty options then ... that particular spot"): the index, the
+// share, or crude's and gas's future for the expiry picked. Same pop-up and
+// renderer as the NIFTY chart it replaces on this desk.
+let _scalpUlyChartTimer = null;
+function _scalpUlyChartLabel() {
+  const sel = document.getElementById('scalp-underlying');
+  const opt = sel && sel.options[sel.selectedIndex];
+  return (opt && opt.textContent.trim()) || (sel && sel.value) || 'NIFTY';
+}
+function _syncScalpUlyChartButton() {
+  const btn = document.getElementById('scalp-uly-chart-btn');
+  if (!btn) return;
+  const label = _scalpUlyChartLabel();
+  btn.textContent = `↗ ${label} 5m`;
+  btn.title = `Open the ${label} 5-minute chart with CPR, S1-S5, R1-R4 and the 20-EMA`;
+}
+async function openScalpUnderlyingChart() {
+  const underlying = document.getElementById('scalp-underlying')?.value || 'NIFTY';
+  const expiry = document.getElementById('scalp-expiry')?.value || '';
+  const label = _scalpUlyChartLabel();
+  const tf = '5m';
+  _liveEntryChartTf = tf;
+  _liveJournalTradeId = '';
+  _liveEntryChartRunId = '';
+  const requestId = ++_liveEntryChartRequest;
+  const overlay = _ensureLiveEntryChartOverlay();
+  const body = document.getElementById('live-entry-chart-body');
+  const why = document.getElementById('live-trade-why');
+  if (why) { why.hidden = true; why.innerHTML = ''; }
+  overlay.classList.add('is-open');
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('terminal-cascade-chart-open');
+  const drawnKey = `__uly__|${underlying}|${expiry}|${tf}`;
+  if (body && (!body.querySelector('#live-entry-chart-canvas') || _liveEntryChartDrawnKey !== drawnKey)) {
+    body.innerHTML = `<div class="pf-cascade-chart-empty">Loading ${escapeHtml(label)} candles…</div>`;
+  }
+  try {
+    const res = await fetch(`/api/scalp/underlying-chart?${new URLSearchParams({ underlying, expiry, timeframe: tf })}`, {
+      credentials: 'same-origin', cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (requestId !== _liveEntryChartRequest) return;
+    if (!res.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Chart failed (${res.status})`));
+    const title = document.getElementById('live-entry-chart-title');
+    const meta = document.getElementById('live-entry-chart-meta');
+    const name = (data.instrument || {}).label || label;
+    if (title) title.textContent = name;
+    if (meta) {
+      const last = Number(data.live_price || 0);
+      const what = (data.instrument || {}).kind === 'mcx' ? 'the future its options are struck against' : 'the spot';
+      meta.textContent = `5M candles of ${what}${last > 0 ? ` · last ${last.toFixed(2)}` : ''} · CPR, R1-R4, S1-S5, 20-EMA · drag to pan, wheel to zoom`;
+    }
+    let host = document.getElementById('live-entry-chart-canvas');
+    if (!host && body) {
+      body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>';
+      host = document.getElementById('live-entry-chart-canvas');
+    }
+    const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined'
+      && _pfChartCanvas?.host?.closest('#live-entry-chart-canvas') === host;
+    const view = canvasIsThisChart && drawnKey === _liveEntryChartDrawnKey
+      && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+    const refreshed = canvasIsThisChart && drawnKey === _liveEntryChartDrawnKey && (data.candles || []).length
+      && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
+    if (!refreshed) {
+      if (!host || typeof pfBenchDrawChart !== 'function') throw new Error('Chart renderer is unavailable');
+      if (!(data.candles || []).length) throw new Error(`No ${name} candles yet.`);
+      if (!pfBenchDrawChart(host, data)) throw new Error('The chart could not be drawn.');
+    }
+    _liveEntryChartDrawnKey = drawnKey;
+    if (_scalpUlyChartTimer) clearInterval(_scalpUlyChartTimer);
+    _scalpUlyChartTimer = setInterval(() => {
+      const open = document.getElementById('live-entry-chart-overlay');
+      if (!open || !open.classList.contains('is-open') || _liveEntryChartDrawnKey !== drawnKey) {
+        clearInterval(_scalpUlyChartTimer); _scalpUlyChartTimer = null; return;
+      }
+      openScalpUnderlyingChart();
+    }, 15000);
+  } catch (error) {
+    if (requestId !== _liveEntryChartRequest) return;
+    if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Chart unavailable')}</div>`;
+  }
+}
+window.openScalpUnderlyingChart = openScalpUnderlyingChart;
 
 async function openCePeIndexChart(event, el) {
   const tf = el?.dataset?.cepeTf || _liveEntryChartTf || '5m';
