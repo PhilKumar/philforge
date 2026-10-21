@@ -422,6 +422,8 @@ test('RSI (14) sits under the option chart as TradingView draws it, and its swit
   });
   const on = await rsi();
   expect(on.period).toBe(14);
+  // Bands at 60 / 40 (Phil, 2026-10-21).
+  expect(await page.evaluate(() => { const i = (window as any)._pfChartCanvas.data.indicators; return [i.rsi_upper, i.rsi_lower]; })).toEqual([60, 40]);
   expect(on.n).toBe(on.bars - 14);
   expect(on.painted).toBeGreaterThan(0);
   expect(on.paneH).toBeGreaterThan(40);

@@ -14568,7 +14568,9 @@ const _SCALP_CPR_KEY = 'pf_scalp_chart_cpr';
 // RSI to my options chart... same like the trading view"): Wilder's smoothing
 // seeded with a simple average, from the chart's own candles -- forming bar
 // included -- in the renderer's RSI pane.
-const _SCALP_RSI = { period: 14, upper: 70, lower: 30 };
+// Bands at 60 and 40, not TradingView's 70/30 (Phil, 2026-10-21: "Make RSI
+// upper as 60 and lower as 40").
+const _SCALP_RSI = { period: 14, upper: 60, lower: 40 };
 const _SCALP_RSI_KEY = 'pf_scalp_chart_rsi';
 let _scalpChartRsiOn = (() => {
   try { return localStorage.getItem(_SCALP_RSI_KEY) !== '0'; } catch (_) { return true; }
