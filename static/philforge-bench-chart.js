@@ -1768,9 +1768,13 @@ function _pfChartDrawFind(c, id) {
   return null;
 }
 
-function _pfChartDrawCommit(c) {
+// `live`: a save made while a drag is still going -- not a finished change.
+// The page keeps those for a refresh's sake but must not count each as an
+// undo step (one drag filled the history with pixel steps, and Undo never got
+// back to where the line started; Phil, 2026-10-21).
+function _pfChartDrawCommit(c, live) {
   var d = c.data || {};
-  if (typeof d.onDrawingsChange === 'function') d.onDrawingsChange((d.drawings || []).slice());
+  if (typeof d.onDrawingsChange === 'function') d.onDrawingsChange((d.drawings || []).slice(), { live: !!live });
 }
 
 function _pfChartDrawFinish(c) {
@@ -1866,7 +1870,7 @@ function _pfChartDrawPointerMove(c, point) {
     drag.moved = true;
     _pfChartCanvasDraw();
     // Kept as it moves: a refresh mid-drag rebuilds the list from the page.
-    _pfChartDrawCommit(c);
+    _pfChartDrawCommit(c, true);
     return true;
   }
   return false;

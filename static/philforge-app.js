@@ -14651,11 +14651,22 @@ function _scalpDrawingsFor(key) {
     .map((f, i) => ({ id: f.id || `f${i}`, kind: 'fib', preset: f.preset, levels: _SCALP_FIB_PRESETS[f.preset].levels, colors: _SCALP_FIB_COLORS, a: f.a, b: f.b }));
   return lines.concat(fibs);
 }
-function _scalpKeepDrawings(key, list) {
-  _scalpRecordDrawings(key, {
+// A drag saves as it goes ({live: true}); the drawings as they were when it
+// began are held here, and the release records ONE undo step from them.
+const _scalpDragBefore = {};
+function _scalpKeepDrawings(key, list, meta) {
+  const next = {
     lines: list.filter(dr => dr.kind === 'line').map(dr => ({ id: dr.id, a: dr.a, b: dr.b })),
     fibs: list.filter(dr => dr.kind === 'fib').map(dr => ({ id: dr.id, preset: dr.preset, a: dr.a, b: dr.b })),
-  });
+  };
+  if (meta && meta.live) {
+    if (!_scalpDragBefore[key]) _scalpDragBefore[key] = _scalpReadDrawings(key);
+    _scalpWriteDrawings(key, next);
+    return;
+  }
+  const before = _scalpDragBefore[key];
+  delete _scalpDragBefore[key];
+  _scalpRecordDrawings(key, next, before);
 }
 
 // UNDO AND REDO, per contract. Phil, 2026-10-20: "If I draw one or more TLs or
@@ -14669,9 +14680,9 @@ function _scalpHistoryOf(key) {
   if (!_scalpDrawHistory[key]) _scalpDrawHistory[key] = { past: [], future: [] };
   return _scalpDrawHistory[key];
 }
-function _scalpRecordDrawings(key, next) {
-  const before = _scalpReadDrawings(key);
-  if (JSON.stringify(before) === JSON.stringify(next)) return;
+function _scalpRecordDrawings(key, next, startedFrom) {
+  const before = startedFrom || _scalpReadDrawings(key);
+  if (JSON.stringify(before) === JSON.stringify(next)) { _scalpWriteDrawings(key, next); return; }
   const h = _scalpHistoryOf(key);
   h.past.push(before);
   if (h.past.length > _SCALP_UNDO_DEPTH) h.past.shift();
@@ -14747,7 +14758,7 @@ function _scalpDecorate(data) {
   const cv = typeof _pfChartCanvas !== 'undefined' ? _pfChartCanvas : null;
   const drawingNow = !!cv && cv.data === data && ((cv.drag && cv.drag.kind === 'draw') || cv.drawPending);
   if (!(drawingNow && Array.isArray(data.drawings))) data.drawings = _scalpDrawingsFor(key);
-  data.onDrawingsChange = (list) => _scalpKeepDrawings(key, list);
+  data.onDrawingsChange = (list, meta) => _scalpKeepDrawings(key, list, meta);
   data.overlays = overlays;
   data.lines = lines;
 }

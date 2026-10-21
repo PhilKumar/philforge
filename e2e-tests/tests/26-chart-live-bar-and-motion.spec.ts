@@ -682,6 +682,31 @@ test('Undo and Redo step through drawing changes, Clear included', async ({ page
   // What is on screen is what is kept.
   const kept = await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('pf_scalp_chart_drawings_v1') || '{}'))[0] as any);
   expect(kept.lines.length + kept.fibs.length).toBe(2);
+
+  // A drag is ONE step: one Undo puts the line back exactly where it was
+  // (Phil, 2026-10-21: "if I mistakenly moved the TL or fib, it not reverting
+  // the original"). It used to save -- and count -- every pixel of the drag.
+  const lineNow = () => page.evaluate(() => JSON.stringify((window as any)._pfChartCanvas.data.drawings.find((d: any) => d.kind === 'line')));
+  const before = await lineNow();
+  await page.evaluate(() => (window as any)._pfChartCanvas.host.scrollIntoView({ block: 'center' }));
+  const ends = await page.evaluate(() => {
+    const c = (window as any)._pfChartCanvas, dr = c.data.drawings.find((d: any) => d.kind === 'line'), box = c.host.getBoundingClientRect();
+    const pt = (e: any) => [box.left + c.projection.xOf(e.t), box.top + c.projection.yOf(e.price)];
+    return { a: pt(dr.a), b: pt(dr.b) };
+  });
+  // Selected first, as a line's ends are taken only once it is.
+  await page.mouse.click((ends.a[0] + ends.b[0]) / 2, (ends.a[1] + ends.b[1]) / 2);
+  const end = ends.b;
+  await page.mouse.move(end[0], end[1]);
+  await page.mouse.down();
+  await page.mouse.move(end[0] + 70, end[1] - 60, { steps: 20 });
+  await page.mouse.up();
+  await expect.poll(lineNow).not.toBe(before);
+  const after = await lineNow();
+  await undo.click();
+  await expect.poll(lineNow).toBe(before);
+  await redo.click();
+  await expect.poll(lineNow).toBe(after);
 });
 
 test('the broker pair spans its row with no BROKER label', async ({ page }) => {
