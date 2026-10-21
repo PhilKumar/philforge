@@ -361,4 +361,13 @@ test('Scalp: chart and launchpad split 70/30, tops level, every launchpad contro
   expect(m.topGap).toBe(0);
   expect([m.left, m.right]).toEqual([0, 0]);
   expect(new Set(Object.values(m.heights))).toEqual(new Set([40]));
+  // The Supertrend tick sits beside its words, at the fields' left edge
+  // (Phil, 2026-10-21: "Not aligned properly" -- it had dropped under them).
+  const tick = await page.evaluate(() => {
+    const box = document.getElementById('scalp-st-trail')!.getBoundingClientRect();
+    const words = document.querySelector('label.scalp-st-trail span')!.getBoundingClientRect();
+    const field = document.getElementById('scalp-sl-pts')!.getBoundingClientRect();
+    return { size: Math.round(box.width), sameLine: Math.abs((box.top + box.bottom) / 2 - (words.top + words.bottom) / 2) < 6, besideWords: words.left > box.right, leftEdge: Math.abs(box.left - field.left) <= 2 };
+  });
+  expect(tick).toEqual({ size: 16, sameLine: true, besideWords: true, leftEdge: true });
 });

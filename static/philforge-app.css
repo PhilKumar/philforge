@@ -6438,9 +6438,19 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-exit-preview b { color: var(--text); font-weight: 700; }
 .scalp-exit-preview .is-sl { color: var(--red, #ef4444); }
 .scalp-exit-preview .is-tg { color: var(--green, #22c55e); }
-.scalp-st-trail { display: flex; align-items: flex-start; gap: 8px; margin-top: 4px; font-size: 11px; color: var(--muted); line-height: 1.45; cursor: pointer; }
-.scalp-st-trail input { margin-top: 2px; accent-color: #4caf50; }
-.scalp-st-trail b { color: var(--text); }
+/* The form's own input rules (full width, padding, a filled box) must not
+   reach this checkbox: it dropped under its words, in a dark block (Phil,
+   2026-10-21: "Not aligned properly"). */
+#scalp-page .scalp-exit-rules label.scalp-st-trail {
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+  margin: 4px 0 0; padding: 0; font-size: 11px; color: var(--muted); line-height: 1.45; cursor: pointer;
+}
+#scalp-page .scalp-exit-rules label.scalp-st-trail input[type="checkbox"] {
+  flex: 0 0 auto; width: 16px; height: 16px; min-width: 0; min-height: 0; margin: 0; padding: 0;
+  border: 0; border-radius: 3px; background: none; box-shadow: none; accent-color: #4caf50; cursor: pointer;
+}
+#scalp-page .scalp-exit-rules label.scalp-st-trail span { flex: 1 1 auto; }
+#scalp-page .scalp-exit-rules label.scalp-st-trail b { color: var(--text); }
 /* Light skin: the dark tint above turned the box grey beside the light
    stop-limit box (Phil, 2026-10-20: "Colour mismatch in light mode"). */
 [data-theme="light"] .scalp-exit-rules { background: rgba(255,255,255,.72); border-color: rgba(148,163,184,.35); }
