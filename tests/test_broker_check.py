@@ -215,6 +215,30 @@ class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["sensex"]["price"], 80050.0)
         self.assertEqual(payload["giftnifty"], {"price": 24100.0, "change": 100.0, "pct": 0.42})
 
+    async def test_gift_nifty_with_no_previous_close_takes_it_from_its_candles(self):
+        """2026-10-21 08:23: Dhan's quote for 5024 had a price and close 0, so
+        the tile read +0.00 all morning and looked frozen."""
+
+        class Broker(_DummyTickerWorkingBroker):
+            def get_ohlc_multi(self, segments):
+                data = super().get_ohlc_multi(segments)
+                data["IDX_I"]["5024"] = {"last_price": 23031.5, "ohlc": {"close": 0}}
+                return data
+
+        with (
+            patch.object(app_module, "_request_broker_context", return_value=({"role": "user"}, Broker(), "user")),
+            patch.object(app_module.ScripMaster, "ensure_loaded", return_value=None),
+            patch.object(app_module.ScripMaster, "get_nearest_expiry", return_value=""),
+            patch.object(app_module, "_fetch_nse_vix", return_value={"price": 12.4, "prev_close": 12.0}),
+            patch.object(app_module, "_is_cash_market_closed_ist", return_value=False),
+            patch.object(app_module, "_gift_nifty_from_history", return_value=(23015.0, 22950.0)),
+        ):
+            app_module._ticker_cache["data"] = None
+            response = await app_module.get_ticker(None)
+        gift = json.loads(response.body)["giftnifty"]
+        # The live price stays; the previous close comes from the candles.
+        self.assertEqual(gift, {"price": 23031.5, "change": 81.5, "pct": 0.36})
+
     async def test_get_ticker_uses_global_broker_when_context_lookup_fails(self):
         with (
             patch.object(app_module, "_request_broker_context", side_effect=RuntimeError("no request user")),

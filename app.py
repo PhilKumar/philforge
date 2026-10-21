@@ -26843,11 +26843,17 @@ async def get_ticker(request: Request):
             # Giftnifty next to SENSEX in the top bar before INDIA VIX".
             gift_ltp = _extract_ltp(idx, _GIFT_NIFTY_SID)
             gift_prev = _extract_prev_close(idx, _GIFT_NIFTY_SID)
-            if gift_ltp <= 0:
+            if gift_ltp <= 0 or gift_prev <= 0:
                 # No live quote -- an Indian holiday or after hours, when NSE IX
-                # still trades. Its own candles have the price (2026-10-20, a
-                # holiday: the tile sat on "--").
-                gift_ltp, gift_prev = await asyncio.to_thread(_gift_nifty_from_history, ticker_client)
+                # still trades (2026-10-20: the tile sat on "--") -- or a live
+                # quote with no previous close, which Dhan sends for 5024 before
+                # NSE opens (2026-10-21 08:23: last 23031.5, close 0, so the
+                # tile read +0.00 and looked frozen). Its own candles have both.
+                hist_ltp, hist_prev = await asyncio.to_thread(_gift_nifty_from_history, ticker_client)
+                if gift_ltp <= 0:
+                    gift_ltp = hist_ltp
+                if gift_prev <= 0:
+                    gift_prev = hist_prev
             gift = {
                 "price": round(gift_ltp, 2),
                 "change": round(gift_ltp - gift_prev, 2) if gift_ltp > 0 and gift_prev > 0 else 0,
