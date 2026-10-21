@@ -26722,9 +26722,10 @@ _gift_nifty_history_cache: dict = {}
 def _gift_nifty_from_history(client) -> tuple[float, float]:
     """(last price, previous day's close) from GIFT NIFTY's own candles, or (0, 0).
 
-    The newest 5-minute close is the price; the last daily close before the
-    newest bar's date is the close it is compared with. Two history calls,
-    so the answer is kept for half a minute.
+    The newest 1-minute close is the price (Dhan's intraday candles need a
+    from-date before today, so three days are asked for); the last daily close
+    before the newest bar's date is the close it is compared with. Two history
+    calls, so the answer is kept for half a minute.
     """
     hit = _gift_nifty_history_cache.get("v")
     if hit and time.monotonic() - hit[0] < _GIFT_NIFTY_HISTORY_TTL_SEC:
@@ -26735,8 +26736,8 @@ def _gift_nifty_from_history(client) -> tuple[float, float]:
     ask = dict(security_id=str(_GIFT_NIFTY_SID), exchange_segment="IDX_I", instrument_type="INDEX")
     try:
         bars = client.get_historical_data(
-            **ask, from_date=(today - timedelta(days=6)).isoformat(), to_date=(today + timedelta(days=1)).isoformat(),
-            candle_type="5",
+            **ask, from_date=(today - timedelta(days=3)).isoformat(), to_date=(today + timedelta(days=1)).isoformat(),
+            candle_type="1",
         )  # fmt: skip
         if bars is None or bars.empty:
             return 0.0, 0.0
@@ -26843,17 +26844,16 @@ async def get_ticker(request: Request):
             # Giftnifty next to SENSEX in the top bar before INDIA VIX".
             gift_ltp = _extract_ltp(idx, _GIFT_NIFTY_SID)
             gift_prev = _extract_prev_close(idx, _GIFT_NIFTY_SID)
-            if gift_ltp <= 0 or gift_prev <= 0:
-                # No live quote -- an Indian holiday or after hours, when NSE IX
-                # still trades (2026-10-20: the tile sat on "--") -- or a live
-                # quote with no previous close, which Dhan sends for 5024 before
-                # NSE opens (2026-10-21 08:23: last 23031.5, close 0, so the
-                # tile read +0.00 and looked frozen). Its own candles have both.
-                hist_ltp, hist_prev = await asyncio.to_thread(_gift_nifty_from_history, ticker_client)
-                if gift_ltp <= 0:
-                    gift_ltp = hist_ltp
-                if gift_prev <= 0:
-                    gift_prev = hist_prev
+            # GIFT NIFTY's own 1-minute candles first. Dhan's quote for 5024 is
+            # not live: on 2026-10-21 it read 23031.5 from 08:23 to past 08:40,
+            # close 0, while the candles moved 23015 -> 23007 -> 23006.5 (Phil:
+            # "still not running with the current data"). The quote is kept
+            # only for when the candles have nothing.
+            hist_ltp, hist_prev = await asyncio.to_thread(_gift_nifty_from_history, ticker_client)
+            if hist_ltp > 0:
+                gift_ltp = hist_ltp
+            if hist_prev > 0:
+                gift_prev = hist_prev
             gift = {
                 "price": round(gift_ltp, 2),
                 "change": round(gift_ltp - gift_prev, 2) if gift_ltp > 0 and gift_prev > 0 else 0,

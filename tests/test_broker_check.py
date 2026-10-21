@@ -216,8 +216,8 @@ class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["giftnifty"], {"price": 24100.0, "change": 100.0, "pct": 0.42})
 
     async def test_gift_nifty_with_no_previous_close_takes_it_from_its_candles(self):
-        """2026-10-21 08:23: Dhan's quote for 5024 had a price and close 0, so
-        the tile read +0.00 all morning and looked frozen."""
+        """2026-10-21: Dhan's quote for 5024 sat at 23031.5 with close 0 from
+        08:23 past 08:40 while the candles moved; the tile looked frozen."""
 
         class Broker(_DummyTickerWorkingBroker):
             def get_ohlc_multi(self, segments):
@@ -236,8 +236,8 @@ class BrokerCheckRegressionTests(unittest.IsolatedAsyncioTestCase):
             app_module._ticker_cache["data"] = None
             response = await app_module.get_ticker(None)
         gift = json.loads(response.body)["giftnifty"]
-        # The live price stays; the previous close comes from the candles.
-        self.assertEqual(gift, {"price": 23031.5, "change": 81.5, "pct": 0.36})
+        # The candles' price, not the frozen quote; their previous close too.
+        self.assertEqual(gift, {"price": 23015.0, "change": 65.0, "pct": 0.28})
 
     async def test_get_ticker_uses_global_broker_when_context_lookup_fails(self):
         with (
@@ -289,14 +289,14 @@ class GiftNiftyFromItsOwnCandles(unittest.TestCase):
         app_module._gift_nifty_history_cache.clear()
         self.addCleanup(app_module._gift_nifty_history_cache.clear)
 
-    def test_last_five_minute_close_against_the_previous_days_close(self):
+    def test_last_minute_close_against_the_previous_days_close(self):
         class Client:
             calls = 0
 
             def get_historical_data(self, **kw):
                 Client.calls += 1
                 assert kw["security_id"] == "5024" and kw["exchange_segment"] == "IDX_I"
-                if kw["candle_type"] == "5":
+                if kw["candle_type"] == "1":
                     return pd.DataFrame(
                         {"close": [22930.0, 22944.5]},
                         index=pd.to_datetime(["2026-10-20 15:20:00", "2026-10-20 15:25:00"]),
