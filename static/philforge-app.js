@@ -14741,7 +14741,12 @@ function _scalpDecorate(data) {
     });
   }
   const key = _scalpDrawKey(data);
-  data.drawings = _scalpDrawingsFor(key);
+  // A drawing being made or moved on this chart keeps the one on screen; a
+  // rebuild from storage mid-drag put the unmoved line back (see
+  // _pfChartCanvasRefresh).
+  const cv = typeof _pfChartCanvas !== 'undefined' ? _pfChartCanvas : null;
+  const drawingNow = !!cv && cv.data === data && ((cv.drag && cv.drag.kind === 'draw') || cv.drawPending);
+  if (!(drawingNow && Array.isArray(data.drawings))) data.drawings = _scalpDrawingsFor(key);
   data.onDrawingsChange = (list) => _scalpKeepDrawings(key, list);
   data.overlays = overlays;
   data.lines = lines;

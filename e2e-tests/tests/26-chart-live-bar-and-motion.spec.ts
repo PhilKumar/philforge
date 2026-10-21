@@ -333,7 +333,11 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   const v0 = await view();
   await page.mouse.move((ax + ex) / 2, (ay + ey) / 2);
   await page.mouse.down();
-  await page.mouse.move((ax + ex) / 2 + 40, (ay + ey) / 2 + 30, { steps: 5 });
+  await page.mouse.move((ax + ex) / 2 + 20, (ay + ey) / 2 + 15, { steps: 3 });
+  // Held across one of the chart's own refreshes: one landing mid-drag put the
+  // stored, unmoved line back and the release saved it (CI, 2026-10-21).
+  await page.waitForTimeout(4500);
+  await page.mouse.move((ax + ex) / 2 + 40, (ay + ey) / 2 + 30, { steps: 3 });
   await page.mouse.up();
   await expect.poll(async () => (await stored()).lines[0].a.t).toBeGreaterThan(moved.a.t);
   const shifted = (await stored()).lines[0];

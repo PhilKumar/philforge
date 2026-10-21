@@ -583,6 +583,14 @@ function _pfChartCanvasRefresh(d, saved) {
   var c = _pfChartCanvas;
   if (!c || !c.host || !c.host.isConnected) return false;
   var oldKey = c.paintKey, oldViewport = c.viewport;
+  // A DRAWING IN HAND KEEPS ITS PLACE. The Scalp chart refreshes every few
+  // seconds and rebuilds its drawings from storage; one landing between the
+  // last move of a drag and the release put back the stored (unmoved) line,
+  // and the release saved that -- a dragged trendline snapped back (found by
+  // CI, 2026-10-21). While a drawing is being made or moved, the one on
+  // screen is kept.
+  var drawing = (c.drag && c.drag.kind === 'draw') || c.drawPending;
+  if (drawing && c.data && Array.isArray(c.data.drawings) && d && d !== c.data) d.drawings = c.data.drawings;
   c.data = d;
   var fit = _pfChartCanvasFit(c, !(saved && saved.viewport));
   if (!fit) return false;
