@@ -987,11 +987,30 @@ class ScalpEngine:
                     "message": "Live Super Order requires both Target Premium and SL Premium",
                     "trade": trade.to_dict(),
                 }
-        if trade.mode == "live" and ("sl_premium" in kwargs or "target_premium" in kwargs):
-            errors = await self._modify_broker_sl_tp(trade, **kwargs)
+        # ONLY WHAT CHANGED GOES TO THE BROKER, AND ONLY WHAT FAILED IS UNDONE.
+        # Phil, 2026-10-21 18:06: the row sends target and stop on every save;
+        # he moved only the stop (494.15 -> 531.15) on a Dhan Super Order, the
+        # unchanged target drew DH-906 "Nothing to Modify", and the engine
+        # undid BOTH -- showing 494.15 while Dhan's stop sat at 531.15.
+        broker_kwargs = dict(kwargs)
+        for leg in ("target_premium", "sl_premium"):
+            if (
+                broker_kwargs.get(leg) is not None
+                and abs(float(broker_kwargs[leg]) - float(prev_values[leg] or 0)) < 0.005
+            ):
+                broker_kwargs.pop(leg)
+        if trade.mode == "live" and ("sl_premium" in broker_kwargs or "target_premium" in broker_kwargs):
+            errors = await self._modify_broker_sl_tp(trade, **broker_kwargs)
             if errors:
-                for key, value in prev_values.items():
-                    setattr(trade, key, value)
+                failed_tp = any(" TP modify failed" in e or e.startswith("Super Order modify failed") for e in errors)
+                failed_sl = any(" SL modify failed" in e or e.startswith("Super Order modify failed") for e in errors)
+                groups = {
+                    "target": ("target_premium", "target_rupees", "target_from_pct", "target_from_points"),
+                    "sl": ("sl_premium", "sl_rupees", "sl_from_pct", "sl_from_points"),
+                }
+                undo = (groups["target"] if failed_tp else ()) + (groups["sl"] if failed_sl else ())
+                for key in undo:
+                    setattr(trade, key, prev_values[key])
                 return {"status": "error", "message": "; ".join(errors), "trade": trade.to_dict()}
             if not self._is_super_order_trade(trade):
                 needs_sl = trade.sl_premium > 0 and not trade.broker_sl_order_id
@@ -1763,8 +1782,12 @@ class ScalpEngine:
                     trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
                     self._log("info", f"🎯 Super Order TP modified: limit=₹{new_tp} orderId={trade.super_order_id}")
                 except Exception as e:
-                    errors.append(f"Super Order TP modify failed: {e}")
-                    self._log("error", errors[-1])
+                    if "Nothing to Modify" in str(e):
+                        # Dhan already holds this price: the state wanted.
+                        self._log("info", f"ℹ️ Super Order TP already at that price: orderId={trade.super_order_id}")
+                    else:
+                        errors.append(f"Super Order TP modify failed: {e}")
+                        self._log("error", errors[-1])
 
             if new_sl is not None:
                 try:
@@ -1778,8 +1801,12 @@ class ScalpEngine:
                     trade.super_order_status = str(resp.get("orderStatus", trade.super_order_status)).upper()
                     self._log("info", f"🛡️ Super Order SL modified: trigger=₹{new_sl} orderId={trade.super_order_id}")
                 except Exception as e:
-                    errors.append(f"Super Order SL modify failed: {e}")
-                    self._log("error", errors[-1])
+                    if "Nothing to Modify" in str(e):
+                        # Dhan already holds this price: the state wanted.
+                        self._log("info", f"ℹ️ Super Order SL already at that price: orderId={trade.super_order_id}")
+                    else:
+                        errors.append(f"Super Order SL modify failed: {e}")
+                        self._log("error", errors[-1])
             return errors
 
         if new_sl is not None and trade.broker_sl_order_id:

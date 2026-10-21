@@ -148,6 +148,7 @@ jobs:
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_match_zerodha_fills.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_scalp_dhan_exit_speed.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_option_ltp_sources.py'
+          python -m unittest discover -s "$PWD/tests" -p 'test_scalp_super_order_edit.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_broker.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_zerodha_tradebook_import.py'
           python -m unittest discover -s "$PWD/tests" -p 'test_reconcile_reads_its_own_product.py'
