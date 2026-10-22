@@ -666,6 +666,10 @@ def _ledger_entry_has_mcx(entry: dict) -> bool:
     )
 
 
+# A provisional (live_day_fifo) day is only swept as "the broker has no trades
+# for it" once it is this many days old: Dhan's trade-history report can miss
+# an evening MCX fill until the next morning and beyond.
+_PROVISIONAL_DAY_SETTLE_DAYS = 3
 _TRADE_HISTORY_REPAIR_COOLDOWN_SECONDS = 300
 _trade_history_repair_attempts: dict[int, float] = {}
 
@@ -10465,10 +10469,19 @@ def _backfill_trade_history(
         # Only a settled day, only a provisional row, and only inside the
         # window this pull actually asked about. A historical row is never
         # touched, and neither is today's.
+        #
+        # And only once the broker has had time to publish it. Dhan's report
+        # lags: at 08:43 on 2026-10-22 it still had nothing for the 21st's
+        # evening CRUDEOILM scalp, so this sweep deleted that day and Portfolio
+        # lost the trade (it was in the report by 10:08). A provisional day
+        # younger than the settle window is left for a later pull to confirm.
+        settle_cutoff = (date.fromisoformat(today_str) - timedelta(days=_PROVISIONAL_DAY_SETTLE_DAYS)).isoformat()
         removed = 0
         for date_str in sorted(existing_dates):
             if date_str >= today_str or date_str < from_date:
                 continue
+            if date_str > settle_cutoff:
+                continue  # the broker's report may not have it yet
             if date_str in daily_entries:
                 continue  # the broker does have trades for it
             existing_entry = history.get(date_str) or {}

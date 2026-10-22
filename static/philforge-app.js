@@ -1980,7 +1980,8 @@ window.addEventListener('scroll', () => {
 // beneath. Their offsets come from the same measure as the banner's.
 const _SCALP_FREEZE_HEAD = '#scalp-page.active-page > .card > .ocp-head';
 function _scalpFreezeActive() {
-  return _frozenTopsActive() && window.matchMedia('(min-width: 1080px) and (min-height: 820px)').matches;
+  // 640px tall, as the CSS: 820 left Windows laptops at 125% scaling unfrozen.
+  return _frozenTopsActive() && window.matchMedia('(min-width: 1080px) and (min-height: 640px)').matches;
 }
 // Measured afresh on every scroll frame, not only when the banner folds or
 // the window resizes: switching to the Scalp tab is neither, and offsets left

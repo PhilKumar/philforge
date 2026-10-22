@@ -224,9 +224,9 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   // a drawn line can be taken by its ends or moved whole, arming a tool leaves
   // the view alone, no instructions in the toolbar, and the Fib menu folds
   // away on a click anywhere else.
-  // 800 tall: under the Scalp freeze (>= 820) the pinned stack covers the
-  // chart's top, and this test is about drawing, not the freeze.
-  await page.setViewportSize({ width: 1400, height: 800 });
+  // 630 tall: under the Scalp freeze (>= 640 since 2026-10-22) the pinned
+  // stack covers the chart's top, and this test is about drawing, not the freeze.
+  await page.setViewportSize({ width: 1400, height: 630 });
   // The RSI pane takes the bottom of the plot; this test draws there, so RSI is off.
   await page.addInitScript(() => { try { localStorage.setItem('pf_scalp_chart_rsi', '0'); } catch (_) {} });
   const candles = [...oneMinuteBars('2026-10-13', '15:29:00'), ...oneMinuteBars('2026-10-14', '15:29:00')];
@@ -641,7 +641,9 @@ test('the crosshair runs down through the RSI pane, and reads the RSI there', as
 test('Undo and Redo step through drawing changes, Clear included', async ({ page }) => {
   // Phil, 2026-10-20: "If I draw one or more TLs or Fibs and if I click clear,
   // all is getting cleared ... Give me a undo button or previous button".
-  await page.setViewportSize({ width: 1400, height: 800 });
+  // 630 tall: below the Scalp freeze (>= 640), so the pinned stack does not
+  // cover the chart this test draws on.
+  await page.setViewportSize({ width: 1400, height: 630 });
   await page.addInitScript(() => { try { localStorage.setItem('pf_scalp_chart_rsi', '0'); localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
   await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
   const tools = page.locator('#scalp-dock-chart-actions .scalp-chart-tools');
@@ -758,8 +760,10 @@ test('the Scalp desk freezes down to Active Positions; the rest scrolls beneath'
   const b = await at(900);
   expect(Math.abs(b.head - a.head)).toBeLessThanOrEqual(1);
   expect(b.chart).toBeLessThan(a.chart);  // the chart scrolled on under them
-  // A short window keeps the old flow: nothing pinned below the banner.
-  await page.setViewportSize({ width: 1400, height: 760 });
+  // A short window keeps the old flow: nothing pinned below the banner. Short
+  // means under 640 since 2026-10-22 (it was 820, and a Windows laptop at 125%
+  // scaling, ~730 tall, never froze).
+  await page.setViewportSize({ width: 1400, height: 620 });
   await page.evaluate(() => window.dispatchEvent(new Event('resize')));
   expect(await page.evaluate(() => getComputedStyle(document.querySelector('#scalp-page > .card > .scalp-positions-card')!).position)).toBe('static');
 });

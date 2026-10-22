@@ -10063,8 +10063,11 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
    under the Trading banner and the positions card right under it; the chart,
    form, log and history scroll beneath. Offsets measured in
    _syncScalpFreeze; the solid fill only while pinned (.pf-scalp-stuck), so
-   the glass card is unchanged at rest. Desktop and tall windows only. */
-@media (min-width: 1080px) and (min-height: 820px) {
+   the glass card is unchanged at rest. Desktop windows 640px tall and up:
+   it was 820, and a Windows laptop at 125% display scaling gives the page
+   ~730px, so there the desk never froze (Phil, 2026-10-22: "from the windows
+   machine ... the freepanes on the active positions is not working"). */
+@media (min-width: 1080px) and (min-height: 640px) {
   body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-head {
     position: sticky;
     top: var(--pf-freeze-scalp-head, 0px);
@@ -10078,6 +10081,12 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     top: var(--pf-freeze-scalp-pos, 0px);
     z-index: 21;
     margin-top: 0 !important;
+  }
+  /* A short window keeps room to scroll: the pinned rows stop where ~260px
+     of the page is left below them, and scroll inside themselves past that. */
+  body.pf-frozen-tops #scalp-page.active-page > .card > .scalp-positions-card > [role="region"] {
+    max-height: max(140px, calc(100vh - var(--pf-freeze-scalp-pos, 0px) - 320px));
+    overflow-y: auto;
   }
   body.pf-frozen-tops #scalp-page.active-page > .card.pf-scalp-stuck > .ocp-head {
     background: var(--bg);

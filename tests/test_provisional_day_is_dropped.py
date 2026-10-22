@@ -20,6 +20,7 @@ actually covered that date.
 import ast
 import os
 import unittest
+from datetime import date
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = open(os.path.join(ROOT, "app.py"), encoding="utf-8").read()
@@ -31,19 +32,29 @@ def sweep() -> str:
 
 
 def would_drop(date_str, *, source, today, from_date, in_broker_pull):
-    """The sweep's four conditions, restated so the test is independent."""
+    """The sweep's conditions, restated so the test is independent."""
     if date_str >= today or date_str < from_date:
         return False
+    if (date.fromisoformat(today) - date.fromisoformat(date_str)).days < 3:
+        return False  # the broker's report may not have it yet
     if in_broker_pull:
         return False
     return source == "live_day_fifo"
 
 
 class TheConditions(unittest.TestCase):
-    CASE = dict(today="2026-09-10", from_date="2026-09-01", in_broker_pull=False)
+    CASE = dict(today="2026-09-12", from_date="2026-09-01", in_broker_pull=False)
 
     def test_it_drops_the_duplicate(self):
         self.assertTrue(would_drop("2026-09-09", source="live_day_fifo", **self.CASE))
+
+    def test_it_waits_while_the_broker_report_may_lag(self):
+        """2026-10-22: the 21st's evening crude scalp was not in Dhan's report
+        at 08:43 the next morning, and the sweep deleted the day."""
+        lag = dict(today="2026-10-22", from_date="2026-10-01", in_broker_pull=False)
+        self.assertFalse(would_drop("2026-10-21", source="live_day_fifo", **lag))
+        self.assertFalse(would_drop("2026-10-20", source="live_day_fifo", **lag))
+        self.assertTrue(would_drop("2026-10-19", source="live_day_fifo", **lag))
 
     def test_it_never_drops_a_settled_record(self):
         self.assertFalse(would_drop("2026-09-09", source="historical_fifo", **self.CASE))
@@ -71,6 +82,8 @@ class TheImplementationMatches(unittest.TestCase):
         self.assertIn("date_str >= today_str or date_str < from_date", block)
         self.assertIn("if date_str in daily_entries:", block)
         self.assertIn('!= "live_day_fifo"', block)
+        self.assertIn("if date_str > settle_cutoff:", block)
+        self.assertIn("_PROVISIONAL_DAY_SETTLE_DAYS = 3", APP)
 
     def test_it_uses_a_targeted_delete(self):
         block = sweep()
