@@ -173,6 +173,8 @@ const ICO = {
   siren:    (s) => ICO._s('<path d="M12 2v4"/><path d="M5 5l2.83 2.83"/><path d="M19 5l-2.83 2.83"/><path d="M4 12H2"/><path d="M22 12h-2"/><rect x="4" y="14" width="16" height="6" rx="2"/><circle cx="12" cy="12" r="4"/>', s),
   trend:    (s) => ICO._s('<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>', s),
   cross:    (s) => ICO._s('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>', s),
+  expand:   (s) => ICO._s('<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>', s),
+  collapse: (s) => ICO._s('<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>', s),
   check:    (s) => ICO._s('<polyline points="20 6 9 17 4 12"/>', s),
   trash:    (s) => ICO._s('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', s),
   sanctuary:(s) => ICO._s('<path d="M12 21C12 21 4 16.5 4 9.5C4 5.9 6.9 3 10.5 3C11 3 11.5 3.06 12 3.2C12.5 3.06 13 3 13.5 3C17.1 3 20 5.9 20 9.5C20 16.5 12 21 12 21Z"/><path d="M12 21V8M12 12L15.5 9M12 15L8.5 12"/>', s),
@@ -10128,6 +10130,13 @@ const _TERMINAL_CASCADE_CAPITAL_KEY = 'philforge_terminal_cascade_capital_v1';
 async function initStockTerminalPage(force = false) {
   bindStockTerminalValueInputs();
   bindTerminalCascadeInputs();
+  const savedBroker = _getLocalState(_STOCK_DESK_BROKER_STORE);
+  if (savedBroker && savedBroker !== _stockDeskBroker()) {
+    const input = document.getElementById('stock-broker');
+    if (input) input.value = savedBroker === 'zerodha' ? 'zerodha' : 'dhan';
+    _syncScalpToggleGroup('stock-broker-toggle', 'stock-broker');
+    _refreshStockDeskSecurity();
+  }
   toggleStockOrderMode();
   toggleStockOrderFields();
   if (force || !_stockTerminalInitialized || !_stockTerminalStocks.length) {
@@ -10280,8 +10289,7 @@ function selectStockTerminal(symbol, options = {}) {
   if (symInput) symInput.value = stock.symbol;
   const chip = document.getElementById('stock-terminal-selected-chip');
   if (chip) chip.textContent = stock.symbol;
-  const sec = document.getElementById('stock-terminal-security');
-  if (sec) sec.textContent = stock.security_id ? `Dhan ID ${stock.security_id}` : 'Dhan ID missing';
+  _refreshStockDeskSecurity();
   const ltp = document.getElementById('stock-terminal-ltp');
   if (ltp) {
     ltp.textContent = '—';
@@ -10363,8 +10371,7 @@ async function refreshStockTerminalQuote(force) {
     const data = await res.json();
     if (data.stock) {
       _stockTerminalSelected = data.stock;
-      const sec = document.getElementById('stock-terminal-security');
-      if (sec) sec.textContent = data.stock.security_id ? `Dhan ID ${data.stock.security_id}` : 'Dhan ID missing';
+      _refreshStockDeskSecurity();
     }
     if (data.status === 'ok' && Number(data.ltp) > 0) {
       _stockTerminalLastLtp = Number(data.ltp);
@@ -10401,8 +10408,11 @@ function _terminalCascadeEl(id) { return document.getElementById(id); }
 function bindTerminalCascadeInputs() {
   const chartIcons = {
     'terminal-cascade-refresh-icon': ICO.refresh(15),
-    'terminal-cascade-expand-icon': ICO.target(15),
+    'terminal-cascade-expand-icon': ICO.expand(15),
     'terminal-cascade-close-icon': ICO.cross(15),
+    // Two-red's chart wears the same three controls as Cash Cascade's.
+    'tworeds-refresh-icon': ICO.refresh(15),
+    'tworeds-close-icon': ICO.cross(15),
   };
   Object.entries(chartIcons).forEach(([id, icon]) => {
     const element = _terminalCascadeEl(id);
@@ -12403,7 +12413,8 @@ function toggleTerminalCascadeFullscreen(force) {
     button.setAttribute('title', open ? 'Exit full screen' : 'Expand chart');
     button.setAttribute('aria-label', open ? 'Exit full screen' : 'Expand chart');
     const icon = _terminalCascadeEl('terminal-cascade-expand-icon');
-    if (icon) icon.innerHTML = open ? ICO.cross(15) : ICO.target(15);
+    // Collapse, not a second ✕ beside Close: the two did different things.
+    if (icon) icon.innerHTML = open ? ICO.collapse(15) : ICO.expand(15);
   }
 }
 
@@ -12559,6 +12570,48 @@ document.addEventListener('keydown', (event) => {
 });
 
 
+// The desk's broker: Dhan unless Zerodha is picked (Phil, 2026-10-21: "I also
+// need this Equity used in zerodha as well"). Only the order goes there; the
+// scrip list, the price and the chart stay Dhan's.
+const _STOCK_DESK_BROKER_STORE = 'philforge_stock_desk_broker_v1';
+
+function _stockDeskBroker() {
+  return document.getElementById('stock-broker')?.value === 'zerodha' ? 'zerodha' : 'dhan';
+}
+
+function _stockDeskBrokerQuery(prefix = '?') {
+  return _stockDeskBroker() === 'zerodha' ? `${prefix}broker=zerodha` : '';
+}
+
+function _stockDeskSecurityLabel(stock) {
+  if (!stock) return _stockDeskBroker() === 'zerodha' ? 'Zerodha —' : 'Dhan ID —';
+  if (_stockDeskBroker() === 'zerodha') {
+    const exchange = String(stock.exchange_segment || 'NSE_EQ').startsWith('BSE') ? 'BSE' : 'NSE';
+    return `Zerodha ${exchange}:${stock.symbol}`;
+  }
+  return stock.security_id ? `Dhan ID ${stock.security_id}` : 'Dhan ID missing';
+}
+
+function _refreshStockDeskSecurity() {
+  const sec = document.getElementById('stock-terminal-security');
+  if (!sec) return;
+  sec.textContent = _stockDeskSecurityLabel(_stockTerminalSelected);
+  sec.title = _stockDeskBroker() === 'zerodha'
+    ? 'The Kite exchange and symbol this order will be placed against'
+    : "Dhan security id — the broker's instrument number this order will be placed against";
+}
+
+function setStockBroker(value, { persist = true } = {}) {
+  const input = document.getElementById('stock-broker');
+  if (!input) return;
+  input.value = value === 'zerodha' ? 'zerodha' : 'dhan';
+  _syncScalpToggleGroup('stock-broker-toggle', 'stock-broker');
+  if (persist) _setLocalState(_STOCK_DESK_BROKER_STORE, input.value);
+  _refreshStockDeskSecurity();
+  toggleStockOrderMode();
+  refreshStockTerminalOrders();
+}
+
 function toggleStockOrderMode() {
   const mode = document.getElementById('stock-order-mode')?.value || 'regular';
   const regular = document.getElementById('stock-regular-extra');
@@ -12571,10 +12624,14 @@ function toggleStockOrderMode() {
   // (see the /api/terminal/gtt validators). Hide the rest in GTT mode instead
   // of silently coercing them after the user has already picked one — a hidden
   // swap places a different order than the one on screen.
-  const gttProducts = ['CNC', 'MTF'];
-  const gttOrderTypes = ['MARKET', 'LIMIT'];
+  // Zerodha takes CNC/INTRADAY/MTF stock orders, and its GTT places a LIMIT
+  // order held CNC -- the same server rules, shown before the click.
+  const zerodha = _stockDeskBroker() === 'zerodha';
+  const gttProducts = zerodha ? ['CNC'] : ['CNC', 'MTF'];
+  const gttOrderTypes = zerodha ? ['LIMIT'] : ['MARKET', 'LIMIT'];
+  const regularProducts = zerodha ? ['INTRADAY', 'CNC', 'MTF'] : null;
   _setSelectOptionsAllowed(orderType, mode === 'gtt' ? gttOrderTypes : null, 'LIMIT');
-  _setSelectOptionsAllowed(product, mode === 'gtt' ? gttProducts : null, 'CNC');
+  _setSelectOptionsAllowed(product, mode === 'gtt' ? gttProducts : regularProducts, 'CNC');
   toggleStockOrderFields();
   updateStockOrderValue();
 }
@@ -12605,6 +12662,20 @@ function toggleStockOrderFields() {
     trigger.disabled = mode === 'regular' && (orderType === 'MARKET' || orderType === 'LIMIT');
     trigger.style.opacity = trigger.disabled ? '0.55' : '';
   }
+  // Dhan-only extras step aside on Zerodha; a Bracket Order's legs show only
+  // for a Bracket Order; the AMO slot only once AMO is ticked.
+  const zerodha = _stockDeskBroker() === 'zerodha';
+  const product = document.getElementById('stock-product-type')?.value || '';
+  const amo = !!document.getElementById('stock-after-market')?.checked;
+  const amoTime = document.getElementById('stock-amo-time');
+  const amoField = document.getElementById('stock-amo-time-field');
+  const sliceField = document.getElementById('stock-slice-field');
+  const boExtra = document.getElementById('stock-bo-extra');
+  if (amoField) amoField.style.display = zerodha ? 'none' : '';
+  if (amoTime) { amoTime.disabled = !amo; amoTime.style.opacity = amo ? '' : '0.55'; }
+  if (sliceField) sliceField.style.display = zerodha ? 'none' : 'flex';
+  if (zerodha) { const slice = document.getElementById('stock-slice-order'); if (slice) slice.checked = false; }
+  if (boExtra) boExtra.style.display = !zerodha && product === 'BO' ? 'grid' : 'none';
   const gttFlag = document.getElementById('stock-gtt-flag')?.value || 'SINGLE';
   ['stock-gtt-price1', 'stock-gtt-trigger1'].forEach(id => {
     const el = document.getElementById(id);
@@ -12626,6 +12697,7 @@ function _readStockTerminalPayload(direction) {
     price: parseFloat(document.getElementById('stock-price')?.value) || 0,
     trigger_price: parseFloat(document.getElementById('stock-trigger-price')?.value) || 0,
     disclosed_quantity: parseInt(document.getElementById('stock-disclosed-qty')?.value, 10) || 0,
+    broker: _stockDeskBroker(),
   };
 }
 
@@ -12644,7 +12716,9 @@ async function submitStockTerminalOrder(direction) {
   }
   if (mode === 'regular') {
     payload.after_market_order = !!document.getElementById('stock-after-market')?.checked;
-    payload.amo_time = document.getElementById('stock-amo-time')?.value || '';
+    payload.amo_time = payload.after_market_order && payload.broker !== 'zerodha'
+      ? (document.getElementById('stock-amo-time')?.value || '')
+      : '';
     payload.bo_profit_value = parseFloat(document.getElementById('stock-bo-profit')?.value) || 0;
     payload.bo_stop_loss_value = parseFloat(document.getElementById('stock-bo-sl')?.value) || 0;
     payload.slice_order = !!document.getElementById('stock-slice-order')?.checked;
@@ -12663,7 +12737,7 @@ async function submitStockTerminalOrder(direction) {
     ? `<br><span style="font-size:12px;color:var(--muted);">Price: ₹${priceContext.price.toFixed(2)} (${escapeHtml(priceContext.source)}) · Value: ₹${estimatedValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`
     : '';
   const ok = await customConfirm(
-    `Place <strong>${escapeHtml(payload.transaction_type)}</strong> ${escapeHtml(payload.symbol)} x ${payload.quantity} as ${escapeHtml(orderLabel)}?${valueText}`,
+    `Place <strong>${escapeHtml(payload.transaction_type)}</strong> ${escapeHtml(payload.symbol)} x ${payload.quantity} as ${escapeHtml(orderLabel)} at <strong>${payload.broker === 'zerodha' ? 'Zerodha' : 'Dhan'}</strong>?${valueText}`,
     { title: 'Confirm Order', icon: ICO.money(28), okText: 'Place Order', danger: payload.transaction_type === 'SELL' }
   );
   if (!ok) return;
@@ -12692,7 +12766,7 @@ async function submitStockTerminalOrder(direction) {
     toast(`${mode === 'gtt' ? 'GTT' : 'Order'} placed for ${payload.symbol}`, 'success');
     refreshStockTerminalOrders();
     if (oid !== 'submitted' && (!brokerStatus || _stockTerminalIsPendingStatus(brokerStatus))) {
-      watchStockTerminalOrder(oid, mode);
+      watchStockTerminalOrder(oid, mode, payload.broker);
     }
   } catch (e) {
     if (statusEl) {
@@ -12808,9 +12882,16 @@ function _updateStockTerminalEntryStatus(orderId, status, mode, reason = '') {
     : (_stockTerminalIsPendingStatus(cleanStatus) ? 'var(--warn)' : 'var(--success)');
 }
 
-async function _fetchStockTerminalTrackedOrder(orderId, mode) {
+async function _fetchStockTerminalTrackedOrder(orderId, mode, broker = 'dhan') {
   const target = String(orderId || '').trim();
   if (!target) return null;
+  if (broker === 'zerodha') {
+    // A Kite order id means nothing to Dhan's status call: read Zerodha's book.
+    const url = mode === 'gtt' ? '/api/terminal/forever?broker=zerodha' : '/api/terminal/orders?broker=zerodha';
+    const data = await fetch(url, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ data: [] }));
+    const rows = Array.isArray(data.data) ? data.data : [];
+    return rows.find(o => _stockTerminalOrderId(o) === target) || null;
+  }
   if (mode === 'regular') {
     try {
       const res = await fetch('/api/orders/' + encodeURIComponent(target) + '/status', { cache: 'no-store' });
@@ -12829,14 +12910,14 @@ async function _fetchStockTerminalTrackedOrder(orderId, mode) {
   return rows.find(o => _stockTerminalOrderId(o) === target) || null;
 }
 
-function watchStockTerminalOrder(orderId, mode) {
+function watchStockTerminalOrder(orderId, mode, broker = 'dhan') {
   if (_stockTerminalOrderWatchTimer) clearTimeout(_stockTerminalOrderWatchTimer);
   let attempts = 0;
   const maxAttempts = mode === 'gtt' ? 8 : 16;
   const tick = async () => {
     attempts += 1;
     try {
-      const order = await _fetchStockTerminalTrackedOrder(orderId, mode);
+      const order = await _fetchStockTerminalTrackedOrder(orderId, mode, broker);
       if (order) {
         const status = _stockTerminalOrderStatus(order) || 'SUBMITTED';
         const reason = _stockBrokerOrderReason(order);
@@ -12869,8 +12950,8 @@ async function refreshStockTerminalOrders() {
   const gttBody = document.getElementById('stock-terminal-gtt-body');
   try {
     const [ordersRes, gttRes] = await Promise.all([
-      fetch('/api/orders', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
-      fetch('/api/terminal/forever', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
+      fetch(_stockDeskBroker() === 'zerodha' ? '/api/terminal/orders?broker=zerodha' : '/api/orders', { cache: 'no-store' }).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
+      fetch('/api/terminal/forever' + _stockDeskBrokerQuery(), { cache: 'no-store' }).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
     ]);
     const orders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
     const gtt = Array.isArray(gttRes.data) ? gttRes.data : [];
@@ -12935,7 +13016,10 @@ async function cancelStockTerminalOrder(orderId, mode) {
   const ok = await customConfirm('Cancel order <strong>' + escapeHtml(orderId) + '</strong>?', { title: 'Cancel Order', icon: ICO.trash(28), okText: 'Cancel Order', danger: true });
   if (!ok) return;
   try {
-    const url = mode === 'gtt' ? '/api/terminal/forever/' + encodeURIComponent(orderId) : '/api/orders/' + encodeURIComponent(orderId);
+    const zerodha = _stockDeskBroker() === 'zerodha';
+    const url = mode === 'gtt'
+      ? '/api/terminal/forever/' + encodeURIComponent(orderId) + _stockDeskBrokerQuery()
+      : (zerodha ? '/api/terminal/orders/' + encodeURIComponent(orderId) + '?broker=zerodha' : '/api/orders/' + encodeURIComponent(orderId));
     const res = await fetch(url, { method: 'DELETE' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(_apiErrorMessage(data, 'Cancel failed'));

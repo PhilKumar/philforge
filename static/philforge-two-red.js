@@ -262,6 +262,18 @@
     var mother = ($('tworeds-mother-timestamp') || {}).value || '';
     if (!symbol.trim()) { setStatus('Pick a scrip first.', 'error'); return; }
     if (!mother) { setStatus('Name the mother candle.', 'error'); return; }
+    // Asked first, as Cash Cascade's Start is: one tap must not start a
+    // campaign by accident (the Equity audit, 2026-10-21).
+    if (typeof window.customConfirm === 'function') {
+      var purse = parseFloat(($('tworeds-capital') || {}).value || '200000');
+      var ok = await window.customConfirm(
+        'Start the Two-red ladder (paper) for <strong>' + esc(symbol.trim().toUpperCase()) + '</strong>?' +
+        '<br><span style="font-size:12px;color:var(--muted);">Mother: ' + esc(mother) + ' · Purse: ' + esc(rupees(purse, 0)) +
+        ' · No broker order is sent.</span>',
+        { title: 'Start Two-red ladder', okText: 'Start Paper' }
+      );
+      if (!ok) return;
+    }
     setStatus('Starting…');
     var button = $('tworeds-start');
     if (button) button.disabled = true;

@@ -5328,6 +5328,8 @@ class StockTerminalOrderRequest(BaseModel):
     bo_profit_value: float = Field(default=0, ge=0)
     bo_stop_loss_value: float = Field(default=0, ge=0)
     slice_order: bool = False
+    # "dhan" (the default) or "zerodha": the broker the desk sends this to.
+    broker: str = Field(default="dhan", max_length=16)
 
 
 class StockTerminalGttRequest(BaseModel):
@@ -5344,6 +5346,8 @@ class StockTerminalGttRequest(BaseModel):
     trigger_price1: float = Field(default=0, ge=0)
     quantity1: int = Field(default=0, ge=0)
     disclosed_quantity: int = Field(default=0, ge=0)
+    # "dhan" (the default) or "zerodha": the broker the desk sends this to.
+    broker: str = Field(default="dhan", max_length=16)
 
 
 _ORDER_EXCHANGES = {"NSE_EQ", "NSE_FNO", "NSE_CURRENCY", "BSE_EQ", "BSE_FNO", "BSE_CURRENCY", "MCX_COMM"}
@@ -11120,6 +11124,12 @@ def _terminal_cascade_instruments(symbol: str) -> tuple[CashCascadeInstrument, d
     return instrument, signal, trade
 
 
+def _dhan_said_no_data(exc: BaseException) -> bool:
+    """Dhan answered, and the range simply holds no candles."""
+    text = str(exc)
+    return "DH-907" in text or "returned no candles" in text
+
+
 async def _terminal_cascade_load_candles(
     broker: DhanClient,
     instrument: Mapping[str, Any],
@@ -11131,12 +11141,16 @@ async def _terminal_cascade_load_candles(
     interval, minutes, _normalised = _terminal_cascade_timeframe_parts(timeframe)
 
     def _fetch(chunk_from: date, chunk_to: date):
+        # Dhan's DAILY history ends BEFORE to_date: one day asked as from=to
+        # is refused outright (DH-907 "no data present"), which is what a 1D
+        # chart of 21-Jul's mother did (2026-10-21). One day on, it is that day.
+        end = chunk_to + timedelta(days=1) if interval == "D" else chunk_to
         return broker.get_historical_data(
             security_id=str(instrument["security_id"]),
             exchange_segment=str(instrument["exchange_segment"]),
             instrument_type=str(instrument["instrument_type"]),
             from_date=chunk_from.isoformat(),
-            to_date=chunk_to.isoformat(),
+            to_date=end.isoformat(),
             candle_type=interval,
         )
 
@@ -11150,7 +11164,16 @@ async def _terminal_cascade_load_candles(
         cursor = from_date
         while cursor <= to_date:
             chunk_end = min(cursor + timedelta(days=INTRADAY_CHUNK_DAYS), to_date)
-            chunk = await asyncio.to_thread(_fetch, cursor, chunk_end)
+            try:
+                chunk = await asyncio.to_thread(_fetch, cursor, chunk_end)
+            except Exception as exc:
+                # A chunk can be one market holiday: ADANIENSOL's 1h replay
+                # from 21-Jul ran 91 days on 20-Oct-2026 (Dussehra), its last
+                # chunk was that day alone, and Dhan's "no candles" for it
+                # failed the whole chart. An empty chunk is just empty.
+                if not _dhan_said_no_data(exc):
+                    raise
+                chunk = None
             if chunk is not None and not getattr(chunk, "empty", True):
                 frames.append(chunk)
             cursor = chunk_end + timedelta(days=1)
@@ -23091,10 +23114,27 @@ async def terminal_cascade_status(request: Request):
     }
 
 
+def _terminal_cascade_align_mother(mother: datetime, interval: str, minutes: int) -> datetime:
+    """The start of the bar, on this timeframe, that holds `mother`.
+
+    A campaign's mother belongs to its own timeframe; the chart's timeframe
+    buttons view it on another. A 13:15 one-hour mother seen on 1D is that
+    day's bar (stamped 09:15), on 15m the 13:15 bar -- not a stamp no bar has.
+    """
+    open_ = mother.replace(hour=9, minute=15, second=0, microsecond=0)
+    if interval == "D":
+        return open_
+    if mother < open_:
+        return open_
+    elapsed = int((mother - open_).total_seconds() // 60)
+    return open_ + timedelta(minutes=elapsed - elapsed % max(int(minutes), 1))
+
+
 @app.get("/api/terminal/cascade/chart")
 async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp: str, timeframe: str = "5m"):
     mother = _parse_cascade_mother_timestamp(mother_timestamp)
     _interval, minutes, normalised_tf = _terminal_cascade_timeframe_parts(timeframe)
+    mother = _terminal_cascade_align_mother(mother, _interval, minutes)
     now = datetime.now(IST)
     max_age_days = _terminal_cascade_max_mother_age_days(timeframe)
     if mother.date() > now.date() or (now.date() - mother.date()).days > max_age_days:
@@ -23106,15 +23146,25 @@ async def terminal_cascade_chart(request: Request, symbol: str, mother_timestamp
     if broker_client is None:
         raise HTTPException(status_code=400, detail="Connect a Dhan account to load the Terminal Cascade chart.")
     instrument, signal_instrument, trade_instrument = _terminal_cascade_instruments(symbol)
-    mother_signal, mother_trade = await _terminal_cascade_load_mother_pair(
-        broker_client, signal_instrument, trade_instrument, normalised_tf, mother
-    )
-    engine = CashCascadePaperEngine(
-        mother_signal, mother_trade, instrument, CashCascadePaperConfig(capital_inr=100000, timeframe=normalised_tf)
-    )
-    chart_candles = await _terminal_cascade_replay_with_candles(
-        broker_client, engine, signal_instrument, trade_instrument, mother
-    )
+    # A broker refusal is a message on the chart, not a 500 the page can only
+    # call "Something went wrong" (Phil, 2026-10-21, on the Equity chart).
+    try:
+        mother_signal, mother_trade = await _terminal_cascade_load_mother_pair(
+            broker_client, signal_instrument, trade_instrument, normalised_tf, mother
+        )
+        engine = CashCascadePaperEngine(
+            mother_signal, mother_trade, instrument, CashCascadePaperConfig(capital_inr=100000, timeframe=normalised_tf)
+        )
+        chart_candles = await _terminal_cascade_replay_with_candles(
+            broker_client, engine, signal_instrument, trade_instrument, mother
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Dhan could not return {symbol}'s {normalised_tf} candles for {mother:%d-%b-%Y %H:%M}: {str(exc)[:160]}",
+        ) from exc
     rows = _cascade_native_candles(chart_candles, mother)
     mother_row = next((row for row in rows if row["is_mother"]), None)
     if mother_row is None:
@@ -24318,6 +24368,24 @@ async def two_red_chart(
     }
 
 
+_ZERODHA_DESK_PRODUCTS = {"CNC", "INTRADAY", "MTF"}
+
+
+async def _terminal_desk_broker(request: Request, broker: str) -> tuple[Any, str, str]:
+    """The Manual desk's broker for this request: (client, name, why there is none).
+
+    Dhan unless the desk picked Zerodha (Phil, 2026-10-21: "I also need this
+    Equity used in zerodha as well"). Prices, the scrip list and the chart stay
+    Dhan's either way; only the order goes to the broker picked.
+    """
+    if str(broker or "dhan").strip().lower() == "zerodha":
+        user = await _auth_mod.get_current_user(request)
+        client, source = _user_zerodha_client(user, require_today=True)
+        return client, "zerodha", ("" if client else _book_broker_missing_message(user, source))
+    user, client, source = await _request_broker_context(request)
+    return client, "dhan", ("" if client else _broker_not_configured_message(user, source))
+
+
 @app.post("/api/terminal/order")
 async def terminal_place_order(req: StockTerminalOrderRequest, request: Request):
     check_rate_limit("terminal_place_order", _request_rate_subject(request), max_calls=3, window_sec=5)
@@ -24347,9 +24415,42 @@ async def terminal_place_order(req: StockTerminalOrderRequest, request: Request)
     if order_type in {"STOP_LOSS", "STOP_LOSS_MARKET"} and req.trigger_price <= 0:
         raise HTTPException(status_code=400, detail=f"{order_type} requires trigger_price")
 
-    user, broker_client, source = await _request_broker_context(request)
+    broker_client, broker_name, missing = await _terminal_desk_broker(request, req.broker)
     if not broker_client:
-        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
+        raise HTTPException(status_code=400, detail=missing)
+    if broker_name == "zerodha":
+        if product_type not in _ZERODHA_DESK_PRODUCTS:
+            raise HTTPException(status_code=400, detail=f"Zerodha takes CNC, INTRADAY or MTF here, not {product_type}.")
+        if req.slice_order:
+            raise HTTPException(status_code=400, detail="Slicing is Dhan's; untick Slice for a Zerodha order.")
+        if req.after_market_order and amo_time not in {"", "OPEN"}:
+            raise HTTPException(
+                status_code=400, detail="Zerodha sends an AMO at the open; it has no pre-open or later slot."
+            )
+        try:
+            result = await asyncio.to_thread(
+                broker_client.place_equity_order,
+                symbol=stock["symbol"],
+                exchange_segment=stock["exchange_segment"],
+                transaction_type=transaction_type,
+                quantity=req.quantity,
+                order_type=order_type,
+                product_type=product_type,
+                price=req.price,
+                trigger_price=req.trigger_price,
+                validity=validity,
+                disclosed_quantity=req.disclosed_quantity,
+                after_market_order=req.after_market_order,
+                tag=f"PFSTK_{stock['symbol']}",
+            )
+            return {"status": "ok", "stock": stock, "broker": "zerodha", "response": result}
+        except Exception as e:
+            detail = _broker_order_failure_detail(e, "Zerodha stock order failed")
+            alerter.alert(
+                "Stock Terminal Order Failed (Zerodha)",
+                f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {detail['reason']}",
+            )
+            raise HTTPException(status_code=502 if isinstance(e, DhanOrderError) else 500, detail=detail)
     try:
         result = await asyncio.to_thread(
             broker_client.place_order,
@@ -24413,9 +24514,34 @@ async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
     if req.quantity1 > req.quantity:
         raise HTTPException(status_code=400, detail="quantity1 cannot exceed quantity")
 
-    user, broker_client, source = await _request_broker_context(request)
+    broker_client, broker_name, missing = await _terminal_desk_broker(request, req.broker)
     if not broker_client:
-        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
+        raise HTTPException(status_code=400, detail=missing)
+    if broker_name == "zerodha":
+        try:
+            result = await asyncio.to_thread(
+                broker_client.place_gtt,
+                symbol=stock["symbol"],
+                exchange_segment=stock["exchange_segment"],
+                transaction_type=transaction_type,
+                quantity=req.quantity,
+                order_flag=order_flag,
+                product_type=product_type,
+                order_type=order_type,
+                price=req.price,
+                trigger_price=req.trigger_price,
+                price1=req.price1,
+                trigger_price1=req.trigger_price1,
+                quantity1=req.quantity1,
+            )
+            return {"status": "ok", "stock": stock, "broker": "zerodha", "response": result}
+        except Exception as e:
+            detail = _broker_order_failure_detail(e, "Zerodha GTT failed")
+            alerter.alert(
+                "Stock Terminal GTT Failed (Zerodha)",
+                f"Symbol: {stock['symbol']}\nType: {transaction_type}\nQty: {req.quantity}\nError: {detail['reason']}",
+            )
+            raise HTTPException(status_code=502 if isinstance(e, DhanOrderError) else 500, detail=detail)
     try:
         result = broker_client.place_forever_order(
             security_id=stock["security_id"],
@@ -24445,24 +24571,51 @@ async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
 
 
 @app.get("/api/terminal/forever")
-async def terminal_forever_orders(request: Request):
+async def terminal_forever_orders(request: Request, broker: str = "dhan"):
     try:
-        user, broker_client, source = await _request_broker_context(request)
+        broker_client, broker_name, missing = await _terminal_desk_broker(request, broker)
         if not broker_client:
-            return {"status": "not_configured", "message": _broker_not_configured_message(user, source), "data": []}
-        orders = broker_client.get_forever_orders()
-        return {"status": "success", "data": orders if isinstance(orders, list) else []}
+            return {"status": "not_configured", "message": missing, "data": []}
+        fetch = broker_client.get_gtts if broker_name == "zerodha" else broker_client.get_forever_orders
+        orders = await asyncio.to_thread(fetch)
+        return {"status": "success", "broker": broker_name, "data": orders if isinstance(orders, list) else []}
     except Exception as e:
         return {"status": "error", "message": str(e)[:200], "data": []}
 
 
 @app.delete("/api/terminal/forever/{order_id}")
-async def terminal_cancel_forever(order_id: str, request: Request):
-    user, broker_client, source = await _request_broker_context(request)
+async def terminal_cancel_forever(order_id: str, request: Request, broker: str = "dhan"):
+    broker_client, broker_name, missing = await _terminal_desk_broker(request, broker)
     if not broker_client:
-        raise HTTPException(status_code=400, detail=_broker_not_configured_message(user, source))
+        raise HTTPException(status_code=400, detail=missing)
     try:
-        return broker_client.cancel_forever_order(order_id)
+        cancel = broker_client.delete_gtt if broker_name == "zerodha" else broker_client.cancel_forever_order
+        return await asyncio.to_thread(cancel, order_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/terminal/orders")
+async def terminal_orders(request: Request, broker: str = "dhan"):
+    """Today's orders at the desk's broker -- Zerodha's own book when it is picked."""
+    try:
+        broker_client, broker_name, missing = await _terminal_desk_broker(request, broker)
+        if not broker_client:
+            return {"status": "not_configured", "message": missing, "data": []}
+        orders = await asyncio.to_thread(broker_client.get_order_book)
+        return {"status": "success", "broker": broker_name, "data": orders if isinstance(orders, list) else []}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200], "data": []}
+
+
+@app.delete("/api/terminal/orders/{order_id}")
+async def terminal_cancel_order(order_id: str, request: Request, broker: str = "dhan"):
+    broker_client, broker_name, missing = await _terminal_desk_broker(request, broker)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=missing)
+    try:
+        cancel = broker_client.cancel_equity_order if broker_name == "zerodha" else broker_client.cancel_order
+        return await asyncio.to_thread(cancel, order_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

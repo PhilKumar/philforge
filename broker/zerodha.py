@@ -27,6 +27,7 @@ import asyncio
 import csv
 import hashlib
 import io
+import json
 import logging
 import re
 import threading
@@ -91,6 +92,22 @@ _STATUS = {
 }
 
 _PRODUCT = {"INTRADAY": "MIS", "MIS": "MIS", "MARGIN": "NRML", "NRML": "NRML", "CNC": "CNC"}
+
+# The Manual desk's stock products, in Kite's words. MARGIN, CO and BO are
+# Dhan's and are refused here rather than quietly turned into something else.
+_EQUITY_PRODUCT = {"CNC": "CNC", "INTRADAY": "MIS", "MIS": "MIS", "MTF": "MTF"}
+_EQUITY_EXCHANGE = {"NSE_EQ": "NSE", "BSE_EQ": "BSE"}
+
+# Kite's GTT status -> the desk's: "active" still waits on its trigger.
+_GTT_STATUS = {
+    "active": "PENDING",
+    "triggered": "TRADED",
+    "disabled": "DISABLED",
+    "expired": "EXPIRED",
+    "cancelled": "CANCELLED",
+    "rejected": "REJECTED",
+    "deleted": "CANCELLED",
+}
 
 _ORDER_TYPE = {
     "MARKET": "MARKET",
@@ -481,6 +498,217 @@ class ZerodhaClient:
         info = self._contract(underlying, strike_price, expiry, option_type)
         return self._place(info, transaction_type, quantity, order_type, product_type, price, trigger_price, tag)
 
+    # ── equity: the Equity page's Manual desk ──────────────────
+    # Phil, 2026-10-21: "I also need this Equity used in zerodha as well".
+    # A stock is named the same on both brokers (RELIANCE, NIFTYBEES), so the
+    # desk's symbol is Kite's tradingsymbol; only the exchange is renamed.
+    # Kite has no Bracket Order, no Cover Order through this desk, no AMO
+    # time slot and no slicing: those ask for Dhan.
+
+    def _equity_exchange(self, exchange_segment: str) -> str:
+        exchange = _EQUITY_EXCHANGE.get(str(exchange_segment or "").upper())
+        if not exchange:
+            raise DhanOrderError(
+                "Order placement", 400, f"Zerodha's desk trades NSE and BSE stocks, not {exchange_segment}"
+            )
+        return exchange
+
+    def place_equity_order(
+        self,
+        symbol: str,
+        exchange_segment: str,
+        transaction_type: str,
+        quantity: int,
+        order_type: str = "MARKET",
+        product_type: str = "CNC",
+        price: float = 0,
+        trigger_price: float = 0,
+        validity: str = "DAY",
+        disclosed_quantity: int = 0,
+        after_market_order: bool = False,
+        tag: str = "PhilForge",
+    ) -> dict:
+        exchange = self._equity_exchange(exchange_segment)
+        kite_type = _ORDER_TYPE.get(str(order_type or "MARKET").upper())
+        product = _EQUITY_PRODUCT.get(str(product_type or "CNC").upper())
+        if not kite_type:
+            raise DhanOrderError("Order placement", 400, f"Order type {order_type!r} is not supported on Zerodha")
+        if not product:
+            raise DhanOrderError(
+                "Order placement", 400, f"Zerodha's desk takes CNC, INTRADAY or MTF, not {product_type}"
+            )
+        form = {
+            "tradingsymbol": str(symbol).strip().upper(),
+            "exchange": exchange,
+            "transaction_type": str(transaction_type).upper(),
+            "order_type": kite_type,
+            "quantity": int(quantity),
+            "product": product,
+            "validity": str(validity or "DAY").upper(),
+        }
+        # A stock's tick is 0.05 above Rs 250 and 0.01 under it: the price goes
+        # as typed (to the paisa) and Kite says so if it is off the tick.
+        if kite_type in ("LIMIT", "SL"):
+            form["price"] = round(float(price or 0), 2)
+        if kite_type in ("SL", "SL-M"):
+            form["trigger_price"] = round(float(trigger_price or 0), 2)
+        if kite_type in ("MARKET", "SL-M"):
+            form["market_protection"] = -1
+        if int(disclosed_quantity or 0) > 0:
+            form["disclosed_quantity"] = int(disclosed_quantity)
+        if kite_tag(tag):
+            form["tag"] = kite_tag(tag)
+        variety = "amo" if after_market_order else "regular"
+        log.info(
+            "[ZERODHA] Submitting equity order side=%s exchange=%s type=%s product=%s variety=%s",
+            form["transaction_type"],
+            exchange,
+            kite_type,
+            product,
+            variety,
+        )
+        try:
+            resp, body = self._call("POST", f"/orders/{variety}", data=form)
+        except ConnectionError:
+            raise
+        except Exception as exc:
+            raise AmbiguousOrderSubmission(
+                "Order submission was not confirmed by Zerodha; check the Kite order book before retrying."
+            ) from exc
+        if resp.status_code in _RETRYABLE or body.get("error_type") == "NetworkException":
+            raise AmbiguousOrderSubmission(
+                "Zerodha returned a transient response after order submission; check the Kite order book before retrying."
+            )
+        if resp.status_code != 200 or body.get("status") != "success":
+            refusal = DhanOrderError(
+                "Order placement", resp.status_code, str(body.get("message") or "Zerodha rejected the order"), body
+            )
+            refusal.rejected = True
+            raise refusal
+        order_id = str((body.get("data") or {}).get("order_id") or "")
+        return {"orderId": order_id, "orderStatus": "TRANSIT", "broker": "zerodha"}
+
+    def cancel_equity_order(self, order_id: str) -> dict:
+        """Cancel a desk order whatever its variety: an AMO is cancelled as one."""
+        variety = "regular"
+        try:
+            history = self._get_data(f"/orders/{order_id}") or []
+            if history:
+                variety = str(history[-1].get("variety") or "regular")
+        except Exception:
+            pass
+        resp, body = self._call("DELETE", f"/orders/{variety}/{order_id}")
+        if resp.status_code != 200 or body.get("status") != "success":
+            raise DhanOrderError("Order cancel", resp.status_code, str(body.get("message") or "Zerodha refused"), body)
+        return {"orderId": str(order_id), "orderStatus": "CANCELLED", "broker": "zerodha"}
+
+    def _equity_ltp(self, exchange: str, symbol: str) -> float:
+        name = f"{exchange}:{str(symbol).strip().upper()}"
+        row = (self._get_data("/quote/ltp", params=[("i", name)]) or {}).get(name) or {}
+        price = float(row.get("last_price") or 0.0)
+        if price <= 0:
+            raise DhanOrderError("GTT", 400, f"Zerodha has no price for {name}; is the symbol listed there?")
+        return price
+
+    def place_gtt(
+        self,
+        symbol: str,
+        exchange_segment: str,
+        transaction_type: str,
+        quantity: int,
+        order_flag: str = "SINGLE",
+        product_type: str = "CNC",
+        order_type: str = "LIMIT",
+        price: float = 0,
+        trigger_price: float = 0,
+        price1: float = 0,
+        trigger_price1: float = 0,
+        quantity1: int = 0,
+    ) -> dict:
+        """Kite's GTT, asked the way the desk asks Dhan for a Forever Order.
+
+        SINGLE is one trigger. OCO is Kite's two-leg GTT: the desk's first leg
+        (trigger_price/price) is the stop and its second (trigger_price1/price1)
+        the target. Kite wants the two triggers low-to-high with each order in
+        the same place, so the legs are sorted by trigger, not by name.
+        Kite's GTT places a LIMIT order and holds CNC only.
+        """
+        exchange = self._equity_exchange(exchange_segment)
+        if str(order_type or "LIMIT").upper() != "LIMIT":
+            raise DhanOrderError("GTT", 400, "Zerodha's GTT places a LIMIT order; set Order Type to LIMIT and a price")
+        if str(product_type or "CNC").upper() != "CNC":
+            raise DhanOrderError("GTT", 400, f"Zerodha's GTT holds CNC (delivery) only, not {product_type}")
+        side = str(transaction_type).upper()
+        symbol = str(symbol).strip().upper()
+        legs = [(float(trigger_price), float(price), int(quantity))]
+        if str(order_flag or "SINGLE").upper() == "OCO":
+            legs.append((float(trigger_price1), float(price1), int(quantity1 or quantity)))
+            legs.sort(key=lambda leg: leg[0])
+        condition = {
+            "exchange": exchange,
+            "tradingsymbol": symbol,
+            "trigger_values": [round(leg[0], 2) for leg in legs],
+            "last_price": self._equity_ltp(exchange, symbol),
+        }
+        orders = [
+            {
+                "exchange": exchange,
+                "tradingsymbol": symbol,
+                "transaction_type": side,
+                "quantity": leg[2],
+                "order_type": "LIMIT",
+                "product": "CNC",
+                "price": round(leg[1], 2),
+            }
+            for leg in legs
+        ]
+        form = {
+            "type": "two-leg" if len(legs) == 2 else "single",
+            "condition": json.dumps(condition),
+            "orders": json.dumps(orders),
+        }
+        resp, body = self._call("POST", "/gtt/triggers", data=form)
+        if resp.status_code != 200 or body.get("status") != "success":
+            refusal = DhanOrderError(
+                "GTT", resp.status_code, str(body.get("message") or "Zerodha refused the GTT"), body
+            )
+            refusal.rejected = True
+            raise refusal
+        trigger_id = str((body.get("data") or {}).get("trigger_id") or "")
+        return {"orderId": trigger_id, "orderStatus": "PENDING", "broker": "zerodha"}
+
+    def get_gtts(self) -> list:
+        """Kite's GTTs in the rows the desk's Forever table reads."""
+        rows = []
+        for row in self._get_data("/gtt/triggers") or []:
+            condition = row.get("condition") or {}
+            orders = row.get("orders") or []
+            first = orders[0] if orders else {}
+            triggers = condition.get("trigger_values") or [0]
+            status = str(row.get("status") or "").lower()
+            rows.append(
+                {
+                    "orderId": str(row.get("id") or ""),
+                    "tradingSymbol": str(condition.get("tradingsymbol") or ""),
+                    "transactionType": str(first.get("transaction_type") or ""),
+                    "orderFlag": "OCO" if row.get("type") == "two-leg" else "SINGLE",
+                    "triggerPrice": float(triggers[0] or 0),
+                    "triggerPrices": [float(t or 0) for t in triggers],
+                    "quantity": int(first.get("quantity") or 0),
+                    # "active" waits on the trigger -- cancellable, as Dhan's PENDING is.
+                    "orderStatus": _GTT_STATUS.get(status, status.upper()),
+                    "createTime": str(row.get("created_at") or ""),
+                    "broker": "zerodha",
+                }
+            )
+        return rows
+
+    def delete_gtt(self, trigger_id: str) -> dict:
+        resp, body = self._call("DELETE", f"/gtt/triggers/{trigger_id}")
+        if resp.status_code != 200 or body.get("status") != "success":
+            raise DhanOrderError("GTT cancel", resp.status_code, str(body.get("message") or "Zerodha refused"), body)
+        return {"orderId": str(trigger_id), "orderStatus": "CANCELLED", "broker": "zerodha"}
+
     def cancel_order(self, order_id: str) -> dict:
         resp, body = self._call("DELETE", f"/orders/regular/{order_id}")
         if resp.status_code != 200 or body.get("status") != "success":
@@ -554,6 +782,10 @@ class ZerodhaClient:
             "tradingSymbol": str(row.get("tradingsymbol") or ""),
             "rejectionReason": str(row.get("status_message") or ""),
             "createTime": str(row.get("order_timestamp") or ""),
+            # For the Equity desk's order table; the engines read none of these.
+            "orderType": str(row.get("order_type") or ""),
+            "productType": str(row.get("product") or ""),
+            "exchange": str(row.get("exchange") or ""),
         }
 
     def get_order_book(self) -> list:

@@ -226,6 +226,8 @@ _SENSITIVE_ACTION_RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # per basket, never per leg.
     ("POST", re.compile(r"^/api/option-builder/execute$"), "broker_order"),
     ("DELETE", re.compile(r"^/api/terminal/forever/[^/]+$"), "broker_order"),
+    # The Equity desk's own cancel (either broker), gated as /api/orders/{id} is.
+    ("DELETE", re.compile(r"^/api/terminal/orders/[^/]+$"), "broker_order"),
     # FIB BOUNDARY IS NOT HERE ANY MORE. Phil, 2026-08-15: "No need... just give
     # a toggle from paper to live and live to paper like scalp page." Its live
     # arm and kill used to cost a password and an authenticator code; he asked

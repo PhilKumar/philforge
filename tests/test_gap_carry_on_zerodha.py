@@ -470,7 +470,8 @@ class ThePageOffersTheChoice(unittest.TestCase):
         css = (ROOT / "static" / "philforge-app.css").read_text(encoding="utf-8")
         for tone in ("dhan", "zerodha"):
             self.assertIn(f'.scalp-toggle-btn.active[data-tone="{tone}"]', css)
-            self.assertEqual(self.HTML.count(f'data-value="{tone}" data-tone="{tone}"'), 2, tone)  # Scalp + Gap Carry
+            # Scalp + Gap Carry + the Equity desk (2026-10-21).
+            self.assertEqual(self.HTML.count(f'data-value="{tone}" data-tone="{tone}"'), 3, tone)
 
     def test_start_and_both_auto_calls_send_the_broker(self):
         self.assertEqual(self.JS.count("broker: _gapCarryBroker()"), 3)

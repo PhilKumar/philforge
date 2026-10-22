@@ -1916,13 +1916,13 @@
         <div class="terminal-cascade-chart-actions">
           <div class="terminal-cascade-tf-toggle" role="radiogroup" aria-label="Chart timeframe" id="terminal-cascade-chart-tf">
             <button type="button" class="terminal-cascade-tf-option is-active" data-tf="auto" role="radio" aria-checked="true" onclick="setTerminalCascadeChartTimeframe('auto')">Auto</button>
-            <button type="button" class="terminal-cascade-tf-option" data-tf="5m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('5m')">5m</button>
-            <button type="button" class="terminal-cascade-tf-option" data-tf="15m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('15m')">15m</button>
+            <button type="button" class="terminal-cascade-tf-option" data-tf="5m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('5m')">5M</button>
+            <button type="button" class="terminal-cascade-tf-option" data-tf="15m" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('15m')">15M</button>
             <button type="button" class="terminal-cascade-tf-option" data-tf="1h" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('1h')">1H</button>
             <button type="button" class="terminal-cascade-tf-option" data-tf="1d" role="radio" aria-checked="false" onclick="setTerminalCascadeChartTimeframe('1d')">1D</button>
           </div>
           <div class="terminal-cascade-tf-toggle" role="group" aria-label="Chart zoom">
-            <button type="button" class="terminal-cascade-tf-option" onclick="terminalCascadeZoomOut()" title="Zoom out" aria-label="Zoom out">-</button>
+            <button type="button" class="terminal-cascade-tf-option" onclick="terminalCascadeZoomOut()" title="Zoom out" aria-label="Zoom out">&minus;</button>
             <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" id="terminal-cascade-zoom-level" onclick="terminalCascadeZoomReset()" title="Reset zoom">100%</button>
             <button type="button" class="terminal-cascade-tf-option" onclick="terminalCascadeZoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
           </div>
@@ -2164,10 +2164,10 @@
             <div class="terminal-cascade-field">
               <label for="tworeds-min-fall">First buy waits for a fall of</label>
               <select id="tworeds-min-fall">
-                <option value="8" selected>8% — every closed trade green</option>
+                <option value="8" selected title="Every closed trade green in the backtest">8% — all trades green</option>
                 <option value="5">5% — trades more often</option>
-                <option value="12">12% — deepest, strands more</option>
-                <option value="0">0% — no gate (loses to fees)</option>
+                <option value="12" title="The deepest gate; strands more campaigns">12% — deepest</option>
+                <option value="0" title="No gate: loses to fees in the backtest">0% — no gate</option>
               </select>
             </div>
             <div class="terminal-cascade-field">
@@ -2176,7 +2176,7 @@
                 <option value="0.75" selected>0.75 back to the mother</option>
                 <option value="0.5">0.50 back to the mother</option>
                 <option value="0.25">0.25 — the original</option>
-                <option value="1">1.00 — all the way (strands)</option>
+                <option value="1" title="All the way back to the mother; strands more">1.00 — all the way</option>
               </select>
             </div>
           </div>
@@ -2250,8 +2250,8 @@
               <button type="button" class="terminal-cascade-tf-option terminal-cascade-zoom-readout" data-pf-zoom-readout data-strip-zoom-reset title="Reset zoom">100%</button>
               <button type="button" class="terminal-cascade-tf-option" data-strip-zoom-in title="Zoom in" aria-label="Zoom in">+</button>
             </div>
-            <button type="button" class="terminal-cascade-chart-control" data-pf-action="loadTwoRedChart" title="Refresh chart" aria-label="Refresh chart">&#x27F3;</button>
-            <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideTwoRedChart" title="Close chart" aria-label="Close chart">&#10005;</button>
+            <button type="button" class="terminal-cascade-chart-control" data-pf-action="loadTwoRedChart" title="Refresh chart" aria-label="Refresh chart"><span id="tworeds-refresh-icon">&#x27F3;</span></button>
+            <button type="button" class="terminal-cascade-chart-control is-danger" data-pf-action="hideTwoRedChart" title="Close chart" aria-label="Close chart"><span id="tworeds-close-icon">&#10005;</span></button>
           </div>
         </div>
         <div class="terminal-cascade-chart-body pf-standard-cascade-chart-body">
@@ -2307,8 +2307,16 @@
     <div class="card" style="padding: 18px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
         <h3 style="font-size:15px;font-weight:700;margin:0;color:var(--accent);">Velocity Entry</h3>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;gap:10px;align-items:center;">
           <input type="hidden" id="stock-terminal-symbol" value="">
+          <!-- The broker this ticket goes to. Prices, the list and the chart
+               stay Dhan's either way (Phil, 2026-10-21: "I also need this
+               Equity used in zerodha as well"). -->
+          <input type="hidden" id="stock-broker" value="dhan">
+          <div id="stock-broker-toggle" class="scalp-toggle compact" role="group" aria-label="Broker" style="width:176px;">
+            <button type="button" class="scalp-toggle-btn active" data-value="dhan" data-tone="dhan" onclick="setStockBroker('dhan')"><span>Dhan</span></button>
+            <button type="button" class="scalp-toggle-btn" data-value="zerodha" data-tone="zerodha" onclick="setStockBroker('zerodha')"><span>Zerodha</span></button>
+          </div>
           <!-- Dhan's own instrument number for the picked stock — the id the
                order is actually placed against. Shown so a wrong pick is
                catchable before an order, not a mystery code. -->
@@ -2326,7 +2334,7 @@
         </div>
         <div>
           <label for="stock-product-type" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;display:block;margin-bottom:4px;">Product</label>
-          <select id="stock-product-type" style="font-size:13px;padding:8px 10px;">
+          <select id="stock-product-type" onchange="toggleStockOrderFields()" style="font-size:13px;padding:8px 10px;">
             <option value="INTRADAY" selected>INTRADAY</option>
             <option value="CNC">CNC</option>
             <option value="MARGIN">MARGIN</option>
@@ -2389,12 +2397,15 @@
         </div>
       </div>
 
+      <!-- AMO, its slot and Slice on one row; the Bracket Order's legs only
+           when the product IS a Bracket Order (they used to show for every
+           order and wrapped the row out of line). -->
       <div id="stock-regular-extra" style="background:rgba(0,0,0,0.15);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;align-items:end;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;align-items:end;">
           <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);height:36px;">
-            <input type="checkbox" id="stock-after-market" style="width:auto;accent-color:var(--accent);"> AMO
+            <input type="checkbox" id="stock-after-market" onchange="toggleStockOrderFields()" style="width:auto;accent-color:var(--accent);"> AMO
           </label>
-          <div>
+          <div id="stock-amo-time-field">
             <label for="stock-amo-time" style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">AMO Time</label>
             <select id="stock-amo-time" style="font-size:12px;padding:7px 9px;">
               <option value="">—</option>
@@ -2404,9 +2415,11 @@
               <option value="OPEN_60">OPEN_60</option>
             </select>
           </div>
-          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);height:36px;">
+          <label id="stock-slice-field" style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);height:36px;">
             <input type="checkbox" id="stock-slice-order" style="width:auto;accent-color:var(--accent);"> Slice
           </label>
+        </div>
+        <div id="stock-bo-extra" style="display:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;">
           <div>
             <label for="stock-bo-profit" style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">BO Target</label>
             <input type="number" id="stock-bo-profit" value="0" min="0" step="0.05" style="font-size:12px;padding:7px 9px;font-family:'JetBrains Mono',monospace;">
