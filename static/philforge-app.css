@@ -10210,3 +10210,10 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   }
   #scalp-page .ocp-pane-form .scalp-stop-limit label { display: block; margin-bottom: 4px !important; }
 }
+
+/* "Match today with Dhan" on the Scalp history (2026-10-23): a desk action.
+   On a phone it would wrap the header to two lines; mobile layouts stay as
+   they are, so it is not shown there. */
+@media (max-width: 780px) {
+  #scalp-page .scalp-match-dhan-btn { display: none !important; }
+}
