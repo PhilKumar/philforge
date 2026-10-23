@@ -4586,6 +4586,21 @@ def _resolve_book_broker_client(
     return _resolve_user_broker_client(user, allow_admin_fallback=allow_admin_fallback)
 
 
+def _attach_history_fallback(engine, user: dict | None) -> None:
+    """Give a Dhan live book Zerodha's candles for when Dhan's chart API refuses.
+
+    Only the warm-up history and the daily closes use it; orders, quotes and
+    the live feed stay the book's own broker. A Zerodha book needs none.
+    """
+    if isinstance(getattr(engine, "dhan", None), _zerodha.ZerodhaClient):
+        return
+    try:
+        client, _source = _user_zerodha_client(user, require_today=False)
+    except Exception:
+        client = None
+    engine.history_fallback = client
+
+
 def _hand_zerodha_token_to_running_books(user_id: int, access_token: str, token_at: str) -> int:
     """After the morning login, every running Zerodha book trades on the new
     token. Without this a book restored overnight would keep yesterday's dead
@@ -4597,6 +4612,10 @@ def _hand_zerodha_token_to_running_books(user_id: int, access_token: str, token_
             client._access_token = access_token
             client.token_saved_at = token_at
             handed += 1
+        fallback = getattr(engine, "history_fallback", None)
+        if isinstance(fallback, _zerodha.ZerodhaClient):
+            fallback._access_token = access_token
+            fallback.token_saved_at = token_at
     scalp = _scalp_engines.get(int(user_id))
     client = getattr(scalp, "zerodha", None)
     if isinstance(client, _zerodha.ZerodhaClient):
@@ -20295,6 +20314,7 @@ async def live_start(req: LiveStartRequest, request: Request):
 
     # Create a new engine instance for this strategy
     engine = LiveEngine(broker_client, run_id=run_id, state_dir=_engine_state_dir(user_id))
+    _attach_history_fallback(engine, user)
     engine.configure(
         strategy=strategy_dict,
         entry_conditions=entry_conditions,
@@ -28821,6 +28841,7 @@ async def _restore_live_engines():
                 continue
 
             engine = LiveEngine(broker_client, run_id=run_id, state_dir=state_dir)
+            _attach_history_fallback(engine, user)
             engine.configure(
                 strategy=strategy,
                 entry_conditions=entry_conditions or DEFAULT_ENTRY_CONDITIONS,

@@ -2239,12 +2239,33 @@ class LiveEngine:
             merged = merged.tail(max_rows)
         self._indicator_context_raw = merged.copy()
 
+    # A second broker's candles for when this book's own broker will not give
+    # history. Set by the app to the user's Zerodha client on a Dhan book.
+    # 2026-10-23: from 08:35 Dhan's chart API answered every request DH-905;
+    # the 09:35 restart then killed both Dhan books in their warm-up fetch,
+    # and the CE's 20-day filter had no daily closes all morning.
+    history_fallback = None
+
+    def _history(self, **kwargs) -> pd.DataFrame:
+        """The broker's candles, or the fallback broker's when it refuses."""
+        try:
+            return self.dhan.get_historical_data(**kwargs)
+        except Exception as exc:
+            fallback = getattr(self, "history_fallback", None)
+            if fallback is None or fallback is self.dhan:
+                raise
+            frame = fallback.get_historical_data(**kwargs)
+            if frame is None or getattr(frame, "empty", True):
+                raise
+            self.log_event("warning", f"Broker history refused ({str(exc)[:100]}); candles taken from Zerodha instead")
+            return frame
+
     def _fetch_raw_history(self, instrument: str, fetch_timeframe: int, *, days: int = 7) -> pd.DataFrame:
         from_date = (_now_ist() - timedelta(days=days)).strftime("%Y-%m-%d")
         to_date = _now_ist().strftime("%Y-%m-%d")
         inst_map = _get_instrument_map()
         inst_info = inst_map.get(instrument, {})
-        df_raw = self.dhan.get_historical_data(
+        df_raw = self._history(
             security_id=inst_info.get("dhan_id", "13"),
             exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
             instrument_type=inst_info.get("dhan_type", "INDEX"),
@@ -2286,7 +2307,7 @@ class LiveEngine:
         closes = pd.Series(dtype=float)
         try:
             inst_info = _get_instrument_map().get(self.strategy.get("instrument", "26000"), {})
-            daily = self.dhan.get_historical_data(
+            daily = self._history(
                 security_id=inst_info.get("dhan_id", "13"),
                 exchange_segment=inst_info.get("dhan_seg", "IDX_I"),
                 instrument_type=inst_info.get("dhan_type", "INDEX"),
