@@ -92,6 +92,31 @@ class WhereThePremiumComesFrom(unittest.TestCase):
         self.assertEqual((again["ltp"], again.get("cached")), (0.0, True))
         self.assertEqual(dhan.asked, 1)
 
+    def test_a_streamed_dhan_price_spares_the_rest_quote(self):
+        """23-Oct-2026: the form's premium asked Dhan's REST quote every few
+        seconds, the endpoint answering 429 all day, for a price the feed streams."""
+
+        class Feed:
+            def live_option_ltp(self, *a, **k):
+                return 251.5
+
+        dhan = _Broker(120.5)
+        with mock.patch.object(app_module, "_market_feed", Feed()):
+            got = self._ask(dhan, None)
+        self.assertEqual((got["ltp"], got["source"]), (251.5, "dhan"))
+        self.assertEqual(dhan.asked, 0)
+
+    def test_no_fresh_tick_falls_back_to_the_rest_quote(self):
+        class Feed:
+            def live_option_ltp(self, *a, **k):
+                return 0.0
+
+        dhan = _Broker(120.5)
+        with mock.patch.object(app_module, "_market_feed", Feed()):
+            got = self._ask(dhan, None)
+        self.assertEqual(got["ltp"], 120.5)
+        self.assertEqual(dhan.asked, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

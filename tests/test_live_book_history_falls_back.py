@@ -78,5 +78,98 @@ class TheAppAttachesIt(unittest.TestCase):
         self.assertIsNone(engine.history_fallback)
 
 
+class ADriverThatNeverRanIsStartedAgain(unittest.TestCase):
+    """09:35, 23-Oct-2026: both Dhan books died in their warm-up and stayed down."""
+
+    def _engine(self):
+        class _E:
+            running = True
+            positions = []
+            in_trade = False
+            _last_processed_candle_time = None
+
+            def __init__(self):
+                self.events = []
+
+            def log_event(self, level, msg):
+                self.events.append(msg)
+
+            def _save_state(self):
+                pass
+
+        return _E()
+
+    def _run(self, *, still_wanted=True, starts_fail=1):
+        import asyncio
+
+        engine = self._engine()
+        calls = []
+
+        async def start():
+            calls.append(1)
+            if len(calls) <= starts_fail:
+                raise RuntimeError("Dhan API error 400: DH-905")
+            engine.running = True
+
+        async def scenario():
+            bucket = {}
+            with (
+                mock.patch.object(app, "_ENGINE_RESTART_DELAY_SEC", 0.01),
+                mock.patch.object(app.alerter, "alert", lambda *a, **k: None),
+            ):
+                bucket["run"] = app._supervise_engine_task(
+                    asyncio.create_task(start()),
+                    engine,
+                    run_id="run",
+                    restart=start,
+                    bucket=bucket,
+                    still_wanted=lambda: still_wanted,
+                )
+                await asyncio.sleep(0.2)
+            return bucket
+
+        asyncio.run(scenario())
+        return engine, calls
+
+    def test_it_is_started_again_and_runs(self):
+        engine, calls = self._run()
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(engine.running)
+        self.assertTrue(any("Starting the engine driver again" in e for e in engine.events))
+
+    def test_a_replaced_engine_is_left_alone(self):
+        engine, calls = self._run(still_wanted=False)
+        self.assertEqual(len(calls), 1)
+
+    def test_it_gives_up_after_its_tries(self):
+        engine, calls = self._run(starts_fail=99)
+        self.assertEqual(len(calls), 1 + app._ENGINE_RESTART_TRIES)
+        self.assertFalse(engine.running)
+
+    def test_a_book_holding_a_position_is_not_restarted(self):
+        import asyncio
+
+        engine = self._engine()
+        engine.positions = [{"status": "open"}]
+        calls = []
+
+        async def start():
+            calls.append(1)
+            raise RuntimeError("boom")
+
+        async def scenario():
+            with (
+                mock.patch.object(app, "_ENGINE_RESTART_DELAY_SEC", 0.01),
+                mock.patch.object(app.alerter, "alert", lambda *a, **k: None),
+            ):
+                app._supervise_engine_task(
+                    asyncio.create_task(start()), engine, run_id="run", restart=start, still_wanted=lambda: True
+                )
+                await asyncio.sleep(0.1)
+
+        asyncio.run(scenario())
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

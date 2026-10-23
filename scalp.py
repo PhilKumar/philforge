@@ -1279,8 +1279,10 @@ class ScalpEngine:
             entry_premium = trade.current_premium
         else:
             # Place broker-native Super Order once the local trigger range is hit.
+            # Off the event loop, as the market entry's is (2026-10-23).
             try:
-                result = self.dhan.place_super_order(
+                result = await asyncio.to_thread(
+                    self.dhan.place_super_order,
                     underlying=trade.underlying,
                     strike_price=trade.strike,
                     option_type=trade.option_type,
@@ -1313,13 +1315,9 @@ class ScalpEngine:
                 self._sync_marketfeed_throttle()
                 return
 
-            try:
-                entry_premium = (
-                    self.dhan.get_option_ltp(trade.underlying, trade.strike, trade.expiry, trade.option_type)
-                    or trade.current_premium
-                )
-            except Exception:
-                entry_premium = trade.current_premium
+            # The price that fired the trigger stands in until the Super Order
+            # sync brings the fill; a REST LTP here ran on the event loop.
+            entry_premium = trade.current_premium
 
         # Activate the trade
         trade.status = "open"

@@ -654,6 +654,35 @@ class LiveMarketFeed:
             entry = self._ltp_cache.get(sec_id)
             return float(entry["ltp"]) if entry else 0.0
 
+    def live_option_ltp(
+        self, underlying: str, strike, expiry: str, option_type: str, *, max_age_sec: float = 5.0
+    ) -> float:
+        """A contract's price from the WebSocket, or 0 when there is no fresh tick.
+
+        The first ask subscribes it, so the next asks are free. The Scalp form
+        asked Dhan's REST quote for its premium every few seconds -- the
+        endpoint that answered 429 all of 23-Oct-2026 -- for a price this feed
+        already streams.
+        """
+        if not self._running:
+            return 0.0
+        sec_id_str = ScripMaster.lookup(underlying, strike, expiry, option_type)
+        if not sec_id_str:
+            return 0.0
+        sec_id = int(sec_id_str)
+        if sec_id not in self._option_sec_ids:
+            self.subscribe_option(underlying, int(float(strike)), expiry, option_type)
+            return 0.0
+        with self._lock:
+            entry = self._ltp_cache.get(sec_id)
+        if not entry:
+            return 0.0
+        try:
+            age = (_now_ist() - entry["time"]).total_seconds()
+        except Exception:
+            return 0.0
+        return float(entry["ltp"]) if age <= max_age_sec and float(entry.get("ltp") or 0) > 0 else 0.0
+
     def get_all_ltp(self) -> dict:
         """Get copy of all cached LTPs."""
         with self._lock:

@@ -4728,6 +4728,40 @@ async def _live_engine_broadcast(user_id: int, run_id: str, event: dict):
 _ENGINE_DEATH_TOLD: dict = {}
 
 
+def _schedule_engine_restart(engine, *, run_id, mode_label, restart, bucket, still_wanted, attempt) -> None:
+    """Start a driver again that never got going -- it holds nothing, so a
+    second try risks nothing -- unless it was replaced or started meanwhile."""
+
+    async def _again():
+        await asyncio.sleep(_ENGINE_RESTART_DELAY_SEC)
+        if still_wanted is not None and not still_wanted():
+            return
+        if getattr(engine, "running", False):
+            return
+        engine.log_event(
+            "info",
+            f"♻️ Starting the engine driver again (try {attempt} of {_ENGINE_RESTART_TRIES}) -- it stopped "
+            f"before its first candle and holds nothing.",
+        )
+        supervised = _supervise_engine_task(
+            asyncio.create_task(restart()),
+            engine,
+            run_id=run_id,
+            mode_label=mode_label,
+            restart=restart,
+            bucket=bucket,
+            still_wanted=still_wanted,
+            attempt=attempt,
+        )
+        if bucket is not None:
+            bucket[run_id] = supervised
+
+    try:
+        asyncio.get_running_loop().create_task(_again())
+    except RuntimeError:  # no loop (a test calling the callback by hand)
+        pass
+
+
 def _engine_never_ran(engine) -> bool:
     """True when the engine died before its first candle, holding nothing."""
     try:
@@ -4764,7 +4798,24 @@ def _plain_death_reason(detail: str) -> str:
     return str(detail)
 
 
-def _supervise_engine_task(task, engine, *, run_id: str, mode_label: str = "Auto"):
+# A driver that died before its first candle, holding nothing, is started again
+# this many times, a minute apart (2026-10-23: Dhan's chart API refused the
+# 09:35 restart's warm-up and both Dhan books stayed down until a redeploy).
+_ENGINE_RESTART_TRIES = 5
+_ENGINE_RESTART_DELAY_SEC = 60.0
+
+
+def _supervise_engine_task(
+    task,
+    engine,
+    *,
+    run_id: str,
+    mode_label: str = "Auto",
+    restart=None,
+    bucket: dict | None = None,
+    still_wanted=None,
+    attempt: int = 0,
+):
     """Notice when a driver task dies instead of letting it vanish.
 
     `asyncio.create_task(engine.start(...))` was fired and forgotten. The WS
@@ -4810,6 +4861,16 @@ def _supervise_engine_task(task, engine, *, run_id: str, mode_label: str = "Auto
         # check any open broker position" four times for engines that had
         # never begun and held nothing.
         never_ran = _engine_never_ran(_engine)
+        if never_ran and restart is not None and attempt < _ENGINE_RESTART_TRIES:
+            _schedule_engine_restart(
+                _engine,
+                run_id=_run_id,
+                mode_label=_mode,
+                restart=restart,
+                bucket=bucket,
+                still_wanted=still_wanted,
+                attempt=attempt + 1,
+            )
         key = (_run_id, _death_reason_key(detail))
         now = time.time()
         if now - _ENGINE_DEATH_TOLD.get(key, 0.0) < 3600.0:
@@ -11389,6 +11450,22 @@ def _terminal_cascade_offsession_sleep_sec() -> float:
     return 300.0
 
 
+def _seconds_to_next_bar_close(last_bar_start: datetime, bar_minutes: int, *, floor: float = 12.0, cap: float = 300.0):
+    """How long until the bar AFTER the last closed one has closed (+5s for
+    the broker to publish it), between `floor` and `cap`.
+
+    A 15m campaign refetched its candles every 12 seconds -- 75 requests for
+    each bar that could change anything -- and three of them were a third of
+    all Dhan chart traffic on 23-Oct-2026, the day Dhan answered 429s.
+    """
+    try:
+        due = last_bar_start + timedelta(minutes=2 * int(bar_minutes), seconds=5)
+        wait = (due - datetime.now(IST)).total_seconds()
+    except Exception:
+        return floor
+    return max(floor, min(cap, wait))
+
+
 async def _run_terminal_cascade_paper_loop(user_id: int, runtime: _TerminalCascadeRuntime) -> None:
     symbol = ScripMaster.normalize_equity_symbol(runtime.engine.instrument.symbol)
     while runtime.running and _terminal_cascade_engines.get(int(user_id), {}).get(symbol) is runtime:
@@ -11439,7 +11516,11 @@ async def _run_terminal_cascade_paper_loop(user_id: int, runtime: _TerminalCasca
                 user_id,
                 exc,
             )
-        await asyncio.sleep(12)
+            await asyncio.sleep(12)
+            continue
+        # Next look when a new bar can have closed, not every 12 seconds.
+        _interval, bar_minutes, _tf = _terminal_cascade_timeframe_parts(runtime.engine.config.timeframe)
+        await asyncio.sleep(_seconds_to_next_bar_close(runtime.last_candle_timestamp, bar_minutes))
 
 
 # Bars drawn BEFORE the mother on the campaign chart — the scanner's own
@@ -12812,6 +12893,22 @@ async def _candle_entry_arm_history(runtime: _CascadeRuntime, now: datetime) -> 
     runtime.history_armed = True
 
 
+_CANDLE_ENTRY_STAGE_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1h": 60, "60m": 60}
+
+
+def _candle_entry_next_look_sec(engine) -> float:
+    """Wait for the smallest chart's next bar, 20 to 60 seconds."""
+    try:
+        minutes = min(_CANDLE_ENTRY_STAGE_MINUTES.get(str(tf).strip().lower(), 5) for tf in engine.stages)
+        seen = getattr(engine, "_seen", {}) or {}
+        latest = max(seen.values()) if seen else None
+    except Exception:
+        return 20.0
+    if latest is None:
+        return 20.0
+    return _seconds_to_next_bar_close(latest, minutes, floor=20.0, cap=60.0)
+
+
 async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -> None:
     """Poll closed NIFTY bars on every ladder chart for the Candle Entry campaign.
 
@@ -12827,9 +12924,16 @@ async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -
             start = runtime.engine.mother.timestamp.date()
             await _candle_entry_arm_history(runtime, now)
             batches = {}
+            seen = getattr(runtime.engine, "_seen", {}) or {}
             for timeframe in runtime.engine.stages:
+                # Only bars after the last one seen on this chart are read (the
+                # engine dedupes on it), so a few days before it is all that is
+                # needed -- not every bar since the mother. From 18-Sep that was
+                # 1,770 5m bars every 20s, on the day Dhan answered 429s.
+                last_seen = seen.get(str(timeframe).strip().lower())
+                fetch_from = start if last_seen is None else max(start, last_seen.date() - timedelta(days=4))
                 batches[timeframe] = await runtime.adapter.async_get_candles(
-                    "NIFTY", timeframe, from_date=start, to_date=min(today, runtime.engine.contract.expiry)
+                    "NIFTY", timeframe, from_date=fetch_from, to_date=min(today, runtime.engine.contract.expiry)
                 )
             runtime.engine.ingest(batches)
             # The expiry-day 15:15 bar ends it from inside the stream; this is
@@ -12851,7 +12955,7 @@ async def _run_candle_entry_paper_loop(user_id: int, runtime: _CascadeRuntime) -
             _logger.warning("[CANDLE ENTRY] NIFTY ladder paper poll failed for user %s: %s", user_id, exc)
         if not runtime.running:
             break
-        await asyncio.sleep(20)
+        await asyncio.sleep(_candle_entry_next_look_sec(runtime.engine))
 
 
 _CANDLE_ENTRY_BARS_PER_SESSION = {"1m": 375, "5m": 75, "15m": 25, "1h": 7}
@@ -20352,7 +20456,12 @@ async def live_start(req: LiveStartRequest, request: Request):
     # Store engine and start task
     live_bucket[run_id] = engine
     live_task_bucket[run_id] = _supervise_engine_task(
-        asyncio.create_task(engine.start(callback=broadcast)), engine, run_id=run_id
+        asyncio.create_task(engine.start(callback=broadcast)),
+        engine,
+        run_id=run_id,
+        restart=lambda: engine.start(callback=broadcast),
+        bucket=live_task_bucket,
+        still_wanted=lambda: live_bucket.get(run_id) is engine,
     )
 
     # Persist config + state immediately so it survives server restarts
@@ -24066,6 +24175,9 @@ async def _two_red_last_price(runtime: _TwoRedRuntime) -> float | None:
         return None
 
 
+_TWO_RED_POLL_SEC = 60
+
+
 async def _run_two_red_loop(user_id: int, runtime: _TwoRedRuntime) -> None:
     symbol = ScripMaster.normalize_equity_symbol(runtime.engine.instrument.symbol)
     while runtime.running and _two_red_engines.get(int(user_id), {}).get(symbol) is runtime:
@@ -24098,7 +24210,10 @@ async def _run_two_red_loop(user_id: int, runtime: _TwoRedRuntime) -> None:
             raise
         except Exception as exc:
             _logger.warning("[TWO RED] %s poll failed for user %s: %s", symbol, user_id, exc)
-        await asyncio.sleep(20)
+        # Its smallest chart is the hour: a minute between looks loses nothing
+        # and was a third of the requests (and of the LTP calls that answered
+        # 429) every 20 seconds per campaign on 23-Oct-2026.
+        await asyncio.sleep(_TWO_RED_POLL_SEC)
 
 
 @app.get("/api/two-red/status")
@@ -24578,7 +24693,8 @@ async def terminal_place_gtt(req: StockTerminalGttRequest, request: Request):
             )
             raise HTTPException(status_code=502 if isinstance(e, DhanOrderError) else 500, detail=detail)
     try:
-        result = broker_client.place_forever_order(
+        result = await asyncio.to_thread(
+            broker_client.place_forever_order,
             security_id=stock["security_id"],
             exchange_segment=stock["exchange_segment"],
             transaction_type=transaction_type,
@@ -26675,6 +26791,16 @@ async def get_option_ltp(
             return {"status": "ok", "ltp": cached[1], "source": cached[2], "cached": True}
 
         async def from_dhan() -> float:
+            # Dhan's own price, from its WebSocket when the contract has a
+            # fresh tick there; the REST quote (the 429-bound endpoint) only
+            # when it has not.
+            try:
+                if _market_feed is not None:
+                    streamed = _market_feed.live_option_ltp(underlying, strike, expiry, option_type)
+                    if streamed > 0:
+                        return float(streamed)
+            except Exception:
+                pass
             if not broker_client:
                 return 0.0
             try:
@@ -27264,7 +27390,12 @@ async def get_ticker(request: Request):
                 )
                 return _ticker_json_response(result)
             else:
-                historical_result = _build_historical_ticker_payload(
+                # Off the event loop: it is several paced chart requests, and on
+                # 23-Oct-2026 (Dhan's LTP answering 429 all day) it ran on the
+                # loop at every ticker poll and stalled every request, Scalp's
+                # entries included.
+                historical_result = await asyncio.to_thread(
+                    _build_historical_ticker_payload,
                     ticker_client,
                     ticker_source,
                     ce_sid=ce_sid,
@@ -27284,7 +27415,8 @@ async def get_ticker(request: Request):
                 print(f"[TICKER] Dhan returned 0 for NIFTY via {ticker_source} — trying next source...")
         except Exception as e:
             print(f"[TICKER] Dhan API failed via {ticker_source}: {type(e).__name__}: {str(e)[:100]}")
-            historical_result = _build_historical_ticker_payload(
+            historical_result = await asyncio.to_thread(
+                _build_historical_ticker_payload,
                 ticker_client,
                 ticker_source,
                 ce_sid=ce_sid if "ce_sid" in locals() else None,
@@ -28886,7 +29018,13 @@ async def _restore_live_engines():
 
             live_bucket[run_id] = engine
             live_task_bucket[run_id] = _supervise_engine_task(
-                asyncio.create_task(engine.start(callback=broadcast)), engine, run_id=run_id
+                asyncio.create_task(engine.start(callback=broadcast)),
+                engine,
+                run_id=run_id,
+                # Bound now: this runs in a loop over every saved book.
+                restart=lambda _e=engine, _cb=broadcast: _e.start(callback=_cb),
+                bucket=live_task_bucket,
+                still_wanted=lambda _b=live_bucket, _r=run_id, _e=engine: _b.get(_r) is _e,
             )
             restored += 1
             print(f"✅ [Restore] Live engine '{run_id}' restored and started")
