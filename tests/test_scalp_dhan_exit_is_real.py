@@ -135,5 +135,36 @@ class TheBreakerIsForCharts(unittest.TestCase):
         self.assertTrue(dhan_mod._circuit_breaker.call_allowed())
 
 
+class TheRecordIsDhansFills(unittest.TestCase):
+    """23-Oct-2026: trades were booked at the screen price, not Dhan's fills --
+    trade 278 recorded ₹1,121 where Dhan's fills made ₹406."""
+
+    def _engine(self, exit_fill):
+        engine, trade, dhan = _engine(refuse=False)
+        dhan.get_order_status = lambda oid: {"orderStatus": "TRADED", "averageTradedPrice": 248.85}
+        dhan.verify_order_fill = lambda oid, wait, poll: exit_fill
+        trade.entry_premium = 244.75  # the quote the order was sent at
+        return engine, trade
+
+    def test_the_trade_is_booked_at_both_fills(self):
+        engine, trade = self._engine({"status": "FILLED", "avg_price": 250.93, "filled_qty": 130})
+        asyncio.run(engine._close_trade_once(trade, "manual"))
+        booked = engine.closed_trades[-1]
+        self.assertEqual((booked["entry_premium"], booked["exit_premium"]), (248.85, 250.93))
+        self.assertAlmostEqual(booked["pnl"], round((250.93 - 248.85) * 130, 2), places=2)
+
+    def test_an_exit_dhan_cancelled_is_not_booked(self):
+        engine, trade = self._engine({"status": "CANCELLED", "filled_qty": 0, "message": "RMS reject"})
+        out = asyncio.run(engine._close_trade_once(trade, "manual"))
+        self.assertEqual(out["status"], "error")
+        self.assertIn(272, engine.open_trades)
+
+    def test_the_sync_reads_the_fill_the_list_leaves_out(self):
+        engine, trade = self._engine({"status": "FILLED", "avg_price": 250.0, "filled_qty": 130})
+        self.assertEqual(asyncio.run(engine._dhan_entry_fill(trade)), 248.85)
+        # Asked once per order, not on every 0.75s sync.
+        self.assertEqual(asyncio.run(engine._dhan_entry_fill(trade)), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

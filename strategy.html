@@ -4650,7 +4650,7 @@
     <div class="ocp-monitor scalp-history-card">
       <!-- The panel head carries the title, so the running total moves up
            beside it rather than repeating "Trade History" underneath. -->
-      <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Trade history</h4></div><span id="scalp-total-pnl-label" style="font:700 13px 'JetBrains Mono',monospace;color:var(--muted);">Total: &#8377;0.00</span></div>
+      <div class="ocp-monitor-head"><div><div class="ocp-monitor-kicker">All-time</div><h4>Trade history</h4></div><div style="display:flex;align-items:center;gap:10px;"><button type="button" class="read-only-lock btn btn-secondary btn-sm" id="scalp-match-dhan-btn" onclick="matchScalpTradesWithDhan()" title="Re-price today's live Dhan scalps from Dhan's own fills" style="padding:3px 9px;font-size:10px;">&#8644; Match today with Dhan</button><span id="scalp-total-pnl-label" style="font:700 13px 'JetBrains Mono',monospace;color:var(--muted);">Total: &#8377;0.00</span></div></div>
       <div class="ocp-monitor-section">
       <!-- Focusable because it scrolls -- see the note on Active Positions. -->
       <div style="overflow-x: auto;" tabindex="0" role="region" aria-label="Trade history">

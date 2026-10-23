@@ -14336,6 +14336,33 @@ async function bulkDeleteScalpRuns() {
 }
 
 var _lastScalpStatus = null;
+// Re-price today's live Dhan scalps from Dhan's own fills (Phil, 2026-10-23:
+// the records were the screen's prices, not the broker's). Dhan's trade book
+// holds today only, so this works on the day the trades were made.
+async function matchScalpTradesWithDhan() {
+  const ok = await customConfirm(
+    "Re-price today's live Dhan scalps from Dhan's own fills? Each trade keeps what it said before.",
+    { title: 'Match with Dhan', icon: ICO.refresh(28), okText: 'Match' }
+  );
+  if (!ok) return;
+  try {
+    const res = await fetch('/api/scalp/trades/match-dhan', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(_apiErrorMessage(data, 'Matching failed'));
+    const matched = data.matched || [];
+    const was = matched.reduce((a, m) => a + Number(m.was_pnl || 0), 0);
+    const now = matched.reduce((a, m) => a + Number(m.pnl || 0), 0);
+    const money = (v) => '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const skipped = (data.skipped || []).length;
+    toast(matched.length
+      ? `${matched.length} trade(s) matched with Dhan: ${money(was)} → ${money(now)}${skipped ? ` · ${skipped} skipped` : ''}`
+      : (data.message || 'Nothing to match'), matched.length ? 'success' : 'info');
+    refreshScalpStatus();
+  } catch (e) {
+    toast(e.message || 'Matching failed', 'error');
+  }
+}
+
 async function refreshScalpStatus() {
   try {
     const res = await fetch('/api/scalp/status');

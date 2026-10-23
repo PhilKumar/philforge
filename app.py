@@ -26445,6 +26445,92 @@ async def get_scalp_status(request: Request):
     return status
 
 
+@app.post("/api/scalp/trades/match-dhan")
+async def match_scalp_trades_to_dhan(request: Request):
+    """Re-price today's closed live Dhan scalps from Dhan's own fills.
+
+    Phil, 2026-10-23: the records were the screen's prices, not Dhan's fills
+    (the entry at the pre-order quote, the exit at the LTP of the moment), and
+    two exits the site never sent were sold by hand in Dhan. Each scalp takes
+    its entry from its own order's fills and its exit from the SELLs after it
+    -- its own exit order first, then any hand close -- of the same contract
+    and product; no SELL is counted for two scalps. Dhan's trade book holds
+    today only. What each trade said before is kept under broker_match.was.
+    """
+    import scalp as _scalp_mod
+
+    user_id = _request_user_id(request)
+    _user, broker_client, source = await _request_broker_context(request)
+    if not broker_client:
+        raise HTTPException(status_code=400, detail=_broker_not_configured_message(_user, source))
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    trades = [
+        t
+        for t in await _db_mod.list_scalp_trades(user_id)
+        if str(t.get("mode") or "") == "live"
+        and str(t.get("broker") or "dhan") == "dhan"
+        and str(t.get("entry_time") or "").startswith(today)
+        and str(t.get("exit_reason") or "") != "cancelled"
+    ]
+    if not trades:
+        return {"status": "ok", "matched": [], "skipped": [], "message": "No live Dhan scalps closed today."}
+    try:
+        fills = await asyncio.to_thread(broker_client.get_trades)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read Dhan's trade book: {exc}") from exc
+    fills = _dedupe_trade_fills(fills or [])  # partial fills stay; a repeated row does not
+
+    trades.sort(key=lambda t: str(t.get("entry_time") or ""))
+    claimed = {str(t.get("order_id") or "") for t in trades}
+    matched, skipped = [], []
+    for trade in trades:
+        sid = await asyncio.to_thread(
+            ScripMaster.lookup,
+            trade.get("underlying"),
+            trade.get("strike"),
+            trade.get("expiry"),
+            trade.get("option_type"),
+        )
+        product = _scalp_mod._normalize_scalp_product_type(trade.get("product_type"))
+        key = f"SID:{sid}"
+        own = [
+            {**f, "tradingSymbol": key}
+            for f in fills or []
+            if str(f.get("securityId") or "") == str(sid)
+            and _scalp_mod._normalize_scalp_product_type(f.get("productType")) == product
+        ]
+        shaped = dict(trade)
+        was = (trade.get("broker_match") or {}).get("was")
+        if was:  # matched before: match again from what it said originally
+            shaped.update(was)
+        try:
+            result = _scalp_mod.match_scalp_to_broker_fills(
+                shaped, own, key, claimed - {str(trade.get("order_id") or "")}
+            )
+        except ValueError as exc:
+            skipped.append({"trade_id": trade.get("trade_id"), "reason": str(exc)})
+            continue
+        if was:
+            result["broker_match"]["was"] = was
+        claimed.update(result["broker_match"]["exit_order_ids"])
+        updated = await _db_mod.update_scalp_trade(user_id, int(trade["trade_id"]), result)
+        eng = _scalp_engines.get(int(user_id))
+        for row in getattr(eng, "closed_trades", None) or []:
+            if int(row.get("trade_id") or 0) == int(trade["trade_id"]):
+                row.update(result)
+        matched.append(
+            {
+                "trade_id": trade.get("trade_id"),
+                "entry": result["entry_premium"],
+                "exit": result["exit_premium"],
+                "pnl": result["pnl"],
+                "was_pnl": result["broker_match"]["was"].get("pnl"),
+                "saved": updated is not None,
+            }
+        )
+    return {"status": "ok", "matched": matched, "skipped": skipped}
+
+
 @app.post("/api/scalp/start")
 async def start_scalp_engine(request: Request):
     user_id = _request_user_id(request)

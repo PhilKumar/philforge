@@ -556,6 +556,10 @@ class ScalpEngine:
         # click had closed the trade, and sent its own SELL; only the missing
         # margin for a naked sell stopped it opening a short).
         self._exits_in_flight: set[int] = set()
+        # Super orders whose entry fill has been read from the order itself:
+        # Dhan's super-order list says averageTradedPrice 0.0 even when TRADED
+        # (2026-10-23), so the fill is asked for once per trade by order id.
+        self._entry_fill_checked: set[str] = set()
         self._ltp_cache: Dict[tuple[str, int], tuple[float, float]] = {}
         self._ltp_backoff_until_mono: float = 0.0
         self._ltp_backoff_delay_sec: float = 0.0
@@ -1593,6 +1597,8 @@ class ScalpEngine:
                 pass
 
             avg_entry = float(order.get("averageTradedPrice", 0) or 0)
+            if avg_entry <= 0 and trade.super_filled_qty > 0:
+                avg_entry = await self._dhan_entry_fill(trade)
             if avg_entry > 0:
                 old_entry = trade.entry_premium
                 trade.entry_premium = avg_entry
@@ -2417,6 +2423,35 @@ class ScalpEngine:
             return True
         return False
 
+    async def _dhan_entry_fill(self, trade: ScalpTrade) -> float:
+        """The Super Order's real entry fill, read once from the order itself.
+
+        Trade 278 (23-Oct-2026) was booked at the ₹244.75 quote; Dhan filled it
+        at ₹248.85, and its super-order list carried averageTradedPrice 0.0 the
+        whole time, so the recorded P&L was ~₹700 off.
+        """
+        oid = str(trade.super_order_id or trade.order_id or "")
+        if not oid or oid in self._entry_fill_checked:
+            return 0.0
+        self._entry_fill_checked.add(oid)
+        try:
+            status = await asyncio.to_thread(self.dhan.get_order_status, oid)
+            return float((status or {}).get("averageTradedPrice") or 0.0)
+        except Exception:
+            self._entry_fill_checked.discard(oid)  # ask again on the next sync
+            return 0.0
+
+    async def _dhan_exit_fill(self, order_id: str) -> Dict[str, Any]:
+        """What Dhan did with an exit SELL: its fill price, or that it refused.
+
+        The exit is a LIMIT 5% through the price, so it fills at once; until now
+        the trade was booked at the LTP of the moment it was sent, not the fill.
+        """
+        try:
+            return await asyncio.to_thread(self.dhan.verify_order_fill, str(order_id), 5, 0.5)
+        except Exception as exc:
+            return {"status": "UNKNOWN", "message": str(exc)}
+
     async def _dhan_exit_refused(self, trade: ScalpTrade, why) -> Dict[str, Any]:
         """The exit SELL did not reach Dhan: the trade stays open, under a stop.
 
@@ -2527,7 +2562,26 @@ class ScalpEngine:
                 if refused:
                     return await self._dhan_exit_refused(trade, refused)
                 exit_order_id = result.get("orderId", "")
-                exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                fill = await self._dhan_exit_fill(exit_order_id)
+                fill_status = str(fill.get("status") or "").upper()
+                if fill_status in ("REJECTED", "CANCELLED") and int(fill.get("filled_qty") or 0) == 0:
+                    return await self._dhan_exit_refused(trade, fill.get("message") or fill_status)
+                exit_prem = (
+                    float(fill.get("avg_price") or 0.0)
+                    or exit_prem_override
+                    or self._get_ltp(trade, trade.trade_id)
+                    or trade.current_premium
+                )
+                if fill_status != "FILLED":
+                    self._log(
+                        "warn",
+                        f"⚠️ Exit {exit_order_id} for trade {trade.trade_id} not confirmed filled "
+                        f"({fill_status or 'unknown'}) — booked at ₹{exit_prem:.2f}; check Dhan's order book",
+                    )
+                if self._is_super_order_trade(trade):
+                    entry_fill = await self._dhan_entry_fill(trade)
+                    if entry_fill > 0:
+                        trade.entry_premium = entry_fill
         else:
             stop_fill = 0.0
             stop_oid = trade.broker_sl_order_id
@@ -2597,8 +2651,26 @@ class ScalpEngine:
                 if refused:
                     return await self._dhan_exit_refused(trade, refused)
                 exit_order_id = result.get("orderId", "")
-
-                exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                fill = await self._dhan_exit_fill(exit_order_id)
+                fill_status = str(fill.get("status") or "").upper()
+                if fill_status in ("REJECTED", "CANCELLED") and int(fill.get("filled_qty") or 0) == 0:
+                    return await self._dhan_exit_refused(trade, fill.get("message") or fill_status)
+                exit_prem = (
+                    float(fill.get("avg_price") or 0.0)
+                    or exit_prem_override
+                    or self._get_ltp(trade, trade.trade_id)
+                    or trade.current_premium
+                )
+                if fill_status != "FILLED":
+                    self._log(
+                        "warn",
+                        f"⚠️ Exit {exit_order_id} for trade {trade.trade_id} not confirmed filled "
+                        f"({fill_status or 'unknown'}) — booked at ₹{exit_prem:.2f}; check Dhan's order book",
+                    )
+                if self._is_super_order_trade(trade):
+                    entry_fill = await self._dhan_entry_fill(trade)
+                    if entry_fill > 0:
+                        trade.entry_premium = entry_fill
         pnl = trade._compute_pnl(exit_prem)
 
         trade.exit_time = _now_ist()
