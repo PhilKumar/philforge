@@ -740,9 +740,13 @@ class ScalpEngine:
             # an option trading above it). Priced here, named in words here.
             quote = 0.0
             kite_quote: Dict[str, float] = {}
-            if broker == "zerodha":
-                # Zerodha's own price for the contract it will trade: fresher
-                # than Dhan's REST LTP, which answers 429 when it is busiest.
+            priced_at = _time.monotonic()
+            # Kite first whenever there is a Zerodha session -- for a Dhan
+            # entry too. Dhan's REST LTP is the endpoint that answers 429 when
+            # it is busiest, and each of its retries waits about a second
+            # before the order can go (Phil, 2026-10-23: "taking hell lot of
+            # time to execute a scalp order in Dhan").
+            if broker == "zerodha" or getattr(self, "zerodha", None) is not None:
                 try:
                     kite_quote = await asyncio.to_thread(
                         self.zerodha.get_option_quote, underlying, strike, expiry, option_type
@@ -795,8 +799,13 @@ class ScalpEngine:
                 entry_premium = quote
             else:
                 # Place broker-native Super Order so TP and SL live inside Dhan.
+                # Off the event loop: a slow Dhan answer must not freeze every
+                # other screen and engine while it waits.
+                quoted_in = _time.monotonic() - priced_at
+                sent_at = _time.monotonic()
                 try:
-                    result = self.dhan.place_super_order(
+                    result = await asyncio.to_thread(
+                        self.dhan.place_super_order,
                         underlying=underlying,
                         strike_price=strike,
                         option_type=option_type,
@@ -808,6 +817,11 @@ class ScalpEngine:
                         order_type=order_type,
                         product_type=product_type,
                         tag="AF_SCALP_SO",
+                    )
+                    self._log(
+                        "info",
+                        f"⏱ Dhan entry: price {quoted_in * 1000:.0f} ms"
+                        f"{' (Kite)' if kite_quote.get('ltp') else ''}, Super Order {(_time.monotonic() - sent_at) * 1000:.0f} ms",
                     )
                     order_id = result.get("orderId", "")
                     order_status = str(result.get("orderStatus", result.get("status", ""))).upper()
@@ -838,11 +852,19 @@ class ScalpEngine:
                     )
                     return {"status": "error", "message": str(e)}
 
-                # Use a live premium snapshot for immediate UI feedback; sync later replaces it with actual fill.
-                try:
-                    entry_premium = self.dhan.get_option_ltp(underlying, strike, expiry, option_type) or 0.0
-                except Exception:
-                    entry_premium = 0.0
+                # The price just used for the order stands in until the Super
+                # Order sync replaces it with the fill. A second REST LTP here
+                # ran ON the event loop and, under Dhan's 429s, held the whole
+                # server up to two seconds after the order had already gone.
+                entry_premium = quote
+                if entry_premium <= 0:
+                    try:
+                        entry_premium = float(
+                            await asyncio.to_thread(self.dhan.get_option_ltp, underlying, strike, expiry, option_type)
+                            or 0.0
+                        )
+                    except Exception:
+                        entry_premium = 0.0
 
         self._trade_counter += 1
         trade = ScalpTrade(

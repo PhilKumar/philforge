@@ -187,3 +187,42 @@ class TheEntryWithPoints(_Engine):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _SlowDhan(Dhan):
+    """Dhan whose REST price is the 429-bound endpoint; counts every ask."""
+
+    def __init__(self, ltp=480.85):
+        super().__init__(ltp)
+        self.ltp_asks, self.super_orders = 0, []
+
+    def get_option_ltp(self, *a, **k):
+        self.ltp_asks += 1
+        return self.ltp
+
+    def place_super_order(self, **kw):
+        self.super_orders.append(kw)
+        return {"orderId": "S1", "orderStatus": "TRANSIT"}
+
+
+class ADhanEntryIsQuick(_Engine):
+    """Phil, 2026-10-23: "taking hell lot of time to execute a scalp order in
+    Dhan" -- Dhan's REST LTP answered 429 most of the day, the entry asked it
+    before AND after the order, and the after-ask ran on the event loop."""
+
+    async def test_kite_prices_a_dhan_entry_and_dhan_rest_is_not_asked(self):
+        dhan = _SlowDhan()
+        engine = self.make(Kite(ltp=480.85, bid=480.5, ask=481.0), dhan)
+        result = await engine.enter_trade(**self.entry(broker="dhan", target_points=100, sl_points=100))
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(dhan.ltp_asks, 0)
+        self.assertEqual(dhan.super_orders[0]["target_price"], 580.85)
+        self.assertEqual(engine.open_trades[result["trade_id"]].entry_premium, 480.85)
+
+    async def test_without_kite_dhan_is_asked_once_not_twice(self):
+        dhan = _SlowDhan()
+        engine = self.make(None, dhan)
+        engine.zerodha = None
+        result = await engine.enter_trade(**self.entry(broker="dhan", target_points=100, sl_points=100))
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(dhan.ltp_asks, 1)

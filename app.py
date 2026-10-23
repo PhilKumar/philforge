@@ -26499,6 +26499,11 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             attached, z_source = _attach_scalp_zerodha(eng, user, require_today=True)
             if not attached:
                 return {"status": "error", "message": _book_broker_missing_message(user, z_source)}
+        elif req.mode == "live":
+            # A Dhan entry is priced from Kite first when today's login exists:
+            # Dhan's REST LTP answered 429 most of 23-Oct-2026 and each retry
+            # cost a second before the order was even sent. Optional.
+            _attach_scalp_zerodha(eng, user, require_today=True)
         try:
             product_type = req.product_type
             result = await eng.enter_trade(

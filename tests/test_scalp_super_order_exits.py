@@ -88,14 +88,15 @@ class ARefusedOrderLeavesATrace(unittest.TestCase):
     SRC = (ROOT / "scalp.py").read_text(encoding="utf-8")
 
     def test_a_broker_exception_is_logged_with_what_was_sent(self):
-        block = self.SRC.split("result = self.dhan.place_super_order(")[1].split("# Use a live premium snapshot")[0]
+        # The immediate entry calls it off the event loop (2026-10-23).
+        block = self.SRC.split("self.dhan.place_super_order,")[1].split("# The price just used for the order")[0]
         failure = block.split("except Exception as e:")[1]
         self.assertIn("self._log(", failure)
         for field in ("quoted=", "target=", "SL=", "qty="):
             self.assertIn(field, failure)
 
     def test_a_rejected_status_is_logged_too(self):
-        block = self.SRC.split("result = self.dhan.place_super_order(")[1].split("except Exception as e:")[0]
+        block = self.SRC.split("self.dhan.place_super_order,")[1].split("except Exception as e:")[0]
         self.assertIn("Super Order rejected:", block)
         self.assertIn("quoted=", block)
 
@@ -104,7 +105,7 @@ class ItIsWiredWhereTheOrderIsPlaced(unittest.TestCase):
     SRC = (ROOT / "scalp.py").read_text(encoding="utf-8")
 
     def test_the_check_runs_before_place_super_order(self):
-        head = self.SRC.split("result = self.dhan.place_super_order(")[0]
+        head = self.SRC.split("self.dhan.place_super_order,")[0]
         self.assertIn("resolve_scalp_exit_prices(", head.split("# ── Immediate (market) entry ──")[1])
 
     def test_a_pending_stop_limit_entry_is_not_judged_on_todays_price(self):
