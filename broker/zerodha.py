@@ -992,16 +992,29 @@ class ZerodhaClient:
         to_date: str = None,
         candle_type: str = "1",
     ) -> pd.DataFrame:
-        """Index candles, in the frame `DhanClient.get_historical_data` returns:
-        naive IST timestamps as the index; open/high/low/close/volume."""
+        """Index and option candles, in the frame `DhanClient.get_historical_data`
+        returns: naive IST timestamps as the index; open/high/low/close/volume.
+
+        An option is named by Dhan's security id and found in Kite's dump by the
+        contract key both share -- the charts fall back here when Dhan's chart
+        API refuses (2026-10-23: DH-905 on every request from 08:35)."""
         index = INDEX_TOKENS.get(str(security_id))
-        if not index:
-            raise RuntimeError(f"Zerodha candles are wired for the index books only, not security {security_id}.")
+        if index:
+            token = index[2]
+        else:
+            self._instruments()
+            key = _dhan_id_to_key().get(str(security_id))
+            info = KiteInstruments._by_key.get(key) if key else None
+            if not info or not info.get("instrument_token"):
+                raise RuntimeError(f"Zerodha has no contract for Dhan security {security_id}.")
+            token = info["instrument_token"]
         interval = _INTERVALS.get(str(candle_type))
         if not interval:
             raise RuntimeError(f"Zerodha has no {candle_type}-minute candles.")
-        params = {"from": f"{from_date} 09:00:00", "to": f"{to_date} 15:35:00"}
-        data = self._get_data(f"/instruments/historical/{index[2]}/{interval}", params=params, timeout=20) or {}
+        # To midnight: MCX trades until 23:30 (23:55 in winter); NSE simply
+        # has no bars after 15:30.
+        params = {"from": f"{from_date} 09:00:00", "to": f"{to_date} 23:59:59"}
+        data = self._get_data(f"/instruments/historical/{token}/{interval}", params=params, timeout=20) or {}
         return candles_frame(data.get("candles") or [])
 
     # ── async, as the engine calls them ───────────────────────

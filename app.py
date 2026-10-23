@@ -21022,8 +21022,9 @@ async def live_index_chart(request: Request, instrument: str = "26000", timefram
     today = datetime.now(IST).date()
     from_date = (today - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
     try:
-        frame = await asyncio.to_thread(
-            broker_client.get_historical_data,
+        frame, _candle_source = await _chart_candles(
+            request,
+            broker_client,
             security_id=str(info.get("dhan_id") or "13"),
             exchange_segment=str(info.get("dhan_seg") or "IDX_I"),
             instrument_type=str(info.get("dhan_type") or "INDEX"),
@@ -21060,8 +21061,9 @@ async def live_index_chart(request: Request, instrument: str = "26000", timefram
     st_book = _supertrend_book_for_chart(_request_user_id(request), book)
     st_overlays = []
     try:
-        minute_frame = await asyncio.to_thread(
-            broker_client.get_historical_data,
+        minute_frame, _minute_source = await _chart_candles(
+            request,
+            broker_client,
             security_id=str(info.get("dhan_id") or "13"),
             exchange_segment=str(info.get("dhan_seg") or "IDX_I"),
             instrument_type=str(info.get("dhan_type") or "INDEX"),
@@ -26018,6 +26020,40 @@ async def scalp_underlying_price(request: Request, underlying: str = "", expiry:
     return {"status": "ok", "underlying": underlying, "price": price, "future_security_id": str(security_id)}
 
 
+async def _chart_candles(request: Request, broker_client, **kwargs) -> tuple[Any, str]:
+    """A chart's candles from Dhan, or from Zerodha when Dhan will not give them.
+
+    Phil, 2026-10-23: "still not able to see the charts" -- from 08:35 Dhan's
+    chart API answered every request DH-905 while its prices and account calls
+    still worked, and each refusal re-opened the circuit breaker for every
+    other chart. With the day's Zerodha login, the same candles come from Kite.
+    Charts only: what a strategy decides on is not switched to another feed here.
+    Returns (frame, "dhan" | "zerodha").
+    """
+    try:
+        return await asyncio.to_thread(broker_client.get_historical_data, **kwargs), "dhan"
+    except Exception as dhan_exc:
+        zerodha = None
+        try:
+            zerodha, _source = _user_zerodha_client(await _auth_mod.get_current_user(request), require_today=True)
+        except Exception:
+            zerodha = None
+        if zerodha is None:
+            raise
+        try:
+            frame = await asyncio.to_thread(zerodha.get_historical_data, **kwargs)
+        except Exception as z_exc:
+            raise RuntimeError(f"{dhan_exc} -- and Zerodha could not either: {z_exc}") from dhan_exc
+        if frame is None or getattr(frame, "empty", True):
+            raise
+        _logger.warning(
+            "[CHART] Dhan refused candles for %s (%s); drawn from Zerodha instead",
+            kwargs.get("security_id"),
+            str(dhan_exc)[:120],
+        )
+        return frame, "zerodha"
+
+
 @app.get("/api/scalp/contract-chart")
 async def get_scalp_contract_chart(
     request: Request,
@@ -26067,8 +26103,9 @@ async def get_scalp_contract_chart(
     today = datetime.now(IST).date()
     from_date = _scalp_chart_from_date(today, candle_type)
     try:
-        frame = await asyncio.to_thread(
-            broker_client.get_historical_data,
+        frame, candle_source = await _chart_candles(
+            request,
+            broker_client,
             security_id=str(security_id),
             exchange_segment=option_exchange_segment(underlying),
             instrument_type=option_instrument_type(underlying),
@@ -26103,6 +26140,7 @@ async def get_scalp_contract_chart(
             "security_id": str(security_id),
         },
         "candles": candles,
+        "candle_source": candle_source,
         "entries": [],
         "lines": list(analytics["lines"]),
         "overlays": analytics["overlays"],
@@ -26143,8 +26181,9 @@ async def scalp_underlying_chart(request: Request, underlying: str = "", expiry:
         raise HTTPException(status_code=503, detail="A broker connection is needed to load the candles.")
     today = datetime.now(IST).date()
     try:
-        frame = await asyncio.to_thread(
-            broker_client.get_historical_data,
+        frame, candle_source = await _chart_candles(
+            request,
+            broker_client,
             security_id=str(spec["scrip"]),
             exchange_segment=str(spec["seg"]),
             instrument_type=_SCALP_UNDERLYING_INSTRUMENT.get(spec.get("kind"), "INDEX"),
@@ -26172,6 +26211,7 @@ async def scalp_underlying_chart(request: Request, underlying: str = "", expiry:
         "session": session,
         "instrument": {"underlying": name, "label": spec.get("label") or name, "kind": spec.get("kind")},
         "candles": candles,
+        "candle_source": candle_source,
         "entries": [],
         "lines": list(analytics["lines"]),
         "overlays": analytics["overlays"],
