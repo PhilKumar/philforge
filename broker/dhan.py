@@ -1660,7 +1660,12 @@ class DhanClient:
             raise
         if resp.status_code != 200:
             error_text = resp.text[:500]
-            _circuit_breaker.record_failure()
+            # Only an outage or a rate limit opens the breaker. A 400 is THIS
+            # request refused (DH-905/DH-907), not Dhan being down: on
+            # 2026-10-23 one campaign's refused poll every 20s held it open and
+            # blinded every chart on the site.
+            if resp.status_code == 429 or resp.status_code >= 500:
+                _circuit_breaker.record_failure()
             _dhan_log.warning(f"[DHAN] POST {endpoint} status={resp.status_code} err={error_text}")
             if _is_no_data_access_response(resp):
                 # Still refused after the fresh token _request_with_retry
@@ -1788,7 +1793,8 @@ class DhanClient:
             _circuit_breaker.record_failure()
             raise
         if resp.status_code != 200:
-            _circuit_breaker.record_failure()
+            if resp.status_code == 429 or resp.status_code >= 500:  # see get_historical_data
+                _circuit_breaker.record_failure()
             raise Exception(f"Dhan rolling option API error {resp.status_code}: {resp.text[:500]}")
         _circuit_breaker.record_success()
 
@@ -1954,10 +1960,11 @@ class DhanClient:
             bool(slice_order),
         )
 
-        if not _circuit_breaker.call_allowed():
-            raise Exception(
-                f"Dhan API circuit breaker is OPEN — broker unavailable, retrying in {_circuit_breaker._timeout:.0f}s"
-            )
+        # NO CIRCUIT BREAKER ON ORDERS. The breaker is for the chart API's
+        # floods; on 2026-10-23 DH-905 chart refusals held it open and it
+        # refused Scalp's exit SELLs while Dhan's order API was fine -- the
+        # exits never reached the broker. An order is always sent, and an
+        # order's failure never counts against the charts.
         endpoint = "/v2/orders/slicing" if slice_order else "/v2/orders"
         try:
             resp = _request_with_retry(
@@ -1971,18 +1978,15 @@ class DhanClient:
                 retry_safe=False,
             )
         except Exception as e:
-            _circuit_breaker.record_failure()
             raise AmbiguousOrderSubmission(
                 "Order submission was not confirmed by Dhan; reconcile the broker order book before retrying."
             ) from e
         if resp.status_code not in (200, 201):
-            _circuit_breaker.record_failure()
             if resp.status_code in _RETRYABLE_STATUSES:
                 raise AmbiguousOrderSubmission(
                     "Dhan returned a transient response after order submission; reconcile the broker order book before retrying."
                 )
             _raise_dhan_order_error("Order placement", resp)
-        _circuit_breaker.record_success()
         return resp.json()
 
     def place_forever_order(

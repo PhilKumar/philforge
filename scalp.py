@@ -2397,6 +2397,32 @@ class ScalpEngine:
             return True
         return False
 
+    async def _dhan_exit_refused(self, trade: ScalpTrade, why) -> Dict[str, Any]:
+        """The exit SELL did not reach Dhan: the trade stays open, under a stop.
+
+        Phil, 2026-10-23: "it exits only on the engine and not on the broker".
+        The Super Order's legs were cancelled for the exit, the SELL was then
+        refused (the chart breaker blocked it), and the trade was booked closed
+        anyway -- an open position at Dhan with no stop and no record of it.
+        Now nothing is booked: the stop goes back on and the exit is retried.
+        """
+        message = str(why)[:200]
+        trade.exit_retry_at = _time.monotonic() + 30
+        self._log(
+            "error",
+            f"⚠️ Exit NOT placed at Dhan for trade {trade.trade_id}: {message} — the trade stays open",
+        )
+        if trade.sl_premium > 0 and not trade.broker_sl_order_id:
+            try:
+                await self._place_broker_sl_tp(trade, place_tp=False)
+            except Exception as e:
+                self._log("error", f"⚠️ Could not re-rest the Dhan stop for trade {trade.trade_id}: {e}")
+        return {
+            "status": "error",
+            "message": f"Dhan did not take the exit ({message}). The position is still open at Dhan"
+            + ("; its stop is back on." if trade.broker_sl_order_id else "; place a stop or exit in Dhan."),
+        }
+
     async def _close_trade_once(
         self,
         trade: ScalpTrade,
@@ -2451,6 +2477,8 @@ class ScalpEngine:
                     reason = "cancelled"
             else:
                 await self._cancel_super_order(trade)
+                if trade.broker_sl_order_id or trade.broker_tp_order_id:
+                    await self._cancel_broker_orders(trade)  # a stop re-rested after a refused exit
                 if self._closed_meanwhile(trade):
                     return
                 try:
@@ -2473,16 +2501,20 @@ class ScalpEngine:
                         price=exit_price,
                         tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
                     )
-                    exit_order_id = result.get("orderId", "")
                 except Exception as e:
-                    self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
+                    return await self._dhan_exit_refused(trade, e)
+                refused = self._broker_order_error(result if isinstance(result, dict) else {})
+                if refused:
+                    return await self._dhan_exit_refused(trade, refused)
+                exit_order_id = result.get("orderId", "")
                 exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
         else:
             stop_fill = 0.0
             stop_oid = trade.broker_sl_order_id
             if self._is_super_order_trade(trade):
                 await self._cancel_super_order(trade)
-            elif trade.broker_sl_order_id or trade.broker_tp_order_id:
+            if trade.broker_sl_order_id or trade.broker_tp_order_id:
+                # A super order trade carries one too after a refused exit put its stop back.
                 await self._cancel_broker_orders(trade)
                 if self._is_zerodha_trade(trade) and stop_oid:
                     stop_fill = await self._stop_fill_price(trade, stop_oid)
@@ -2539,9 +2571,12 @@ class ScalpEngine:
                         price=exit_price,
                         tag=f"AF_SCALP_EXIT_{reason.upper()[:8]}",
                     )
-                    exit_order_id = result.get("orderId", "")
                 except Exception as e:
-                    self._log("error", f"Exit order failed for trade {trade.trade_id}: {e}")
+                    return await self._dhan_exit_refused(trade, e)
+                refused = self._broker_order_error(result if isinstance(result, dict) else {})
+                if refused:
+                    return await self._dhan_exit_refused(trade, refused)
+                exit_order_id = result.get("orderId", "")
 
                 exit_prem = exit_prem_override or self._get_ltp(trade, trade.trade_id) or trade.current_premium
         pnl = trade._compute_pnl(exit_prem)
