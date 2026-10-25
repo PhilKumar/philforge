@@ -11,7 +11,7 @@ the brokers convert at their edge, both ways.
 import asyncio
 import json
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from unittest import mock
 
 import broker.dhan as dhan
@@ -445,7 +445,9 @@ class LiveMCXScalps(unittest.TestCase):
         req = app.ScalpEntryReq(
             underlying="naturalgas",
             strike=305,
-            expiry="2026-10-23",
+            # Always ahead: a fixed 2026-10-23 became "expiry cannot be in the
+            # past" on the 24th and failed CI on an unrelated push.
+            expiry=(date.today() + timedelta(days=30)).isoformat(),
             option_type="CE",
             transaction_type="BUY",
             lots=1,
