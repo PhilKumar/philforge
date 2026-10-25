@@ -21,7 +21,7 @@ aiosqlite>=0.20
 bcrypt>=4.0
 cryptography==50.0.0
 soupsieve==2.9.1
-setuptools==83.0.0
+setuptools==84.1.0
 pip==26.2
 boto3>=1.34
 segno>=1.6
@@ -34,3 +34,13 @@ beautifulsoup4==4.14.3
 pdfplumber==0.11.9
 # Reads the binary .xls a bank's netbanking hands out, for the statement importer.
 xlrd==2.0.2
+# Floors for libraries the ones above pull in. Unpinned, prod kept whatever
+# version its virtualenv was built with, and on 25-Oct-2026 pip-audit of the
+# box found published vulnerabilities in each (CI audits this file, not the
+# box): certifi still trusted a compromised CA root, urllib3 could forward
+# headers on a cross-site redirect, h2/hpack/anyio had smaller faults.
+urllib3>=2.8.0
+certifi>=2026.10.19
+anyio>=4.14.2
+h2>=4.4.1
+hpack>=4.2.0
