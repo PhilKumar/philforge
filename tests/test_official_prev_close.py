@@ -8,7 +8,7 @@ Telegram at 09:00 on trading days and shows it on the CE/PE desk.
 
 import os
 import unittest
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -54,39 +54,11 @@ class ThePreviousSessionsLastBar(unittest.TestCase):
         self.assertIsNone(app._prev_session_close_from_frame(pd.DataFrame(), date(2026, 9, 22)))
 
 
-class TheNineOClockMessage(unittest.TestCase):
-    def test_a_trading_morning_inside_the_window(self):
-        self.assertTrue(app._official_close_telegram_due(datetime(2026, 9, 22, 9, 0, tzinfo=app.IST), ""))
-
-    def test_once_a_day(self):
-        self.assertFalse(app._official_close_telegram_due(datetime(2026, 9, 22, 9, 5, tzinfo=app.IST), "2026-09-22"))
-
-    def test_not_before_nine_nor_after_the_window(self):
-        self.assertFalse(app._official_close_telegram_due(datetime(2026, 9, 22, 8, 59, tzinfo=app.IST), ""))
-        self.assertFalse(app._official_close_telegram_due(datetime(2026, 9, 22, 9, 13, tzinfo=app.IST), ""))
-
-    def test_not_on_a_weekend_or_an_nse_holiday(self):
-        self.assertFalse(app._official_close_telegram_due(datetime(2026, 9, 26, 9, 0, tzinfo=app.IST), ""))
-        self.assertFalse(app._official_close_telegram_due(datetime(2026, 10, 2, 9, 0, tzinfo=app.IST), ""))
-
-
-class TheMessageJobStaysAlive(unittest.TestCase):
-    """2026-09-23: the 09:00 job never ran and logged nothing.
-
-    asyncio holds only a weak reference to a task, so the bare
-    `create_task(...)` that started this loop could be -- and was -- collected
-    mid-sleep. Phil got no message and the journal had not one line to grep.
-    """
+class BackgroundLoopsStayAlive(unittest.TestCase):
+    """asyncio holds only a weak reference to a task, so a bare
+    `create_task(...)` loop could be -- and once was -- collected mid-sleep."""
 
     SRC = (ROOT / "app.py").read_text(encoding="utf-8")
-
-    def test_the_job_starts_at_handover_not_only_at_startup(self):
-        """A deployed worker starts as STANDBY. The startup block skipped this
-        job, and nothing started it after the handover -- so after every deploy
-        the 09:00 message was simply gone (2026-09-23)."""
-        self.assertIn('"official-prev-close": _run_official_close_telegram_loop', self.SRC)
-        self.assertNotIn("asyncio.create_task(_run_official_close_telegram_loop())", self.SRC)
-        self.assertNotIn("_spawn_background_loop(_run_official_close_telegram_loop()", self.SRC)
 
     def test_the_auto_loop_starter_runs_at_handover(self):
         handover = self.SRC.split("async def restore_engines_after_handover")[1][:900]
@@ -121,10 +93,10 @@ class TheMessageJobStaysAlive(unittest.TestCase):
         self.assertTrue(held, "the task must still be referenced after a collection")
         self.assertGreater(count, 1, "the loop must still be ticking after a collection")
 
-    def test_an_empty_lookup_says_so(self):
-        body = self.SRC.split("async def _run_official_close_telegram_loop")[1][:1400]
-        self.assertIn("[AF CLOSE] no official close", body)
-        self.assertIn("[AF CLOSE] sent", body)
+    def test_no_morning_close_message(self):
+        """Phil, 2026-10-26: TradingView now has the exact close."""
+        self.assertNotIn("NIFTY official previous close", self.SRC)
+        self.assertNotIn("official-prev-close", self.SRC.split("def _ensure_auto_loops_running")[1][:3000])
 
 
 class TheDeskShowsIt(unittest.TestCase):

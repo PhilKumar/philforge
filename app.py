@@ -3860,11 +3860,6 @@ def _ensure_auto_loops_running() -> list[str]:
         # the startup block alone, a deployed worker would never bring the
         # sanctuary's morning reminder back.
         "sanctuary-plans": _sanctuary.plan_nudge_loop,
-        # Nor is the 09:00 official-close message, and it proved the point: a
-        # deployed worker starts as standby, so the startup block skipped it and
-        # nothing ever started it. Phil got no message on 2026-09-23 and the
-        # journal held no trace of the job at all.
-        "official-prev-close": _run_official_close_telegram_loop,
         # Silence is the alarm -- see _run_live_watchdog_loop.
         "live-watchdog": _run_live_watchdog_loop,
         # And the faults that are knowable before the open, at 09:10.
@@ -28652,15 +28647,14 @@ def _zerodha_reminder_due(now: datetime) -> bool:
 # 23,414.30 official), so its CPR and S/R sit a few -- since Aug-2026 often
 # 10-30 -- points off the levels the books trade. The AF indicator takes the
 # official close as a typed number; this puts that number where Phil looks: a
-# Telegram message before the open, and a line on the CE/PE desk (22-Sep-2026:
-# "Where can I get that number easily").
+# line on the CE/PE desk (22-Sep-2026: "Where can I get that number easily").
+# The 09:00 Telegram message is gone (Phil, 2026-10-26: "that is not necessary
+# now... as the tradingview gets the exact closing price").
 #
 # It is the SAME close the desk chart builds its CPR from (_chart_session_
 # analytics: the previous session's last intraday bar), read the same way.
 
 _OFFICIAL_CLOSE_CACHE: Dict[str, dict] = {}
-_OFFICIAL_CLOSE_SENT_KEY = "official_prev_close_telegram_sent"
-_OFFICIAL_CLOSE_TELEGRAM_WINDOW = (dt_time(9, 0), dt_time(9, 12))
 
 
 def _nse_session_closed(day: date) -> bool:
@@ -28741,13 +28735,6 @@ async def market_official_prev_close(request: Request):
     if current is None:
         return {"status": "unavailable", "detail": "No previous NIFTY session found in Dhan's candles."}
     return {"status": "ok", "symbol": "NIFTY", "today": current, "tomorrow": upcoming}
-
-
-def _official_close_telegram_due(now: datetime, sent_on: str) -> bool:
-    start, end = _OFFICIAL_CLOSE_TELEGRAM_WINDOW
-    trading_day = not _nse_session_closed(now.date())
-    in_window = start <= now.time() <= end
-    return trading_day and in_window and sent_on != now.date().isoformat()
 
 
 # ── THE MORNING CHECK, BEFORE THE FIRST CANDLE ───────────────────────────────
@@ -28909,31 +28896,6 @@ async def _run_live_watchdog_loop() -> None:
         except Exception:
             # The watchdog must never be the thing that dies.
             _logger.exception("[WATCHDOG] check failed")
-        await asyncio.sleep(60)
-
-
-async def _run_official_close_telegram_loop() -> None:
-    """09:00 IST on trading days: NIFTY's official previous close, once."""
-    while True:
-        try:
-            now = datetime.now(IST)
-            sent_on = (await _db_mod.get_app_state(_OFFICIAL_CLOSE_SENT_KEY)) or ""
-            if _official_close_telegram_due(now, sent_on):
-                found = await _nifty_official_prev_close(now.date())
-                if found is None:
-                    # Silence here is what made the first failure so hard to
-                    # read: no message, no log, nothing to grep for.
-                    _logger.warning("[AF CLOSE] no official close for %s yet; will try again next minute", now.date())
-                else:
-                    session = datetime.fromisoformat(found["session"]).strftime("%d-%b")
-                    body = f"{found['close']:,.2f} (close of {session}). Type it into AF -> Official previous close."
-                    alerter.alert("NIFTY official previous close", body, level="info")
-                    await _db_mod.set_app_state(_OFFICIAL_CLOSE_SENT_KEY, now.date().isoformat())
-                    _logger.info("[AF CLOSE] sent %s (close of %s)", found["close"], found["session"])
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            _logger.warning("[AF CLOSE] morning message recovered from: %s", exc)
         await asyncio.sleep(60)
 
 
