@@ -342,6 +342,9 @@ class ScalpTrade:
         self.st_last_bar = 0
         self.mode = mode
         self.broker = normalize_scalp_broker(broker)
+        # The same scalp placed at Dhan AND Zerodha ("Both"): its two legs
+        # share this, and one Exit closes them together.
+        self.pair_id = ""
         self.underlying = underlying
         self.strike = strike
         self.option_type = option_type
@@ -506,6 +509,7 @@ class ScalpTrade:
             "status": self.status,
             "mode": self.mode,
             "broker": self.broker,
+            "pair_id": self.pair_id,
             "entry_limit_price": self.entry_limit_price,
             "entry_limit_max": self.entry_limit_max,
             "broker_order_model": self.broker_order_model,

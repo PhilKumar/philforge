@@ -3766,6 +3766,7 @@ def _restore_scalp_trade_from_payload(payload: dict):
             "broker_sl_order_id",
             "broker_tp_order_id",
             "pending_exit_order_id",
+            "pair_id",
         ):
             if attr in payload:
                 setattr(trade, attr, str(payload.get(attr) or ""))
@@ -26590,6 +26591,8 @@ class ScalpEntryReq(BaseModel):
     sl_points: float = Field(default=0.0, ge=0, le=100_000)
     # Trail the stop on Supertrend (10, 2), 5m, and exit on a close through it.
     st_trail: bool = False
+    # Place the same scalp at Dhan AND Zerodha; `broker` is then ignored.
+    both_brokers: bool = False
 
 
 _scalp_entry_locks: Dict[int, asyncio.Lock] = {}
@@ -26697,7 +26700,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             if not broker_client:
                 return {"status": "error", "message": _broker_not_configured_message(user, source)}
         eng = _get_scalp_engine(user_id, broker_client=broker_client)
-        if req.mode == "live" and req.broker == "zerodha":
+        if req.mode == "live" and (req.broker == "zerodha" or req.both_brokers):
             attached, z_source = _attach_scalp_zerodha(eng, user, require_today=True)
             if not attached:
                 return {"status": "error", "message": _book_broker_missing_message(user, z_source)}
@@ -26706,58 +26709,36 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             # Dhan's REST LTP answered 429 most of 23-Oct-2026 and each retry
             # cost a second before the order was even sent. Optional.
             _attach_scalp_zerodha(eng, user, require_today=True)
+        entry = dict(
+            underlying=req.underlying,
+            strike=req.strike,
+            option_type=req.option_type,
+            expiry=req.expiry,
+            product_type=req.product_type,
+            transaction_type=req.transaction_type,
+            lots=req.lots,
+            lot_size=req.lot_size,
+            target_premium=req.target_premium,
+            sl_premium=req.sl_premium,
+            target_pct=req.target_pct,
+            sl_pct=req.sl_pct,
+            target_rupees=req.target_rupees,
+            sl_rupees=req.sl_rupees,
+            sqoff_time=req.sqoff_time,
+            mode=req.mode,
+            entry_limit_price=req.entry_limit_price,
+            entry_limit_max=req.entry_limit_max,
+            target_points=req.target_points,
+            sl_points=req.sl_points,
+            st_trail=req.st_trail,
+        )
         try:
-            product_type = req.product_type
-            result = await eng.enter_trade(
-                underlying=req.underlying,
-                strike=req.strike,
-                option_type=req.option_type,
-                expiry=req.expiry,
-                product_type=product_type,
-                transaction_type=req.transaction_type,
-                lots=req.lots,
-                lot_size=req.lot_size,
-                target_premium=req.target_premium,
-                sl_premium=req.sl_premium,
-                target_pct=req.target_pct,
-                sl_pct=req.sl_pct,
-                target_rupees=req.target_rupees,
-                sl_rupees=req.sl_rupees,
-                sqoff_time=req.sqoff_time,
-                mode=req.mode,
-                entry_limit_price=req.entry_limit_price,
-                entry_limit_max=req.entry_limit_max,
-                broker=req.broker,
-                target_points=req.target_points,
-                sl_points=req.sl_points,
-                st_trail=req.st_trail,
-            )
-            broker_line = "\nBroker: Zerodha" if req.broker == "zerodha" and req.mode == "live" else ""
-            if result.get("status") == "error":
-                alerter.alert(
-                    "Scalp Entry Failed",
-                    f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {result.get('message', 'unknown')}",
-                )
+            if req.both_brokers:
+                result = await _enter_scalp_on_both_brokers(eng, req, entry)
             else:
-                trade_info = result.get("trade", {})
-                entry_p = trade_info.get("entry_premium", 0)
-                is_pending = trade_info.get("status") == "pending"
-                if is_pending:
-                    alerter.alert(
-                        "Scalp Stop-Limit Pending",
-                        f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
-                        f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-                        f"Trigger: ₹{req.entry_limit_price:.2f}–₹{req.entry_limit_max:.2f} | Product: {product_type} | Mode: {req.mode}",
-                        level="info",
-                    )
-                else:
-                    alerter.alert(
-                        "Scalp Entry",
-                        f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
-                        f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-                        f"Entry: \u20b9{entry_p:.2f} | Product: {product_type} | Mode: {req.mode}{broker_line}",
-                        level="info",
-                    )
+                result = await eng.enter_trade(**entry, broker=req.broker)
+                _alert_scalp_entry(req, result, req.broker)
+            if result.get("status") != "error":
                 await _save_scalp_open_state(user_id, eng, force=True)
             _notify_scalp_ws()
             return result
@@ -26769,15 +26750,83 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _enter_scalp_on_both_brokers(eng, req: ScalpEntryReq, entry: dict) -> dict:
+    """The same scalp at Dhan and Zerodha, sent at the same moment.
+
+    Each broker decides on its own: one refusing does not hold back the other,
+    and the answer says which leg went through. The two legs share a pair_id
+    so one Exit closes both.
+    """
+    brokers = ("dhan", "zerodha")
+    results = await asyncio.gather(*(eng.enter_trade(**entry, broker=b) for b in brokers), return_exceptions=True)
+    legs = {}
+    for broker, result in zip(brokers, results):
+        if isinstance(result, Exception):
+            result = {"status": "error", "message": str(result)}
+        _alert_scalp_entry(req, result, broker)
+        legs[broker] = result
+    placed = [b for b in brokers if legs[b].get("status") != "error"]
+    # Linked only when both went through: a lone leg is an ordinary scalp.
+    pair_id = f"P{int(time.time() * 1000)}" if len(placed) == 2 else ""
+    trades = []
+    for broker in placed:
+        trade = eng.open_trades.get(legs[broker].get("trade_id"))
+        if trade is not None:
+            trade.pair_id = pair_id
+            legs[broker]["trade"] = trade.to_dict()
+            trades.append(legs[broker]["trade"])
+    if len(placed) == 2:
+        status, message = "ok", ""
+    elif placed:
+        refused = next(b for b in brokers if b not in placed)
+        status = "partial"
+        message = (
+            f"{refused.title()} refused: {legs[refused].get('message', 'unknown')}. {placed[0].title()} went through."
+        )
+    else:
+        status = "error"
+        message = "; ".join(f"{b.title()}: {legs[b].get('message', 'unknown')}" for b in brokers)
+    return {"status": status, "message": message, "pair_id": pair_id, "legs": legs, "trades": trades}
+
+
+def _alert_scalp_entry(req: ScalpEntryReq, result: dict, broker: str) -> None:
+    broker_line = (
+        f"\nBroker: {broker.title()}" if (broker == "zerodha" or req.both_brokers) and req.mode == "live" else ""
+    )
+    if result.get("status") == "error":
+        alerter.alert(
+            "Scalp Entry Failed",
+            f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}{broker_line}\nError: {result.get('message', 'unknown')}",
+        )
+        return
+    trade_info = result.get("trade", {})
+    if trade_info.get("status") == "pending":
+        alerter.alert(
+            "Scalp Stop-Limit Pending",
+            f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
+            f"Side: {req.transaction_type} | Lots: {req.lots}\n"
+            f"Trigger: ₹{req.entry_limit_price:.2f}–₹{req.entry_limit_max:.2f} | Product: {req.product_type} | Mode: {req.mode}{broker_line}",
+            level="info",
+        )
+    else:
+        alerter.alert(
+            "Scalp Entry",
+            f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
+            f"Side: {req.transaction_type} | Lots: {req.lots}\n"
+            f"Entry: \u20b9{trade_info.get('entry_premium', 0):.2f} | Product: {req.product_type} | Mode: {req.mode}{broker_line}",
+            level="info",
+        )
+
+
 @app.post("/api/scalp/exit/{trade_id}")
-async def scalp_exit(trade_id: int, request: Request):
+async def scalp_exit(trade_id: int, request: Request, pair: bool = False):
     user_id = _request_user_id(request)
     eng = _get_scalp_engine(user_id)
     try:
         await _restore_scalp_open_state(user_id, eng)
         await _attach_scalp_zerodha_for_request(eng, request)
-        result = await eng.exit_trade(trade_id, reason="manual")
-        if result.get("status") == "error":
+        result = await (_exit_scalp_pair(eng, trade_id) if pair else eng.exit_trade(trade_id, reason="manual"))
+        if result.get("status") == "error" and not pair:
             alerter.alert("Scalp Exit Failed", f"Trade ID: {trade_id}\nError: {result.get('message', 'unknown')}")
         await _save_scalp_open_state(user_id, eng, force=True)
         _notify_scalp_ws()
@@ -26785,6 +26834,30 @@ async def scalp_exit(trade_id: int, request: Request):
     except Exception as e:
         alerter.alert("Scalp Exit Error", f"Trade ID: {trade_id}\nError: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _exit_scalp_pair(eng, trade_id: int) -> dict:
+    """Exit a "Both" scalp at Dhan and Zerodha together.
+
+    Each leg is its own exit with its own fill: one broker refusing leaves
+    that leg open (and says so) without holding back the other.
+    """
+    trade = eng.open_trades.get(trade_id)
+    pair_id = getattr(trade, "pair_id", "") if trade else ""
+    ids = [tid for tid, t in eng.open_trades.items() if pair_id and t.pair_id == pair_id] or [trade_id]
+    results = await asyncio.gather(*(eng.exit_trade(tid, reason="manual") for tid in ids), return_exceptions=True)
+    legs = {}
+    for tid, result in zip(ids, results):
+        if isinstance(result, Exception):
+            result = {"status": "error", "message": str(result)}
+        if result.get("status") == "error":
+            alerter.alert("Scalp Exit Failed", f"Trade ID: {tid}\nError: {result.get('message', 'unknown')}")
+        legs[tid] = result
+    failed = [tid for tid in ids if legs[tid].get("status") == "error"]
+    if not failed:
+        return {"status": "ok", "legs": legs}
+    message = "; ".join(f"Trade {tid}: {legs[tid].get('message', 'unknown')}" for tid in failed)
+    return {"status": "partial" if len(failed) < len(ids) else "error", "message": message, "legs": legs}
 
 
 @app.post("/api/scalp/kill-all")

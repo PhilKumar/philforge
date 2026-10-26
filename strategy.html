@@ -4601,6 +4601,10 @@
             <button type="button" class="scalp-toggle-btn active" data-value="dhan" data-tone="dhan" onclick="setScalpBroker('dhan')"><span>Dhan</span></button>
             <button type="button" class="scalp-toggle-btn" data-value="zerodha" data-tone="zerodha" onclick="setScalpBroker('zerodha')"><span>Zerodha</span></button>
           </div>
+          <!-- Phil, 2026-10-26: "put just a check box like both". -->
+          <label class="scalp-both-brokers" title="Place the same scalp at Dhan and Zerodha together; one Exit closes both">
+            <input type="checkbox" id="scalp-both-brokers" onchange="setScalpBothBrokers()"><span>Both</span>
+          </label>
           <!-- The option picked above, charted before it is traded. -->
           <button type="button" class="cascade-options-control scalp-contract-chart-btn" id="scalp-contract-chart-btn" onclick="openScalpContractChart()" title="Chart the option selected above before you trade it"><span class="scalp-contract-chart-ico" id="scalp-contract-chart-ico" aria-hidden="true"></span><span id="scalp-contract-chart-label">Option chart</span></button>
         </div>

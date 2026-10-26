@@ -13076,6 +13076,7 @@ function _readScalpFormState() {
     sl_pts: read('scalp-sl-pts'),
     target_pts: read('scalp-target-pts'),
     st_trail: document.getElementById('scalp-st-trail')?.checked ? 'on' : 'off',
+    both_brokers: document.getElementById('scalp-both-brokers')?.checked ? 'on' : 'off',
   };
 }
 
@@ -13120,7 +13121,9 @@ async function _restoreScalpFormState() {
     _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
     _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
     _syncScalpUnderlyingPicker();
-    _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
+    const bothBrokers = document.getElementById('scalp-both-brokers');
+    if (bothBrokers) bothBrokers.checked = saved.both_brokers === 'on';
+    _syncScalpBrokerToggle();
     _applyScalpFieldValue('scalp-lots', saved.lots);
     _applyScalpFieldValue('scalp-sl-rs', saved.sl_rs);
     _applyScalpFieldValue('scalp-target-rs', saved.target_rs);
@@ -13145,7 +13148,7 @@ async function _restoreScalpFormState() {
 async function initScalpPage() {
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
-  _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
+  _syncScalpBrokerToggle();
   _loadScalpStocks();
   await _restoreScalpFormState();
   _updateScalpExitRulesNote();
@@ -13182,6 +13185,26 @@ function _syncScalpToggleGroup(groupId, inputId) {
 // Dhan carries the target and stop inside one Super Order. Zerodha has no
 // such order, so there the stop rests at Zerodha and PhilForge watches the
 // target -- the note says which, so a live order is never a surprise.
+// "Both" (Phil, 2026-10-26: "put just a check box like both"): the same scalp
+// at Dhan and Zerodha with one click, both names lit.
+function setScalpBothBrokers() {
+  _syncScalpBrokerToggle();
+  _updateScalpBrokerNote();
+  _persistScalpFormState();
+}
+
+function _scalpBothBrokersOn() {
+  const box = document.getElementById('scalp-both-brokers');
+  return !!(box?.checked && box.offsetParent !== null);
+}
+
+function _syncScalpBrokerToggle() {
+  _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
+  if (document.getElementById('scalp-both-brokers')?.checked) {
+    document.querySelectorAll('#scalp-broker-toggle .scalp-toggle-btn').forEach(b => b.classList.add('active'));
+  }
+}
+
 function _updateScalpBrokerNote() {
   const note = document.getElementById('scalp-live-note');
   if (!note) return;
@@ -13189,16 +13212,26 @@ function _updateScalpBrokerNote() {
   const mcx = _isScalpMcx(underlying)
     ? ` ${underlying} trades on MCX from 09:00 to 23:30 (23:55 from November to March).`
     : '';
-  note.innerHTML = (document.getElementById('scalp-broker')?.value === 'zerodha'
+  note.innerHTML = (document.getElementById('scalp-both-brokers')?.checked
+    ? 'Live on <strong>both</strong>: a Dhan Super Order and a Zerodha entry with its stop resting at Zerodha, sent together. One <strong>Exit both</strong> closes the two; each broker books its own fill. Log in to Zerodha from Settings each morning.'
+    : document.getElementById('scalp-broker')?.value === 'zerodha'
     ? 'Live on Zerodha: your <strong>SL Premium</strong> rests at Zerodha as a stop order; PhilForge watches the <strong>Target Premium</strong> and exits when it is hit. Log in to Zerodha from Settings each morning.'
     : 'Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.') + mcx;
 }
 
 function setScalpBroker(value) {
   const input = document.getElementById('scalp-broker');
+  // Picking one name is one broker again.
+  const both = document.getElementById('scalp-both-brokers');
+  if (both?.checked) {
+    both.checked = false;
+    _syncScalpBrokerToggle();
+    _updateScalpBrokerNote();
+    _persistScalpFormState();
+  }
   if (!input || input.value === value) return;
   input.value = value;
-  _syncScalpToggleGroup('scalp-broker-toggle', 'scalp-broker');
+  _syncScalpBrokerToggle();
   _updateScalpBrokerNote();
   _persistScalpFormState();
   // The premium comes from the broker picked, so ask again.
@@ -13970,6 +14003,8 @@ async function submitScalpEntry(direction) {
       entry_limit_price: parseFloat(document.getElementById('scalp-limit-price').value) || 0,
       entry_limit_max: parseFloat(document.getElementById('scalp-limit-max').value) || 0,
       st_trail: !!document.getElementById('scalp-st-trail')?.checked,
+      // Only when it is on screen: a phone does not show it.
+      both_brokers: _scalpBothBrokersOn(),
     };
     const autoExits = _scalpAutoExitPoints();
     if (autoExits) {
@@ -14008,7 +14043,9 @@ async function submitScalpEntry(direction) {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (data.status === 'ok') {
+    if (payload.both_brokers && data.legs) {
+      _showScalpBothEntry(data, statusEl);
+    } else if (data.status === 'ok') {
       if (data.trade?.status === 'pending') {
         statusEl.textContent = `⏳ Stop-limit #${data.trade_id} pending — trigger ₹${data.trade.entry_limit_price.toFixed(2)}–₹${data.trade.entry_limit_max.toFixed(2)}`;
         statusEl.style.color = 'rgba(139,143,255,0.9)';
@@ -14038,6 +14075,43 @@ async function submitScalpEntry(direction) {
   } finally {
     _enableBtns();
   }
+}
+
+// One line per broker: "Dhan #12 @ ₹244.35 · Zerodha refused: ...".
+function _showScalpBothEntry(data, statusEl) {
+  const parts = ['dhan', 'zerodha'].map(b => {
+    const leg = data.legs[b] || {};
+    const name = b === 'zerodha' ? 'Zerodha' : 'Dhan';
+    if (leg.status === 'error') return `${name} ❌ ${leg.message || 'refused'}`;
+    if (leg.trade?.status === 'pending') return `${name} ⏳ #${leg.trade_id} pending`;
+    return `${name} ✅ #${leg.trade_id} @ ₹${(leg.trade?.entry_premium || 0).toFixed(2)}`;
+  });
+  statusEl.textContent = parts.join(' · ');
+  statusEl.style.color = data.status === 'ok' ? 'var(--success)' : data.status === 'partial' ? 'var(--warn)' : 'var(--danger)';
+  if (data.status === 'partial') toast(data.message || 'One broker refused the entry', 'warning');
+  if (_lastScalpStatus && (data.trades || []).length) {
+    if (!_lastScalpStatus.open_trades) _lastScalpStatus.open_trades = [];
+    for (const t of data.trades) {
+      if (!_lastScalpStatus.open_trades.some(o => o.trade_id === t.trade_id)) _lastScalpStatus.open_trades.push(t);
+    }
+    _renderScalpStatus(_lastScalpStatus);
+  }
+  refreshScalpStatus();
+}
+
+// Both legs of a "Both" scalp, each at its own broker with its own fill.
+async function exitScalpPair(tradeId) {
+  try {
+    const res = await fetch('/api/scalp/exit/' + tradeId + '?pair=1', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      const pnl = Object.values(data.legs || {}).reduce((sum, leg) => sum + (leg.trade?.pnl || 0), 0);
+      toast(`Exited both legs | P&L: ₹${pnl.toFixed(2)}`, pnl >= 0 ? 'success' : 'error');
+    } else {
+      toast(_apiErrorMessage(data, 'Exit failed'), 'error');
+    }
+    refreshScalpStatus();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 async function exitScalpTrade(tradeId) {
@@ -14397,7 +14471,7 @@ function _scalpLotsBadge(t) {
 }
 
 // Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
-function _buildScalpActiveRow(t) {
+function _buildScalpActiveRow(t, open = []) {
   const isPending = t.status === 'pending';
   const pnl = t.pnl || 0;
   const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
@@ -14420,7 +14494,15 @@ function _buildScalpActiveRow(t) {
   }
   const hasBrokerOrders = t.super_order_id || t.broker_sl_order_id || t.broker_tp_order_id;
   const onZerodha = t.broker === 'zerodha' && t.mode === 'live';
-  const brokerBadge = (onZerodha
+  // A "Both" scalp: its other leg still open makes Exit close the two.
+  const partner = t.pair_id ? open.find(o => o.pair_id === t.pair_id && o.trade_id !== t.trade_id) : null;
+  const pairBadge = partner
+    ? ` <span title="Placed on both brokers with #${escapeAttr(partner.trade_id)} · Exit both closes the two" style="font-size:9px;color:rgba(251,191,36,0.9);font-weight:700;">${t.broker === 'zerodha' ? '' : 'DHAN '}⇄ #${escapeHtml(partner.trade_id)}</span>`
+    : '';
+  const exitBtn = partner
+    ? `<button class="btn btn-danger btn-sm" onclick="exitScalpPair(${t.trade_id})" title="Exit this trade and #${escapeAttr(partner.trade_id)} at both brokers" style="padding:3px 8px;font-size:10px;">Exit both</button>`
+    : `<button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>`;
+  const brokerBadge = pairBadge + (onZerodha
     ? ` <span title="Zerodha${t.broker_sl_order_id ? ' · stop resting at Zerodha' : ' · stop not yet at Zerodha'} · target watched by PhilForge" style="font-size:9px;color:rgba(96,165,250,0.85);font-weight:700;">ZERODHA</span>`
     : '') + (hasBrokerOrders
     ? ` <span title="${t.super_order_id ? 'Dhan Super Order active' : 'SL/TP placed on broker'}" style="font-size:9px;color:rgba(52,211,153,0.7);font-weight:700;">${t.super_order_id ? 'SO' : '🛡️'}</span>`
@@ -14435,7 +14517,7 @@ function _buildScalpActiveRow(t) {
     <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
       <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
       <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id}, {pin: true})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
-      <button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>
+      ${exitBtn}
     </div></td>
   </tr>`;
 }
@@ -15785,7 +15867,7 @@ function _renderScalpStatus(data) {
       tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No active positions</td></tr>';
     } else if (!sameSet) {
       // Full rebuild — trade set changed
-      tbody.innerHTML = open.map(t => _buildScalpActiveRow(t)).join('');
+      tbody.innerHTML = open.map(t => _buildScalpActiveRow(t, open)).join('');
     } else {
       // Granular update — only touch LTP, P&L, Entry cells. Never touch inputs.
       open.forEach(t => {
@@ -22014,7 +22096,7 @@ function _renderScalpStatusWS(data) {
     for (const tid of domTids) { delete _scalpDomCache['scalp-ltp-'+tid]; delete _scalpDomCache['scalp-pnl-'+tid]; delete _scalpDomCache['scalp-entry-'+tid]; }
   } else if (!sameSet) {
     // Trade set changed — full rebuild, invalidate cache
-    tbody.innerHTML = open.map(t => _buildScalpActiveRow(t)).join('');
+    tbody.innerHTML = open.map(t => _buildScalpActiveRow(t, open)).join('');
     for (const tid of domTids) { delete _scalpDomCache['scalp-ltp-'+tid]; delete _scalpDomCache['scalp-pnl-'+tid]; delete _scalpDomCache['scalp-entry-'+tid]; }
   } else {
     // Same trades — granular .textContent updates only

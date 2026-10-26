@@ -6457,6 +6457,16 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 [data-theme="light"] .scalp-exit-modes { background: rgba(241,245,249,.95); border-color: rgba(148,163,184,.35); }
 [data-theme="light"] .scalp-exit-mode { color: #475569; }
 [data-theme="light"] .scalp-exit-mode.active { background: #ffffff; color: #0f172a; box-shadow: 0 1px 2px rgba(15,23,42,.14); }
+/* "Both": the form's input rules must not reach this checkbox either. */
+#scalp-page .scalp-broker-row label.scalp-both-brokers {
+  display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; margin: 0; padding: 0;
+  font-size: 11px; font-weight: 700; color: var(--muted); cursor: pointer; white-space: nowrap;
+}
+#scalp-page .scalp-broker-row label.scalp-both-brokers input[type="checkbox"] {
+  flex: 0 0 auto; width: 15px; height: 15px; min-width: 0; min-height: 0; margin: 0; padding: 0;
+  border: 0; background: none; box-shadow: none; accent-color: #fbbf24; cursor: pointer;
+}
+#scalp-page .scalp-broker-row label.scalp-both-brokers:has(input:checked) { color: #fbbf24; }
 .scalp-broker-row .scalp-contract-chart-btn { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; font-family: var(--font-mono); }
 .scalp-contract-chart-ico { display: inline-flex; color: #93c5fd; }
 #scalp-uly-chart-btn { display: inline-flex; align-items: center; gap: 6px; }
@@ -10216,4 +10226,10 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
    they are, so it is not shown there. */
 @media (max-width: 780px) {
   #scalp-page .scalp-match-dhan-btn { display: none !important; }
+}
+
+/* "Both" brokers on the Scalp form (2026-10-26): mobile layouts stay as they
+   are, so a phone keeps the Dhan/Zerodha pair alone. */
+@media (max-width: 780px) {
+  #scalp-page .scalp-broker-row label.scalp-both-brokers { display: none !important; }
 }
