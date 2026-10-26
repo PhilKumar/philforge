@@ -724,10 +724,14 @@ test('the broker pair spans its row with no BROKER label', async ({ page }) => {
     const r = document.querySelector('#scalp-page .scalp-broker-row')!.getBoundingClientRect();
     const t = document.getElementById('scalp-broker-toggle')!.getBoundingClientRect();
     const [d, z] = Array.from(document.querySelectorAll('#scalp-broker-toggle .scalp-toggle-btn')).map((b) => b.getBoundingClientRect().width);
-    return { gap: Math.round(r.width - t.width), even: Math.abs(d - z) < 1 };
+    // The "Both" tick (2026-10-26) shares the row, after the pair.
+    const both = document.querySelector('#scalp-page .scalp-both-brokers')!.getBoundingClientRect();
+    return { gap: Math.round(r.width - t.width - both.width - 8), even: Math.abs(d - z) < 1,
+      beside: both.left >= t.right && both.right <= r.right + 1 && both.top >= r.top - 1 && both.bottom <= r.bottom + 1 };
   });
   expect(fit.gap).toBeLessThanOrEqual(1);
   expect(fit.even).toBe(true);
+  expect(fit.beside).toBe(true);
 });
 
 test('the Scalp desk freezes down to Active Positions; the rest scrolls beneath', async ({ page }) => {
