@@ -10233,3 +10233,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 @media (max-width: 780px) {
   #scalp-page .scalp-broker-row label.scalp-both-brokers { display: none !important; }
 }
+/* A paired leg's Exit and Exit both stay on the one line with Set. */
+@media (min-width: 781px) {
+  #scalp-page .scalp-action-wrap.is-pair { flex-wrap: nowrap; }
+}

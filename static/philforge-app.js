@@ -13213,7 +13213,7 @@ function _updateScalpBrokerNote() {
     ? ` ${underlying} trades on MCX from 09:00 to 23:30 (23:55 from November to March).`
     : '';
   note.innerHTML = (document.getElementById('scalp-both-brokers')?.checked
-    ? 'Live on <strong>both</strong>: a Dhan Super Order and a Zerodha entry with its stop resting at Zerodha, sent together. One <strong>Exit both</strong> closes the two; each broker books its own fill. Log in to Zerodha from Settings each morning.'
+    ? 'Live on <strong>both</strong>: a Dhan Super Order and a Zerodha entry with its stop resting at Zerodha, sent together. <strong>Exit</strong> closes one leg, <strong>Both</strong> closes the two; each broker books its own fill. Log in to Zerodha from Settings each morning.'
     : document.getElementById('scalp-broker')?.value === 'zerodha'
     ? 'Live on Zerodha: your <strong>SL Premium</strong> rests at Zerodha as a stop order; PhilForge watches the <strong>Target Premium</strong> and exits when it is hit. Log in to Zerodha from Settings each morning.'
     : 'Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.') + mcx;
@@ -14497,11 +14497,11 @@ function _buildScalpActiveRow(t, open = []) {
   // A "Both" scalp: its other leg still open makes Exit close the two.
   const partner = t.pair_id ? open.find(o => o.pair_id === t.pair_id && o.trade_id !== t.trade_id) : null;
   const pairBadge = partner
-    ? ` <span title="Placed on both brokers with #${escapeAttr(partner.trade_id)} · Exit both closes the two" style="font-size:9px;color:rgba(251,191,36,0.9);font-weight:700;">${t.broker === 'zerodha' ? '' : 'DHAN '}⇄ #${escapeHtml(partner.trade_id)}</span>`
+    ? ` <span title="Placed on both brokers with #${escapeAttr(partner.trade_id)} · Both closes the two" style="font-size:9px;color:rgba(251,191,36,0.9);font-weight:700;">${t.broker === 'zerodha' ? '' : 'DHAN '}⇄ #${escapeHtml(partner.trade_id)}</span>`
     : '';
-  const exitBtn = partner
-    ? `<button class="btn btn-danger btn-sm" onclick="exitScalpPair(${t.trade_id})" title="Exit this trade and #${escapeAttr(partner.trade_id)} at both brokers" style="padding:3px 8px;font-size:10px;">Exit both</button>`
-    : `<button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;">Exit</button>`;
+  // Each leg still has its own Exit (Phil, 2026-10-26: "can't I exit separately?").
+  const exitBtn = `<button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})"${partner ? ` title="Exit only this ${t.broker === 'zerodha' ? 'Zerodha' : 'Dhan'} leg; #${escapeAttr(partner.trade_id)} stays open"` : ''} style="padding:3px 8px;font-size:10px;">Exit</button>`
+    + (partner ? `<button class="btn btn-danger btn-sm" onclick="exitScalpPair(${t.trade_id})" title="Exit this trade and #${escapeAttr(partner.trade_id)} at both brokers" style="padding:3px 8px;font-size:10px;">Both</button>` : '');
   const brokerBadge = pairBadge + (onZerodha
     ? ` <span title="Zerodha${t.broker_sl_order_id ? ' · stop resting at Zerodha' : ' · stop not yet at Zerodha'} · target watched by PhilForge" style="font-size:9px;color:rgba(96,165,250,0.85);font-weight:700;">ZERODHA</span>`
     : '') + (hasBrokerOrders
@@ -14514,7 +14514,7 @@ function _buildScalpActiveRow(t, open = []) {
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
-    <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap">
+    <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap${partner ? ' is-pair' : ''}">
       <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
       <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id}, {pin: true})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
       ${exitBtn}
