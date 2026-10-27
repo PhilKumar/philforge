@@ -122,8 +122,9 @@ test('Scalp panels size to content and Advanced preserves every execution field'
       positionsOverTheForm: Math.abs(pos.left - entry.left) < 2 && pos.bottom <= entry.top,
       positionsLeadTheDesk: !!(positionsEl.compareDocumentPosition(panes) & Node.DOCUMENT_POSITION_FOLLOWING)
         && !positionsEl.closest('.ocp-panes'),
-      // Since 2026-10-20 the chart and the log are on the LEFT, the form on the right.
-      logBesideTheForm: logBox.left + logBox.width <= entry.left + 5,
+      // Since 2026-10-27 the log stands under the form, in the right column,
+      // and the chart runs down the whole left column.
+      logUnderTheForm: Math.abs(logBox.left - entry.left) < 2 && logBox.top >= entry.bottom,
       logIsItsOwnSection: log.tagName === 'DETAILS',
       logInLiveColumn: !!log.closest('.ocp-pane-live'),
       advancedHeight: advancedBox.height,
@@ -133,7 +134,7 @@ test('Scalp panels size to content and Advanced preserves every execution field'
   expect(geometry.alignItems).toBe('start');
   expect(geometry.positionsLeadTheDesk).toBe(true);
   expect(geometry.positionsOverTheForm).toBe(true);
-  expect(geometry.logBesideTheForm).toBe(true);
+  expect(geometry.logUnderTheForm).toBe(true);
   expect(geometry.logIsItsOwnSection).toBe(true);
   expect(geometry.logInLiveColumn).toBe(true);
   expect(geometry.advancedHeight).toBeLessThan(50);

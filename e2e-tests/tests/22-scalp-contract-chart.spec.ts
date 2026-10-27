@@ -344,7 +344,8 @@ test('Scalp: chart beside positions over launchpad, 70/30, tops level, every lau
   await page.evaluate(() => { const d = document.querySelector('#scalp-page details.scalp-advanced') as HTMLDetailsElement; if (d) d.open = true; });
   const m = await page.evaluate(() => {
     const r = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
-    const live = r('#scalp-page .ocp-pane-live'), form = r('#scalp-page .ocp-pane-form'), pos = r('#scalp-page .scalp-positions-card');
+    // The live pane's wrapper steps aside on desktop (display: contents); the chart is the left column.
+    const live = r('#scalp-dock-chart'), form = r('#scalp-page .ocp-pane-form'), pos = r('#scalp-page .scalp-positions-card');
     const rows: Record<string, number[]> = {};
     const ids = ['.scalp-uly-btn', '#scalp-expiry', '#scalp-live-ltp', '#scalp-margin', '#scalp-option-toggle', '#scalp-strike', '#scalp-product-type', '#scalp-lots',
       '#scalp-sl-pts', '#scalp-target-pts', '#scalp-limit-price', '#scalp-limit-max', '#scalp-broker-toggle', '#scalp-mode-toggle', '.scalp-entry-actions > .btn'];
@@ -357,9 +358,12 @@ test('Scalp: chart beside positions over launchpad, 70/30, tops level, every lau
     }));
     // Since 2026-10-27 the chart runs from the top on the left, and Active
     // Positions stands over the launchpad on the right, in the same column.
-    return { split: Math.round(form.width / (live.width + form.width) * 100), topGap: Math.round(pos.top - live.top),
+    // The split from the desk grid's own two columns: the chart may still be
+    // hidden here (nothing picked to chart yet).
+    const [colChart, colForm] = getComputedStyle(document.querySelector('#scalp-page > .card')!).gridTemplateColumns.split(' ').map(parseFloat);
+    return { split: Math.round(colForm / (colChart + colForm) * 100), topGap: Math.round(pos.top - (live.height ? live.top : pos.top)),
       right: Math.round(pos.right - form.right), left: Math.round(pos.left - form.left),
-      stacked: Math.round(form.top - pos.bottom), chartTall: Math.round(live.bottom - form.bottom) >= -1, heights };
+      stacked: Math.round(form.top - pos.bottom), chartTall: !live.height || Math.round(live.bottom - r('#scalp-page .scalp-event-card').bottom) >= -1, heights };
   });
   expect(m.split).toBe(30);
   expect(m.topGap).toBe(0);

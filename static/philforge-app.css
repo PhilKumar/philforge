@@ -10244,22 +10244,27 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
    row the rest on the next row"). Desktop only, and only placement: the card
    becomes the grid, the panes' wrapper steps aside (display: contents), and
    no element moves in the page, so the phone keeps its stacked layout.
-   Rows: engine line | positions | launchpad | filler | history. The chart
-   spans positions to filler, and the filler takes whatever the chart needs
-   beyond the right column, so no gap opens between positions and launchpad. */
+   Rows: engine line | positions | launchpad | event log | filler | history.
+   The chart spans positions to filler, and the filler takes whatever the
+   chart needs beyond the right column, so no gap opens in it. The event log
+   sits under the launchpad and the chart runs down beside it too (Phil,
+   2026-10-27: "Put this eventlog to the right below scalp controls. I need
+   the chart to extend below as well"); both panes' wrappers step aside. */
 @media (min-width: 1080px) {
   #scalp-page > .card {
     display: grid;
     grid-template-columns: minmax(0, 7fr) minmax(440px, 3fr);
-    grid-template-rows: auto auto auto 1fr auto;
+    grid-template-rows: auto auto auto auto 1fr auto;
     column-gap: 14px;
   }
   #scalp-page > .card > .ocp-head { grid-column: 1 / -1; grid-row: 1; }
   #scalp-page > .card > .scalp-positions-card { grid-column: 2; grid-row: 2; margin: 0 0 14px !important; min-width: 0; }
   #scalp-page > .card > .ocp-panes { display: contents; }
   #scalp-page > .card > .ocp-panes > .ocp-pane-form { grid-column: 2; grid-row: 3; align-self: start; }
-  #scalp-page > .card > .ocp-panes > .ocp-pane-live { grid-column: 1; grid-row: 2 / 5; align-self: stretch; min-width: 0; }
-  #scalp-page > .card > .scalp-history-card { grid-column: 1 / -1; grid-row: 5; margin-top: 14px; }
+  #scalp-page > .card > .ocp-panes > .ocp-pane-live { display: contents; }
+  #scalp-page > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart { grid-column: 1; grid-row: 2 / 6; align-self: stretch; min-width: 0; margin-top: 0; }
+  #scalp-page > .card > .ocp-panes > .ocp-pane-live > .scalp-event-card { grid-column: 2; grid-row: 4; align-self: start; margin-top: 14px; width: auto; }
+  #scalp-page > .card > .scalp-history-card { grid-column: 1 / -1; grid-row: 6; margin-top: 14px; }
   /* The chart takes the column's height, never less than its 600px. */
   #scalp-page .ocp-pane-live > .scalp-dock-chart:not([hidden]) { flex: 1 1 auto; display: flex; flex-direction: column; }
   #scalp-page .scalp-dock-chart > .scalp-dock-chart-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
