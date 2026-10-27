@@ -14460,17 +14460,47 @@ function _scalpProductBadge(productType) {
   const product = String(productType || 'INTRADAY').toUpperCase();
   const label = product === 'MARGIN' || product === 'NORMAL' || product === 'NRML' ? 'NRML' : 'INTR';
   const tone = label === 'NRML' ? 'rgba(96,165,250,0.8)' : 'rgba(251,191,36,0.78)';
-  return `<span title="${label === 'NRML' ? 'Normal / till expiry' : 'Intraday'}" style="font-size:9px;color:${tone};font-weight:700;margin-left:5px;">${label}</span>`;
+  return `<span class="scalp-sym-extra" title="${label === 'NRML' ? 'Normal / till expiry' : 'Intraday'}" style="font-size:9px;color:${tone};font-weight:700;margin-left:5px;">${label}</span>`;
 }
 
 function _scalpLotsBadge(t) {
   const lots = Number(t?.lots || 0);
   if (!Number.isFinite(lots) || lots <= 0) return '';
   const lotLabel = lots === 1 ? 'lot' : 'lots';
-  return ` <span title="${escapeAttr(`${lots} ${lotLabel} added`)}" style="font-size:10px;color:var(--muted);font-weight:700;">(${escapeHtml(lots)} ${lotLabel})</span>`;
+  return ` <span class="scalp-sym-extra" title="${escapeAttr(`${lots} ${lotLabel} added`)}" style="font-size:10px;color:var(--muted);font-weight:700;">(${escapeHtml(lots)} ${lotLabel})</span>`;
 }
 
 // Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
+// Phil, 2026-10-27: "make that 2nd row flow down". Beside the chart a position
+// shows Symbol to P&L; its Target, SL and buttons fold down under it, so more
+// positions do not push the launchpad away. One opened stays open across the
+// table's rebuilds. The wide (phone and narrow) table has no fold.
+const _scalpRowsOpen = new Set();
+function _scalpRowFoldBtn(t) {
+  const open = _scalpRowsOpen.has(Number(t.trade_id));
+  // The click reaches the cell's own handler: the whole symbol cell folds.
+  return `<button type="button" class="scalp-row-fold" aria-expanded="${open}" aria-label="Target, SL and Exit" title="Target, SL and Exit">${open ? '▾' : '▸'}</button>`;
+}
+function _scalpRowFoldClass(t) {
+  return _scalpRowsOpen.has(Number(t.trade_id)) ? '' : ' class="is-folded"';
+}
+function _scalpRowTitle(t) {
+  const lots = Number(t.lots || 0);
+  return [`${t.underlying || ''} ${t.strike || ''}${t.option_type || ''}`, t.expiry, lots ? `${lots} lot${lots === 1 ? '' : 's'}` : '',
+    String(t.product_type || '').toUpperCase(), t.mode === 'live' ? (t.broker === 'zerodha' ? 'Zerodha' : 'Dhan') : 'Paper', `#${t.trade_id}`]
+    .filter(Boolean).join(' · ');
+}
+function toggleScalpRow(tradeId) {
+  const id = Number(tradeId);
+  if (_scalpRowsOpen.has(id)) _scalpRowsOpen.delete(id); else _scalpRowsOpen.add(id);
+  const row = document.querySelector(`#scalp-active-body tr[data-tid="${id}"]`);
+  if (!row) return;
+  const open = _scalpRowsOpen.has(id);
+  row.classList.toggle('is-folded', !open);
+  const btn = row.querySelector('.scalp-row-fold');
+  if (btn) { btn.setAttribute('aria-expanded', String(open)); btn.textContent = open ? '▾' : '▸'; }
+}
+
 function _buildScalpActiveRow(t, open = []) {
   const isPending = t.status === 'pending';
   const pnl = t.pnl || 0;
@@ -14478,8 +14508,8 @@ function _buildScalpActiveRow(t, open = []) {
   const tgtVal = t.target_premium || 0;
   const slVal = t.sl_premium || 0;
   if (isPending) {
-    return `<tr data-tid="${t.trade_id}" data-status="pending" style="border-bottom:1px solid rgba(255,255,255,0.03);background:rgba(99,102,241,0.06);">
-      <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')}${_scalpLotsBadge(t)} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${_scalpProductBadge(t.product_type)}<br><span style="font-size:9px;color:rgba(139,143,255,0.9);font-weight:700;">⏳ PENDING</span></td>
+    return `<tr data-tid="${t.trade_id}" data-status="pending"${_scalpRowFoldClass(t)} style="border-bottom:1px solid rgba(255,255,255,0.03);background:rgba(99,102,241,0.06);">
+      <td class="scalp-row-head" onclick="toggleScalpRow(${t.trade_id})" title="${escapeAttr(_scalpRowTitle(t))}" style="padding:8px 10px;font-size:12px;">${_scalpRowFoldBtn(t)}${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')}${_scalpLotsBadge(t)} <span class="scalp-sym-extra" style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${_scalpProductBadge(t.product_type)}<br class="scalp-sym-extra"><span style="font-size:9px;color:rgba(139,143,255,0.9);font-weight:700;"> ⏳ PENDING</span></td>
       <td style="padding:6px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(139,143,255,0.9);">${_buildScalpPendingRangeEditor(t.trade_id, t.entry_limit_price, t.entry_limit_max)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
       <td style="padding:8px 10px;text-align:center;font-size:10px;color:var(--muted);">—</td>
@@ -14497,18 +14527,30 @@ function _buildScalpActiveRow(t, open = []) {
   // A "Both" scalp: its other leg still open makes Exit close the two.
   const partner = t.pair_id ? open.find(o => o.pair_id === t.pair_id && o.trade_id !== t.trade_id) : null;
   const pairBadge = partner
-    ? ` <span title="Placed on both brokers with #${escapeAttr(partner.trade_id)} · Both closes the two" style="font-size:9px;color:rgba(251,191,36,0.9);font-weight:700;">${t.broker === 'zerodha' ? '' : 'DHAN '}⇄ #${escapeHtml(partner.trade_id)}</span>`
+    ? ` <span class="scalp-sym-extra" title="Placed on both brokers with #${escapeAttr(partner.trade_id)} · Both closes the two" style="font-size:9px;color:rgba(251,191,36,0.9);font-weight:700;">⇄ #${escapeHtml(partner.trade_id)}</span>`
     : '';
   // Each leg still has its own Exit (Phil, 2026-10-26: "can't I exit separately?").
   const exitBtn = `<button class="btn btn-danger btn-sm" onclick="exitScalpTrade(${t.trade_id})"${partner ? ` title="Exit only this ${t.broker === 'zerodha' ? 'Zerodha' : 'Dhan'} leg; #${escapeAttr(partner.trade_id)} stays open"` : ''} style="padding:3px 8px;font-size:10px;">Exit</button>`
     + (partner ? `<button class="btn btn-danger btn-sm" onclick="exitScalpPair(${t.trade_id})" title="Exit this trade and #${escapeAttr(partner.trade_id)} at both brokers" style="padding:3px 8px;font-size:10px;">Both</button>` : '');
-  const brokerBadge = pairBadge + (onZerodha
-    ? ` <span title="Zerodha${t.broker_sl_order_id ? ' · stop resting at Zerodha' : ' · stop not yet at Zerodha'} · target watched by PhilForge" style="font-size:9px;color:rgba(96,165,250,0.85);font-weight:700;">ZERODHA</span>`
-    : '') + (hasBrokerOrders
-    ? ` <span title="${t.super_order_id ? 'Dhan Super Order active' : 'SL/TP placed on broker'}" style="font-size:9px;color:rgba(52,211,153,0.7);font-weight:700;">${t.super_order_id ? 'SO' : '🛡️'}</span>`
-    : '');
-  return `<tr data-tid="${t.trade_id}" data-status="open" style="border-bottom:1px solid rgba(255,255,255,0.03);">
-    <td style="padding:8px 10px;font-size:12px;">${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')}${_scalpLotsBadge(t)} <span style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${_scalpProductBadge(t.product_type)}${brokerBadge}</td>
+  // The broker's name first, then the pair: in the one-line cell beside the
+  // chart, what does not fit is the end of the line.
+  // Every live trade names its broker, in the colour of its button on the
+  // form (Phil, 2026-10-27: "The colour of the zerodha or the Dhan tag has to
+  // match with the select button"). What "SO" and the shield used to say --
+  // the stop and target held at the broker -- is the tag's title now.
+  const onDhan = t.mode === 'live' && !onZerodha;
+  const brokerTitle = onZerodha
+    ? `Zerodha${t.broker_sl_order_id ? ' · stop resting at Zerodha' : ' · stop not yet at Zerodha'} · target watched by PhilForge`
+    : t.super_order_id ? 'Dhan · Super Order: target and stop held at Dhan'
+    : hasBrokerOrders ? 'Dhan · stop placed at Dhan' : 'Dhan';
+  const brokerBadge = (onZerodha || onDhan
+    ? ` <span class="scalp-broker-tag ${onZerodha ? 'is-zerodha' : 'is-dhan'}" title="${escapeAttr(brokerTitle)}">${onZerodha ? 'ZERODHA' : 'DHAN'}</span>`
+    : '') + pairBadge;
+  // Beside the chart the "⇄ #n" has no room on the one line: a paired leg
+  // wears an amber bar instead, and its title names the other leg.
+  const pairAttr = partner ? ` data-pair="${escapeAttr(t.pair_id)}"` : '';
+  return `<tr data-tid="${t.trade_id}" data-status="open"${pairAttr}${_scalpRowFoldClass(t)} style="border-bottom:1px solid rgba(255,255,255,0.03);">
+    <td class="scalp-row-head" onclick="toggleScalpRow(${t.trade_id})" title="${escapeAttr(_scalpRowTitle(t) + (partner ? ` · placed on both brokers with #${partner.trade_id}` : ''))}" style="padding:8px 10px;font-size:12px;">${_scalpRowFoldBtn(t)}${escapeHtml(t.underlying || '')} ${escapeHtml(t.strike || '')}${escapeHtml(t.option_type || '')}${_scalpLotsBadge(t)} <span class="scalp-sym-extra" style="font-size:10px;color:var(--muted);">${escapeHtml(t.expiry || '')}</span>${_scalpProductBadge(t.product_type)}${brokerBadge}</td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-entry-${t.trade_id}">₹${(t.entry_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>

@@ -112,9 +112,14 @@ test('Scalp panels size to content and Advanced preserves every execution field'
     const entry = entryEl.getBoundingClientRect();
     const logBox = log.getBoundingClientRect();
     const advancedBox = document.querySelector('#scalp-page .scalp-advanced')!.getBoundingClientRect();
+    // Since 2026-10-27 the desk card itself is the grid (the panes' wrapper
+    // steps aside), so the chart can run from the top beside the positions.
+    const desk = panes.parentElement!;
+    const pos = positionsEl.getBoundingClientRect();
     return {
-      columns: getComputedStyle(panes).gridTemplateColumns,
-      alignItems: getComputedStyle(panes).alignItems,
+      columns: getComputedStyle(desk).gridTemplateColumns,
+      alignItems: getComputedStyle(entryEl).alignSelf,
+      positionsOverTheForm: Math.abs(pos.left - entry.left) < 2 && pos.bottom <= entry.top,
       positionsLeadTheDesk: !!(positionsEl.compareDocumentPosition(panes) & Node.DOCUMENT_POSITION_FOLLOWING)
         && !positionsEl.closest('.ocp-panes'),
       // Since 2026-10-20 the chart and the log are on the LEFT, the form on the right.
@@ -127,6 +132,7 @@ test('Scalp panels size to content and Advanced preserves every execution field'
   expect(geometry.columns.split(' ')).toHaveLength(2);
   expect(geometry.alignItems).toBe('start');
   expect(geometry.positionsLeadTheDesk).toBe(true);
+  expect(geometry.positionsOverTheForm).toBe(true);
   expect(geometry.logBesideTheForm).toBe(true);
   expect(geometry.logIsItsOwnSection).toBe(true);
   expect(geometry.logInLiveColumn).toBe(true);

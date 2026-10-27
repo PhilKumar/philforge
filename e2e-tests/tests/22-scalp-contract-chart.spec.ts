@@ -334,7 +334,7 @@ test('Scalp: the option chart opens on three days of candles and keeps a chosen 
   await strip.getByRole('radio', { name: /^5m$/i }).click();
 });
 
-test('Scalp: chart and launchpad split 70/30, tops level, every launchpad control one height', async ({ page }) => {
+test('Scalp: chart beside positions over launchpad, 70/30, tops level, every launchpad control one height', async ({ page }) => {
   // Phil, 2026-10-20: "Make the scalp controls panel a lil bit wider like 30-70
   // ... check all the fields whether they are properly aligned".
   await page.setViewportSize({ width: 1920, height: 1200 });
@@ -355,12 +355,17 @@ test('Scalp: chart and launchpad split 70/30, tops level, every launchpad contro
       heights[sel] = Math.round(b.height);
       (rows[Math.round(b.top)] = rows[Math.round(b.top)] || []).push(Math.round(b.height));
     }));
-    return { split: Math.round(form.width / (live.width + form.width) * 100), topGap: Math.round(form.top - live.top),
-      right: Math.round(pos.right - form.right), left: Math.round(live.left - pos.left), heights };
+    // Since 2026-10-27 the chart runs from the top on the left, and Active
+    // Positions stands over the launchpad on the right, in the same column.
+    return { split: Math.round(form.width / (live.width + form.width) * 100), topGap: Math.round(pos.top - live.top),
+      right: Math.round(pos.right - form.right), left: Math.round(pos.left - form.left),
+      stacked: Math.round(form.top - pos.bottom), chartTall: Math.round(live.bottom - form.bottom) >= -1, heights };
   });
   expect(m.split).toBe(30);
   expect(m.topGap).toBe(0);
   expect([m.left, m.right]).toEqual([0, 0]);
+  expect(m.stacked).toBe(14);
+  expect(m.chartTall).toBe(true);
   expect(new Set(Object.values(m.heights))).toEqual(new Set([40]));
   // The Supertrend tick sits beside its words, at the fields' left edge
   // (Phil, 2026-10-21: "Not aligned properly" -- it had dropped under them).

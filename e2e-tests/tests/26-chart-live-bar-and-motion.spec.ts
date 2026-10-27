@@ -405,6 +405,8 @@ test('an open trade on the form\'s contract does not hold the chart when CE turn
     (window as any)._scalpDockFollow([t]);
   }, trade);
   await expect(page.locator('#scalp-dock-chart-title')).toHaveText('NIFTY 22700CE');
+  // The 3s status poll may be mid-fetch through the route above as the page closes.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
 test('RSI (14) sits under the option chart as TradingView draws it, and its switch hides it', async ({ page }) => {

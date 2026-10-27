@@ -10237,3 +10237,96 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 @media (min-width: 781px) {
   #scalp-page .scalp-action-wrap.is-pair { flex-wrap: nowrap; }
 }
+
+/* THE CHART FROM THE TOP, POSITIONS OVER THE LAUNCHPAD (Phil, 2026-10-27:
+   "make this panel into 2 where the chart can extend upwards and the active
+   positions comes to right side ... above tactical launchpad"; "Upto P&L one
+   row the rest on the next row"). Desktop only, and only placement: the card
+   becomes the grid, the panes' wrapper steps aside (display: contents), and
+   no element moves in the page, so the phone keeps its stacked layout.
+   Rows: engine line | positions | launchpad | filler | history. The chart
+   spans positions to filler, and the filler takes whatever the chart needs
+   beyond the right column, so no gap opens between positions and launchpad. */
+@media (min-width: 1080px) {
+  #scalp-page > .card {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(440px, 3fr);
+    grid-template-rows: auto auto auto 1fr auto;
+    column-gap: 14px;
+  }
+  #scalp-page > .card > .ocp-head { grid-column: 1 / -1; grid-row: 1; }
+  #scalp-page > .card > .scalp-positions-card { grid-column: 2; grid-row: 2; margin: 0 0 14px !important; min-width: 0; }
+  #scalp-page > .card > .ocp-panes { display: contents; }
+  #scalp-page > .card > .ocp-panes > .ocp-pane-form { grid-column: 2; grid-row: 3; align-self: start; }
+  #scalp-page > .card > .ocp-panes > .ocp-pane-live { grid-column: 1; grid-row: 2 / 5; align-self: stretch; min-width: 0; }
+  #scalp-page > .card > .scalp-history-card { grid-column: 1 / -1; grid-row: 5; margin-top: 14px; }
+  /* The chart takes the column's height, never less than its 600px. */
+  #scalp-page .ocp-pane-live > .scalp-dock-chart:not([hidden]) { flex: 1 1 auto; display: flex; flex-direction: column; }
+  #scalp-page .scalp-dock-chart > .scalp-dock-chart-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #scalp-page .scalp-dock-chart-body > .scalp-dock-chart-canvas { flex: 1 1 auto; display: flex; flex-direction: column; }
+  #scalp-page .scalp-dock-chart-canvas > .pf-bench-canvas-host { flex: 1 1 auto; height: auto; }
+  /* Pinned in its column: the page colour to its right edge, not across the
+     gap onto the chart. */
+  body.pf-frozen-tops #scalp-page.active-page > .card.pf-scalp-stuck > .scalp-positions-card {
+    box-shadow: 18px 0 0 var(--bg), 0 12px 18px rgba(2, 6, 14, .35);
+  }
+  /* Beside the chart it need not leave room for the page under it: only the
+     launchpad scrolls beneath, so it may stand taller before it scrolls. */
+  body.pf-frozen-tops #scalp-page.active-page > .card > .scalp-positions-card > [role="region"] {
+    max-height: max(230px, calc(100vh - var(--pf-freeze-scalp-pos, 0px) - 200px));
+  }
+  /* Each position on two lines: Symbol, Entry, LTP, P&L; then Target, SL and
+     the buttons. Twenty-four columns: 11 | 4 | 4 | 5, then 8 | 8 | 8. The
+     first line is ONE line (Phil, 2026-10-27: "I need only one line even on
+     the first row"): expiry, lots and product step aside (the cell's title
+     has them), and what is left ends in an ellipsis rather than wrapping. */
+  #scalp-page .scalp-positions-card .scalp-active-table { min-width: 0; display: block; table-layout: auto; }
+  #scalp-page .scalp-positions-card .scalp-active-table colgroup { display: none; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(thead, tbody) { display: block; }
+  #scalp-page .scalp-positions-card .scalp-active-table tr {
+    display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); align-items: center;
+  }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td) { padding-left: 6px !important; padding-right: 6px !important; min-width: 0; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(1) { grid-column: span 11; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(2),
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(3) { grid-column: span 4; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(4) { grid-column: span 5; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(5),
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(6) { grid-column: span 7; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(7) { grid-column: span 10; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(-n+4) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #scalp-page .scalp-positions-card .scalp-active-table .scalp-sym-extra { display: none; }
+  #scalp-page .scalp-positions-card .scalp-active-table tr[data-pair] > td:first-child { box-shadow: inset 3px 0 0 rgba(251,191,36,.85); }
+  /* Room for the broker's tag on that one line. */
+  #scalp-page .scalp-positions-card .scalp-active-table .scalp-broker-tag { margin-left: 4px; padding: 0 4px; font-size: 8.5px; letter-spacing: .2px; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(1) { padding-left: 4px !important; }
+  #scalp-page .scalp-positions-card .scalp-active-table td[colspan] { grid-column: 1 / -1; }
+  #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(n+5) { padding-top: 2px; }
+  /* Set, chart, Exit and Both on the one line, with the editors (Phil,
+     2026-10-27: "the second line buttons are not aligned properly"). */
+  #scalp-page .scalp-positions-card .scalp-active-table td:nth-child(n+5) { padding-left: 2px !important; padding-right: 2px !important; }
+  #scalp-page .scalp-positions-card .scalp-action-wrap { flex-wrap: nowrap; gap: 3px; justify-content: center; }
+  #scalp-page .scalp-positions-card .scalp-action-wrap .btn { padding: 3px 7px !important; }
+  /* The second line folds (see _scalpRowFoldBtn); with every one folded, its
+     header line goes too. */
+  #scalp-page .scalp-positions-card .scalp-active-table tr.is-folded > td:nth-child(n+5) { display: none; }
+  #scalp-page .scalp-positions-card:not(:has(tbody tr[data-tid]:not(.is-folded))) thead th:nth-child(n+5) { display: none; }
+  #scalp-page .scalp-positions-card .scalp-row-fold {
+    display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 16px; margin: 0 4px 0 0;
+    padding: 0; vertical-align: middle; border: 0; background: none; color: var(--muted); font-size: 11px; line-height: 1; cursor: pointer;
+  }
+  #scalp-page .scalp-positions-card .scalp-row-head { cursor: pointer; }
+  #scalp-page .scalp-positions-card .scalp-row-head:hover .scalp-row-fold,
+  #scalp-page .scalp-positions-card .scalp-row-fold[aria-expanded="true"] { color: #fbbf24; }
+}
+/* The wide table (phone, narrow window) never folds. */
+.scalp-row-fold { display: none; }
+
+/* A live scalp's broker, in its button's colour (2026-10-27): Dhan teal,
+   Zerodha orange, as .scalp-toggle-btn.active[data-tone] on the form. */
+.scalp-broker-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; border: 1px solid;
+  font: 700 9px/1.5 'JetBrains Mono', monospace; letter-spacing: .4px; vertical-align: middle; }
+.scalp-broker-tag.is-dhan { color: #99f6e4; border-color: rgba(94,234,212,.75); background: rgba(20,184,166,.20); }
+.scalp-broker-tag.is-zerodha { color: #fed7aa; border-color: rgba(251,146,60,.85); background: rgba(251,146,60,.20); }
+[data-theme="light"] .scalp-broker-tag.is-dhan { color: #0f766e; border-color: #0d9488; background: rgba(20,184,166,.14); }
+[data-theme="light"] .scalp-broker-tag.is-zerodha { color: #9a3412; border-color: #c2410c; background: rgba(251,146,60,.16); }

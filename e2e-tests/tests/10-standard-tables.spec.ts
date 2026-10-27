@@ -141,6 +141,10 @@ test('every site table uses the Campaigns ledger contract', async ({ page }) => 
       const th = table.querySelector('th');
       const td = table.querySelector('td');
       if (!th || !td) return null;
+      // Active Positions docked beside the Scalp chart lays each position on
+      // two lines in a ~440px column (Phil, 2026-10-27); there the cells keep
+      // 6px sides so Entry, LTP and P&L fit. The wide table keeps the contract.
+      if (table.classList.contains('scalp-active-table') && getComputedStyle(table).display === 'block') return null;
       const head = getComputedStyle(th);
       const cell = getComputedStyle(td);
       const matches = getComputedStyle(table).fontSize === '13px'
