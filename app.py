@@ -22329,7 +22329,7 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
 
     async def broadcast(event: dict):
         await _broadcast_user_ws_json(user_id, {"source": "paper", "run_id": run_id, **event})
-        await _check_trade_alerts(run_id, "Paper", event, user_id=user_id)
+        # No Telegram for paper (Phil, 2026-10-27: "Let only Live have telegram alerts").
         # Save each closed trade to the user's run history for the Results page.
         if event.get("type") == "exit" and event.get("trade"):
             await _save_single_trade_to_history(event["trade"], "paper", run_name=run_id, explicit_user_id=user_id)
@@ -22347,7 +22347,6 @@ async def _paper_start_impl(payload: StrategyPayload, user_id: int):
     engine.session_date = _ist_today()
     engine._save_state()
 
-    alerter.alert("Engine Started", f"Strategy: {run_id}\nMode: Paper", level="info")
     return {"status": "started", "run_id": run_id, "message": "Paper trading started with LIVE market data"}
 
 
@@ -22405,12 +22404,6 @@ async def paper_stop(request: Request):
     stopped_engines[_engine_snapshot_key(run_id, "paper")] = status_before
     _save_stopped_engines(user_id)
     _alert_state.pop(_alert_state_key(user_id, run_id), None)
-
-    pnl = round(status_before.get("total_pnl", 0), 2)
-    trades = len(status_before.get("closed_trades", []))
-    alerter.alert(
-        "Engine Stopped", f"Strategy: {run_id}\nMode: Paper\nTrades: {trades}\nTotal P&L: \u20b9{pnl:.2f}", level="warn"
-    )
 
     return {"status": "stopped", "run_id": run_id}
 
@@ -26379,7 +26372,9 @@ def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | No
                 asyncio.create_task(_persist_closed_trade_async(owner_id, trade_dict))
             else:
                 print("[SCALP] Skipping closed-trade persistence — no owner user_id available")
-            # Telegram alert for every scalp exit (manual, target, SL, sqoff)
+            # Telegram alert for every LIVE scalp exit (manual, target, SL, sqoff)
+            if str(trade_dict.get("mode") or "") != "live":
+                return
             pnl = trade_dict.get("pnl", 0)
             sym = (
                 f"{trade_dict.get('underlying', '?')} {trade_dict.get('strike', '')}{trade_dict.get('option_type', '')}"
@@ -26738,6 +26733,8 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             _notify_scalp_ws()
             return result
         except Exception as e:
+            if req.mode != "live":
+                raise HTTPException(status_code=500, detail=str(e))
             alerter.alert(
                 "Scalp Entry Error",
                 f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}\nError: {e}",
@@ -26785,6 +26782,8 @@ async def _enter_scalp_on_both_brokers(eng, req: ScalpEntryReq, entry: dict) -> 
 
 
 def _alert_scalp_entry(req: ScalpEntryReq, result: dict, broker: str) -> None:
+    if req.mode != "live":
+        return  # no Telegram for paper
     broker_line = (
         f"\nBroker: {broker.title()}" if (broker == "zerodha" or req.both_brokers) and req.mode == "live" else ""
     )
@@ -26820,15 +26819,23 @@ async def scalp_exit(trade_id: int, request: Request, pair: bool = False):
     try:
         await _restore_scalp_open_state(user_id, eng)
         await _attach_scalp_zerodha_for_request(eng, request)
+        live = _scalp_trade_is_live(eng, trade_id)
         result = await (_exit_scalp_pair(eng, trade_id) if pair else eng.exit_trade(trade_id, reason="manual"))
-        if result.get("status") == "error" and not pair:
+        if result.get("status") == "error" and not pair and live:
             alerter.alert("Scalp Exit Failed", f"Trade ID: {trade_id}\nError: {result.get('message', 'unknown')}")
         await _save_scalp_open_state(user_id, eng, force=True)
         _notify_scalp_ws()
         return result
     except Exception as e:
-        alerter.alert("Scalp Exit Error", f"Trade ID: {trade_id}\nError: {e}")
+        if _scalp_trade_is_live(eng, trade_id):
+            alerter.alert("Scalp Exit Error", f"Trade ID: {trade_id}\nError: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _scalp_trade_is_live(eng, trade_id: int) -> bool:
+    """Telegram speaks for live scalps only; one no longer open is assumed live."""
+    trade = eng.open_trades.get(trade_id)
+    return trade is None or trade.mode == "live"
 
 
 async def _exit_scalp_pair(eng, trade_id: int) -> dict:
@@ -26840,12 +26847,13 @@ async def _exit_scalp_pair(eng, trade_id: int) -> dict:
     trade = eng.open_trades.get(trade_id)
     pair_id = getattr(trade, "pair_id", "") if trade else ""
     ids = [tid for tid, t in eng.open_trades.items() if pair_id and t.pair_id == pair_id] or [trade_id]
+    live = {tid: _scalp_trade_is_live(eng, tid) for tid in ids}
     results = await asyncio.gather(*(eng.exit_trade(tid, reason="manual") for tid in ids), return_exceptions=True)
     legs = {}
     for tid, result in zip(ids, results):
         if isinstance(result, Exception):
             result = {"status": "error", "message": str(result)}
-        if result.get("status") == "error":
+        if result.get("status") == "error" and live[tid]:
             alerter.alert("Scalp Exit Failed", f"Trade ID: {tid}\nError: {result.get('message', 'unknown')}")
         legs[tid] = result
     failed = [tid for tid in ids if legs[tid].get("status") == "error"]
@@ -26862,15 +26870,17 @@ async def scalp_kill_all(request: Request):
     try:
         await _restore_scalp_open_state(user_id, eng)
         await _attach_scalp_zerodha_for_request(eng, request)
+        any_live = any(t.mode == "live" for t in eng.open_trades.values())
         result = await eng.kill_all_trades()
         closed = result.get("closed", 0)
-        if closed > 0:
+        if closed > 0 and any_live:
             alerter.alert("Scalp Kill All", f"Emergency exit: {closed} trade(s) closed", level="warning")
         await _save_scalp_open_state(user_id, eng, force=True)
         _notify_scalp_ws()
         return result
     except Exception as e:
-        alerter.alert("Scalp Kill All Error", f"Error: {e}")
+        if any(t.mode == "live" for t in eng.open_trades.values()):
+            alerter.alert("Scalp Kill All Error", f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -28084,11 +28094,6 @@ async def option_builder_paper_open(req: OptionBuilderBasketReq, request: Reques
         rows.append(basket)
         await _ob_save_book(uid, book)
         await _ob_save_paper(uid, rows)
-    alerter.alert(
-        "Option Builder · Paper",
-        f"{basket['name']} opened on {basket['underlying']} · {len(legs)} leg(s)",
-        level="info",
-    )
     return {"status": "ok", "basket": basket}
 
 
@@ -28202,12 +28207,6 @@ async def option_builder_paper_close(basket_id: int, request: Request):
             )
         rows = [closed if r is basket else r for r in rows]
         await _ob_save_paper(uid, rows)
-    pnl = closed["realised"]
-    alerter.alert(
-        "Option Builder · Paper closed",
-        f"{closed['name']} on {closed['underlying']}: {'+' if pnl >= 0 else ''}₹{pnl:,.2f}",
-        level="info" if pnl >= 0 else "error",
-    )
     return {"status": "ok", "basket": closed}
 
 

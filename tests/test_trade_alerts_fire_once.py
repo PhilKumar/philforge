@@ -179,7 +179,8 @@ class TheCallersAwaitIt(unittest.TestCase):
     def test_no_call_site_was_left_synchronous(self):
         """A forgotten `await` here is a coroutine that never runs: silence."""
         src = (ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertEqual(src.count("await _check_trade_alerts("), 4)
+        # Three live callers; paper books send none (2026-10-27).
+        self.assertEqual(src.count("await _check_trade_alerts("), 3)
         self.assertNotIn("\n    _check_trade_alerts(", src)
         self.assertNotIn("\n        _check_trade_alerts(", src)
 
