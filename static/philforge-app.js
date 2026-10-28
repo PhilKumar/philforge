@@ -14630,7 +14630,110 @@ function _scalpDockShow() {
       onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
       onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
     });
-    actions.insertBefore(_scalpChartTools({ popout: true }), actions.firstChild);
+    // The studies and drawing tools fold into a drawer beside the heading.
+    const title = document.querySelector('#scalp-dock-chart .terminal-cascade-chart-title');
+    if (title) {
+      const drawer = _scalpStudioDrawer(_scalpChartTools({ popout: true }));
+      title.after(drawer);
+      // Placed at once, before the chart is drawn below it: a tray that took
+      // its row a frame later shrank a chart already measured.
+      _placeScalpStudio(drawer);
+    }
+    else actions.insertBefore(_scalpChartTools({ popout: true }), actions.firstChild);
+  }
+}
+
+// ── The Studio drawer (Phil, 2026-10-28: "Move these buttons into a arrow
+// with a catchy text ... beside the chart heading just to click on it display
+// like rolling out from left to right to view and clicking it back to go
+// inside the arrow"). Closed by default, remembered on this browser. The tray
+// clips only while it rolls, so the Fib menu is never cut off once it is out.
+const _SCALP_STUDIO_KEY = 'pf-scalp-studio-open';
+// The tray starts at the tab's right edge and may run to the toolbar's end,
+// wrapping inside itself rather than past the card.
+function _placeScalpStudio(drawer) {
+  const bar = drawer.closest('.scalp-dock-chart-toolbar');
+  const tab = drawer.querySelector('.scalp-studio-tab');
+  const tray = document.getElementById('scalp-studio-tray');
+  if (!bar || !tab || !tray) return;
+  const b = bar.getBoundingClientRect(), t = tab.getBoundingClientRect();
+  if (!b.width || !t.width) return;
+  // Beside the tab when its one row fits before the timeframes, zoom and
+  // switches on the same row: it floats there and nothing moves. Otherwise
+  // it is a row of its own under the heading, which pushes the chart down
+  // rather than covering it while you draw. Never over a control.
+  const actions = bar.querySelector('.terminal-cascade-chart-actions');
+  const a = actions && actions.getClientRects().length ? actions.getBoundingClientRect() : null;
+  const sameRow = a && a.top < t.bottom && a.bottom > t.top;
+  const tools = tray.firstElementChild;
+  if (tools) tools.style.flexWrap = 'nowrap';
+  tray.style.maxWidth = 'none';
+  // The buttons' own span: the box itself stretches to fill a row.
+  const kids = tools ? [...tools.children].filter(k => k.getClientRects().length) : [];
+  const natural = kids.length ? kids[kids.length - 1].getBoundingClientRect().right - kids[0].getBoundingClientRect().left + 12 : 0;
+  if (tools) tools.style.flexWrap = '';
+  // A strip wrapped onto the next row is still under a floating tray's
+  // reach, so the room beside the tab counts only when the strip shares it.
+  const room = sameRow ? a.left - t.right - 16 : (a ? 0 : b.right - t.right - 16);
+  if (natural <= room) {
+    if (tray.parentElement !== drawer) drawer.appendChild(tray);
+    tray.classList.remove('is-row');
+    tray.style.left = `${Math.round(t.right - b.left + 8)}px`;
+    tray.style.top = `${Math.round(t.top - b.top - 5)}px`;
+    tray.style.maxWidth = `${Math.round(room)}px`;
+  } else {
+    if (tray.parentElement !== bar) bar.appendChild(tray);
+    tray.classList.add('is-row');
+    tray.style.left = tray.style.top = tray.style.maxWidth = '';
+  }
+}
+window.addEventListener('resize', () => {
+  const drawer = document.querySelector('#scalp-dock-chart .scalp-studio');
+  if (drawer) _placeScalpStudio(drawer);
+});
+let _scalpStudioTimer = null;
+function _scalpStudioDrawer(tools) {
+  const drawer = document.createElement('div');
+  drawer.className = 'scalp-studio';
+  drawer.innerHTML = `<button type="button" class="scalp-studio-tab" aria-controls="scalp-studio-tray">
+      <span class="scalp-studio-spark" aria-hidden="true">✦</span><span class="scalp-studio-name">Studio</span><span class="scalp-studio-arrow" aria-hidden="true">▸</span>
+    </button>
+    <div class="scalp-studio-tray" id="scalp-studio-tray"></div>`;
+  drawer.querySelector('.scalp-studio-tray').appendChild(tools);
+  drawer.querySelector('.scalp-studio-tab').addEventListener('click', () => {
+    const open = !drawer.classList.contains('is-open');
+    _setScalpStudio(drawer, open, true);
+    try { localStorage.setItem(_SCALP_STUDIO_KEY, open ? '1' : '0'); } catch (err) {}
+  });
+  let open = false;
+  try { open = localStorage.getItem(_SCALP_STUDIO_KEY) === '1'; } catch (err) {}
+  _setScalpStudio(drawer, open, false);
+  return drawer;
+}
+function _setScalpStudio(drawer, open, animate) {
+  const tab = drawer.querySelector('.scalp-studio-tab');
+  const tray = drawer.querySelector('.scalp-studio-tray') || document.getElementById('scalp-studio-tray');
+  clearTimeout(_scalpStudioTimer);
+  // The tray may live in the toolbar (as its own row), so it carries the
+  // state itself as well as the drawer.
+  [drawer, tray].forEach(el => { el.classList.remove('is-settled'); el.classList.toggle('is-open', open); });
+  tab.setAttribute('aria-expanded', String(open));
+  tab.title = open ? 'Fold the chart tools away' : 'Studies and drawing tools: Supertrend, CPR, EMA, RSI, Fib, lines';
+  // A folded tray's buttons are out of reach of Tab and of clicks.
+  tray.inert = !open;
+  // Restored on load it is simply there: a chart that grows while it is
+  // first drawn mis-measures itself.
+  if (!animate) {
+    tray.style.transition = 'none';
+    setTimeout(() => { tray.style.transition = ''; }, 400);
+  }
+  if (open && drawer.isConnected) _placeScalpStudio(drawer);
+  if (open) {
+    const settle = () => [drawer, tray].forEach(el => el.classList.add('is-settled'));
+    if (animate) _scalpStudioTimer = setTimeout(settle, 320);
+    else settle();
+  } else {
+    _scalpCloseFibMenus();
   }
 }
 
@@ -14739,6 +14842,9 @@ function _scalpSyncTicket() {
   if (modeEl) {
     modeEl.textContent = mode.label;
     modeEl.classList.toggle('is-live', mode.live);
+    modeEl.title = !mode.live ? 'Paper: no order reaches a broker'
+      : mode.label.endsWith('BOTH') ? 'Live at Dhan AND Zerodha: B or S places one order at each'
+      : `Live at ${mode.label.endsWith('ZERODHA') ? 'Zerodha' : 'Dhan'} only`;
   }
   const matches = _scalpSameContract(_scalpChartInstrument(), _scalpFormContract());
   const why = matches ? '' : 'The chart shows another contract than the form. Pick it in the form to trade it here.';
@@ -14969,6 +15075,10 @@ function toggleScalpRail() {
   const hidden = !document.getElementById('scalp-page')?.classList.contains('scalp-rail-hidden');
   _applyScalpRail(hidden);
   try { localStorage.setItem(_SCALP_RAIL_KEY, hidden ? '1' : '0'); } catch (err) {}
+  // The chart's width changed, not the window's: the Studio tray re-picks
+  // beside the tab or under the heading.
+  const studio = document.querySelector('#scalp-dock-chart .scalp-studio');
+  if (studio) requestAnimationFrame(() => _placeScalpStudio(studio));
 }
 window.toggleScalpRail = toggleScalpRail;
 (function restoreScalpRail() {

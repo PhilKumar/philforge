@@ -64,6 +64,59 @@ const canvas = (page: Page) => page.evaluate(() => {
   return { candles: c.data.candles, paint: c.paint, viewport: { ...c.viewport } };
 });
 
+// The studies and drawing tools sit in the Studio drawer beside the heading
+// (2026-10-28); these tests use them, so the drawer starts open. The drawer's
+// own test below starts it closed.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('pf-scalp-studio-open', '1'); } catch (_) {} });
+});
+
+test('the Studio drawer rolls the chart tools out beside the heading, and back in', async ({ page }) => {
+  // Phil, 2026-10-28: "Move these buttons into a arrow with a catchy text and
+  // move it beside the chart heading ... rolling out from left to right".
+  await page.addInitScript(() => { try { localStorage.setItem('pf-scalp-studio-open', '0'); } catch (_) {} });
+  await scalpChart(page, oneMinuteBars('2026-10-14', '10:00:00'), 150);
+  const tab = page.locator('#scalp-dock-chart .scalp-studio-tab');
+  const tray = page.locator('#scalp-dock-chart .scalp-studio-tray');
+  await expect(tab).toBeVisible();
+  await expect(tab).toHaveAttribute('aria-expanded', 'false');
+  // Beside the heading: the tab starts where the title ends.
+  const beside = await page.evaluate(() => {
+    const t = document.querySelector('#scalp-dock-chart .terminal-cascade-chart-title')!.getBoundingClientRect();
+    const b = document.querySelector('#scalp-dock-chart .scalp-studio-tab')!.getBoundingClientRect();
+    return b.left > t.right && b.left - t.right < 40 && b.top < t.bottom;
+  });
+  expect(beside).toBe(true);
+  const st = page.locator('#scalp-dock-chart .scalp-st-toggle');
+  await expect(st).toBeHidden();
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-expanded', 'true');
+  await expect(st).toBeVisible();
+  // It rolls out beside the tab, floating where nothing moves; or, with no
+  // room there, as its own row between the heading and the chart. Inside the
+  // card either way, and never over the timeframes, zoom or the B/S ticket.
+  // Polled: the B/S ticket follows the chart on its next redraw, a frame
+  // after a tray row has pushed the chart down.
+  const placement = () => page.evaluate(() => {
+    const r = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    const t = r('#scalp-dock-chart .scalp-studio-tab'), y = r('#scalp-dock-chart .scalp-studio-tray');
+    const card = r('#scalp-dock-chart'), a = r('#scalp-dock-chart-actions'), body = r('#scalp-dock-chart-body');
+    const overlaps = (p: DOMRect, q: DOMRect) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+    const ticket = document.getElementById('scalp-ticket');
+    const beside = y.left >= t.right && y.top < t.bottom;
+    const row = y.top >= t.bottom - 1 && y.bottom <= body.top + 1;
+    return { ok: (beside || row) && y.right <= card.right + 1 && !overlaps(y, a)
+      && !(ticket && ticket.getClientRects().length && overlaps(y, ticket.getBoundingClientRect())), beside, row,
+      rects: [t, y, card, a, body, ticket?.getBoundingClientRect()].map((q) => q && [q.left, q.top, q.right, q.bottom].map(Math.round).join(',')).join(' | ') };
+  });
+  await expect.poll(async () => { const p = await placement(); return p.ok ? 'ok' : p.rects; }).toBe('ok');
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-expanded', 'false');
+  await expect(st).toBeHidden();
+  await expect(tray).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('pf-scalp-studio-open'))).toBe('0');
+});
+
 test('the bar clock: 09:15 grid, a 1h bar closes at 15:30, no clock on a weekend', async ({ page }) => {
   await login(page);
   const out = await page.evaluate(([a, b, sat, shut]) => {
@@ -205,7 +258,7 @@ test('Supertrend (10, 2) is drawn on the option chart and its switch turns it of
   expect(on.dirs).toEqual([-1, 1]);
   expect(on.label).toEqual(['ST 10,2']);
 
-  const toggle = page.locator('#scalp-dock-chart-actions .scalp-st-toggle');
+  const toggle = page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-st-toggle');
   await expect(toggle).toHaveText('ST 10,2');
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
@@ -239,7 +292,7 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
     return [box.x + box.width * fx, box.y + box.height * fy] as const;
   };
   const click = async (fx: number, fy: number) => { const [x, y] = await xy(fx, fy); await page.mouse.click(x, y); };
-  const tools = page.locator('#scalp-dock-chart-actions .scalp-chart-tools');
+  const tools = page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-chart-tools');
   const stored = () => page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('pf_scalp_chart_drawings_v1') || '{}'))[0] as any || { fibs: [], lines: [] });
   const view = () => page.evaluate(() => JSON.stringify((window as any)._pfChartCanvas.viewport));
   // A drawing's end, in page pixels.
@@ -363,7 +416,7 @@ test('the docked chart opens big in a pop-up and comes back when it closes', asy
   // Phil, 2026-10-16: "give a zoom button to view in a pop-up window for a nice big view".
   await page.setViewportSize({ width: 1400, height: 1000 });
   await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
-  await page.locator('#scalp-dock-chart-actions .scalp-popout-btn').click();
+  await page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-popout-btn').click();
   const dialog = page.locator('#scalp-option-chart-overlay.is-open .scalp-option-chart-dialog.is-big');
   await expect(dialog).toBeVisible();
   await expect(page.locator('#scalp-option-chart-body canvas').first()).toBeVisible();
@@ -439,7 +492,7 @@ test('RSI (14) sits under the option chart as TradingView draws it, and its swit
     return Math.round((l === 0 ? 100 : 100 - 100 / (1 + g / l)) * 100) / 100;
   });
   expect(on.last).toBeCloseTo(expected, 2);
-  const toggle = page.locator('#scalp-dock-chart-actions .scalp-rsi-toggle');
+  const toggle = page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-rsi-toggle');
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
   await expect.poll(async () => (await rsi()).paneH).toBe(0);
@@ -508,7 +561,7 @@ test('the CPR switch hides and shows the pivot set as one', async ({ page }) => 
   } }));
   await scalpChart(page, candles, 150, false);
   const count = () => page.evaluate(() => (window as any)._pfChartCanvas.data.overlays.filter((o: any) => o.group === 'cpr').length);
-  const cpr = page.locator('#scalp-dock-chart-actions .scalp-cpr-toggle');
+  const cpr = page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-cpr-toggle');
   await expect(cpr).toHaveAttribute('aria-pressed', 'true');
   expect(await count()).toBe(3);
   await cpr.click();
@@ -537,7 +590,7 @@ test('the EMA switch hides and shows the 20-EMA alone, like CPR', async ({ page 
   } }));
   await scalpChart(page, candles, 150, false);
   const has = (label: string) => page.evaluate((l) => (window as any)._pfChartCanvas.data.overlays.some((o: any) => String(o.label).startsWith(l)), label);
-  const ema = page.locator('#scalp-dock-chart-actions .scalp-ema-toggle');
+  const ema = page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-ema-toggle');
   await expect(ema).toHaveText('EMA');
   await expect(ema).toHaveAttribute('aria-pressed', 'true');
   expect(await has('EMA 20')).toBe(true);
@@ -558,7 +611,7 @@ test('a trendline reaches right while it is being drawn, not only after the seco
   await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
   await page.evaluate(() => window.scrollTo(0, 0));
   const box = (await page.locator('#scalp-dock-chart-body canvas').first().boundingBox())!;
-  await page.locator('#scalp-dock-chart-actions .scalp-line-btn').click();
+  await page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-line-btn').click();
   await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.6);
   await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.4, { steps: 4 });
   const ray = await page.evaluate(() => {
@@ -648,7 +701,7 @@ test('Undo and Redo step through drawing changes, Clear included', async ({ page
   await page.setViewportSize({ width: 1400, height: 630 });
   await page.addInitScript(() => { try { localStorage.setItem('pf_scalp_chart_rsi', '0'); localStorage.removeItem('pf_scalp_chart_drawings_v1'); } catch (_) {} });
   await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
-  const tools = page.locator('#scalp-dock-chart-actions .scalp-chart-tools');
+  const tools = page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-chart-tools');
   const undo = tools.locator('.scalp-undo-btn'), redo = tools.locator('.scalp-redo-btn');
   const count = () => page.evaluate(() => (window as any)._pfChartCanvas.data.drawings.length);
   const click = async (fx: number, fy: number) => {
