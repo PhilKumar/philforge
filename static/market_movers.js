@@ -6,25 +6,6 @@ let moversRefreshTimer = null;
 let latestPayload = null;
 let marketMoversLoading = false;
 
-const INDUSTRY_PALETTE = {
-  'Financial Services': { rgb: '79, 142, 247' },
-  'Information Technology': { rgb: '167, 139, 250' },
-  Healthcare: { rgb: '52, 211, 153' },
-  'Automobile and Auto Components': { rgb: '251, 191, 36' },
-  'Oil Gas & Consumable Fuels': { rgb: '251, 146, 60' },
-  'Fast Moving Consumer Goods': { rgb: '34, 197, 94' },
-  'Metals & Mining': { rgb: '244, 114, 182' },
-  'Capital Goods': { rgb: '6, 182, 212' },
-  Power: { rgb: '14, 165, 233' },
-  'Consumer Durables': { rgb: '99, 102, 241' },
-  'Consumer Services': { rgb: '236, 72, 153' },
-  Construction: { rgb: '248, 113, 113' },
-  'Construction Materials': { rgb: '249, 115, 22' },
-  Telecommunication: { rgb: '168, 85, 247' },
-  Services: { rgb: '56, 189, 248' },
-  Other: { rgb: '148, 163, 184' },
-};
-
 function moversSunIcon() {
   return `
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -83,10 +64,6 @@ function toneClass(value) {
   if (amount > 0) return 'positive';
   if (amount < 0) return 'negative';
   return 'neutral';
-}
-
-function industryAccent(industry) {
-  return INDUSTRY_PALETTE[industry] || INDUSTRY_PALETTE.Other;
 }
 
 function formatVolume(value) {
@@ -151,50 +128,40 @@ function computeIndustryMoves(items) {
     .sort((a, b) => b.change_pct - a.change_pct);
 }
 
-function tileSize(weight) {
-  const value = Number(weight || 1);
-  if (value >= 2.3) return 'tile-xl';
-  return 'tile-lg';
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
 }
 
-function tileTone(item) {
-  const accent = industryAccent(item.industry).rgb;
-  if (item.unavailable) {
-    return {
-      moveRgb: '107, 114, 128',
-      accentRgb: accent,
-      alpha: '0.10',
-      accentAlpha: '0.12',
-      state: 'is-unavailable',
-    };
-  }
+// The map's colour: four steps each way by the size of the move, grey inside
+// ±0.25% (Phil, 2026-10-28: "everything is in text and not easy to read").
+function heatClass(item) {
+  if (item.unavailable) return 'hm-na';
   const pct = Number(item.change_pct || 0);
-  const intensity = Math.min(Math.abs(pct) / 4.5, 1);
-  if (pct > 0) {
-    return {
-      moveRgb: '49, 212, 191',
-      accentRgb: accent,
-      alpha: (0.14 + intensity * 0.20).toFixed(3),
-      accentAlpha: '0.18',
-      state: 'is-positive',
-    };
-  }
-  if (pct < 0) {
-    return {
-      moveRgb: '255, 123, 130',
-      accentRgb: accent,
-      alpha: (0.14 + intensity * 0.20).toFixed(3),
-      accentAlpha: '0.18',
-      state: 'is-negative',
-    };
-  }
-  return {
-    moveRgb: accent,
-    accentRgb: accent,
-    alpha: '0.11',
-    accentAlpha: '0.20',
-    state: 'is-flat',
-  };
+  const size = Math.abs(pct);
+  const level = size < 0.25 ? 0 : size < 1 ? 1 : size < 2 ? 2 : 3;
+  if (!level) return 'hm-0';
+  return `${pct > 0 ? 'hm-p' : 'hm-n'}${level}`;
+}
+
+// Index weight sets the tile: the heaviest names take a 2x2 block, the next
+// band a double-wide one, the rest a single cell.
+function tileSpan(weight) {
+  const value = Number(weight || 1);
+  if (value >= 2.3) return 'hm-xl';
+  if (value >= 1.6) return 'hm-lg';
+  return '';
+}
+
+function tileTitle(item) {
+  const lines = [`${item.symbol} · ${item.name || ''}`, item.industry || ''];
+  if (item.unavailable) lines.push('No quote yet');
+  else lines.push(`${formatCurrency(item.price || 0)}  ${formatSignedCurrency(item.change || 0)} (${formatSignedPercent(item.change_pct)})`, `Volume ${formatVolume(item.volume || 0)}`);
+  return lines.filter(Boolean).join('\n');
+}
+
+function escapeAttr(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 function renderHero(cardId, item, priceId, absId, volumeId) {
@@ -203,29 +170,19 @@ function renderHero(cardId, item, priceId, absId, volumeId) {
   const symbolEl = card.querySelector('.hero-symbol');
   const companyEl = card.querySelector('.hero-company');
   const changeEl = card.querySelector('.hero-change');
-  const priceEl = document.getElementById(priceId);
-  const absEl = document.getElementById(absId);
-  const volumeEl = document.getElementById(volumeId);
-
-  if (!item) {
-    symbolEl.textContent = '--';
-    companyEl.textContent = 'Awaiting quote';
-    changeEl.textContent = '0.00%';
-    priceEl.textContent = '--';
-    absEl.textContent = '--';
-    volumeEl.textContent = '--';
-    return;
+  if (symbolEl) symbolEl.textContent = item?.symbol || '--';
+  if (companyEl) companyEl.textContent = item ? (item.name || item.industry || '') : 'Awaiting quote';
+  if (changeEl) {
+    changeEl.textContent = item ? formatSignedPercent(item.change_pct) : '0.00%';
+    changeEl.className = `hero-change ${toneClass(item?.change_pct)}`;
   }
-
-  symbolEl.textContent = item.symbol || '--';
-  companyEl.textContent = item.name || item.industry || 'Awaiting quote';
-  changeEl.textContent = formatSignedPercent(item.change_pct);
-  changeEl.className = `hero-change ${toneClass(item.change_pct)}`;
-  priceEl.textContent = formatCurrency(item.price || 0);
-  absEl.textContent = formatSignedCurrency(item.change || 0);
-  volumeEl.textContent = formatVolume(item.volume || 0);
+  card.title = item ? tileTitle(item) : '';
+  setText(priceId, item ? formatCurrency(item.price || 0) : '--');
+  setText(absId, item ? formatSignedCurrency(item.change || 0) : '--');
+  setText(volumeId, item ? formatVolume(item.volume || 0) : '--');
 }
 
+// Each mover as a bar against the biggest move in its list.
 function renderRailList(containerId, items, emptyMessage) {
   const host = document.getElementById(containerId);
   if (!host) return;
@@ -233,43 +190,39 @@ function renderRailList(containerId, items, emptyMessage) {
     host.innerHTML = `<div class="heatmap-empty">${emptyMessage}</div>`;
     return;
   }
+  const top = Math.max(...items.map((item) => Math.abs(Number(item.change_pct || 0))), 0.01);
   host.innerHTML = items
-    .map(
-      (item, index) => {
-        const accent = industryAccent(item.industry);
-        return `
-        <div class="rail-row" style="--rail-accent-rgb:${accent.rgb};">
-          <span class="rail-rank">${index + 1}</span>
-          <div class="rail-main">
-            <span class="rail-symbol">${item.symbol}</span>
-            <span class="rail-company">${item.name}</span>
-          </div>
-          <span class="rail-move ${toneClass(item.change_pct)}">${formatSignedPercent(item.change_pct)}</span>
+    .map((item) => {
+      const pct = Number(item.change_pct || 0);
+      return `
+        <div class="rail-row" title="${escapeAttr(tileTitle(item))}">
+          <span class="rail-symbol">${escapeAttr(item.symbol)}</span>
+          <span class="rail-bar"><i class="${toneClass(pct)}" style="width:${((Math.abs(pct) / top) * 100).toFixed(1)}%"></i></span>
+          <span class="rail-move ${toneClass(pct)}">${formatSignedPercent(pct)}</span>
         </div>
       `;
-      }
-    )
+    })
     .join('');
 }
 
+// Sectors as bars either side of zero, best at the top.
 function renderIndustryList(items) {
   const host = document.getElementById('industry-list');
   if (!host) return;
   if (!items.length) {
-    host.innerHTML = `<div class="heatmap-empty">Industry drift will appear once quotes arrive.</div>`;
+    host.innerHTML = `<div class="heatmap-empty">Sectors appear once quotes arrive.</div>`;
     return;
   }
+  const top = Math.max(...items.map((item) => Math.abs(item.change_pct)), 0.01);
   host.innerHTML = items
-    .slice(0, 6)
     .map((item) => {
-      const accent = industryAccent(item.industry);
+      const pct = Number(item.change_pct || 0);
+      const width = ((Math.abs(pct) / top) * 50).toFixed(1);
       return `
-        <div class="industry-row" style="--rail-accent-rgb:${accent.rgb};">
-          <div class="industry-main">
-            <span class="industry-name">${item.industry}</span>
-            <span class="industry-meta">${item.count} stocks • ${formatVolume(item.volume)} volume</span>
-          </div>
-          <span class="industry-move ${toneClass(item.change_pct)}">${formatSignedPercent(item.change_pct)}</span>
+        <div class="industry-row" title="${escapeAttr(`${item.industry} · ${item.count} stocks · ${formatVolume(item.volume)} volume`)}">
+          <span class="industry-name">${escapeAttr(item.industry)}</span>
+          <span class="industry-bar"><i class="${toneClass(pct)}" style="width:${width}%;${pct >= 0 ? 'left:50%' : `right:50%`}"></i></span>
+          <span class="industry-move ${toneClass(pct)}">${formatSignedPercent(pct)}</span>
         </div>
       `;
     })
@@ -279,10 +232,8 @@ function renderIndustryList(items) {
 function renderHeatmapSkeleton() {
   const host = document.getElementById('heatmap-grid');
   if (!host) return;
-  host.innerHTML = Array.from({ length: 12 }, (_, idx) => {
-    const cls = idx < 2 ? 'tile-xl' : idx < 8 ? 'tile-lg' : 'tile-sm';
-    return `<article class="heatmap-tile ${cls} heatmap-skeleton" aria-hidden="true"></article>`;
-  }).join('');
+  host.innerHTML = `<div class="hm-map">${Array.from({ length: 6 }, () => `
+    <section class="hm-sector heatmap-skeleton" style="--w:6" aria-hidden="true"></section>`).join('')}</div>`;
 }
 
 function renderRailSkeleton(containerId, count = 6) {
@@ -308,43 +259,49 @@ function renderLoadingSkeleton() {
   renderIndustrySkeleton();
 }
 
+// Sectors heaviest first, each a block as wide as its weight; inside, the
+// stocks heaviest first. A tile shows its symbol and move; the rest is its
+// tooltip.
 function renderHeatmap(items) {
   const host = document.getElementById('heatmap-grid');
   if (!host) return;
   if (!items.length) {
-    host.innerHTML = `<div class="heatmap-empty">The Nifty 50 mosaic is waiting for its first snapshot.</div>`;
+    host.innerHTML = `<div class="heatmap-empty">The Nifty 50 map is waiting for its first snapshot.</div>`;
     return;
   }
-
-  const ranked = [...items].sort((a, b) => {
-    const weightDelta = Number(b.weight || 0) - Number(a.weight || 0);
-    if (Math.abs(weightDelta) > 0.0001) return weightDelta;
-    return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+  const sectors = new Map();
+  items.forEach((item) => {
+    const name = item.industry || 'Other';
+    const sector = sectors.get(name) || { name, weight: 0, total: 0, live: 0, items: [] };
+    sector.weight += Number(item.weight || 1);
+    if (!item.unavailable) {
+      sector.total += Number(item.change_pct || 0);
+      sector.live += 1;
+    }
+    sector.items.push(item);
+    sectors.set(name, sector);
   });
-
-  host.innerHTML = ranked
-    .map((item) => {
-      const tone = tileTone(item);
+  const byWeight = (a, b) => (Number(b.weight || 0) - Number(a.weight || 0)) || String(a.symbol || '').localeCompare(String(b.symbol || ''));
+  host.innerHTML = `<div class="hm-map">${Array.from(sectors.values())
+    .sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name))
+    .map((sector) => {
+      const avg = sector.live ? sector.total / sector.live : null;
       return `
-        <article class="heatmap-tile ${tileSize(item.weight)} ${tone.state}" style="--tile-move-rgb:${tone.moveRgb}; --tile-accent-rgb:${tone.accentRgb}; --tile-alpha:${tone.alpha}; --tile-accent-alpha:${tone.accentAlpha};">
-          <div class="tile-head">
-            <div>
-              <div class="tile-symbol">${item.symbol}</div>
-              <div class="tile-industry">${item.industry || 'Industry'}</div>
-            </div>
-            <span class="tile-change ${toneClass(item.change_pct)}">${item.unavailable ? 'No feed' : formatSignedPercent(item.change_pct)}</span>
+        <section class="hm-sector" style="--w:${sector.weight.toFixed(2)}">
+          <header class="hm-sector-head" title="${escapeAttr(`${sector.name} · ${sector.items.length} stocks`)}">
+            <span>${escapeAttr(sector.name)}</span>
+            ${avg === null ? '' : `<strong class="${toneClass(avg)}">${formatSignedPercent(avg)}</strong>`}
+          </header>
+          <div class="hm-tiles">${sector.items.sort(byWeight).map((item) => `
+            <div class="hm-tile ${heatClass(item)} ${tileSpan(item.weight)}" title="${escapeAttr(tileTitle(item))}">
+              <span class="hm-sym">${escapeAttr(item.symbol)}</span>
+              <span class="hm-pct">${item.unavailable ? '—' : formatSignedPercent(item.change_pct)}</span>
+            </div>`).join('')}
           </div>
-          <div class="tile-body">
-            <div class="tile-price">${item.unavailable ? 'Awaiting quote' : formatCurrency(item.price || 0)}</div>
-            <div class="tile-foot">
-              <span class="tile-company">${item.name || ''}</span>
-              <span class="tile-volume">${formatVolume(item.volume || 0)}</span>
-            </div>
-          </div>
-        </article>
+        </section>
       `;
     })
-    .join('');
+    .join('')}</div>`;
 }
 
 function saveSnapshot(payload) {
@@ -374,19 +331,32 @@ function updateBreadth(payload, industryMoves) {
   const total = Math.max(1, advancers + decliners + flat);
   const median = computeMedian(items);
 
-  document.getElementById('breadth-advancers').textContent = advancers;
-  document.getElementById('breadth-decliners').textContent = decliners;
+  setText('breadth-advancers', advancers);
+  setText('breadth-decliners', decliners);
   const medianEl = document.getElementById('breadth-median');
-  medianEl.textContent = formatSignedPercent(median);
-  medianEl.className = `pulse-value ${toneClass(median)}`;
-  document.getElementById('breadth-bar-advancers').style.width = `${(advancers / total) * 100}%`;
-  document.getElementById('breadth-bar-flat').style.width = `${(flat / total) * 100}%`;
-  document.getElementById('breadth-bar-decliners').style.width = `${(decliners / total) * 100}%`;
+  if (medianEl) {
+    medianEl.textContent = formatSignedPercent(median);
+    medianEl.className = `pulse-value ${toneClass(median)}`;
+  }
+  const widths = { 'breadth-bar-advancers': advancers, 'breadth-bar-flat': flat, 'breadth-bar-decliners': decliners };
+  Object.entries(widths).forEach(([id, count]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.width = `${(count / total) * 100}%`;
+  });
 
   const strongest = industryMoves[0];
   const weakest = industryMoves[industryMoves.length - 1];
-  document.getElementById('market-strongest-industry').textContent = strongest ? `${strongest.industry} ${formatSignedPercent(strongest.change_pct)}` : '--';
-  document.getElementById('market-weakest-industry').textContent = weakest ? `${weakest.industry} ${formatSignedPercent(weakest.change_pct)}` : '--';
+  setText('market-strongest-industry', strongest ? `${strongest.industry} ${formatSignedPercent(strongest.change_pct)}` : '--');
+  setText('market-weakest-industry', weakest ? `${weakest.industry} ${formatSignedPercent(weakest.change_pct)}` : '--');
+}
+
+// The feed's own words show only when something is wrong; a good snapshot
+// needs no sentence.
+function setPageMessage(text, show) {
+  const el = document.getElementById('page-message');
+  if (!el) return;
+  el.textContent = text || '';
+  el.hidden = !show;
 }
 
 function renderSnapshot(payload) {
@@ -397,19 +367,19 @@ function renderSnapshot(payload) {
   const laggards = Array.isArray(payload.laggards) ? payload.laggards : [];
   const industryMoves = computeIndustryMoves(items);
 
-  document.getElementById('market-source').textContent = sourceLabel(payload);
-  const sourceDetail = document.getElementById('market-source-detail');
-  if (sourceDetail) sourceDetail.textContent = sourceLabel(payload);
-  document.getElementById('market-status').textContent = marketStatusLabel(payload);
-  document.getElementById('market-as-of').textContent = formatAsOf(payload.as_of);
-  document.getElementById('page-message').textContent = payload.message || 'Nifty 50 live breadth is synced to a standalone feed.';
+  setText('market-source', sourceLabel(payload));
+  setText('market-source-detail', sourceLabel(payload));
+  setText('market-status', marketStatusLabel(payload));
+  setText('market-as-of', formatAsOf(payload.as_of));
+  const troubled = payload.status !== 'ok' || !!payload.stale;
+  setPageMessage(payload.message || 'Nifty 50 live breadth is synced to a standalone feed.', troubled);
 
   updateBreadth(payload, industryMoves);
   renderHero('top-gainer-card', leaders[0], 'top-gainer-price', 'top-gainer-abs', 'top-gainer-volume');
   renderHero('top-laggard-card', laggards[0], 'top-laggard-price', 'top-laggard-abs', 'top-laggard-volume');
   renderHeatmap(items);
-  renderRailList('leaders-list', leaders, 'Positive movers will appear once data is available.');
-  renderRailList('laggards-list', laggards, 'Negative movers will appear once data is available.');
+  renderRailList('leaders-list', leaders, 'Gainers appear once data is available.');
+  renderRailList('laggards-list', laggards, 'Losers appear once data is available.');
   renderIndustryList(industryMoves);
 }
 
@@ -439,13 +409,12 @@ async function loadMarketMovers() {
     const payload = await response.json();
     renderSnapshot(payload);
   } catch (error) {
-    document.getElementById('market-status').textContent = 'Feed unavailable';
-    document.getElementById('market-source').textContent = 'Feed unavailable';
-    const sourceDetail = document.getElementById('market-source-detail');
-    if (sourceDetail) sourceDetail.textContent = 'Feed unavailable';
-    document.getElementById('page-message').textContent = latestPayload
+    setText('market-status', 'Feed unavailable');
+    setText('market-source', 'Feed unavailable');
+    setText('market-source-detail', 'Feed unavailable');
+    setPageMessage(latestPayload
       ? 'Unable to refresh right now. Showing the latest available snapshot.'
-      : 'Unable to fetch market movers right now.';
+      : 'Unable to fetch market movers right now.', true);
     if (!latestPayload) renderLoadingSkeleton();
   } finally {
     window.clearTimeout(timeoutId);
@@ -456,16 +425,21 @@ async function loadMarketMovers() {
 }
 
 function startMarketMovers() {
+  // Insights calls this every time its Heatmap tab is shown. Once running, a
+  // re-show only refreshes: a second start stacked a second 30s poll.
+  if (moversRefreshTimer) {
+    loadMarketMovers();
+    return;
+  }
   applyMarketTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
   document.getElementById('theme-toggle')?.addEventListener('click', toggleMarketTheme);
   const cached = loadCachedSnapshot();
   if (cached) {
     cached.stale = true;
     renderSnapshot(cached);
-    document.getElementById('market-status').textContent = 'Refreshing snapshot...';
-    document.getElementById('market-source').textContent = 'Cached snapshot';
-    const sourceDetail = document.getElementById('market-source-detail');
-    if (sourceDetail) sourceDetail.textContent = 'Cached snapshot';
+    setText('market-status', 'Refreshing snapshot...');
+    setText('market-source', 'Cached snapshot');
+    setText('market-source-detail', 'Cached snapshot');
   } else {
     renderLoadingSkeleton();
   }

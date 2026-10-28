@@ -52,6 +52,10 @@
   /* Both panels' actions are anchors, and the panels' own sheets underline
      anchors. Wearing the app's .btn should look like a button, not a link. */
   #insights-page a.btn, #insights-page a.btn:hover { text-decoration: none; }
+  /* The preview stays in view under the pinned header and banner. */
+  @media (min-width: 1101px) {
+    body.pf-frozen-tops #insights-study .study-v2 .preview-rail { top: calc(var(--pf-freeze-viewbar-top, 0px) + 6px); }
+  }
   /* Insights is inside PhilForge now: use the shell's compact cards and
      typography rather than the older standalone-page visual language. */
   #insights-heatmap { --bg:transparent; --panel:var(--card); --text:var(--text); --muted:var(--muted); --accent:var(--accent); --border:var(--border); --shadow:none; }
@@ -4085,135 +4089,68 @@
   <!-- ── TAB · Heatmap ── (markup lifted from market_movers.html; its CSS is
        scoped into static/insights-panels.css by tools/scope_insights_css.py) -->
   <div id="insights-heatmap" class="oc-tab-panel" role="tabpanel" aria-labelledby="insights-tabbtn-heatmap">
-    <div class="insights-strip">
-      <span id="market-status" class="cascade-options-state">Loading…</span>
-      <span id="market-source" class="insights-strip-note">—</span>
-    </div>
-<div class="movers-shell">
-      <section class="hero-ribbon">
-        <article class="surface-card pulse-card">
-          <div class="card-heading">
-            <div>
-              <span class="eyebrow">Session Pulse</span>
-              <h1>Market Movers</h1>
-            </div>
-            <div class="sync-meta">
-              <span class="meta-pill" id="market-source-detail">Waiting for feed</span>
-              <span class="meta-pill" id="market-age">Auto-refresh active</span>
-            </div>
+    <!-- Redesigned 2026-10-28 (Phil: "everything is in text and not easy to
+         read and find"). One pulse bar (breadth, median, the day's best and
+         worst, the feed); the Nifty 50 as a colour map grouped by sector, each
+         tile only its symbol and move, sized by weight, the rest on hover; and
+         the movers and sectors as bars. -->
+    <div class="movers-shell movers-v2">
+      <section class="surface-card pulse-bar" aria-label="Market pulse">
+        <div class="pulse-breadth">
+          <div class="pulse-breadth-nums">
+            <span class="positive"><strong id="breadth-advancers">0</strong> up</span>
+            <span class="negative"><strong id="breadth-decliners">0</strong> down</span>
           </div>
-
-          <div class="pulse-grid">
-            <div class="pulse-metric">
-              <span class="pulse-label">Advancers</span>
-              <strong class="pulse-value positive" id="breadth-advancers">0</strong>
-            </div>
-            <div class="pulse-metric">
-              <span class="pulse-label">Decliners</span>
-              <strong class="pulse-value negative" id="breadth-decliners">0</strong>
-            </div>
-            <div class="pulse-metric">
-              <span class="pulse-label">Median Move</span>
-              <strong class="pulse-value neutral" id="breadth-median">0.00%</strong>
-            </div>
-          </div>
-
           <div class="breadth-bar" aria-hidden="true">
             <span class="breadth-segment positive" id="breadth-bar-advancers"></span>
             <span class="breadth-segment flat" id="breadth-bar-flat"></span>
             <span class="breadth-segment negative" id="breadth-bar-decliners"></span>
           </div>
-
-          <div class="pulse-foot">
-            <div class="pulse-note">
-              <span class="pulse-note-label">As Of</span>
-              <strong id="market-as-of">--</strong>
-            </div>
-            <div class="pulse-note">
-              <span class="pulse-note-label">Strongest Industry</span>
-              <strong id="market-strongest-industry">--</strong>
-            </div>
-            <div class="pulse-note">
-              <span class="pulse-note-label">Weakest Industry</span>
-              <strong id="market-weakest-industry">--</strong>
-            </div>
-          </div>
-
-          <div class="page-message" id="page-message">Fetching the latest Nifty 50 cash-market snapshot.</div>
-        </article>
-
-        <article class="surface-card hero-card hero-card-positive" id="top-gainer-card">
-          <span class="eyebrow">Top Gainer</span>
-          <div class="hero-card-body">
-            <div>
-              <h2 class="hero-symbol">--</h2>
-              <p class="hero-company">Awaiting quote</p>
-            </div>
-            <strong class="hero-change positive">+0.00%</strong>
-          </div>
-          <div class="hero-stats">
-            <span>Price <strong id="top-gainer-price">--</strong></span>
-            <span>Move <strong id="top-gainer-abs">--</strong></span>
-            <span>Volume <strong id="top-gainer-volume">--</strong></span>
-          </div>
-        </article>
-
-        <article class="surface-card hero-card hero-card-negative" id="top-laggard-card">
-          <span class="eyebrow">Top Laggard</span>
-          <div class="hero-card-body">
-            <div>
-              <h2 class="hero-symbol">--</h2>
-              <p class="hero-company">Awaiting quote</p>
-            </div>
-            <strong class="hero-change negative">-0.00%</strong>
-          </div>
-          <div class="hero-stats">
-            <span>Price <strong id="top-laggard-price">--</strong></span>
-            <span>Move <strong id="top-laggard-abs">--</strong></span>
-            <span>Volume <strong id="top-laggard-volume">--</strong></span>
-          </div>
-        </article>
+        </div>
+        <div class="pulse-stat">
+          <span class="pulse-label">Median</span>
+          <strong class="pulse-value neutral" id="breadth-median">0.00%</strong>
+        </div>
+        <div class="pulse-stat pulse-mover" id="top-gainer-card">
+          <span class="pulse-label">Top gainer</span>
+          <strong><span class="hero-symbol">--</span> <span class="hero-change positive">+0.00%</span></strong>
+        </div>
+        <div class="pulse-stat pulse-mover" id="top-laggard-card">
+          <span class="pulse-label">Top loser</span>
+          <strong><span class="hero-symbol">--</span> <span class="hero-change negative">-0.00%</span></strong>
+        </div>
+        <div class="pulse-feed">
+          <span id="market-status" class="cascade-options-state">Loading…</span>
+          <span class="pulse-feed-line"><span id="market-source">—</span> · <span id="market-as-of">--</span></span>
+        </div>
+        <div class="page-message" id="page-message" hidden></div>
       </section>
 
       <section class="content-grid">
         <article class="surface-card heatmap-panel">
-          <div class="card-heading">
-            <div>
-              <span class="eyebrow">Mosaic Heatmap</span>
-              <h2>Weighted Nifty Canvas</h2>
-            </div>
-            <div class="meta-stack">
-              <span class="meta-label">50 cash stocks</span>
-              <span class="meta-label">Hover for depth</span>
+          <div class="heatmap-head">
+            <h2>Nifty 50</h2>
+            <span class="meta-label">Grouped by sector · size = index weight · hover a tile for price and volume</span>
+            <div class="heatmap-legend" aria-label="Colour scale">
+              <span>-3%</span><i class="hm-n3"></i><i class="hm-n2"></i><i class="hm-n1"></i><i class="hm-0"></i><i class="hm-p1"></i><i class="hm-p2"></i><i class="hm-p3"></i><span>+3%</span>
             </div>
           </div>
           <div class="heatmap-grid" id="heatmap-grid">
-            <div class="heatmap-empty">Loading the Nifty 50 mosaic...</div>
+            <div class="heatmap-empty">Loading the Nifty 50 map...</div>
           </div>
         </article>
 
         <aside class="side-rail">
           <article class="surface-card rail-card" data-tone="positive">
-            <div class="rail-heading">
-              <span class="eyebrow">Leaders</span>
-              <h3>Positive Movers</h3>
-            </div>
+            <h3 class="rail-title positive">Top gainers</h3>
             <div class="rail-list" id="leaders-list"></div>
           </article>
-
           <article class="surface-card rail-card" data-tone="negative">
-            <div class="rail-heading">
-              <span class="eyebrow">Pressure Zone</span>
-              <h3>Negative Movers</h3>
-            </div>
+            <h3 class="rail-title negative">Top losers</h3>
             <div class="rail-list" id="laggards-list"></div>
           </article>
-
           <article class="surface-card rail-card sector-card" data-tone="sector">
-            <div class="rail-heading">
-              <span class="eyebrow">Industry Pulse</span>
-              <h3>Sector Drift</h3>
-            </div>
+            <h3 class="rail-title">Sectors</h3>
             <div class="industry-list" id="industry-list"></div>
           </article>
         </aside>
@@ -4223,123 +4160,49 @@
 
   <!-- ── TAB · Study Lounge ── -->
   <div id="insights-study" class="oc-tab-panel" role="tabpanel" aria-labelledby="insights-tabbtn-study" aria-hidden="true" style="display:none;">
-    <!-- The Track filter is rendered by study_lounge.js, inside the library,
-         with its own control styling. A second <select> lived here carrying
-         the SAME id, so getElementById bound the change handler to this dead
-         one and picking a track did nothing at all. -->
-    <div class="insights-strip">
-      <span id="library-status" class="cascade-options-state">Loading…</span>
-    </div>
-<div class="study-shell">
-      <section class="hero-grid">
-        <article class="surface-card hero-card">
-          <div class="card-heading">
-            <div>
-              <span class="eyebrow">Between Trades</span>
-              <h1>Shift from reaction to reflection</h1>
-            </div>
-            <div class="hero-badges">
-              <span class="meta-pill" id="hero-total">0 assets</span>
-              <span class="meta-pill" id="hero-categories">0 categories</span>
-            </div>
-          </div>
-          <p class="hero-copy">
-            Use this page as a study break during live sessions: replay concepts, reset market psychology, and return with a cleaner head.
-          </p>
-            <div class="ritual-grid">
-              <div class="ritual-card">
-              <span class="ritual-icon ritual-reset">R1</span>
-              <span class="ritual-label">Reset</span>
-              <strong>Slow the loop</strong>
-              <p>Step out of tick-by-tick urgency and reset your trading state.</p>
-              </div>
-              <div class="ritual-card">
-              <span class="ritual-icon ritual-replay">R2</span>
-              <span class="ritual-label">Replay</span>
-              <strong>Review one idea</strong>
-              <p>Open one focused lesson instead of doom-refreshing the terminal.</p>
-              </div>
-              <div class="ritual-card">
-              <span class="ritual-icon ritual-return">R3</span>
-              <span class="ritual-label">Return</span>
-              <strong>Come back sharper</strong>
-              <p>Re-enter the live screen with cleaner context and less emotional drag.</p>
-              </div>
-            </div>
-        </article>
-
-        <article class="surface-card spotlight-card">
-          <div class="card-heading">
-            <div>
-              <span class="eyebrow">Now Open</span>
-              <h2 id="featured-title">Loading study asset…</h2>
-            </div>
-            <span class="meta-pill" id="featured-kind">Study Asset</span>
-          </div>
-          <p class="spotlight-copy" id="featured-description">Waiting for the study library.</p>
-          <div class="spotlight-meta">
-            <span id="featured-category">General</span>
-            <span id="featured-date">--</span>
-            <span id="featured-size">--</span>
-          </div>
-          <div class="spotlight-actions">
-            <a class="btn" id="open-item-btn" href="#" target="_blank" rel="noopener">Open Asset</a>
-            <a class="btn btn-secondary" id="download-item-btn" href="#" download>Download</a>
-          </div>
-        </article>
-      </section>
+    <!-- The track chips are rendered by study_lounge.js into #category-filters
+         alone. A second control once lived here carrying the SAME id, so
+         getElementById bound to the dead one and picking a track did nothing. -->
+    <!-- Redesigned 2026-10-28 (Phil: "everything is in text and not easy to
+         read and find"). Search and type chips on one bar, the tracks as
+         chips under it, the library grouped by track as icon tiles (the
+         description is the tile's tooltip and the preview's caption), and ONE
+         preview card that carries the player, the facts and the buttons. The
+         ritual and quick-read prose is gone. -->
+    <div class="study-shell study-v2">
+      <div class="study-toolbar surface-card">
+        <label class="study-search">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          <input id="study-search" type="search" placeholder="Search the library" aria-label="Search the study library" autocomplete="off">
+        </label>
+        <div class="chip-group type-filter-group" id="type-filters" role="group" aria-label="Filter by type"></div>
+        <span class="study-totals"><span id="library-status" class="cascade-options-state">Loading…</span><strong id="hero-total">0 assets</strong> · <span id="hero-categories">0 categories</span></span>
+      </div>
+      <div class="study-tracks" id="category-filters" role="group" aria-label="Filter by track"></div>
 
       <section class="content-grid">
-        <article class="surface-card library-card">
-          <div class="card-heading library-heading">
-            <div>
-              <span class="eyebrow">Library</span>
-              <h2>Study Tracks</h2>
-            </div>
-            <div class="filter-row">
-              <div class="chip-group type-filter-group" id="type-filters"></div>
-              <div class="track-filter-shell" id="category-filters"></div>
-            </div>
-          </div>
-          <div class="library-grid" id="library-grid">
-            <div class="library-empty">Loading your study library…</div>
-          </div>
-        </article>
+        <div class="library-grid" id="library-grid">
+          <div class="library-empty">Loading your study library…</div>
+        </div>
 
         <aside class="preview-rail">
           <article class="surface-card preview-card">
-            <div class="card-heading">
-              <div>
-                <span class="eyebrow">Preview Stage</span>
-                <h2 id="preview-title">Select a deck or video</h2>
+            <div class="preview-head">
+              <span class="type-pill" id="preview-kind">Preview</span>
+              <h2 id="preview-title">Select a deck or video</h2>
+              <p class="preview-desc" id="featured-description">Pick a lesson from the library.</p>
+              <div class="preview-meta">
+                <span id="featured-category">—</span>
+                <span id="featured-date">--</span>
+                <span id="featured-size">--</span>
               </div>
-              <span class="meta-pill" id="preview-kind">Preview</span>
+              <div class="spotlight-actions">
+                <a class="btn" id="open-item-btn" href="#" target="_blank" rel="noopener">Open in new tab</a>
+                <a class="btn btn-secondary" id="download-item-btn" href="#" download>Download</a>
+              </div>
             </div>
             <div class="preview-shell" id="preview-shell">
               <div class="preview-empty">Your selected deck, video, or audio brief will open here.</div>
-            </div>
-          </article>
-
-          <article class="surface-card quick-panel">
-            <div class="card-heading">
-              <div>
-                <span class="eyebrow">Quick Reads</span>
-                <h2>Use this page well</h2>
-              </div>
-            </div>
-            <div class="quick-list">
-              <div class="quick-item">
-                <strong>During open positions</strong>
-                <p>Pick one short study asset instead of hopping across tabs.</p>
-              </div>
-              <div class="quick-item">
-                <strong>After a bad scalp</strong>
-                <p>Open a deck first, not the P&amp;L. Reset psychology before reviewing entries.</p>
-              </div>
-              <div class="quick-item">
-                <strong>When volatility dies</strong>
-                <p>Use the wait time for context-building rather than forcing another setup.</p>
-              </div>
             </div>
           </article>
         </aside>

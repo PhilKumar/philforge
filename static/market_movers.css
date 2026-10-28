@@ -1551,3 +1551,118 @@ body::after {
   --btn-color: #4338ca;
   --btn-border: rgba(79,70,229,0.22);
 }
+
+/* ── Redesign 2026-10-28 (Phil: "everything is in text and not easy to read
+   and find"). A pulse bar, the Nifty 50 as a colour map grouped by sector
+   (symbol and move on the tile, the rest on hover), and bar-chart rails. ── */
+.movers-v2 { display: grid; gap: 14px; }
+.movers-v2 .pulse-bar {
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  padding: 14px 18px; border-radius: 16px;
+}
+.movers-v2 .pulse-breadth { flex: 1 1 260px; min-width: 220px; display: grid; gap: 6px; }
+.movers-v2 .pulse-breadth-nums { display: flex; justify-content: space-between; font: 600 12px 'Inter', sans-serif; color: var(--muted); }
+.movers-v2 .pulse-breadth-nums strong { font: 700 18px 'JetBrains Mono', monospace; margin-right: 4px; }
+.movers-v2 .pulse-breadth-nums .positive strong { color: var(--positive); }
+.movers-v2 .pulse-breadth-nums .negative strong { color: var(--negative); }
+.movers-v2 .breadth-bar { height: 10px; margin: 0; padding: 0; gap: 2px; overflow: hidden; border-radius: 999px; }
+.movers-v2 .breadth-segment { border-radius: 0; }
+.movers-v2 .pulse-stat { display: grid; gap: 2px; }
+.movers-v2 .pulse-label { color: var(--muted); font: 700 10px 'Inter', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.movers-v2 .pulse-stat .pulse-value { font: 700 18px 'JetBrains Mono', monospace; }
+.movers-v2 .pulse-mover strong { font: 700 15px 'JetBrains Mono', monospace; color: var(--text); white-space: nowrap; }
+.movers-v2 .pulse-mover .hero-change { margin-left: 4px; }
+.movers-v2 .pulse-feed { margin-left: auto; display: grid; gap: 4px; justify-items: end; text-align: right; }
+.movers-v2 .pulse-feed-line { color: var(--muted); font: 600 11px 'JetBrains Mono', monospace; }
+.movers-v2 .page-message { flex-basis: 100%; margin: 0; padding: 8px 10px; border-radius: 8px; color: var(--warn); background: rgba(248, 180, 67, 0.08); font-size: 12px; }
+.movers-v2 .page-message[hidden] { display: none; }
+.movers-v2 .positive { color: var(--positive); }
+.movers-v2 .negative { color: var(--negative); }
+.movers-v2 .neutral { color: var(--muted-strong); }
+
+.movers-v2 .content-grid { grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+.movers-v2 .heatmap-panel { padding: 14px; border-radius: 16px; }
+.movers-v2 .heatmap-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.movers-v2 .heatmap-head h2 { margin: 0; font: 700 16px 'Syne', sans-serif; }
+.movers-v2 .heatmap-head .meta-label { color: var(--muted); font-size: 11.5px; text-transform: none; letter-spacing: 0; }
+.movers-v2 .heatmap-legend { margin-left: auto; display: flex; align-items: center; gap: 2px; color: var(--muted); font: 600 10.5px 'JetBrains Mono', monospace; }
+.movers-v2 .heatmap-legend span { margin: 0 4px; }
+.movers-v2 .heatmap-legend i { width: 22px; height: 12px; border-radius: 2px; }
+
+/* The scale. Brighter is a bigger move; grey is inside ±0.25%. Each step
+   keeps its tile text at 4.5:1 or better. */
+.movers-v2 .hm-p3 { background: #30cc5a; }
+.movers-v2 .hm-p2 { background: #2f9e4f; }
+.movers-v2 .hm-p1 { background: #35764e; }
+.movers-v2 .hm-0  { background: #414554; }
+.movers-v2 .hm-n1 { background: #8b444e; }
+.movers-v2 .hm-n2 { background: #bf4045; }
+.movers-v2 .hm-n3 { background: #d9262b; }
+/* Text that passes 4.5:1 on every step: dark on the two bright greens. */
+.movers-v2 .hm-tile.hm-p3, .movers-v2 .hm-tile.hm-p2 { color: #0b1220; text-shadow: none; }
+
+.movers-v2 .heatmap-grid { display: block; }
+.movers-v2 .hm-map { display: flex; flex-wrap: wrap; gap: 8px; }
+.movers-v2 .hm-sector { flex: var(--w) 1 calc(var(--w) * 46px); min-width: 150px; display: grid; gap: 4px; align-content: start; }
+.movers-v2 .hm-sector.heatmap-skeleton { min-height: 140px; border-radius: 8px; }
+.movers-v2 .hm-sector-head {
+  display: flex; justify-content: space-between; gap: 8px; min-width: 0;
+  font: 700 11px 'Inter', sans-serif; color: var(--muted-strong);
+}
+.movers-v2 .hm-sector-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.movers-v2 .hm-sector-head strong { font: 700 11px 'JetBrains Mono', monospace; }
+.movers-v2 .hm-tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  grid-auto-rows: 54px; grid-auto-flow: row dense; gap: 3px;
+}
+.movers-v2 .hm-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-width: 0; padding: 4px; border-radius: 4px; color: #fff; cursor: default;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+  transition: filter .12s ease, outline-color .12s ease; outline: 2px solid transparent; outline-offset: -2px;
+}
+.movers-v2 .hm-tile:hover { filter: brightness(1.15); outline-color: rgba(255, 255, 255, 0.7); }
+.movers-v2 .hm-tile.hm-lg { grid-column: span 2; }
+.movers-v2 .hm-tile.hm-xl { grid-column: span 2; grid-row: span 2; }
+.movers-v2 .hm-sym { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12px 'Inter', sans-serif; }
+.movers-v2 .hm-pct { font: 600 11px 'JetBrains Mono', monospace; opacity: .95; }
+.movers-v2 .hm-xl .hm-sym { font-size: 17px; }
+.movers-v2 .hm-xl .hm-pct { font-size: 14px; }
+.movers-v2 .hm-lg .hm-sym { font-size: 13.5px; }
+.movers-v2 .hm-na { background: transparent; border: 1px dashed var(--border-strong, var(--border)); color: var(--muted); text-shadow: none; }
+
+.movers-v2 .side-rail { display: grid; gap: 14px; }
+.movers-v2 .rail-card { padding: 14px; border-radius: 16px; }
+.movers-v2 .rail-title { margin: 0 0 8px; font: 700 13px 'Syne', sans-serif; color: var(--text); }
+.movers-v2 .rail-title.positive { color: var(--positive); }
+.movers-v2 .rail-title.negative { color: var(--negative); }
+.movers-v2 .rail-list, .movers-v2 .industry-list { display: grid; gap: 6px; }
+.movers-v2 .rail-row, .movers-v2 .industry-row {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr) 62px; align-items: center; gap: 8px;
+  min-height: 22px; padding: 0; border: 0; background: none; border-radius: 0; box-shadow: none;
+}
+.movers-v2 .industry-row { grid-template-columns: 112px minmax(0, 1fr) 62px; }
+.movers-v2 .rail-row.skeleton-row, .movers-v2 .industry-row.skeleton-row { min-height: 18px; border-radius: 6px; }
+.movers-v2 .rail-symbol { font: 700 12px 'Inter', sans-serif; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.movers-v2 .industry-name { font: 600 11.5px 'Inter', sans-serif; color: var(--muted-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.movers-v2 .rail-bar, .movers-v2 .industry-bar { position: relative; height: 8px; border-radius: 999px; background: rgba(148, 163, 184, 0.12); overflow: hidden; }
+.movers-v2 .rail-bar i, .movers-v2 .industry-bar i { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.movers-v2 .rail-bar i { left: 0; }
+.movers-v2 .rail-bar i.positive, .movers-v2 .industry-bar i.positive { background: var(--positive); }
+.movers-v2 .rail-bar i.negative, .movers-v2 .industry-bar i.negative { background: var(--negative); }
+.movers-v2 .rail-bar i.neutral, .movers-v2 .industry-bar i.neutral { background: var(--flat); }
+.movers-v2 .industry-bar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border-strong, var(--border)); }
+.movers-v2 .rail-move, .movers-v2 .industry-move { grid-column: auto; justify-self: end; text-align: right; font: 700 12px 'JetBrains Mono', monospace; }
+[data-theme="light"] .movers-v2 .rail-bar, [data-theme="light"] .movers-v2 .industry-bar { background: rgba(15, 23, 42, 0.07); }
+
+@media (max-width: 1100px) {
+  .movers-v2 .content-grid { grid-template-columns: 1fr; }
+  .movers-v2 .side-rail { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+@media (max-width: 767px) {
+  .movers-v2 .pulse-bar { gap: 14px; }
+  .movers-v2 .pulse-feed { margin-left: 0; justify-items: start; text-align: left; }
+  .movers-v2 .heatmap-legend { margin-left: 0; }
+  .movers-v2 .hm-sector { flex-basis: 100%; }
+  .movers-v2 .hm-tiles { grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); grid-auto-rows: 48px; }
+}
