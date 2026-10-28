@@ -14990,10 +14990,12 @@ function _scalpHudPlace() {
     ticket.style.left = `${Math.round(Math.max(ox + p.padL + 8, right - ticket.offsetWidth))}px`;
     ticket.style.top = `${Math.round(top)}px`;
   }
+  // On the B/S line, at the chart's far left (Phil, 2026-10-28: "need it on
+  // the B and S like to the extreme left").
   const ohlc = document.getElementById('scalp-ohlc');
   if (ohlc) {
-    ohlc.style.left = `${Math.round(ox + p.padL + 8)}px`;
-    ohlc.style.top = `${Math.round(oy + p.padT + 4)}px`;
+    ohlc.style.left = `${Math.round(ox + 8)}px`;
+    ohlc.style.top = ticket ? ticket.style.top : `${Math.round(oy + p.padT + 4)}px`;
     _scalpOhlcShow();
   }
   const top = oy + p.padT, bottom = oy + p.padT + p.plotH;

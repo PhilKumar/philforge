@@ -10375,13 +10375,16 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   /* O H L C at the plot's top left, as TradingView: letters muted, the
      numbers in the candle's colour. Never takes a click from the chart. */
   #scalp-page .scalp-ohlc {
-    position: absolute; display: flex; align-items: baseline; gap: 4px; pointer-events: none;
-    padding: 2px 6px; border-radius: 6px; background: rgba(10, 16, 28, 0.55);
+    /* The same cell as the zoom box and the ticket beside it on this line. */
+    position: absolute; box-sizing: border-box; height: 27px; display: flex; align-items: center; gap: 4px;
+    pointer-events: none; padding: 0 10px; border-radius: 9px;
+    border: 1px solid rgba(255, 255, 255, 0.067); background: rgba(18, 26, 42, 0.7);
     font: 600 12px 'JetBrains Mono', monospace; white-space: nowrap;
   }
   #scalp-page .scalp-ohlc:empty { display: none; }
   #scalp-page .scalp-ohlc span { color: #94a3b8; }
   #scalp-page .scalp-ohlc b { font-weight: 700; margin-right: 6px; }
+  #scalp-page .scalp-ohlc em { margin-left: 2px; }
   #scalp-page .scalp-ohlc.is-up b, #scalp-page .scalp-ohlc.is-up em { color: #26a69a; }
   #scalp-page .scalp-ohlc.is-down b, #scalp-page .scalp-ohlc.is-down em { color: #ef5350; }
   #scalp-page .scalp-ohlc em { font-style: normal; }
