@@ -14724,6 +14724,16 @@ function _scalpSyncTicket() {
   const ticketLots = document.getElementById('scalp-ticket-lots');
   const formLots = document.getElementById('scalp-lots');
   if (ticketLots && formLots && document.activeElement !== ticketLots) ticketLots.value = formLots.value || '1';
+  // The contract row reads the form: its CE/PE and its strike.
+  const opt = document.getElementById('scalp-option-type')?.value || 'CE';
+  document.querySelectorAll('#scalp-ticket .scalp-ticket-seg-btn').forEach((btn) => {
+    const on = btn.dataset.opt === opt;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', String(on));
+  });
+  const strikeEl = document.getElementById('scalp-ticket-strike');
+  const strike = document.getElementById('scalp-strike')?.value;
+  if (strikeEl) strikeEl.textContent = strike ? String(strike) : '--';
   const mode = _scalpTicketMode();
   const modeEl = document.getElementById('scalp-ticket-mode');
   if (modeEl) {
@@ -14842,18 +14852,21 @@ function _scalpHudPlace() {
     const zoom = c.host.querySelector('[data-bench-zoom]');
     const zb = zoom && zoom.getClientRects().length ? zoom.getBoundingClientRect() : null;
     const right = zb ? zb.left - box.left - 8 : ox + p.padL + p.plotW - 8;
-    const top = zb ? zb.top - box.top + (zb.height - ticket.offsetHeight) / 2 : oy + p.padT + 6;
+    const top = zb ? zb.top - box.top : oy + p.padT + 6;
     ticket.style.left = `${Math.round(Math.max(ox + p.padL + 8, right - ticket.offsetWidth))}px`;
     ticket.style.top = `${Math.round(top)}px`;
   }
   const top = oy + p.padT, bottom = oy + p.padT + p.plotH;
+  // Lines on the right keep clear of the ticket in that corner.
+  const onRight = document.getElementById('scalp-chart-pills')?.classList.contains('is-right');
+  const ceiling = onRight && ticket ? Math.max(top + 40, ticket.offsetTop + ticket.offsetHeight + 16) : top + 40;
   let lastY = -Infinity;
   [...document.querySelectorAll('#scalp-chart-pills .scalp-pill-row')]
     .map(row => ({ row, y: oy + p.yOf(Number(row.dataset.price)) }))
     .sort((a, b) => a.y - b.y)
     .forEach(({ row, y }) => {
       // Off the visible range, the line rests on the edge it lies beyond.
-      let at = Math.min(Math.max(y, top + 40), bottom - 12);
+      let at = Math.min(Math.max(y, ceiling), bottom - 12);
       // Two legs a few paise apart would sit on each other: keep 26px apart.
       if (at - lastY < 26) at = lastY + 26;
       lastY = at;
