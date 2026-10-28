@@ -15443,6 +15443,10 @@ function _scalpDecorate(data) {
   data.onDrawingsChange = (list, meta) => _scalpKeepDrawings(key, list, meta);
   // The ticket and the trade lines follow every pan, zoom and tick.
   data.onDraw = () => _scalpHudTrades(_scalpHudOpen);
+  // Its numbers a little larger than the renderer's 7px at this width
+  // (Phil, 2026-10-28: "increase the font size of the numbers on the chart a
+  // lil bigger... don't make it too big"): about 10px on the axes.
+  data.fontFloor = 1.05;
   data.overlays = overlays;
   data.lines = lines;
 }

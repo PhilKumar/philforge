@@ -691,7 +691,9 @@ function _pfChartCanvasProjection(c) {
   var pSpan = Math.max(v.pMax - v.pMin, Number.EPSILON);
   var p = {
     padL: padL, padR: padR, padT: priceTop, padB: padB, plotW: plotW, plotH: plotH,
-    fontScale: Math.max(0.75, Math.min(1, c.w / 1440, c.h / 660)),
+    // A chart may ask for a larger floor (payload.fontFloor): the docked
+    // Scalp chart's ~1000px width put its axis numbers at ~7px.
+    fontScale: Math.max(Number((c.data && c.data.fontFloor) || 0) || 0.75, Math.min(1, c.w / 1440, c.h / 660)),
     xOf: function (t) { return padL + ((_pfChartCanvasIdxOf(axis, t) - v.tMin) / tSpan) * plotW; },
     yOf: function (price) { return priceTop + ((v.pMax - Number(price)) / pSpan) * plotH; },
     tAt: function (x) { return v.tMin + ((Number(x) - padL) / plotW) * tSpan; },
