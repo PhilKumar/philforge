@@ -6355,6 +6355,8 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-chart-tools :is(.scalp-undo-btn, .scalp-redo-btn) { min-width: 30px; font-size: 14px; line-height: 1; }
 .scalp-chart-tools :is(.scalp-undo-btn, .scalp-redo-btn):disabled { opacity: .38; cursor: default; }
 .scalp-chart-tools .scalp-rsi-toggle.is-on { opacity: 1; color: #b39ddb; border-color: rgba(126,87,194,.65); }
+.scalp-chart-tools .scalp-magnet-btn { opacity: .6; display: inline-flex; align-items: center; justify-content: center; min-width: 32px; }
+.scalp-chart-tools .scalp-magnet-btn.is-on { opacity: 1; color: #fbbf24; border-color: rgba(251,191,36,.6); }
 .scalp-chart-tools .is-armed { color: #fbbf24; border-color: rgba(251,191,36,.6); box-shadow: 0 0 0 1px rgba(251,191,36,.35) inset; }
 .scalp-fib-wrap { position: relative; }
 .scalp-fib-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; display: grid; gap: 2px; padding: 4px; min-width: 190px; background: #0d1526; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
@@ -10370,6 +10372,21 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 
   #scalp-page .scalp-chart-hud { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
   #scalp-page .scalp-chart-hud[hidden] { display: none; }
+  /* O H L C at the plot's top left, as TradingView: letters muted, the
+     numbers in the candle's colour. Never takes a click from the chart. */
+  #scalp-page .scalp-ohlc {
+    position: absolute; display: flex; align-items: baseline; gap: 4px; pointer-events: none;
+    padding: 2px 6px; border-radius: 6px; background: rgba(10, 16, 28, 0.55);
+    font: 600 12px 'JetBrains Mono', monospace; white-space: nowrap;
+  }
+  #scalp-page .scalp-ohlc:empty { display: none; }
+  #scalp-page .scalp-ohlc span { color: #94a3b8; }
+  #scalp-page .scalp-ohlc b { font-weight: 700; margin-right: 6px; }
+  #scalp-page .scalp-ohlc.is-up b, #scalp-page .scalp-ohlc.is-up em { color: #26a69a; }
+  #scalp-page .scalp-ohlc.is-down b, #scalp-page .scalp-ohlc.is-down em { color: #ef5350; }
+  #scalp-page .scalp-ohlc em { font-style: normal; }
+  [data-theme="light"] #scalp-page .scalp-ohlc { background: rgba(255, 255, 255, 0.7); }
+  [data-theme="light"] #scalp-page .scalp-ohlc span { color: #64748b; }
   #scalp-page .scalp-pill-row { position: absolute; height: 0; pointer-events: none; }
   #scalp-page .scalp-pill-row::before {
     content: ''; position: absolute; left: 0; right: 0; top: 0;

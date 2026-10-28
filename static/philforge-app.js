@@ -14946,6 +14946,27 @@ function _scalpHudTrades(open) {
   _scalpHudPlace();
 }
 
+// The O H L C line: the hovered candle, or the live last one.
+let _scalpOhlcHover = null;
+function _scalpOhlcShow() {
+  const el = document.getElementById('scalp-ohlc');
+  const bars = (_scalpChartShown && _scalpChartShown.data && _scalpChartShown.data.candles) || [];
+  if (!el) return;
+  if (!bars.length) { el.innerHTML = ''; return; }
+  const i = Number.isInteger(_scalpOhlcHover) && _scalpOhlcHover >= 0 && _scalpOhlcHover < bars.length ? _scalpOhlcHover : bars.length - 1;
+  const bar = bars[i], prev = bars[i - 1];
+  const f = (v) => Number(v).toFixed(2);
+  const up = Number(bar.c) >= Number(bar.o);
+  const chg = prev ? Number(bar.c) - Number(prev.c) : 0;
+  const pct = prev && Number(prev.c) ? (chg / Number(prev.c)) * 100 : 0;
+  const sign = chg > 0 ? '+' : chg < 0 ? '−' : '';
+  const html = `<span>O</span><b>${f(bar.o)}</b><span>H</span><b>${f(bar.h)}</b><span>L</span><b>${f(bar.l)}</b><span>C</span><b>${f(bar.c)}</b>`
+    + (prev ? `<em>${sign}${Math.abs(chg).toFixed(2)} (${sign}${Math.abs(pct).toFixed(2)}%)</em>` : '');
+  if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  el.classList.toggle('is-up', up);
+  el.classList.toggle('is-down', !up);
+}
+
 // Lay the ticket and the lines over the chart where its prices are now.
 function _scalpHudPlace() {
   const hud = document.getElementById('scalp-chart-hud');
@@ -14968,6 +14989,12 @@ function _scalpHudPlace() {
     const top = zb ? zb.top - box.top : oy + p.padT + 6;
     ticket.style.left = `${Math.round(Math.max(ox + p.padL + 8, right - ticket.offsetWidth))}px`;
     ticket.style.top = `${Math.round(top)}px`;
+  }
+  const ohlc = document.getElementById('scalp-ohlc');
+  if (ohlc) {
+    ohlc.style.left = `${Math.round(ox + p.padL + 8)}px`;
+    ohlc.style.top = `${Math.round(oy + p.padT + 4)}px`;
+    _scalpOhlcShow();
   }
   const top = oy + p.padT, bottom = oy + p.padT + p.plotH;
   // Lines on the right keep clear of the ticket in that corner.
@@ -15251,6 +15278,13 @@ const _SCALP_CPR_KEY = 'pf_scalp_chart_cpr';
 // Bands at 60 and 40, not TradingView's 70/30 (Phil, 2026-10-21: "Make RSI
 // upper as 60 and lower as 40").
 const _SCALP_RSI = { period: 14, upper: 60, lower: 40 };
+// The magnet: the crosshair's price is the hovered candle's open, high, low
+// or close (Phil, 2026-10-28: "Need a magnet button to see the accurate
+// price of the candle I hover"). Off until switched on; remembered.
+const _SCALP_MAGNET_KEY = 'pf_scalp_chart_magnet';
+let _scalpChartMagnetOn = (() => {
+  try { return localStorage.getItem(_SCALP_MAGNET_KEY) === '1'; } catch (_) { return false; }
+})();
 const _SCALP_RSI_KEY = 'pf_scalp_chart_rsi';
 let _scalpChartRsiOn = (() => {
   try { return localStorage.getItem(_SCALP_RSI_KEY) !== '0'; } catch (_) { return true; }
@@ -15447,6 +15481,8 @@ function _scalpDecorate(data) {
   // (Phil, 2026-10-28: "increase the font size of the numbers on the chart a
   // lil bigger... don't make it too big"): about 10px on the axes.
   data.fontFloor = 1.05;
+  data.magnet = _scalpChartMagnetOn;
+  data.onCrosshair = (idx) => { _scalpOhlcHover = idx; _scalpOhlcShow(); };
   data.overlays = overlays;
   data.lines = lines;
 }
@@ -15464,6 +15500,7 @@ function _scalpPaintTools() {
   document.querySelectorAll('.scalp-cpr-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartCprOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartCprOn); });
   document.querySelectorAll('.scalp-ema-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartEmaOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartEmaOn); });
   document.querySelectorAll('.scalp-rsi-toggle').forEach(b => { b.setAttribute('aria-pressed', _scalpChartRsiOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartRsiOn); });
+  document.querySelectorAll('.scalp-magnet-btn').forEach(b => { b.setAttribute('aria-pressed', _scalpChartMagnetOn ? 'true' : 'false'); b.classList.toggle('is-on', _scalpChartMagnetOn); });
   document.querySelectorAll('.scalp-fib-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'fib'));
   document.querySelectorAll('.scalp-line-btn').forEach(b => b.classList.toggle('is-armed', _scalpDrawTool === 'line'));
 }
@@ -15588,6 +15625,15 @@ function _scalpChartTools(options = {}) {
     if (_scalpDrawTool === 'line') { _scalpEndDraw(); return; }
     _scalpStartDraw('line');
   });
+  const magnet = btn('scalp-magnet-btn', '', 'Magnet: the crosshair reads the candle\'s open, high, low or close');
+  magnet.setAttribute('aria-label', 'Magnet');
+  magnet.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 3v8a6 6 0 0 0 12 0V3"/><path d="M6 7h4M14 7h4"/></svg>';
+  magnet.addEventListener('click', () => {
+    _scalpChartMagnetOn = !_scalpChartMagnetOn;
+    try { localStorage.setItem(_SCALP_MAGNET_KEY, _scalpChartMagnetOn ? '1' : '0'); } catch (_) {}
+    if (_scalpChartShown && _scalpChartShown.data) _scalpChartShown.data.magnet = _scalpChartMagnetOn;
+    _scalpPaintTools();
+  });
   const clear = btn('scalp-clear-btn', 'Clear', "Remove this option's Fibs and trendlines");
   clear.addEventListener('click', _scalpClearDrawings);
   const undo = btn('scalp-undo-btn', '↶', 'Undo the last drawing change (Ctrl/⌘+Z)');
@@ -15596,7 +15642,7 @@ function _scalpChartTools(options = {}) {
   const redo = btn('scalp-redo-btn', '↷', 'Redo (Ctrl/⌘+Shift+Z)');
   redo.setAttribute('aria-label', 'Redo');
   redo.addEventListener('click', redoScalpDrawing);
-  box.append(st, cpr, ema, rsi, fibWrap, line, undo, redo, clear);
+  box.append(st, cpr, ema, rsi, fibWrap, line, magnet, undo, redo, clear);
   if (options.popout) {
     const big = btn('scalp-popout-btn', '⤢', 'Open this chart big');
     big.setAttribute('aria-label', 'Open this chart big');

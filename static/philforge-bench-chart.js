@@ -1496,7 +1496,10 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   var ctx = c.octx, p = c.projection;
   if (!ctx || !p) return;
   ctx.clearRect(0, 0, c.w, c.h);
-  if (!point || !(point.plot || point.rsiPlot)) return;
+  if (!point || !(point.plot || point.rsiPlot)) {
+    if (typeof (c.data || {}).onCrosshair === 'function') { try { c.data.onCrosshair(null); } catch (err) {} }
+    return;
+  }
   var PAL = _pfChartPalette(), price = p.pAt(point.y);
   // Over the RSI pane the line across reads the RSI, not a price (Phil,
   // 2026-10-20: "Make the cross-hair flow till RSI").
@@ -1505,12 +1508,17 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   // "the cross hair has to jump ... on the minute and not all the places").
   // As on TradingView it steps from bar to bar as the pointer moves, and the
   // time beneath it is that candle's own time.
+  // Past the last candle it carries on into the empty space at the bar's
+  // pace (Phil, 2026-10-28: "make it move without any end"); the time axis
+  // already extrapolates there.
   var bars = ((c.data || {}).candles || []).length;
   var idx = Math.round(p.tAt(point.x));
-  if (bars) idx = Math.max(0, Math.min(bars - 1, idx));
   var barTime = p.timeAt(idx), lineX = p.xOf(barTime);
   if (!isFinite(lineX)) lineX = point.x;
-  if (!inRsi && (typeof window.pfChartPickHandler === 'function' || _pfChartDrawSnapping(c))) {
+  // The magnet: always while a drawing point is placed, and whenever the
+  // chart has it switched on (payload.magnet) -- the price read is then the
+  // candle's own open, high, low or close.
+  if (!inRsi && (typeof window.pfChartPickHandler === 'function' || _pfChartDrawSnapping(c) || !!(c.data && c.data.magnet))) {
     var snap = _pfChartCanvasMagnet(c, idx, point.y);
     if (snap) { price = snap.price; point = { x: point.x, y: snap.y, plot: point.plot }; }
   }
@@ -1533,13 +1541,21 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   _pfChartCanvasText(ctx, timeText, lineX, c.h - 12, PAL.fillRing, 9, 'center');
   ctx.restore();
   // A test seam, like c.paint: where the crosshair was last drawn.
-  c.crosshair = { x: lineX, y: point.y, top: p.padT, bottom: lineBottom, label: priceText, pane: inRsi ? 'rsi' : 'price' };
+  c.crosshair = { x: lineX, y: point.y, top: p.padT, bottom: lineBottom, label: priceText, pane: inRsi ? 'rsi' : 'price', idx: idx };
+  // Opt-in, like onDraw: the candle under the line (null past the candles),
+  // for a page that shows its open, high, low and close.
+  if (typeof (c.data || {}).onCrosshair === 'function') {
+    try { c.data.onCrosshair(idx >= 0 && idx < bars ? idx : null); } catch (err) {}
+  }
   // The drawing being made follows the pointer, here on the overlay.
   if (c.drawPending) _pfChartCanvasPaintDrawing(ctx, c, p, c.drawPending, true, PAL);
 }
 
 function _pfChartCanvasClearCrosshair(c) {
   if (c) c.crosshair = null;
+  if (c && c.data && typeof c.data.onCrosshair === 'function') {
+    try { c.data.onCrosshair(null); } catch (err) {}
+  }
   if (c && c.octx) c.octx.clearRect(0, 0, c.w, c.h);
 }
 
