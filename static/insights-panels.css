@@ -829,6 +829,9 @@
 #insights-heatmap .movers-v2 .pulse-breadth-nums .negative strong { color: var(--negative); }
 #insights-heatmap .movers-v2 .breadth-bar { height: 10px; margin: 0; padding: 0; gap: 2px; overflow: hidden; border-radius: 999px; }
 #insights-heatmap .movers-v2 .breadth-segment { border-radius: 0; }
+#insights-heatmap .movers-v2 .breadth-segment.positive { background: #4f9a70; }
+#insights-heatmap .movers-v2 .breadth-segment.negative { background: #b0565e; }
+#insights-heatmap .movers-v2 .breadth-segment.flat { background: #5a6170; }
 #insights-heatmap .movers-v2 .pulse-stat { display: grid; gap: 2px; }
 #insights-heatmap .movers-v2 .pulse-label { color: var(--muted); font: 700 10px 'Inter', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 #insights-heatmap .movers-v2 .pulse-stat .pulse-value { font: 700 18px 'JetBrains Mono', monospace; }
@@ -849,17 +852,23 @@
 #insights-heatmap .movers-v2 .heatmap-legend { margin-left: auto; display: flex; align-items: center; gap: 2px; color: var(--muted); font: 600 10.5px 'JetBrains Mono', monospace; }
 #insights-heatmap .movers-v2 .heatmap-legend span { margin: 0 4px; }
 #insights-heatmap .movers-v2 .heatmap-legend i { width: 22px; height: 12px; border-radius: 2px; }
-#insights-heatmap /* The scale. Brighter is a bigger move; grey is inside ±0.25%. Each step
-   keeps its tile text at 4.5:1 or better. */
-.movers-v2 .hm-p3 { background: #30cc5a; }
-#insights-heatmap .movers-v2 .hm-p2 { background: #2f9e4f; }
-#insights-heatmap .movers-v2 .hm-p1 { background: #35764e; }
-#insights-heatmap .movers-v2 .hm-0 { background: #414554; }
-#insights-heatmap .movers-v2 .hm-n1 { background: #8b444e; }
-#insights-heatmap .movers-v2 .hm-n2 { background: #bf4045; }
-#insights-heatmap .movers-v2 .hm-n3 { background: #d9262b; }
-#insights-heatmap /* Text that passes 4.5:1 on every step: dark on the two bright greens. */
-.movers-v2 .hm-tile.hm-p3, #insights-heatmap .movers-v2 .hm-tile.hm-p2 { color: #0b1220; text-shadow: none; }
+#insights-heatmap /* The scale: muted, #insights-heatmap so a screen of it is easy on the eyes (Phil, #insights-heatmap 2026-10-28: "too bright... it will hurt the eyes"). Deeper and a little
+   more saturated is a bigger move; grey is inside ±0.25%. Soft pastels with
+   dark text in the light theme. Every step keeps its text at 4.5:1. */
+.movers-v2 .hm-p3 { background: #367350; }
+#insights-heatmap .movers-v2 .hm-p2 { background: #326048; }
+#insights-heatmap .movers-v2 .hm-p1 { background: #2e4a3d; }
+#insights-heatmap .movers-v2 .hm-0 { background: #363b47; }
+#insights-heatmap .movers-v2 .hm-n1 { background: #4f343a; }
+#insights-heatmap .movers-v2 .hm-n2 { background: #6b3a40; }
+#insights-heatmap .movers-v2 .hm-n3 { background: #8a434a; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-p3 { background: #98cfae; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-p2 { background: #bde1ca; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-p1 { background: #dbeee2; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-0 { background: #e6e9ee; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-n1 { background: #f6dfe1; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-n2 { background: #eec3c7; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-n3 { background: #e3a1a8; }
 #insights-heatmap .movers-v2 .heatmap-grid { display: block; }
 #insights-heatmap .movers-v2 .hm-map { display: flex; flex-wrap: wrap; gap: 8px; }
 #insights-heatmap .movers-v2 .hm-sector { flex: var(--w) 1 calc(var(--w) * 46px); min-width: 150px; display: grid; gap: 4px; align-content: start; }
@@ -876,11 +885,12 @@
 }
 #insights-heatmap .movers-v2 .hm-tile {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  min-width: 0; padding: 4px; border-radius: 4px; color: #fff; cursor: default;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
-  transition: filter .12s ease, outline-color .12s ease; outline: 2px solid transparent; outline-offset: -2px;
+  min-width: 0; padding: 4px; border-radius: 4px; color: #e8edf3; cursor: default;
+  transition: outline-color .12s ease; outline: 1px solid transparent; outline-offset: -1px;
 }
-#insights-heatmap .movers-v2 .hm-tile:hover { filter: brightness(1.15); outline-color: rgba(255, 255, 255, 0.7); }
+#insights-heatmap .movers-v2 .hm-tile:hover { outline-color: rgba(232, 237, 243, 0.45); }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-tile { color: #1e293b; }
+[data-theme="light"] #insights-heatmap .movers-v2 .hm-tile:hover { outline-color: rgba(30, 41, 59, 0.35); }
 #insights-heatmap .movers-v2 .hm-tile.hm-lg { grid-column: span 2; }
 #insights-heatmap .movers-v2 .hm-tile.hm-xl { grid-column: span 2; grid-row: span 2; }
 #insights-heatmap .movers-v2 .hm-sym { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12px 'Inter', sans-serif; }
@@ -906,8 +916,11 @@
 #insights-heatmap .movers-v2 .rail-bar, #insights-heatmap .movers-v2 .industry-bar { position: relative; height: 8px; border-radius: 999px; background: rgba(148, 163, 184, 0.12); overflow: hidden; }
 #insights-heatmap .movers-v2 .rail-bar i, #insights-heatmap .movers-v2 .industry-bar i { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
 #insights-heatmap .movers-v2 .rail-bar i { left: 0; }
-#insights-heatmap .movers-v2 .rail-bar i.positive, #insights-heatmap .movers-v2 .industry-bar i.positive { background: var(--positive); }
-#insights-heatmap .movers-v2 .rail-bar i.negative, #insights-heatmap .movers-v2 .industry-bar i.negative { background: var(--negative); }
+#insights-heatmap /* The bars wear the map's muted greens and reds, #insights-heatmap not the bright text tones. */
+.movers-v2 .rail-bar i.positive, #insights-heatmap .movers-v2 .industry-bar i.positive { background: #4f9a70; }
+#insights-heatmap .movers-v2 .rail-bar i.negative, #insights-heatmap .movers-v2 .industry-bar i.negative { background: #b0565e; }
+[data-theme="light"] #insights-heatmap .movers-v2 .rail-bar i.positive, [data-theme="light"] #insights-heatmap .movers-v2 .industry-bar i.positive { background: #6fbb91; }
+[data-theme="light"] #insights-heatmap .movers-v2 .rail-bar i.negative, [data-theme="light"] #insights-heatmap .movers-v2 .industry-bar i.negative { background: #d98a92; }
 #insights-heatmap .movers-v2 .rail-bar i.neutral, #insights-heatmap .movers-v2 .industry-bar i.neutral { background: var(--flat); }
 #insights-heatmap .movers-v2 .industry-bar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border-strong, var(--border)); }
 #insights-heatmap .movers-v2 .rail-move, #insights-heatmap .movers-v2 .industry-move { grid-column: auto; justify-self: end; text-align: right; font: 700 12px 'JetBrains Mono', monospace; }
