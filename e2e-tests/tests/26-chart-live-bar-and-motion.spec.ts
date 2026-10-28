@@ -256,7 +256,9 @@ test('Supertrend (10, 2) is drawn on the option chart and its switch turns it of
   const on = await st();
   expect(on.runs).toBeGreaterThan(1);
   expect(on.dirs).toEqual([-1, 1]);
-  expect(on.label).toEqual(['ST 10,2']);
+  // The label carries the line's latest value, as CPR's do (2026-10-28).
+  expect(on.label).toHaveLength(1);
+  expect(on.label[0]).toMatch(/^ST 10,2 \([\d,]+\.\d{2}\)$/);
 
   const toggle = page.locator('#scalp-dock-chart .scalp-studio-tray .scalp-st-toggle');
   await expect(toggle).toHaveText('ST 10,2');
@@ -567,7 +569,7 @@ test('the CPR switch hides and shows the pivot set as one', async ({ page }) => 
   await cpr.click();
   await expect.poll(count).toBe(0);
   // The EMA is not part of the set and stays.
-  expect(await page.evaluate(() => (window as any)._pfChartCanvas.data.overlays.some((o: any) => o.label === 'EMA 20'))).toBe(true);
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.data.overlays.some((o: any) => /^EMA 20 \([\d,]+\.\d{2}\)$/.test(String(o.label))))).toBe(true);
   expect(await page.evaluate(() => localStorage.getItem('pf_scalp_chart_cpr'))).toBe('0');
   await cpr.click();
   await expect.poll(count).toBe(3);

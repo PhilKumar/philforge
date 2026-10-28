@@ -15453,15 +15453,23 @@ function _scalpDecorate(data) {
   } else {
     data.indicators = data._base.indicators;
   }
+  // Each indicator's label carries its value, as the CPR lines' do (Phil,
+  // 2026-10-28: "The other indicators has price but ST and EMA has no
+  // values"): the line's latest point, in CPR's "(1,234.50)" form.
+  const valued = (label, pts) => {
+    const last = Array.isArray(pts) && pts.length ? Number(pts[pts.length - 1].price) : NaN;
+    return isFinite(last) ? `${label} (${last.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : label;
+  };
   const overlays = data._base.overlays.filter(ov => (_scalpChartCprOn || !ov || ov.group !== 'cpr')
-    && (_scalpChartEmaOn || !_scalpIsEmaOverlay(ov)));
+    && (_scalpChartEmaOn || !_scalpIsEmaOverlay(ov)))
+    .map(ov => (_scalpIsEmaOverlay(ov) && ov.label ? { ...ov, label: valued(String(ov.label).replace(/\s*\(.*\)$/, ''), ov.points) } : ov));
   const lines = data._base.lines.slice();
   if (_scalpChartSupertrendOn) {
     // Each run stands alone, as on TradingView: a flip is a gap, not a diagonal.
     _supertrendRuns(data.candles || [], _SCALP_ST.period, _SCALP_ST.multiplier).forEach((run, i, all) => {
       if (run.points.length < 2) return;
       overlays.push({
-        label: i === all.length - 1 ? `ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}` : '',
+        label: i === all.length - 1 ? valued(`ST ${_SCALP_ST.period},${_SCALP_ST.multiplier}`, run.points) : '',
         color: run.dir > 0 ? '#4caf50' : '#ff5252',
         width: 1.6,
         points: run.points,
