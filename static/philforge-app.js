@@ -13081,6 +13081,9 @@ function _readScalpFormState() {
 }
 
 function _persistScalpFormState() {
+  // The chart's ticket mirrors the form: every change made on either shows
+  // on both at once.
+  try { _scalpSyncTicket(); } catch (e) {}
   if (_scalpRestoringState) return;
   try {
     _setLocalState(_SCALP_FORM_STORAGE_KEY, JSON.stringify(_readScalpFormState()));
@@ -14828,12 +14831,18 @@ function _scalpSyncTicket() {
   const formLots = document.getElementById('scalp-lots');
   if (ticketLots && formLots && document.activeElement !== ticketLots) ticketLots.value = formLots.value || '1';
   // The contract row reads the form: its CE/PE and its strike.
+  // Each toggle lights as the form's does: CE/PE, Paper/Live, the broker
+  // (both names lit when Both is ticked, as on the form) and Both itself.
   const opt = document.getElementById('scalp-option-type')?.value || 'CE';
-  document.querySelectorAll('#scalp-ticket .scalp-ticket-seg-btn').forEach((btn) => {
-    const on = btn.dataset.opt === opt;
-    btn.classList.toggle('is-active', on);
-    btn.setAttribute('aria-pressed', String(on));
-  });
+  const formMode = document.getElementById('scalp-mode')?.value || 'paper';
+  const broker = document.getElementById('scalp-broker')?.value || 'dhan';
+  const bothTicked = !!document.getElementById('scalp-both-brokers')?.checked;
+  const light = (btn, on) => { btn.classList.toggle('active', on); btn.setAttribute('aria-pressed', String(on)); };
+  document.querySelectorAll('#scalp-ticket [data-opt]').forEach(btn => light(btn, btn.dataset.opt === opt));
+  document.querySelectorAll('#scalp-ticket [data-mode]').forEach(btn => light(btn, btn.dataset.mode === formMode));
+  document.querySelectorAll('#scalp-ticket [data-broker]').forEach(btn => light(btn, bothTicked || btn.dataset.broker === broker));
+  const bothBtn = document.getElementById('scalp-ticket-both');
+  if (bothBtn) light(bothBtn, bothTicked);
   const strikeEl = document.getElementById('scalp-ticket-strike');
   const strike = document.getElementById('scalp-strike')?.value;
   if (strikeEl) strikeEl.textContent = strike ? String(strike) : '--';
@@ -14912,8 +14921,8 @@ function _scalpPillHtml(t) {
       <span class="scalp-pill-broker ${brokerCls}">${broker}</span>
       <span class="scalp-pill-entry">₹${Number(t.entry_premium || 0).toFixed(2)}</span>
       <span class="scalp-pill-pnl ${pnl > 0 ? 'is-up' : pnl < 0 ? 'is-down' : ''}">${pnl >= 0 ? '+' : '−'}₹${Math.abs(pnl).toFixed(2)}</span>
-      <button type="button" class="scalp-pill-btn read-only-lock" onclick="exitScalpTrade(${t.trade_id})" title="Exit #${t.trade_id}${partner ? ` only; #${partner.trade_id} stays open` : ''}">Exit</button>
-      ${partner ? `<button type="button" class="scalp-pill-btn is-all read-only-lock" onclick="exitScalpPair(${t.trade_id})" title="Exit #${t.trade_id} and #${partner.trade_id} at both brokers">Exit all</button>` : ''}
+      <button type="button" class="btn btn-danger btn-sm scalp-pill-btn read-only-lock" onclick="exitScalpTrade(${t.trade_id})" title="Exit #${t.trade_id}${partner ? ` only; #${partner.trade_id} stays open` : ''}">Exit</button>
+      ${partner ? `<button type="button" class="btn btn-danger btn-sm scalp-pill-btn is-all read-only-lock" onclick="exitScalpPair(${t.trade_id})" title="Exit #${t.trade_id} and #${partner.trade_id} at both brokers">Exit all</button>` : ''}
     </div>
   </div>`;
 }
@@ -15063,6 +15072,21 @@ function _applyScalpTicketMore(open) {
   }
   _scalpSyncTicket();
 }
+// The form's strike step, from the chart. Its own name: a light-theme rule
+// matches any button calling stepScalpStrike and dressed these as the form's.
+function stepScalpTicketStrike(dir) { stepScalpStrike(dir); }
+window.stepScalpTicketStrike = stepScalpTicketStrike;
+
+// The form's Both tick, from the chart.
+function toggleScalpTicketBoth() {
+  const box = document.getElementById('scalp-both-brokers');
+  if (!box) return;
+  box.checked = !box.checked;
+  setScalpBothBrokers();
+  _scalpSyncTicket();
+}
+window.toggleScalpTicketBoth = toggleScalpTicketBoth;
+
 function toggleScalpTicketMore() {
   const open = document.getElementById('scalp-ticket-more')?.getAttribute('aria-expanded') !== 'true';
   try { localStorage.setItem(_SCALP_TICKET_MORE_KEY, open ? '1' : '0'); } catch (err) {}
@@ -15119,6 +15143,54 @@ window.toggleScalpLinesSide = toggleScalpLinesSide;
 window.toggleScalpLines = toggleScalpLines;
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _applyScalpLines);
 else _applyScalpLines();
+
+// FULL SCREEN, with the controls (Phil, 2026-10-28: "give me a full screen
+// button of the chart to view it on a full screen with the controls"). The
+// browser goes full screen and the docked chart fills it -- toolbar, Studio,
+// O H L C, the B/S ticket and the trade lines -- rather than the chart alone
+// going full screen: the SL warning a B or S can raise, and the toasts, live
+// outside the chart and would be hidden behind a full-screen element. The
+// chart stacks over the header (2500), under the dialogs (3000+).
+const _SCALP_FULL_ICON = {
+  enter: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+  exit: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>',
+};
+function _applyScalpChartFull(on) {
+  document.body.classList.toggle('scalp-chart-full', on);
+  const btn = document.getElementById('scalp-chart-full-btn');
+  if (btn) {
+    btn.innerHTML = on ? _SCALP_FULL_ICON.exit : _SCALP_FULL_ICON.enter;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.title = on ? 'Leave full screen (Esc)' : 'Full screen, with the controls';
+    btn.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen');
+  }
+  // The chart redraws itself to its new box; the Studio tray re-picks its place.
+  requestAnimationFrame(() => {
+    const studio = document.querySelector('#scalp-dock-chart .scalp-studio');
+    if (studio) _placeScalpStudio(studio);
+  });
+}
+function toggleScalpChartFull() {
+  const on = !document.body.classList.contains('scalp-chart-full');
+  _applyScalpChartFull(on);
+  try {
+    if (on && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+    if (!on && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  } catch (err) {}
+}
+window.toggleScalpChartFull = toggleScalpChartFull;
+// Esc (or the browser leaving full screen any other way) brings it back.
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && document.body.classList.contains('scalp-chart-full')) _applyScalpChartFull(false);
+});
+// In capture, ahead of the page's other Esc handlers.
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !document.body.classList.contains('scalp-chart-full')) return;
+  _applyScalpChartFull(false);
+  try { if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); } catch (err) {}
+}, true);
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => _applyScalpChartFull(false));
+else _applyScalpChartFull(false);
 
 // The right column steps aside so the chart takes the width (Phil,
 // 2026-10-28: "have the scalp controls hide to the right side with a small
