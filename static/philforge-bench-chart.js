@@ -665,7 +665,9 @@ function _pfChartCanvasProjection(c) {
   // horizontal lane. The floors keep labels readable on a narrow screen.
   var padL = Math.max(86, 150 * c.w / 1440);
   var padR = Math.max(42, 62 * c.w / 1440);
-  var padT = Math.max(18, 26 * c.h / 660);
+  // A chart that lays a row of controls over its top asks for room for it
+  // (payload.padTop), so the plot's first line starts below them.
+  var padT = Math.max(18, 26 * c.h / 660, Number((c.data && c.data.padTop) || 0) || 0);
   var padB = Math.max(26, 34 * c.h / 660);
   var plotW = Math.max(c.w - padL - padR, 1);
   var fullH = Math.max(c.h - padT - padB, 1);

@@ -15483,6 +15483,10 @@ function _scalpDecorate(data) {
   // (Phil, 2026-10-28: "increase the font size of the numbers on the chart a
   // lil bigger... don't make it too big"): about 10px on the axes.
   data.fontFloor = 1.05;
+  // The O H L C, B/S and zoom row sits between the toolbar's line and the
+  // plot's first line, 8px from each (Phil, 2026-10-28: "Move all perfectly
+  // between these two horizontal lines"): 8 + the 27px row + 8.
+  data.padTop = 43;
   data.magnet = _scalpChartMagnetOn;
   data.onCrosshair = (idx) => { _scalpOhlcHover = idx; _scalpOhlcShow(); };
   data.overlays = overlays;
