@@ -679,7 +679,13 @@ function _pfChartCanvasProjection(c) {
   // in testing and left the candles 71px tall. The band is a SHARE of the
   // height, capped, and simply not drawn when the surface is too short for a
   // readable one -- the price pane always keeps at least ~three quarters.
-  var rsiH = rsi && rsi.length && fullH >= 190 ? Math.min(120, fullH * 0.22) : 0;
+  // Its height can be dragged by the line between the panes (Phil,
+  // 2026-10-28: "I am unable to drag the RSI... Make it dragable"); a height
+  // chosen here (c.rsiPaneH) or kept by the page (payload.rsiPaneH) holds,
+  // never under 50px and never past 60% of the chart.
+  var rsiWant = Number(c.rsiPaneH || (c.data && c.data.rsiPaneH) || 0);
+  var rsiH = rsi && rsi.length && fullH >= 190
+    ? (rsiWant > 0 ? Math.max(50, Math.min(fullH * 0.6, rsiWant)) : Math.min(120, fullH * 0.22)) : 0;
   var rsiGap = rsiH ? Math.max(10, padT * 0.5) : 0;
   var plotH = Math.max(fullH - rsiH - rsiGap, 40);
   var priceTop = padT;
@@ -1430,6 +1436,8 @@ function _pfChartCanvasPoint(c, event) {
     // and its 70/50/30 labels on the left.
     rsiAxis: !!p.rsiH && (x > p.padL + p.plotW || x < p.padL) && y >= p.rsiTop && y <= p.rsiTop + p.rsiH,
     rsiPlot: !!p.rsiH && x >= p.padL && x <= p.padL + p.plotW && y >= p.rsiTop && y <= p.rsiTop + p.rsiH,
+    // The gap between the price pane and RSI: its height's handle.
+    rsiDivider: !!p.rsiH && x >= p.padL && x <= p.padL + p.plotW && y >= p.padT + p.plotH - 3 && y <= p.rsiTop + 3,
     timeAxis: y > p.padT + p.plotH && x >= p.padL && x <= p.padL + p.plotW
       && !(p.rsiH && y >= p.rsiTop && y <= p.rsiTop + p.rsiH)
   };
@@ -2020,6 +2028,10 @@ function _pfChartCanvasBindInteraction(c) {
     var drag = c.drag;
     c.drag = null;
     c.host.style.cursor = '';
+    // The page may keep the RSI height it was dragged to (payload.onRsiResize).
+    if (drag.kind === 'rsiPane' && c.projection && typeof (c.data || {}).onRsiResize === 'function') {
+      try { c.data.onRsiResize(Math.round(c.projection.rsiH)); } catch (err) {}
+    }
     // Released while still moving: coast, at the speed of the drag's last
     // ~100ms. A pointer that came to rest before letting go stays put.
     var samples = drag.samples || [], b = samples[samples.length - 1];
@@ -2051,6 +2063,13 @@ function _pfChartCanvasBindInteraction(c) {
       if (c.touches.size === 2) { beginPinch(); return; }
       if (c.touches.size > 2) return;
     }
+    if (point && point.rsiDivider && c.projection) {
+      c.drag = { kind: 'rsiPane', y: point.y, h0: c.projection.rsiH };
+      c.host.style.cursor = 'row-resize';
+      try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
+      _pfChartCanvasClearCrosshair(c);
+      return;
+    }
     if (point && point.rsiAxis && c.projection) {
       var rr0 = c.rsiRange || { lo: 0, hi: 100 };
       c.drag = { kind: 'rsi', y: point.y, range: { lo: rr0.lo, hi: rr0.hi }, anchor: c.projection.rsiAt(point.y) };
@@ -2059,14 +2078,17 @@ function _pfChartCanvasBindInteraction(c) {
       _pfChartCanvasClearCrosshair(c);
       return;
     }
-    if (!point || !v || (!point.plot && !point.priceAxis && !point.timeAxis)) return;
+    if (!point || !v || (!point.plot && !point.rsiPlot && !point.priceAxis && !point.timeAxis)) return;
     c.drag = {
-      kind: point.plot ? 'pan' : (point.priceAxis ? 'price' : 'time'),
+      // A press in the RSI pane pans time, as the price pane does; it has no
+      // price to move.
+      kind: point.plot || point.rsiPlot ? 'pan' : (point.priceAxis ? 'price' : 'time'),
+      timeOnly: !point.plot && !!point.rsiPlot,
       x: point.x, y: point.y,
       viewport: { tMin: v.tMin, tMax: v.tMax, pMin: v.pMin, pMax: v.pMax },
       anchorTime: c.projection.tAt(point.x), anchorPrice: c.projection.pAt(point.y)
     };
-    c.host.style.cursor = point.plot ? 'grabbing' : 'ns-resize';
+    c.host.style.cursor = point.plot || point.rsiPlot ? 'grabbing' : 'ns-resize';
     if (point.timeAxis) c.host.style.cursor = 'ew-resize';
     try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
     _pfChartCanvasClearCrosshair(c);
@@ -2082,8 +2104,15 @@ function _pfChartCanvasBindInteraction(c) {
     if (!c.drag) {
       var over = point.plot && !_pfDrawArmed ? _pfChartDrawHit(c, point.x, point.y) : null;
       c.host.style.cursor = over ? (over.part === 'body' ? 'move' : 'pointer')
+        : point.rsiDivider ? 'row-resize'
         : (point.plot || point.rsiPlot ? 'crosshair' : (point.priceAxis || point.rsiAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
       _pfChartCanvasDrawCrosshair(c, point);
+      return;
+    }
+    if (c.drag.kind === 'rsiPane') {
+      // Up makes the RSI taller, down shorter; the price pane takes the rest.
+      c.rsiPaneH = Math.max(50, c.drag.h0 - (point.y - c.drag.y));
+      _pfChartCanvasDraw();
       return;
     }
     if (c.drag.kind === 'rsi') {
@@ -2101,7 +2130,7 @@ function _pfChartCanvasBindInteraction(c) {
     drag.samples = (drag.samples || []).concat([{ x: point.x, at: performance.now() }]).slice(-6);
     if (drag.kind === 'pan') {
       var dt = -(point.x - drag.x) / p.plotW * tSpan;
-      var dp = (point.y - drag.y) / p.plotH * pSpan;
+      var dp = drag.timeOnly ? 0 : (point.y - drag.y) / p.plotH * pSpan;
       _pfChartCanvasQueueView(c, { tMin: start.tMin + dt, tMax: start.tMax + dt, pMin: start.pMin + dp, pMax: start.pMax + dp });
     } else if (drag.kind === 'price') {
       // Pulling the price axis upward zooms in (a tighter price range); pulling

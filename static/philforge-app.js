@@ -15487,6 +15487,9 @@ function _scalpDecorate(data) {
   // plot's first line, 8px from each (Phil, 2026-10-28: "Move all perfectly
   // between these two horizontal lines"): 8 + the 27px row + 8.
   data.padTop = 43;
+  // The RSI pane's height, as last dragged on this browser.
+  try { data.rsiPaneH = Number(localStorage.getItem('pf_scalp_rsi_pane_h')) || 0; } catch (_) { data.rsiPaneH = 0; }
+  data.onRsiResize = (h) => { try { localStorage.setItem('pf_scalp_rsi_pane_h', String(h)); } catch (_) {} };
   data.magnet = _scalpChartMagnetOn;
   data.onCrosshair = (idx) => { _scalpOhlcHover = idx; _scalpOhlcShow(); };
   data.overlays = overlays;
