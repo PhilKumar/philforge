@@ -14473,16 +14473,17 @@ function _scalpLotsBadge(t) {
 // Shared row builder — used by both _renderScalpStatus (REST) and _renderScalpStatusWS (WebSocket)
 // Phil, 2026-10-27: "make that 2nd row flow down". Beside the chart a position
 // shows Symbol to P&L; its Target, SL and buttons fold down under it, so more
-// positions do not push the launchpad away. One opened stays open across the
+// positions do not push the launchpad away. Open by default (Phil, 2026-10-28:
+// "Make default as expand second row"); one folded stays folded across the
 // table's rebuilds. The wide (phone and narrow) table has no fold.
-const _scalpRowsOpen = new Set();
+const _scalpRowsFolded = new Set();
 function _scalpRowFoldBtn(t) {
-  const open = _scalpRowsOpen.has(Number(t.trade_id));
+  const open = !_scalpRowsFolded.has(Number(t.trade_id));
   // The click reaches the cell's own handler: the whole symbol cell folds.
   return `<button type="button" class="scalp-row-fold" aria-expanded="${open}" aria-label="Target, SL and Exit" title="Target, SL and Exit">${open ? '▾' : '▸'}</button>`;
 }
 function _scalpRowFoldClass(t) {
-  return _scalpRowsOpen.has(Number(t.trade_id)) ? '' : ' class="is-folded"';
+  return _scalpRowsFolded.has(Number(t.trade_id)) ? ' class="is-folded"' : '';
 }
 function _scalpRowTitle(t) {
   const lots = Number(t.lots || 0);
@@ -14492,10 +14493,10 @@ function _scalpRowTitle(t) {
 }
 function toggleScalpRow(tradeId) {
   const id = Number(tradeId);
-  if (_scalpRowsOpen.has(id)) _scalpRowsOpen.delete(id); else _scalpRowsOpen.add(id);
+  if (_scalpRowsFolded.has(id)) _scalpRowsFolded.delete(id); else _scalpRowsFolded.add(id);
   const row = document.querySelector(`#scalp-active-body tr[data-tid="${id}"]`);
   if (!row) return;
-  const open = _scalpRowsOpen.has(id);
+  const open = !_scalpRowsFolded.has(id);
   row.classList.toggle('is-folded', !open);
   const btn = row.querySelector('.scalp-row-fold');
   if (btn) { btn.setAttribute('aria-expanded', String(open)); btn.textContent = open ? '▾' : '▸'; }
