@@ -10343,16 +10343,20 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
    lots inbetween like we have it on Dhan powerscalper"; the open trades as
    lines with Exit; "have the scalp controls hide to the right side with a
    small hide unhide arrow button"). Docked desk only. ── */
-.scalp-rail-toggle { display: none; }
+.scalp-chart-tool { display: none; }
 @media (min-width: 1080px) {
   #scalp-page .scalp-dock-chart { position: relative; }
-  #scalp-page .scalp-rail-toggle {
+  /* The toolbar's own small square buttons: the trade lines' side and
+     visibility, then the arrow that hides the right column. */
+  #scalp-page .scalp-chart-tool {
     display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
-    width: 26px; height: 26px; margin-left: 6px; border-radius: 6px; cursor: pointer;
+    width: 28px; height: 28px; margin-left: 4px; padding: 0; border-radius: 6px; cursor: pointer;
     border: 1px solid var(--border); background: rgba(148, 163, 184, 0.08); color: var(--muted);
-    font-size: 12px; line-height: 1;
+    font-size: 13px; line-height: 1;
   }
-  #scalp-page .scalp-rail-toggle:hover { color: var(--text); border-color: var(--border-hi, var(--border)); }
+  #scalp-page .scalp-chart-tool:first-of-type { margin-left: 8px; }
+  #scalp-page .scalp-chart-tool:hover { color: var(--text); border-color: var(--border-hi, var(--border)); }
+  #scalp-page .scalp-chart-tool[aria-pressed="true"] { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); }
 
   /* The right column steps out of the layout but stays laid out, invisibly:
      the form is still read on every order (its Both tick counts only while
@@ -10372,38 +10376,6 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 
   #scalp-page .scalp-chart-hud { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
   #scalp-page .scalp-chart-hud[hidden] { display: none; }
-  #scalp-page .scalp-ticket {
-    position: absolute; display: grid; gap: 5px; padding: 6px; width: 252px;
-    border-radius: 10px; pointer-events: auto;
-    background: rgba(10, 16, 28, 0.88); border: 1px solid rgba(148, 163, 184, 0.22);
-  }
-  #scalp-page .scalp-ticket-row { display: flex; align-items: center; gap: 5px; }
-  #scalp-page .scalp-ticket-btn {
-    flex: 1 1 0; height: 30px; border-radius: 6px; border: 0; cursor: pointer;
-    font: 800 14px 'Inter', sans-serif; color: #fff;
-  }
-  #scalp-page .scalp-ticket-btn.is-buy { background: #1f8f53; }
-  #scalp-page .scalp-ticket-btn.is-sell { background: #c53b3b; }
-  #scalp-page .scalp-ticket-btn:hover:not(:disabled) { filter: brightness(1.12); }
-  #scalp-page .scalp-ticket-btn:disabled { opacity: .4; cursor: not-allowed; }
-  #scalp-page .scalp-ticket-lots {
-    width: 40px; height: 30px; padding: 0 2px; text-align: center; border: 0; border-radius: 0;
-    background: transparent; color: #e8edf3; font: 700 13px 'JetBrains Mono', monospace;
-  }
-  #scalp-page .scalp-ticket-mode {
-    margin-left: 0; padding: 3px 6px; border-radius: 4px; white-space: nowrap;
-    font: 800 9.5px 'JetBrains Mono', monospace; letter-spacing: .04em;
-    color: #cbd5e1; background: rgba(148, 163, 184, 0.16);
-  }
-  #scalp-page .scalp-ticket-mode.is-live { color: #fff; background: rgba(197, 59, 59, 0.9); }
-  #scalp-page .scalp-ticket-status {
-    max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    font: 600 11px 'JetBrains Mono', monospace; color: #cbd5e1;
-  }
-  #scalp-page .scalp-ticket-status:empty { display: none; }
-  #scalp-page .scalp-ticket-status[data-tone="good"] { color: #6ee7b7; }
-  #scalp-page .scalp-ticket-status[data-tone="bad"] { color: #fca5a5; }
-
   #scalp-page .scalp-pill-row { position: absolute; height: 0; pointer-events: none; }
   #scalp-page .scalp-pill-row::before {
     content: ''; position: absolute; left: 0; right: 0; top: 0;
@@ -10438,47 +10410,80 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page .scalp-chart-pills.is-right .scalp-pill { left: auto; right: 8px; }
   #scalp-page .scalp-chart-pills.is-hidden { display: none; }
 
-  /* One frame each for the lots and the strike: the number between its two
-     arrows, so the pair reads as one control. */
-  #scalp-page .scalp-ticket-lotbox,
-  #scalp-page .scalp-ticket-strike {
-    display: inline-flex; align-items: center; height: 30px; border-radius: 6px; overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.3); background: rgba(2, 6, 14, 0.6);
+  /* THE TICKET: one grid, three equal-height columns, so both rows line up
+     cell for cell (Phil, 2026-10-28: "Not at all aligned properly... Make
+     it tidy and clean and professional").
+         [ CE | PE ]  [ ▼ strike ▲ ]  [  mode  ]
+         [    B    ]  [ −  lots  + ]  [    S   ]                         */
+  #scalp-page .scalp-ticket {
+    position: absolute; box-sizing: border-box; pointer-events: auto;
+    display: grid; grid-template-columns: 92px 112px 92px; grid-auto-rows: 30px; gap: 6px;
+    padding: 6px; border-radius: 10px;
+    background: rgba(10, 16, 28, 0.92); border: 1px solid rgba(148, 163, 184, 0.22);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
   }
-  #scalp-page .scalp-ticket-strike { height: 26px; }
+  #scalp-page .scalp-ticket-row { display: contents; }
+  /* Every cell: the column's full width, 30px, one border, one radius. */
+  #scalp-page .scalp-ticket-seg,
+  #scalp-page .scalp-ticket-strike,
+  #scalp-page .scalp-ticket-lotbox,
+  #scalp-page .scalp-ticket-mode {
+    box-sizing: border-box; width: 100%; height: 30px; display: flex; align-items: stretch;
+    border-radius: 6px; overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.28); background: rgba(2, 6, 14, 0.55);
+  }
+  #scalp-page .scalp-ticket-btn {
+    box-sizing: border-box; width: 100%; height: 30px; border: 0; border-radius: 6px; cursor: pointer;
+    font: 800 14px 'Inter', sans-serif; letter-spacing: .02em; color: #fff;
+  }
+  #scalp-page .scalp-ticket-btn.is-buy { background: #1f8f53; }
+  #scalp-page .scalp-ticket-btn.is-sell { background: #c53b3b; }
+  #scalp-page .scalp-ticket-btn:hover:not(:disabled) { filter: brightness(1.12); }
+  #scalp-page .scalp-ticket-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  #scalp-page .scalp-ticket-seg-btn {
+    flex: 1 1 0; padding: 0; border: 0; cursor: pointer; background: transparent;
+    color: #94a3b8; font: 800 11.5px 'Inter', sans-serif; letter-spacing: .03em;
+  }
+  #scalp-page .scalp-ticket-seg-btn + .scalp-ticket-seg-btn { border-left: 1px solid rgba(148, 163, 184, 0.28); }
+  #scalp-page .scalp-ticket-seg-btn:hover:not(.is-active) { color: #e8edf3; background: rgba(148, 163, 184, 0.12); }
+  #scalp-page .scalp-ticket-seg-btn.is-active[data-opt="CE"] { background: #1f8f53; color: #fff; }
+  #scalp-page .scalp-ticket-seg-btn.is-active[data-opt="PE"] { background: #c53b3b; color: #fff; }
+
   #scalp-page .scalp-ticket-step,
   #scalp-page .scalp-ticket-arrow {
-    width: 24px; height: 100%; padding: 0; border: 0; cursor: pointer; background: transparent;
+    flex: 0 0 28px; display: flex; align-items: center; justify-content: center;
+    padding: 0; border: 0; cursor: pointer; background: transparent;
     color: #cbd5e1; font: 700 15px 'Inter', sans-serif; line-height: 1;
   }
-  #scalp-page .scalp-ticket-arrow { width: 20px; font-size: 9px; }
-  #scalp-page .scalp-ticket-step:hover, #scalp-page .scalp-ticket-arrow:hover { background: rgba(148, 163, 184, 0.16); color: #fff; }
-  #scalp-page .scalp-ticket-strike-val { min-width: 48px; text-align: center; font: 700 12px 'JetBrains Mono', monospace; color: #e8edf3; }
-  #scalp-page .scalp-ticket-seg {
-    display: inline-flex; height: 26px; border-radius: 6px; overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.3);
+  #scalp-page .scalp-ticket-arrow { font-size: 9px; }
+  #scalp-page .scalp-ticket-step:hover, #scalp-page .scalp-ticket-arrow:hover { background: rgba(148, 163, 184, 0.14); color: #fff; }
+  #scalp-page .scalp-ticket-strike-val,
+  #scalp-page .scalp-ticket-lots {
+    flex: 1 1 auto; min-width: 0; height: 100%; padding: 0; margin: 0; border: 0; border-radius: 0;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    background: transparent; color: #e8edf3; font: 700 13px 'JetBrains Mono', monospace;
   }
-  #scalp-page .scalp-ticket-seg-btn {
-    width: 30px; padding: 0; border: 0; cursor: pointer; background: transparent;
-    color: #94a3b8; font: 800 10.5px 'Inter', sans-serif;
-  }
-  #scalp-page .scalp-ticket-seg-btn.is-active[data-opt="CE"] { background: rgba(31, 143, 83, 0.85); color: #fff; }
-  #scalp-page .scalp-ticket-seg-btn.is-active[data-opt="PE"] { background: rgba(197, 59, 59, 0.85); color: #fff; }
-  /* The trade lines' two switches: small and quiet, at the row's end. */
-  #scalp-page .scalp-ticket-tools { margin-left: auto; display: inline-flex; gap: 2px; }
-  #scalp-page .scalp-ticket-tool {
-    width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; cursor: pointer;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: transparent; color: #7c8aa0; font: 700 12px 'Inter', sans-serif;
-  }
-  #scalp-page .scalp-ticket-tool:hover { background: rgba(148, 163, 184, 0.16); color: #e8edf3; }
-  #scalp-page .scalp-ticket-tool[aria-pressed="true"] { color: #fbbf24; }
-  #scalp-page .scalp-ticket-lots { -moz-appearance: textfield; }
+  /* The site's inputs stand 40px tall; this one is the cell's height, or
+     its number sits below the - and + beside it. */
+  #scalp-page .scalp-ticket-lots { -moz-appearance: textfield; min-height: 0; line-height: 28px; }
+  #scalp-page .scalp-ticket-lots:focus { outline: none; background: rgba(148, 163, 184, 0.1); }
   #scalp-page .scalp-ticket-lots::-webkit-inner-spin-button,
   #scalp-page .scalp-ticket-lots::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+  #scalp-page .scalp-ticket-mode {
+    align-items: center; justify-content: center; padding: 0 4px; white-space: nowrap;
+    font: 800 9px 'JetBrains Mono', monospace; letter-spacing: 0; color: #cbd5e1;
+  }
+  #scalp-page .scalp-ticket-mode.is-live { background: #b4383d; border-color: transparent; color: #fff; }
+
   /* The answer to an order hangs under the ticket, never widening it. */
   #scalp-page .scalp-ticket-status {
-    position: absolute; top: calc(100% + 4px); right: 0; padding: 3px 8px; border-radius: 6px;
-    background: rgba(10, 16, 28, 0.9);
+    position: absolute; top: calc(100% + 4px); right: 0; max-width: 380px; padding: 4px 8px; border-radius: 6px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    background: rgba(10, 16, 28, 0.92); font: 600 11px 'JetBrains Mono', monospace; color: #cbd5e1;
   }
+  #scalp-page .scalp-ticket-status:empty { display: none; }
+  #scalp-page .scalp-ticket-status[data-tone="good"] { color: #6ee7b7; }
+  #scalp-page .scalp-ticket-status[data-tone="bad"] { color: #fca5a5; }
 }
