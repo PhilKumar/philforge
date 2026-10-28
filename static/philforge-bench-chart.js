@@ -1263,11 +1263,35 @@ function _pfChartCanvasIndicators(c, p, PAL, labels) {
 
 // Its own pane under the price, on a FIXED 0-100 axis with the rule's two
 // thresholds drawn: the whole reason to look at it is where 70 and 30 sit.
+function _pfChartCanvasRsiDivider(ctx, p, PAL, hot) {
+  var y = Math.round((p.padT + p.plotH + p.rsiTop) / 2) + 0.5;
+  var mid = p.padL + p.plotW / 2;
+  ctx.save();
+  ctx.strokeStyle = hot ? '#fbbf24' : PAL.rsiGuide;
+  ctx.globalAlpha = hot ? 0.95 : 0.55;
+  ctx.lineWidth = hot ? 2 : 1;
+  ctx.beginPath(); ctx.moveTo(p.padL, y); ctx.lineTo(p.padL + p.plotW, y); ctx.stroke();
+  // The grip: a short pill with three dots, TradingView's pane handle.
+  ctx.globalAlpha = hot ? 1 : 0.8;
+  ctx.fillStyle = hot ? '#fbbf24' : PAL.rsiGuide;
+  var w = 34, h = 8;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(mid - w / 2, y - h / 2, w, h, 4); else ctx.rect(mid - w / 2, y - h / 2, w, h);
+  ctx.fill();
+  ctx.fillStyle = PAL.fillRing || '#0b1220';
+  [-8, 0, 8].forEach(function (dx) { ctx.beginPath(); ctx.arc(mid + dx, y, 1.4, 0, Math.PI * 2); ctx.fill(); });
+  ctx.restore();
+}
+
 function _pfChartCanvasRsiPane(c, p, PAL) {
   var ind = (c.data || {}).indicators;
   var series = ind && ind.rsi;
   if (!series || !series.length || !p.rsiH) return 0;
   var ctx = c.ctx, scale = p.fontScale;
+  // The handle between the panes, drawn so it can be found (Phil,
+  // 2026-10-28: "The RSI drag is still not working"): a line across the gap
+  // and a grip at its middle. It lights up under the pointer (the overlay).
+  _pfChartCanvasRsiDivider(ctx, p, PAL, false);
   var upper = Number(ind.rsi_upper);
   var lower = Number(ind.rsi_lower);
   if (!isFinite(upper)) upper = 70;
@@ -1437,7 +1461,7 @@ function _pfChartCanvasPoint(c, event) {
     rsiAxis: !!p.rsiH && (x > p.padL + p.plotW || x < p.padL) && y >= p.rsiTop && y <= p.rsiTop + p.rsiH,
     rsiPlot: !!p.rsiH && x >= p.padL && x <= p.padL + p.plotW && y >= p.rsiTop && y <= p.rsiTop + p.rsiH,
     // The gap between the price pane and RSI: its height's handle.
-    rsiDivider: !!p.rsiH && x >= p.padL && x <= p.padL + p.plotW && y >= p.padT + p.plotH - 3 && y <= p.rsiTop + 3,
+    rsiDivider: !!p.rsiH && x >= p.padL && x <= p.padL + p.plotW && y >= p.padT + p.plotH - 6 && y <= p.rsiTop + 6,
     timeAxis: y > p.padT + p.plotH && x >= p.padL && x <= p.padL + p.plotW
       && !(p.rsiH && y >= p.rsiTop && y <= p.rsiTop + p.rsiH)
   };
@@ -1506,6 +1530,13 @@ function _pfChartCanvasDrawCrosshair(c, point) {
   var ctx = c.octx, p = c.projection;
   if (!ctx || !p) return;
   ctx.clearRect(0, 0, c.w, c.h);
+  // On the handle between the panes: it lights up, and no crosshair.
+  if (point && point.rsiDivider && !c.drag) {
+    _pfChartCanvasRsiDivider(ctx, p, _pfChartPalette(), true);
+    c.crosshair = null;
+    if (typeof (c.data || {}).onCrosshair === 'function') { try { c.data.onCrosshair(null); } catch (err) {} }
+    return;
+  }
   if (!point || !(point.plot || point.rsiPlot)) {
     if (typeof (c.data || {}).onCrosshair === 'function') { try { c.data.onCrosshair(null); } catch (err) {} }
     return;
