@@ -14684,6 +14684,290 @@ function _scalpDockFollow(openTrades) {
 }
 let _scalpDockOpenTrades = [];
 
+// ── The chart's own ticket and trade lines (Phil, 2026-10-28) ──
+// "a buy and a sell button with B and S inside the chart with lots inbetween
+// like we have it on Dhan powerscalper", and the open trades on the charted
+// contract as lines with their Exit ("exit all" only for a Both pair). The
+// ticket is the form's BUY and SELL, nothing else: same contract, mode,
+// broker, exits and confirmations. So it trades only while the chart shows
+// the form's contract, and locks on any other.
+let _scalpHudOpen = [];
+let _scalpTicketBusy = false;
+let _scalpTicketStatusTimer = null;
+
+function _scalpHudCanvas() {
+  const c = typeof _pfChartCanvas !== 'undefined' ? _pfChartCanvas : null;
+  if (!c || !c.host || !c.host.isConnected || !c.projection || !c.host.closest('#scalp-dock-chart')) return null;
+  if (!_scalpChartShown || c.data !== _scalpChartShown.data) return null;
+  return c;
+}
+
+function _scalpChartInstrument() {
+  const ins = (_scalpChartShown && _scalpChartShown.data && _scalpChartShown.data.instrument) || null;
+  if (!ins) return null;
+  return { underlying: String(ins.underlying || ''), strike: Number(ins.strike), expiry: String(ins.expiry || ''), option_type: String(ins.option_type || '') };
+}
+
+function _scalpSameContract(a, b) {
+  return !!a && !!b && a.underlying === b.underlying && Number(a.strike) === Number(b.strike)
+    && a.expiry === b.expiry && a.option_type === b.option_type;
+}
+
+function _scalpTicketMode() {
+  const live = document.getElementById('scalp-mode')?.value === 'live';
+  if (!live) return { live, label: 'PAPER' };
+  const broker = _scalpBothBrokersOn() ? 'BOTH' : (document.getElementById('scalp-broker')?.value === 'zerodha' ? 'ZERODHA' : 'DHAN');
+  return { live, label: `LIVE · ${broker}` };
+}
+
+function _scalpSyncTicket() {
+  const ticketLots = document.getElementById('scalp-ticket-lots');
+  const formLots = document.getElementById('scalp-lots');
+  if (ticketLots && formLots && document.activeElement !== ticketLots) ticketLots.value = formLots.value || '1';
+  const mode = _scalpTicketMode();
+  const modeEl = document.getElementById('scalp-ticket-mode');
+  if (modeEl) {
+    modeEl.textContent = mode.label;
+    modeEl.classList.toggle('is-live', mode.live);
+  }
+  const matches = _scalpSameContract(_scalpChartInstrument(), _scalpFormContract());
+  const why = matches ? '' : 'The chart shows another contract than the form. Pick it in the form to trade it here.';
+  const form = _scalpFormContract();
+  const what = form ? `${form.strike} ${form.option_type}` : 'this option';
+  ['BUY', 'SELL'].forEach((dir) => {
+    const btn = document.getElementById(dir === 'BUY' ? 'scalp-ticket-buy' : 'scalp-ticket-sell');
+    if (!btn) return;
+    btn.disabled = !matches || _scalpTicketBusy;
+    btn.title = why || `${dir === 'BUY' ? 'Buy' : 'Sell'} ${what} · ${mode.label}`;
+  });
+}
+
+function _scalpTicketSay(text, tone) {
+  const el = document.getElementById('scalp-ticket-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.dataset.tone = tone || '';
+  clearTimeout(_scalpTicketStatusTimer);
+  if (text) _scalpTicketStatusTimer = setTimeout(() => { el.textContent = ''; el.dataset.tone = ''; }, 8000);
+}
+
+async function scalpTicketTrade(direction) {
+  if (_scalpTicketBusy) return;
+  if (!_scalpSameContract(_scalpChartInstrument(), _scalpFormContract())) {
+    _scalpTicketSay('Chart and form show different contracts', 'bad');
+    return;
+  }
+  const lots = parseInt(document.getElementById('scalp-ticket-lots')?.value, 10);
+  if (!Number.isInteger(lots) || lots < 1) { _scalpTicketSay('Lots must be 1 or more', 'bad'); return; }
+  _scalpTicketSetLots(lots);
+  _scalpTicketBusy = true;
+  _scalpSyncTicket();
+  _scalpTicketSay('Placing…', '');
+  try {
+    await submitScalpEntry(direction);
+    // The form's own status line says how it went; the form may be hidden.
+    const statusEl = document.getElementById('scalp-entry-status');
+    const text = (statusEl?.textContent || '').trim();
+    const tone = /❌|⚠️/.test(text) ? 'bad' : /✅|⏳/.test(text) ? 'good' : '';
+    _scalpTicketSay(text, tone);
+  } finally {
+    _scalpTicketBusy = false;
+    _scalpSyncTicket();
+  }
+}
+window.scalpTicketTrade = scalpTicketTrade;
+
+function _scalpPillHtml(t) {
+  const buy = String(t.transaction_type || 'BUY').toUpperCase() !== 'SELL';
+  const pnl = Number(t.pnl || 0);
+  const partner = t.pair_id ? _scalpHudOpen.find(o => o.pair_id === t.pair_id && o.trade_id !== t.trade_id) : null;
+  const broker = t.mode === 'live' ? (t.broker === 'zerodha' ? 'ZERODHA' : 'DHAN') : 'PAPER';
+  const brokerCls = t.mode === 'live' ? (t.broker === 'zerodha' ? 'is-zerodha' : 'is-dhan') : 'is-paper';
+  return `<div class="scalp-pill-row ${buy ? 'is-buy' : 'is-sell'}" data-tid="${t.trade_id}" data-price="${Number(t.entry_premium || 0)}">
+    <div class="scalp-pill" title="#${t.trade_id} · ${buy ? 'BUY' : 'SELL'} ${t.lots} lot${Number(t.lots) === 1 ? '' : 's'} @ ₹${Number(t.entry_premium || 0).toFixed(2)}">
+      <span class="scalp-pill-side">${buy ? 'B' : 'S'} ${escapeHtml(t.lots)}</span>
+      <span class="scalp-pill-broker ${brokerCls}">${broker}</span>
+      <span class="scalp-pill-entry">₹${Number(t.entry_premium || 0).toFixed(2)}</span>
+      <span class="scalp-pill-pnl ${pnl > 0 ? 'is-up' : pnl < 0 ? 'is-down' : ''}">${pnl >= 0 ? '+' : '−'}₹${Math.abs(pnl).toFixed(2)}</span>
+      <button type="button" class="scalp-pill-btn read-only-lock" onclick="exitScalpTrade(${t.trade_id})" title="Exit #${t.trade_id}${partner ? ` only; #${partner.trade_id} stays open` : ''}">Exit</button>
+      ${partner ? `<button type="button" class="scalp-pill-btn is-all read-only-lock" onclick="exitScalpPair(${t.trade_id})" title="Exit #${t.trade_id} and #${partner.trade_id} at both brokers">Exit all</button>` : ''}
+    </div>
+  </div>`;
+}
+
+// The trades on the charted contract, rebuilt when the set or a P&L moves.
+function _scalpHudTrades(open) {
+  _scalpHudOpen = Array.isArray(open) ? open : [];
+  const host = document.getElementById('scalp-chart-pills');
+  if (!host) return;
+  const ins = _scalpChartInstrument();
+  const mine = ins ? _scalpHudOpen.filter(t => t.status !== 'pending' && _scalpSameContract(
+    { underlying: t.underlying, strike: t.strike, expiry: t.expiry, option_type: t.option_type }, ins)) : [];
+  // Rebuilt only when the trades change; a tick updates the P&L text in
+  // place, so an Exit button is never swapped out under a click.
+  const key = mine.map(t => `${t.trade_id}:${t.lots}:${t.entry_premium}:${t.mode}:${t.broker}:${t.pair_id || ''}`
+    + `:${_scalpHudOpen.some(o => t.pair_id && o.pair_id === t.pair_id && o.trade_id !== t.trade_id) ? 'p' : ''}`).join('|');
+  if (host.dataset.key !== key) {
+    host.innerHTML = mine.map(_scalpPillHtml).join('');
+    host.dataset.key = key;
+  } else {
+    mine.forEach((t) => {
+      const el = host.querySelector(`.scalp-pill-row[data-tid="${t.trade_id}"] .scalp-pill-pnl`);
+      if (!el) return;
+      const pnl = Number(t.pnl || 0);
+      el.textContent = `${pnl >= 0 ? '+' : '−'}₹${Math.abs(pnl).toFixed(2)}`;
+      el.classList.toggle('is-up', pnl > 0);
+      el.classList.toggle('is-down', pnl < 0);
+    });
+  }
+  _scalpHudPlace();
+}
+
+// Lay the ticket and the lines over the chart where its prices are now.
+function _scalpHudPlace() {
+  const hud = document.getElementById('scalp-chart-hud');
+  if (!hud) return;
+  const c = _scalpHudCanvas();
+  if (!c) { hud.hidden = true; return; }
+  hud.hidden = false;
+  const p = c.projection;
+  const box = hud.getBoundingClientRect();
+  const hostBox = c.host.getBoundingClientRect();
+  const ox = hostBox.left - box.left, oy = hostBox.top - box.top;
+  // Beside the chart's own zoom box, to its left (Phil, 2026-10-28: "Make the
+  // B and S buttons near or to the left of the chart zoom"); the plot's top
+  // right corner if the box is not there.
+  const ticket = document.getElementById('scalp-ticket');
+  if (ticket) {
+    const zoom = c.host.querySelector('[data-bench-zoom]');
+    const zb = zoom && zoom.getClientRects().length ? zoom.getBoundingClientRect() : null;
+    const right = zb ? zb.left - box.left - 8 : ox + p.padL + p.plotW - 8;
+    const top = zb ? zb.top - box.top + (zb.height - ticket.offsetHeight) / 2 : oy + p.padT + 6;
+    ticket.style.left = `${Math.round(Math.max(ox + p.padL + 8, right - ticket.offsetWidth))}px`;
+    ticket.style.top = `${Math.round(top)}px`;
+  }
+  const top = oy + p.padT, bottom = oy + p.padT + p.plotH;
+  let lastY = -Infinity;
+  [...document.querySelectorAll('#scalp-chart-pills .scalp-pill-row')]
+    .map(row => ({ row, y: oy + p.yOf(Number(row.dataset.price)) }))
+    .sort((a, b) => a.y - b.y)
+    .forEach(({ row, y }) => {
+      // Off the visible range, the line rests on the edge it lies beyond.
+      let at = Math.min(Math.max(y, top + 40), bottom - 12);
+      // Two legs a few paise apart would sit on each other: keep 26px apart.
+      if (at - lastY < 26) at = lastY + 26;
+      lastY = at;
+      row.classList.toggle('is-off', y < top || y > bottom);
+      row.style.top = `${Math.round(at)}px`;
+      row.style.left = `${Math.round(ox + p.padL)}px`;
+      row.style.width = `${Math.round(p.plotW)}px`;
+    });
+  _scalpSyncTicket();
+}
+
+// The chart's lots ARE the form's lots: a number typed or stepped here is
+// written straight through, so the form never puts its own back over it.
+function _scalpTicketSetLots(value) {
+  const lots = Math.max(1, Math.min(500, parseInt(value, 10) || 1));
+  const ticketLots = document.getElementById('scalp-ticket-lots');
+  if (ticketLots && ticketLots.value !== String(lots)) ticketLots.value = String(lots);
+  const formLots = document.getElementById('scalp-lots');
+  if (formLots && String(formLots.value) !== String(lots)) {
+    formLots.value = String(lots);
+    formLots.dispatchEvent(new Event('input', { bubbles: true }));
+    formLots.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+function stepScalpTicketLots(delta) {
+  const now = parseInt(document.getElementById('scalp-ticket-lots')?.value, 10) || 1;
+  _scalpTicketSetLots(now + delta);
+}
+window.stepScalpTicketLots = stepScalpTicketLots;
+
+document.addEventListener('input', (event) => {
+  if (event.target?.id === 'scalp-lots') _scalpSyncTicket();
+  if (event.target?.id === 'scalp-ticket-lots' && parseInt(event.target.value, 10) >= 1) _scalpTicketSetLots(event.target.value);
+});
+document.addEventListener('change', (event) => {
+  if (event.target?.id === 'scalp-ticket-lots') _scalpTicketSetLots(event.target.value);
+});
+
+// The trade lines go left or right of the chart, or out of sight
+// (Phil, 2026-10-28: "the option of the active lines to move it to right and
+// left and hide and unhide"). Remembered on this browser.
+const _SCALP_LINES_KEY = 'pf-scalp-lines';
+const _SCALP_EYE = {
+  on: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  off: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7c1.8 0 3.4-.5 4.8-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>',
+};
+function _scalpLinesPrefs() {
+  try { return JSON.parse(localStorage.getItem(_SCALP_LINES_KEY) || '{}') || {}; } catch (err) { return {}; }
+}
+function _applyScalpLines() {
+  const prefs = _scalpLinesPrefs();
+  const host = document.getElementById('scalp-chart-pills');
+  if (host) {
+    host.classList.toggle('is-right', prefs.side === 'right');
+    host.classList.toggle('is-hidden', !!prefs.hidden);
+  }
+  const side = document.getElementById('scalp-lines-side');
+  if (side) {
+    const to = prefs.side === 'right' ? 'left' : 'right';
+    side.title = `Move the trade lines to the ${to}`;
+    side.setAttribute('aria-label', side.title);
+  }
+  const eye = document.getElementById('scalp-lines-eye');
+  if (eye) {
+    eye.innerHTML = prefs.hidden ? _SCALP_EYE.off : _SCALP_EYE.on;
+    eye.title = prefs.hidden ? 'Show the trade lines' : 'Hide the trade lines';
+    eye.setAttribute('aria-label', eye.title);
+    eye.setAttribute('aria-pressed', String(!!prefs.hidden));
+  }
+}
+function _saveScalpLines(change) {
+  const prefs = { ..._scalpLinesPrefs(), ...change };
+  try { localStorage.setItem(_SCALP_LINES_KEY, JSON.stringify(prefs)); } catch (err) {}
+  _applyScalpLines();
+}
+function toggleScalpLinesSide() { _saveScalpLines({ side: _scalpLinesPrefs().side === 'right' ? 'left' : 'right' }); }
+function toggleScalpLines() { _saveScalpLines({ hidden: !_scalpLinesPrefs().hidden }); }
+window.toggleScalpLinesSide = toggleScalpLinesSide;
+window.toggleScalpLines = toggleScalpLines;
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _applyScalpLines);
+else _applyScalpLines();
+
+// The right column steps aside so the chart takes the width (Phil,
+// 2026-10-28: "have the scalp controls hide to the right side with a small
+// hide unhide arrow button"). Remembered on this browser.
+const _SCALP_RAIL_KEY = 'pf-scalp-rail-hidden';
+function _applyScalpRail(hidden) {
+  const page = document.getElementById('scalp-page');
+  if (!page) return;
+  page.classList.toggle('scalp-rail-hidden', !!hidden);
+  const btn = document.getElementById('scalp-rail-toggle');
+  if (btn) {
+    btn.innerHTML = hidden ? '&#9666;' : '&#9656;';
+    btn.setAttribute('aria-expanded', String(!hidden));
+    btn.title = hidden ? 'Show positions, launchpad and log' : 'Hide positions, launchpad and log';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+function toggleScalpRail() {
+  const hidden = !document.getElementById('scalp-page')?.classList.contains('scalp-rail-hidden');
+  _applyScalpRail(hidden);
+  try { localStorage.setItem(_SCALP_RAIL_KEY, hidden ? '1' : '0'); } catch (err) {}
+}
+window.toggleScalpRail = toggleScalpRail;
+(function restoreScalpRail() {
+  const apply = () => {
+    let hidden = false;
+    try { hidden = localStorage.getItem(_SCALP_RAIL_KEY) === '1'; } catch (err) {}
+    _applyScalpRail(hidden);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply);
+  else apply();
+})();
+
 // ── The forming candle, built from the live price ─────────────
 // Phil, 2026-10-15: the last candle should grow like TradingView's. The
 // candles come from Dhan's history (reused for 20s on the server), so between
@@ -14998,6 +15282,8 @@ function _scalpDecorate(data) {
   const drawingNow = !!cv && cv.data === data && ((cv.drag && cv.drag.kind === 'draw') || cv.drawPending);
   if (!(drawingNow && Array.isArray(data.drawings))) data.drawings = _scalpDrawingsFor(key);
   data.onDrawingsChange = (list, meta) => _scalpKeepDrawings(key, list, meta);
+  // The ticket and the trade lines follow every pan, zoom and tick.
+  data.onDraw = () => _scalpHudTrades(_scalpHudOpen);
   data.overlays = overlays;
   data.lines = lines;
 }
@@ -15883,6 +16169,7 @@ function _renderScalpStatus(data) {
     const open = data.open_trades || [];
     _scalpDockOpenTrades = open;
     _scalpDockFollow(open);
+    _scalpHudTrades(open);
     const pendingCount = open.filter(t => t.status === 'pending').length;
     const activeCount = open.length - pendingCount;
     document.getElementById('scalp-open-count').textContent = activeCount + ' open' + (pendingCount ? ` · ${pendingCount} pending` : '');
@@ -22115,6 +22402,7 @@ function _renderScalpStatusWS(data) {
   const tbody = _getScalpEl('scalp-active-body');
   if (!tbody) return;
   const open = data.open_trades || [];
+  _scalpHudTrades(open);
   const pendingCount = open.filter(t => t.status === 'pending').length;
   const activeCount = open.length - pendingCount;
   const countEl = _getScalpEl('scalp-open-count');

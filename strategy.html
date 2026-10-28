@@ -4509,8 +4509,31 @@
             <div id="scalp-dock-chart-meta">Pick a strike and an expiry to chart that option.</div>
           </div>
           <div class="terminal-cascade-chart-actions" id="scalp-dock-chart-actions"></div>
+          <!-- Hides the right column (positions, launchpad, log) so the chart
+               takes the width; the trades stay on the chart as lines. -->
+          <button type="button" class="scalp-rail-toggle" id="scalp-rail-toggle" onclick="toggleScalpRail()" aria-expanded="true" aria-label="Hide positions, launchpad and log" title="Hide positions, launchpad and log">&#9656;</button>
         </div>
         <div id="scalp-dock-chart-body" class="scalp-dock-chart-body"><div class="pf-cascade-chart-empty">Pick a strike and an expiry to chart that option.</div></div>
+        <!-- Phil, 2026-10-28: "a buy and a sell button with B and S inside the
+             chart with lots inbetween like we have it on Dhan powerscalper",
+             and each open trade on the contract as a line with its Exit. The
+             ticket trades the FORM's contract exactly as the form's BUY and
+             SELL do, so it locks while the chart shows any other contract. -->
+        <div class="scalp-chart-hud" id="scalp-chart-hud" hidden>
+          <div class="scalp-ticket" id="scalp-ticket" role="group" aria-label="Trade this option">
+            <span class="scalp-ticket-mode" id="scalp-ticket-mode">PAPER</span>
+            <button type="button" class="scalp-ticket-btn is-buy read-only-lock" id="scalp-ticket-buy" onclick="scalpTicketTrade('BUY')">B</button>
+            <button type="button" class="scalp-ticket-step" onclick="stepScalpTicketLots(-1)" aria-label="One lot fewer" title="One lot fewer">&minus;</button>
+            <input type="number" class="scalp-ticket-lots" id="scalp-ticket-lots" min="1" max="500" step="1" value="1" aria-label="Lots" title="Lots">
+            <button type="button" class="scalp-ticket-step" onclick="stepScalpTicketLots(1)" aria-label="One lot more" title="One lot more">+</button>
+            <button type="button" class="scalp-ticket-btn is-sell read-only-lock" id="scalp-ticket-sell" onclick="scalpTicketTrade('SELL')">S</button>
+            <!-- The trade lines: to the other side of the chart, or out of sight. -->
+            <button type="button" class="scalp-ticket-tool" id="scalp-lines-side" onclick="toggleScalpLinesSide()" aria-label="Move the trade lines to the right" title="Move the trade lines to the right">&#8644;</button>
+            <button type="button" class="scalp-ticket-tool" id="scalp-lines-eye" onclick="toggleScalpLines()" aria-label="Hide the trade lines" title="Hide the trade lines" aria-pressed="false"></button>
+            <span class="scalp-ticket-status" id="scalp-ticket-status" role="status" aria-live="polite"></span>
+          </div>
+          <div class="scalp-chart-pills" id="scalp-chart-pills"></div>
+        </div>
       </section>
       </div>
     </div>

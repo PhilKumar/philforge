@@ -1404,6 +1404,12 @@ function _pfChartCanvasDraw() {
     theme: document.documentElement.getAttribute('data-theme') || 'auto'
   };
   c.paintKey = _pfChartCanvasPaintKey(d);
+  // Opt-in, like onDrawingsChange: a page that lays HTML over the chart
+  // (the Scalp desk's trade lines) re-places it after every pan, zoom and
+  // tick. A fault in it must never stop the chart drawing.
+  if (typeof d.onDraw === 'function') {
+    try { d.onDraw(p, c); } catch (err) { if (window.console) console.warn('chart onDraw', err); }
+  }
 }
 
 function _pfChartCanvasPoint(c, event) {
