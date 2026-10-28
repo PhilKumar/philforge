@@ -10343,20 +10343,14 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
    lots inbetween like we have it on Dhan powerscalper"; the open trades as
    lines with Exit; "have the scalp controls hide to the right side with a
    small hide unhide arrow button"). Docked desk only. ── */
-.scalp-chart-tool { display: none; }
+.scalp-chart-switches { display: none !important; }
 @media (min-width: 1080px) {
   #scalp-page .scalp-dock-chart { position: relative; }
-  /* The toolbar's own small square buttons: the trade lines' side and
-     visibility, then the arrow that hides the right column. */
-  #scalp-page .scalp-chart-tool {
-    display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
-    width: 28px; height: 28px; margin-left: 4px; padding: 0; border-radius: 6px; cursor: pointer;
-    border: 1px solid var(--border); background: rgba(148, 163, 184, 0.08); color: var(--muted);
-    font-size: 13px; line-height: 1;
-  }
-  #scalp-page .scalp-chart-tool:first-of-type { margin-left: 8px; }
-  #scalp-page .scalp-chart-tool:hover { color: var(--text); border-color: var(--border-hi, var(--border)); }
-  #scalp-page .scalp-chart-tool[aria-pressed="true"] { color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); }
+  /* The trade lines' two switches and the hide arrow: the same framed group
+     as the timeframes and zoom, so the toolbar's three groups line up. */
+  #scalp-page .scalp-chart-switches { display: inline-flex !important; flex: 0 0 auto; margin-left: 8px; }
+  #scalp-page .scalp-chart-switches .terminal-cascade-tf-option { min-width: 34px; display: inline-flex; align-items: center; justify-content: center; }
+  #scalp-page .scalp-chart-switches .terminal-cascade-tf-option[aria-pressed="true"] { color: #fbbf24; }
 
   /* The right column steps out of the layout but stays laid out, invisibly:
      the form is still read on every order (its Both tick counts only while
@@ -10415,26 +10409,43 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
      it tidy and clean and professional").
          [ CE | PE ]  [ ▼ strike ▲ ]  [  mode  ]
          [    B    ]  [ −  lots  + ]  [    S   ]                         */
+  /* No frame of its own: each cell is the chart's zoom box -- 27px, the
+     same radius, border and fill -- so B, the lots and S stand on one line
+     with it (Phil, 2026-10-28: "make the size similar to the chart zoom box"). */
   #scalp-page .scalp-ticket {
+    --tk-h: 27px; --tk-r: 9px; --tk-line: rgba(255, 255, 255, 0.067); --tk-fill: rgba(18, 26, 42, 0.7);
     position: absolute; box-sizing: border-box; pointer-events: auto;
-    display: grid; grid-template-columns: 92px 112px 92px; grid-auto-rows: 30px; gap: 6px;
-    padding: 6px; border-radius: 10px;
-    background: rgba(10, 16, 28, 0.92); border: 1px solid rgba(148, 163, 184, 0.22);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+    display: grid; grid-template-columns: 27px 84px 104px 84px; grid-auto-rows: var(--tk-h); gap: 4px;
+    padding: 0; border: 0; background: none; box-shadow: none;
   }
-  #scalp-page .scalp-ticket-row { display: contents; }
-  /* Every cell: the column's full width, 30px, one border, one radius. */
+  /* The contract row: under B, the lots and S, cell for cell. */
+  #scalp-page .scalp-ticket-contract { display: contents; }
+  #scalp-page .scalp-ticket-contract[hidden] { display: none; }
+  #scalp-page .scalp-ticket-contract > .scalp-ticket-seg { grid-column: 2; }
+  #scalp-page .scalp-ticket-contract > .scalp-ticket-strike { grid-column: 3; }
+  #scalp-page .scalp-ticket-contract > .scalp-ticket-mode { grid-column: 4; }
+  #scalp-page .scalp-ticket-more {
+    box-sizing: border-box; width: var(--tk-h); height: var(--tk-h); padding: 0; border-radius: var(--tk-r); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--tk-line); background: var(--tk-fill); color: #cbd5e1;
+  }
+  #scalp-page .scalp-ticket-more svg { width: 14px; height: 14px; }
+  #scalp-page .scalp-ticket-more:hover { color: #fff; background: rgba(148, 163, 184, 0.16); }
+  #scalp-page .scalp-ticket-more[aria-expanded="true"] { color: #fff; background: rgba(148, 163, 184, 0.2); }
+  /* LIVE shows with the contract row folded too: a red edge on the grid button. */
+  #scalp-page .scalp-ticket.is-live .scalp-ticket-more { border-color: rgba(230, 80, 80, 0.85); box-shadow: 0 0 0 1px rgba(230, 80, 80, 0.35); }
+  /* Every cell: the column's full width, the zoom box's height and frame. */
   #scalp-page .scalp-ticket-seg,
   #scalp-page .scalp-ticket-strike,
   #scalp-page .scalp-ticket-lotbox,
   #scalp-page .scalp-ticket-mode {
-    box-sizing: border-box; width: 100%; height: 30px; display: flex; align-items: stretch;
-    border-radius: 6px; overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.28); background: rgba(2, 6, 14, 0.55);
+    box-sizing: border-box; width: 100%; height: var(--tk-h); display: flex; align-items: stretch;
+    border-radius: var(--tk-r); overflow: hidden;
+    border: 1px solid var(--tk-line); background: var(--tk-fill);
   }
   #scalp-page .scalp-ticket-btn {
-    box-sizing: border-box; width: 100%; height: 30px; border: 0; border-radius: 6px; cursor: pointer;
-    font: 800 14px 'Inter', sans-serif; letter-spacing: .02em; color: #fff;
+    box-sizing: border-box; width: 100%; height: var(--tk-h); border: 0; border-radius: var(--tk-r); cursor: pointer;
+    font: 800 13px 'Inter', sans-serif; letter-spacing: .02em; color: #fff;
   }
   #scalp-page .scalp-ticket-btn.is-buy { background: #1f8f53; }
   #scalp-page .scalp-ticket-btn.is-sell { background: #c53b3b; }
@@ -10452,9 +10463,9 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 
   #scalp-page .scalp-ticket-step,
   #scalp-page .scalp-ticket-arrow {
-    flex: 0 0 28px; display: flex; align-items: center; justify-content: center;
+    flex: 0 0 26px; display: flex; align-items: center; justify-content: center;
     padding: 0; border: 0; cursor: pointer; background: transparent;
-    color: #cbd5e1; font: 700 15px 'Inter', sans-serif; line-height: 1;
+    color: #cbd5e1; font: 700 14px 'Inter', sans-serif; line-height: 1;
   }
   #scalp-page .scalp-ticket-arrow { font-size: 9px; }
   #scalp-page .scalp-ticket-step:hover, #scalp-page .scalp-ticket-arrow:hover { background: rgba(148, 163, 184, 0.14); color: #fff; }
@@ -10466,7 +10477,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   }
   /* The site's inputs stand 40px tall; this one is the cell's height, or
      its number sits below the - and + beside it. */
-  #scalp-page .scalp-ticket-lots { -moz-appearance: textfield; min-height: 0; line-height: 28px; }
+  #scalp-page .scalp-ticket-lots { -moz-appearance: textfield; min-height: 0; line-height: 25px; border: 0 !important; box-shadow: none !important; }
   #scalp-page .scalp-ticket-lots:focus { outline: none; background: rgba(148, 163, 184, 0.1); }
   #scalp-page .scalp-ticket-lots::-webkit-inner-spin-button,
   #scalp-page .scalp-ticket-lots::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

@@ -14839,6 +14839,13 @@ function _scalpSyncTicket() {
   if (strikeEl) strikeEl.textContent = strike ? String(strike) : '--';
   const mode = _scalpTicketMode();
   const modeEl = document.getElementById('scalp-ticket-mode');
+  const ticketEl = document.getElementById('scalp-ticket');
+  if (ticketEl) ticketEl.classList.toggle('is-live', mode.live);
+  const more = document.getElementById('scalp-ticket-more');
+  if (more) {
+    const open = more.getAttribute('aria-expanded') === 'true';
+    more.title = `${open ? 'Hide' : 'Show'} CE/PE, strike and mode · ${mode.label}`;
+  }
   if (modeEl) {
     modeEl.textContent = mode.label;
     modeEl.classList.toggle('is-live', mode.live);
@@ -15014,6 +15021,35 @@ document.addEventListener('change', (event) => {
 // The trade lines go left or right of the chart, or out of sight
 // (Phil, 2026-10-28: "the option of the active lines to move it to right and
 // left and hide and unhide"). Remembered on this browser.
+// The contract row under B and S, dropped down by the grid button and
+// remembered on this browser; folded by default.
+const _SCALP_TICKET_MORE_KEY = 'pf-scalp-ticket-more';
+function _applyScalpTicketMore(open) {
+  const row = document.getElementById('scalp-ticket-contract');
+  const btn = document.getElementById('scalp-ticket-more');
+  if (row) row.hidden = !open;
+  if (btn) {
+    btn.setAttribute('aria-expanded', String(open));
+    btn.setAttribute('aria-label', `${open ? 'Hide' : 'Show'} CE/PE, strike and mode`);
+  }
+  _scalpSyncTicket();
+}
+function toggleScalpTicketMore() {
+  const open = document.getElementById('scalp-ticket-more')?.getAttribute('aria-expanded') !== 'true';
+  try { localStorage.setItem(_SCALP_TICKET_MORE_KEY, open ? '1' : '0'); } catch (err) {}
+  _applyScalpTicketMore(open);
+}
+window.toggleScalpTicketMore = toggleScalpTicketMore;
+(function restoreScalpTicketMore() {
+  const apply = () => {
+    let open = false;
+    try { open = localStorage.getItem(_SCALP_TICKET_MORE_KEY) === '1'; } catch (err) {}
+    _applyScalpTicketMore(open);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply);
+  else apply();
+})();
+
 const _SCALP_LINES_KEY = 'pf-scalp-lines';
 const _SCALP_EYE = {
   on: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
