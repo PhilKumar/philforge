@@ -258,11 +258,22 @@ class TestLedgerAutomation(unittest.TestCase):
             await self.sanctuary_db.set_json_state(
                 1, sanctuary.OD_HELD_STATE, {"amount": 330000.0, "on": "2026-09-03", "limit": 330000.0}
             )
+            await self.sanctuary_db.create_loan(
+                1,
+                {
+                    "name": "Sweep overdraft ··8452",
+                    "account_no": "035005008452",
+                    "drawn_amount": 105556.4,
+                    "stated_on": "2026-10-29",
+                },
+            )
             return await sanctuary.finance_standing(user={"id": 1})
 
         st = asyncio.run(run())
         self.assertEqual(st["in_bank"], 117234.54)
-        self.assertEqual(st["od_headroom"], 330000.0)
+        # The limit less what is drawn — not the limit, and not a stale
+        # "amount held" that was the limit typed in as cash.
+        self.assertEqual(st["od_headroom"], 224443.6)
         # And the headroom must not have crept into the net by another door.
         self.assertEqual(st["net"], round(st["held"] + 117234.54 - st["total_debt"], 2))
 
@@ -1795,12 +1806,13 @@ class ANameThatHoldsNothingTests(unittest.TestCase):
         self.assertNotIn('wanted |= {rule["category"] for rule in sanctuary_statements.DEFAULT_RULES}', code)
 
 
-class MoneyParkedInTheSweepAccountTests(unittest.TestCase):
-    """A sweep-linked overdraft is an account, not an abstraction.
+class TheOverdraftIsNotMoneyHeHasTests(unittest.TestCase):
+    """On the 29th of October the tile said ₹88,542 "in the bank".
 
-    The statement's running balance is the current account, and it is the
-    figure AFTER a sweep has taken money across — so what went across
-    appeared nowhere at all. Every figure invented.
+    His bank said ₹6,600 in the account and ₹1,05,556 OWED on the overdraft.
+    The ₹81,942 the tile added was the overdraft's limit, stated once as
+    "money parked in the sweep account" and worn down by two months of
+    sweeps. It was never his — it is a line of credit he draws on.
     """
 
     def setUp(self):
@@ -1826,67 +1838,88 @@ class MoneyParkedInTheSweepAccountTests(unittest.TestCase):
     def tearDown(self):
         os.unlink(self._db_path)
 
+    def account(self, balance, day="2026-10-29"):
+        row = {
+            "entry_date": day,
+            "category": "Groceries",
+            "amount": 10.0,
+            "note": "shop",
+            "source": "statement",
+            "ref_id": f"stmt:3204:{day}:{balance}",
+            "balance": balance,
+        }
+        asyncio.run(self.db.add_ledger_many(1, [row]))
+
     def sweep(self, day, amount, out_of_the_od):
-        return {
+        row = {
             "entry_date": day,
             "category": "OD loan",
             "amount": amount,
             "note": "Rev Sweep From" if out_of_the_od else "Sweep to OD Ac",
             "source": "statement-in" if out_of_the_od else "statement",
-            "ref_id": "stmt:8452:%s:%s" % (day, amount),
+            "ref_id": f"stmt:8452:{day}:{amount}",
         }
+        asyncio.run(self.db.add_ledger_many(1, [row]))
 
-    def held(self):
-        return asyncio.run(self.s._money_sitting_in_the_od(1))
+    def bank(self):
+        return asyncio.run(self.s._bank_balance(1))
 
-    def state(self, amount, on):
-        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"amount": amount, "on": on}))
-
-    def test_nothing_stated_is_nothing_counted(self):
-        self.assertIsNone(self.held()["held"])
-
-    def test_what_he_stated_stands_until_a_sweep_moves_it(self):
-        self.state(330000.0, "2026-09-03")
-        self.assertEqual(self.held()["held"], 330000.0)
-
-    def test_money_swept_in_afterwards_adds_to_it(self):
-        self.state(330000.0, "2026-09-03")
-        asyncio.run(self.db.add_ledger_many(1, [self.sweep("2026-09-05", 20000.0, False)]))
-        self.assertEqual(self.held()["held"], 350000.0)
-
-    def test_money_swept_back_out_takes_from_it(self):
-        self.state(330000.0, "2026-09-03")
-        asyncio.run(self.db.add_ledger_many(1, [self.sweep("2026-09-05", 30000.0, True)]))
-        self.assertEqual(self.held()["held"], 300000.0)
-
-    def test_sweeps_from_before_he_stated_it_are_already_inside_the_figure(self):
-        self.state(330000.0, "2026-09-03")
-        asyncio.run(self.db.add_ledger_many(1, [self.sweep("2026-08-01", 99999.0, False)]))
-        self.assertEqual(self.held()["held"], 330000.0)
-
-    def test_what_it_lends_is_recorded_and_never_counted_as_his(self):
-        # A bank's "available balance" adds the limit to the account. A page
-        # that did the same would tell him he owns money he must borrow.
-        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"limit": 330000.0}))
-        held = self.held()
-        self.assertEqual(held["limit"], 330000.0)
-        self.assertIsNone(held["held"], "a limit is not money in the account")
-
-        self.state(330000.0, "2026-09-03")
+    def test_the_bank_is_the_account_and_nothing_else(self):
+        self.account(6600.31)
+        # The old state, exactly as his was left: the limit typed in as cash.
         asyncio.run(
             self.db.set_json_state(1, self.s.OD_HELD_STATE, {"amount": 330000.0, "on": "2026-09-03", "limit": 330000.0})
         )
-        held = self.held()
-        self.assertEqual((held["held"], held["limit"]), (330000.0, 330000.0), "held once, not twice")
+        self.sweep("2026-09-10", 248058.18, True)
+        self.assertEqual(self.bank()["balance"], 6600.31)
 
-    def test_the_tile_shows_the_two_parts_so_the_sum_can_be_checked(self):
-        import os.path
+    def test_no_sweep_can_put_money_into_the_bank_tile(self):
+        self.account(6600.31)
+        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"limit": 330000.0}))
+        for day, amount in (("2026-10-01", 50000.0), ("2026-10-02", 70000.0)):
+            self.sweep(day, amount, False)
+        self.assertEqual(self.bank()["balance"], 6600.31)
 
+    def test_the_limit_is_kept_and_reported_but_never_added(self):
+        self.account(6600.31)
+        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"limit": 330000.0}))
+        bank = self.bank()
+        self.assertEqual(bank["od_limit"], 330000.0)
+        self.assertEqual(bank["balance"], 6600.31)
+
+    def test_headroom_is_the_limit_less_what_the_card_says_is_drawn(self):
+        self.assertEqual(self.s._od_headroom(330000.0, {"drawn_amount": 105556.4, "stated_on": "2026-10-29"}), 224443.6)
+
+    def test_headroom_with_no_dated_drawn_figure_is_not_guessed(self):
+        """A limit alone is not headroom; it is a guess that he owes nothing."""
+        self.assertEqual(self.s._od_headroom(330000.0, {"drawn_amount": 0, "stated_on": ""}), 0.0)
+        self.assertEqual(self.s._od_headroom(330000.0, None), 0.0)
+        self.assertEqual(self.s._od_headroom(None, {"drawn_amount": 5, "stated_on": "2026-10-29"}), 0.0)
+
+    def test_the_limit_form_drops_an_amount_from_a_page_left_open(self):
+        """An old page still sends "amount"; saving must not fail, and the
+        amount must not come back as cash."""
+
+        class Req:
+            async def json(self):
+                return {"amount": 330000.0, "limit": 330000.0}
+
+        out = asyncio.run(self.s.od_held_put(Req(), user={"id": 1}))
+        self.assertEqual(out, {"limit": 330000.0})
+        kept = asyncio.run(self.db.get_json_state(1, self.s.OD_HELD_STATE, {}))
+        self.assertEqual(kept, {"limit": 330000.0})
+
+    def test_the_tile_names_the_overdraft_as_owed_and_offers_no_estimate_to_adopt(self):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
             page = handle.read()
-        self.assertIn("${inr(f.bank_current)} account + ${inr(f.bank_in_od)} sweep", page)
-        self.assertIn("function odHeldForm()", page)
+        self.assertNotIn("bank_in_od", page)
+        self.assertNotIn("sweep · ", page)
+        self.assertIn("overdraft owes", page)
+        # The one-tap "make that the figure" adopted a sweep estimate that
+        # missed the bank by a lakh and a half.
+        self.assertNotIn("make that the figure", page)
+        self.assertNotIn('id="od-accept"', page)
 
 
 class FromTheFileToTheTileTests(unittest.TestCase):
