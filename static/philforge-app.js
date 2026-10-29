@@ -15080,11 +15080,14 @@ async function _scalpAltFetchPrice(contract, key) {
   if (_scalpAlt.priceBusy) return;
   _scalpAlt.priceBusy = true;
   try {
-    const broker = document.getElementById('scalp-broker')?.value || 'dhan';
-    const r = await fetch(`/api/option-ltp?${new URLSearchParams({ ...contract, strike: String(contract.strike), broker })}`, { cache: 'no-store' });
+    // The WebSocket's price only, never a REST quote: the quote budget is the
+    // form's and the engine's (Phil, 2026-10-29: Scalp must have "the best
+    // priority in getting the prices live"). No tick, no price: the candle
+    // simply waits for the next one.
+    const r = await fetch(`/api/option-ltp?${new URLSearchParams({ ...contract, strike: String(contract.strike), feed_only: '1' })}`, { cache: 'no-store' });
     const d = await r.json().catch(() => ({}));
     if (_scalpAlt.key !== key) return;
-    if (d.status === 'ok' && d.ltp > 0 && d.source !== 'last_close') { _scalpAlt.price = Number(d.ltp); _scalpAlt.priceKey = key; }
+    if (d.status === 'ok' && d.ltp > 0) { _scalpAlt.price = Number(d.ltp); _scalpAlt.priceKey = key; }
   } catch (_) {
     /* the next tick asks again */
   } finally {
@@ -15120,11 +15123,11 @@ async function _scalpAltFetchChart(contract, key) {
   }
 }
 
-// Once a second while split: the live candle from its own price (asked every
-// 2s), and its candles again every 3s -- or at once for a new strike or
-// timeframe (force). Out of the session there is no price to ask for and the
-// candles cannot change: one look a minute (Dhan's rate budget is the whole
-// account's).
+// Once a second while split: the live candle from its own WebSocket price
+// (asked of the server every 2s; no Dhan call), and its candles again every
+// 20s -- the server's own candle cache, so at most one Dhan history call per
+// 20s -- or at once for a new strike or timeframe (force). Out of the
+// session: one look a minute.
 function _scalpAltRefresh(force) {
   if (!_scalpAltLive()) return;
   if (!_scalpAltTimer) _scalpAltTimer = setInterval(() => _scalpAltRefresh(false), 1000);
@@ -15144,7 +15147,7 @@ function _scalpAltRefresh(force) {
   if (open && (force || now - _scalpAlt.priceAt >= 2000)) { _scalpAlt.priceAt = now; _scalpAltFetchPrice(contract, key); }
   const stale = !_scalpAlt.data || (_scalpAlt.data.timeframe || tf) !== tf || !String(_scalpAlt.drawnKey).startsWith(`${key}|`);
   const failedRecently = _scalpAlt.failedKey === key && now - _scalpAlt.failedAt < _SCALP_DOCK_RETRY_MS;
-  if (!failedRecently && (force || stale || now - _scalpAlt.at >= (open ? 3000 : 60000))) { _scalpAltFetchChart(contract, key); return; }
+  if (!failedRecently && (force || stale || now - _scalpAlt.at >= (open ? 20000 : 60000))) { _scalpAltFetchChart(contract, key); return; }
   const el = _scalpAltEl();
   // Another chart opened over the desk took this one down: it comes back
   // from what it already holds, not a minute later.

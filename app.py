@@ -27151,15 +27151,34 @@ def _option_ltp_last_close(underlying: str, strike, expiry: str, option_type: st
 
 @app.get("/api/option-ltp")
 async def get_option_ltp(
-    request: Request, underlying: str, strike: float, expiry: str, option_type: str, broker: str = ""
+    request: Request,
+    underlying: str,
+    strike: float,
+    expiry: str,
+    option_type: str,
+    broker: str = "",
+    feed_only: bool = False,
 ):
     """Live LTP for one option contract.
+
+    `feed_only`: Dhan's WebSocket price or nothing -- never a REST quote. The
+    Scalp desk's second chart asks this way (Phil, 2026-10-29: the Scalp
+    engine must have "the best priority in getting the prices live"), so it
+    never spends the quote budget that the 429s of 23-Oct came from.
 
     From the broker the trade will go to (Phil, 2026-10-20, on Zerodha's price
     for Zerodha-bound trades: "yes.. Please do that"), the other as the
     fallback when the first has nothing -- a 429, a holiday, no login -- and
     last, the contract's last chart close. `source` says which answered.
     """
+    if feed_only:
+        ltp = 0.0
+        try:
+            if _market_feed is not None:
+                ltp = float(_market_feed.live_option_ltp(underlying, strike, expiry, option_type) or 0)
+        except Exception:
+            ltp = 0.0
+        return {"status": "ok", "ltp": ltp, "source": "dhan_feed"} if ltp > 0 else {"status": "none", "ltp": 0}
     _, broker_client, _ = await _request_broker_context(request)
     want_zerodha = str(broker or "").strip().lower() == "zerodha"
     key = (str(underlying).upper(), _scalp_strike(strike), str(expiry), str(option_type).upper(), want_zerodha)
