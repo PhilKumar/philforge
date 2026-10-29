@@ -194,6 +194,59 @@ window.pfChartIstDay = _pfChartIstDay;
 // refresh would leave another observer watching a detached element.
 var _pfChartCanvas = null;
 
+// MORE THAN ONE CHART, side by side (Phil, 2026-10-29: two charts on the
+// Scalp desk, CE beside PE). Every live chart is in _pfChartCanvases. The
+// page talks to ONE of them -- the focused chart -- through the same
+// functions as before, so a page with one chart is unchanged. A chart's own
+// pointer, wheel, resize and timer work runs with _pfChartCanvas pointed at
+// that chart for the length of the handler (_pfChartAs), then back at the
+// focused one. Only a mount asked for with {multi: true} leaves the others up.
+var _pfChartCanvases = [];
+var _pfChartFocused = null;
+
+function _pfChartAs(c, fn) {
+  return function () {
+    if (!c.live) return undefined;
+    _pfChartCanvas = c;
+    try { return fn.apply(this, arguments); }
+    finally { _pfChartCanvas = _pfChartFocused && _pfChartFocused.live ? _pfChartFocused : null; }
+  };
+}
+
+// The live chart drawn in (or around) `el`.
+function _pfChartFind(el) {
+  if (!el) return null;
+  for (var i = 0; i < _pfChartCanvases.length; i += 1) {
+    var c = _pfChartCanvases[i];
+    if (c.host === el || (el.contains && el.contains(c.host)) || c.host.contains(el)) return c;
+  }
+  return null;
+}
+
+// Point the page at the chart in `el`; false when there is none.
+function pfChartFocus(el) {
+  var c = _pfChartFind(el);
+  if (!c) return false;
+  _pfChartFocused = c;
+  _pfChartCanvas = c;
+  return true;
+}
+
+// Run fn with the chart in `el` as the one addressed, without focusing it:
+// how a page refreshes the chart beside the focused one.
+function pfChartWith(el, fn) {
+  var c = _pfChartFind(el);
+  return c ? _pfChartAs(c, fn)() : undefined;
+}
+
+function pfChartFocusedHost() {
+  return _pfChartFocused && _pfChartFocused.live ? _pfChartFocused.host : null;
+}
+
+window.pfChartFocus = pfChartFocus;
+window.pfChartWith = pfChartWith;
+window.pfChartFocusedHost = pfChartFocusedHost;
+
 /* Retire every OTHER canvas host in the document.
  *
  * The renderer addresses its surfaces by fixed ids, so only one chart can be
@@ -219,19 +272,29 @@ function _pfChartCanvasRetireOthers(keep) {
   }
 }
 
-function _pfChartCanvasMount(d, scope) {
-  _pfChartCanvasTeardown();
+function _pfChartCanvasMount(d, scope, opts) {
+  opts = opts || {};
+  // One of several ({multi}): only the chart this container held, and any
+  // whose host has left the page, go. Otherwise every chart does.
+  if (opts.multi) {
+    _pfChartCanvases.slice().forEach(function (old) {
+      if (!old.host.isConnected || (scope && scope.contains(old.host))) _pfChartCanvasTeardown(old);
+    });
+  } else {
+    _pfChartCanvasTeardown();
+  }
   // Scoped to the container the caller just wrote the host into. A global
   // lookup finds the first host in the document, which is not necessarily the
   // one being drawn -- see _pfChartCanvasRetireOthers.
   var host = (scope && scope.querySelector('#pf-bench-canvas-host'))
     || document.getElementById('pf-bench-canvas-host');
   if (!host) return;
-  _pfChartCanvasRetireOthers(host);
+  if (!opts.multi) _pfChartCanvasRetireOthers(host);
   var main = host.querySelector('#pf-bench-canvas-main');
   var overlay = host.querySelector('#pf-bench-canvas-overlay');
   if (!main || !overlay) return;
   _pfChartCanvas = {
+    live: true, multi: !!opts.multi,
     host: host, main: main, overlay: overlay,
     ctx: main.getContext('2d'), octx: overlay.getContext('2d'),
     data: d, w: 0, h: 0, dpr: 0, ro: null, themeObserver: null,
@@ -243,15 +306,20 @@ function _pfChartCanvasMount(d, scope) {
     resizeFrame: 0
   };
   var c = _pfChartCanvas;
-  _pfChartCanvasResize();
-  _pfChartCanvasBindInteraction(_pfChartCanvas);
+  _pfChartCanvases.push(c);
+  // A chart drawn beside the focused one ({background}) does not take focus.
+  if (!(opts.background && _pfChartFocused && _pfChartFocused.live)) _pfChartFocused = c;
+  _pfChartAs(c, function () {
+    _pfChartCanvasResize(c);
+    _pfChartCanvasBindInteraction(c);
+  })();
   // The bar-close countdown ticks once a second, on a chart that asks for it
   // (payload.countdown) and only while it can be seen.
-  c.clock = setInterval(function () {
-    if (_pfChartCanvas !== c || !c.data || !c.data.countdown) return;
+  c.clock = setInterval(_pfChartAs(c, function () {
+    if (!c.data || !c.data.countdown) return;
     if (document.hidden || !c.host.isConnected || !c.host.getClientRects().length) return;
-    _pfChartCanvasDraw();
-  }, 1000);
+    _pfChartCanvasDraw(c);
+  }), 1000);
   // The host's own zoom cluster. Bound per-mount; teardown removes the host.
   var zoomBox = host.querySelector('[data-bench-zoom]');
   if (zoomBox) {
@@ -259,26 +327,25 @@ function _pfChartCanvasMount(d, scope) {
       var level = zoomBox.querySelector('[data-bench-zoom-level]');
       if (level && typeof pfChartZoomPercent === 'function') level.textContent = pfChartZoomPercent() + '%';
     };
-    zoomBox.addEventListener('click', function (event) {
+    zoomBox.addEventListener('click', _pfChartAs(c, function (event) {
       if (event.target.closest('[data-bench-zoom-in]')) _pfChartCanvasZoom(0.8);
       else if (event.target.closest('[data-bench-zoom-out]')) _pfChartCanvasZoom(1.25);
       else if (event.target.closest('[data-bench-zoom-reset]')) _pfChartCanvasZoom(0, true);
       else return;
       paintLevel();
-    });
+    }));
     // Wheel-zoom and double-click reset land on the canvas; keep the readout
     // honest without a caller having to wire anything.
-    host.addEventListener('wheel', function () { requestAnimationFrame(paintLevel); }, { passive: true });
-    host.addEventListener('dblclick', function () { requestAnimationFrame(paintLevel); });
+    var paintLater = function () { requestAnimationFrame(_pfChartAs(c, paintLevel)); };
+    host.addEventListener('wheel', paintLater, { passive: true });
+    host.addEventListener('dblclick', paintLater);
   }
   // Canvas pixels do not inherit CSS colours. Watch the single theme attribute
   // and repaint from the same payload/viewport when it changes; SVG gets this
   // for free through a fresh DOM render, Canvas must do it explicitly.
   if (window.MutationObserver) {
-    _pfChartCanvas.themeObserver = new MutationObserver(function () {
-      if (_pfChartCanvas && _pfChartCanvas === c) _pfChartCanvasDraw();
-    });
-    _pfChartCanvas.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    c.themeObserver = new MutationObserver(_pfChartAs(c, function () { _pfChartCanvasDraw(c); }));
+    c.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
   // The host is sized entirely by CSS, and the things that change it — going
   // fullscreen, rotating a phone, dragging the window edge — do not all fire a
@@ -293,40 +360,50 @@ function _pfChartCanvasMount(d, scope) {
     // moment a chart opens. Coalescing to one frame keeps the layout write out
     // of the delivery cycle, and collapses a burst of observations into a
     // single redraw.
-    _pfChartCanvas.ro = new ResizeObserver(function () {
+    c.ro = new ResizeObserver(function () {
       if (c.resizeFrame) return;
-      c.resizeFrame = requestAnimationFrame(function () {
+      // Torn down, or replaced by another chart, between frames: _pfChartAs
+      // does nothing for a chart that is no longer live.
+      c.resizeFrame = requestAnimationFrame(_pfChartAs(c, function () {
         c.resizeFrame = 0;
-        // Torn down, or replaced by another chart, between frames.
-        if (_pfChartCanvas === c) _pfChartCanvasResize();
-      });
+        _pfChartCanvasResize(c);
+      }));
     });
-    _pfChartCanvas.ro.observe(host);
+    c.ro.observe(host);
   } else {
-    window.addEventListener('resize', _pfChartCanvasResize);
+    c.onWindowResize = _pfChartAs(c, function () { _pfChartCanvasResize(c); });
+    window.addEventListener('resize', c.onWindowResize);
   }
+  _pfChartCanvas = _pfChartFocused;
 }
 
-function _pfChartCanvasTeardown() {
-  var c = _pfChartCanvas;
-  _pfChartCanvas = null;
-  if (!c) return;
-  (c.handlers || []).forEach(function (row) { c.host.removeEventListener(row[0], row[1], row[2]); });
-  // A frame already queued would otherwise resize a chart that is gone.
-  if (c.resizeFrame) { cancelAnimationFrame(c.resizeFrame); c.resizeFrame = 0; }
-  if (c.clock) { clearInterval(c.clock); c.clock = 0; }
-  _pfChartCanvasStopMotion(c);
-  if (c.ro) { try { c.ro.disconnect(); } catch (err) {} }
-  else window.removeEventListener('resize', _pfChartCanvasResize);
-  if (c.themeObserver) { try { c.themeObserver.disconnect(); } catch (err) {} }
+// Every chart, or only `only`.
+function _pfChartCanvasTeardown(only) {
+  var list = only ? [only] : _pfChartCanvases.slice();
+  if (!only && _pfChartCanvas && list.indexOf(_pfChartCanvas) < 0) list.push(_pfChartCanvas);
+  list.forEach(function (c) {
+    c.live = false;
+    var at = _pfChartCanvases.indexOf(c);
+    if (at >= 0) _pfChartCanvases.splice(at, 1);
+    if (_pfChartFocused === c) _pfChartFocused = null;
+    if (_pfChartCanvas === c) _pfChartCanvas = null;
+    (c.handlers || []).forEach(function (row) { c.host.removeEventListener(row[0], row[1], row[2]); });
+    // A frame already queued would otherwise resize a chart that is gone.
+    if (c.resizeFrame) { cancelAnimationFrame(c.resizeFrame); c.resizeFrame = 0; }
+    if (c.clock) { clearInterval(c.clock); c.clock = 0; }
+    _pfChartCanvasStopMotion(c);
+    if (c.ro) { try { c.ro.disconnect(); } catch (err) {} }
+    else if (c.onWindowResize) window.removeEventListener('resize', c.onWindowResize);
+    if (c.themeObserver) { try { c.themeObserver.disconnect(); } catch (err) {} }
+  });
 }
 
 // The actual "high definition" fix. The backing store is sized in DEVICE
 // pixels and the context scaled by the ratio, so a 1px line is one real pixel
 // on a retina screen. The SVG cannot do this: it is laid out once at a fixed
 // 1440×660 and then stretched to whatever width the panel happens to be.
-function _pfChartCanvasResize() {
-  var c = _pfChartCanvas;
+function _pfChartCanvasResize(cc) {
+  var c = cc || _pfChartCanvas;
   if (!c || !c.host.isConnected) return;
   var box = c.host.getBoundingClientRect();
   var cssW = Math.max(Math.round(box.width), 1);
@@ -351,7 +428,7 @@ function _pfChartCanvasResize() {
   // CSS pixels and never has to think about the ratio again.
   c.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  _pfChartCanvasDraw();
+  _pfChartCanvasDraw(c);
 }
 
 function _pfChartCanvasStructures(d) {
@@ -618,7 +695,7 @@ function _pfChartCanvasRefresh(d, saved) {
   // A changed viewport moves every projected pixel, so it must repaint as a
   // whole. With an unchanged viewport, this intentionally skips paint if none
   // of the independent draw layers received new data.
-  if (!_pfChartCanvasSameViewport(oldViewport, next) || oldKey !== nextKey) _pfChartCanvasDraw();
+  if (!_pfChartCanvasSameViewport(oldViewport, next) || oldKey !== nextKey) _pfChartCanvasDraw(c);
   return true;
 }
 
@@ -1409,8 +1486,8 @@ function _pfChartCanvasLastPriceTag(c, p, PAL) {
   return { price: price, countdown: countdown };
 }
 
-function _pfChartCanvasDraw() {
-  var c = _pfChartCanvas;
+function _pfChartCanvasDraw(cc) {
+  var c = cc || _pfChartCanvas;
   if (!c || !c.ctx) return;
   var d = c.data || {}, candles = d.candles || [];
   var ctx = c.ctx, PAL = _pfChartPalette();
@@ -1488,14 +1565,15 @@ function _pfChartCanvasSetViewport(c, next) {
   // (by id), the host cluster's, and any chart-strip's. Updating only the id
   // left the dialog's own readout frozen at 100% while the chart zoomed.
   var fit = _pfChartCanvasFit(c);
-  if (fit) {
+  // The readouts speak for the focused chart; one panned beside it is its own.
+  if (fit && (!c.multi || c === _pfChartFocused)) {
     var pct = Math.round((fit.tMax - fit.tMin) / tSpan * 100) + '%';
     var legacy = document.getElementById('pf-bench-zoom-level');
     if (legacy) legacy.textContent = pct;
     document.querySelectorAll('[data-pf-zoom-readout], [data-bench-zoom-level]')
       .forEach(function (node) { node.textContent = pct; });
   }
-  _pfChartCanvasDraw();
+  _pfChartCanvasDraw(c);
 }
 
 function _pfChartCanvasZoom(factor, reset, anchor) {
@@ -1631,12 +1709,12 @@ function _pfChartCanvasStopMotion(c) {
 function _pfChartCanvasQueueView(c, next) {
   c.pendingView = next;
   if (c.moveFrame) return;
-  c.moveFrame = requestAnimationFrame(function () {
+  c.moveFrame = requestAnimationFrame(_pfChartAs(c, function () {
     c.moveFrame = 0;
     var view = c.pendingView;
     c.pendingView = null;
-    if (view && _pfChartCanvas === c) _pfChartCanvasSetViewport(c, view);
-  });
+    if (view) _pfChartCanvasSetViewport(c, view);
+  }));
 }
 
 function _pfChartCanvasFlushView(c) {
@@ -1656,10 +1734,10 @@ function _pfChartCanvasMaxSpan(c) {
 function _pfChartCanvasGlide(c) {
   if (c.glideFrame) return;
   var last = performance.now();
-  var step = function (now) {
+  var step = _pfChartAs(c, function (now) {
     c.glideFrame = 0;
     var target = c.glideTarget, v = c.viewport;
-    if (_pfChartCanvas !== c || !target || !v) { c.glideTarget = null; return; }
+    if (!target || !v) { c.glideTarget = null; return; }
     var k = 1 - Math.pow(0.65, Math.max(now - last, 1) / 16.7);
     last = now;
     var tMin = v.tMin + (target.tMin - v.tMin) * k, tMax = v.tMax + (target.tMax - v.tMax) * k;
@@ -1667,7 +1745,7 @@ function _pfChartCanvasGlide(c) {
     if (done) { tMin = target.tMin; tMax = target.tMax; c.glideTarget = null; }
     _pfChartCanvasSetViewport(c, { tMin: tMin, tMax: tMax, pMin: v.pMin, pMax: v.pMax });
     if (!done) c.glideFrame = requestAnimationFrame(step);
-  };
+  });
   c.glideFrame = requestAnimationFrame(step);
 }
 
@@ -1676,17 +1754,17 @@ function _pfChartCanvasCoast(c, pxPerMs) {
   var p = c.projection;
   if (!p || Math.abs(pxPerMs) < 0.25) return;
   var velocity = Math.max(-6, Math.min(6, pxPerMs)), last = performance.now();
-  var step = function (now) {
+  var step = _pfChartAs(c, function (now) {
     c.coastFrame = 0;
     var v = c.viewport, proj = c.projection;
-    if (_pfChartCanvas !== c || !v || !proj) return;
+    if (!v || !proj) return;
     var dt = Math.max(now - last, 1);
     last = now;
     var shift = -(velocity * dt) / proj.plotW * (v.tMax - v.tMin);
     _pfChartCanvasSetViewport(c, { tMin: v.tMin + shift, tMax: v.tMax + shift, pMin: v.pMin, pMax: v.pMax });
     velocity *= Math.pow(0.92, dt / 16.7);
     if (Math.abs(velocity) > 0.02) c.coastFrame = requestAnimationFrame(step);
-  };
+  });
   c.coastFrame = requestAnimationFrame(step);
 }
 
@@ -1712,7 +1790,7 @@ function pfChartArmDrawing(kind, opts) {
     kind: kind, levels: opts.levels || null, colors: opts.colors || null,
     extra: opts.extra || null, onEnd: opts.onEnd || null
   };
-  if (c) _pfChartCanvasDraw();
+  if (c) _pfChartCanvasDraw(c);
 }
 
 function pfChartDisarmDrawing() {
@@ -1870,7 +1948,7 @@ function _pfChartDrawFinish(c) {
     }
   }
   _pfChartCanvasClearCrosshair(c);
-  _pfChartCanvasDraw();
+  _pfChartCanvasDraw(c);
   if (armed && typeof armed.onEnd === 'function') armed.onEnd();
 }
 
@@ -1917,10 +1995,10 @@ function _pfChartDrawPointerDown(c, point, event) {
     c.host.style.cursor = hit.part === 'body' ? 'move' : 'pointer';
     try { c.host.setPointerCapture(event.pointerId); } catch (err) {}
     _pfChartCanvasClearCrosshair(c);
-    _pfChartCanvasDraw();
+    _pfChartCanvasDraw(c);
     return true;
   }
-  if (c.drawSel) { c.drawSel = null; _pfChartCanvasDraw(); }
+  if (c.drawSel) { c.drawSel = null; _pfChartCanvasDraw(c); }
   return false;
 }
 
@@ -1943,7 +2021,7 @@ function _pfChartDrawPointerMove(c, point) {
       dr.b = _pfChartDrawShift(c, drag.b, bars, dp);
     }
     drag.moved = true;
-    _pfChartCanvasDraw();
+    _pfChartCanvasDraw(c);
     // Kept as it moves: a refresh mid-drag rebuilds the list from the page.
     _pfChartDrawCommit(c, true);
     return true;
@@ -1980,11 +2058,11 @@ document.addEventListener('keydown', function (event) {
     if (c.drawPending || _pfDrawArmed) {
       event.stopImmediatePropagation();
       pfChartDisarmDrawing();
-      _pfChartCanvasDraw();
+      _pfChartCanvasDraw(c);
     } else if (c.drawSel) {
       event.stopImmediatePropagation();
       c.drawSel = null;
-      _pfChartCanvasDraw();
+      _pfChartCanvasDraw(c);
     }
     return;
   }
@@ -1994,15 +2072,16 @@ document.addEventListener('keydown', function (event) {
     c.drawSel = null;
     event.preventDefault();
     _pfChartDrawCommit(c);
-    _pfChartCanvasDraw();
+    _pfChartCanvasDraw(c);
   }
 }, true);
 
 function _pfChartCanvasBindInteraction(c) {
   if (!c || !c.host) return;
   function bind(name, fn, opts) {
-    c.host.addEventListener(name, fn, opts);
-    c.handlers.push([name, fn, opts]);
+    var run = _pfChartAs(c, fn);
+    c.host.addEventListener(name, run, opts);
+    c.handlers.push([name, run, opts]);
   }
   // Two-finger pinch. Pointer events deliver each finger separately, so
   // without this map a second touch simply restarted the one-pointer drag and
@@ -2153,7 +2232,7 @@ function _pfChartCanvasBindInteraction(c) {
     if (c.drag.kind === 'rsiPane') {
       // Up makes the RSI taller, down shorter; the price pane takes the rest.
       c.rsiPaneH = Math.max(50, c.drag.h0 - (point.y - c.drag.y));
-      _pfChartCanvasDraw();
+      _pfChartCanvasDraw(c);
       return;
     }
     if (c.drag.kind === 'rsi') {
@@ -2163,7 +2242,7 @@ function _pfChartCanvasBindInteraction(c) {
       var span1 = Math.max(5, Math.min(400, span0 * Math.exp((point.y - d0.y) / 160)));
       var ratio0 = (d0.anchor - d0.range.lo) / span0;
       c.rsiRange = { lo: d0.anchor - ratio0 * span1, hi: d0.anchor + (1 - ratio0) * span1 };
-      _pfChartCanvasDraw();
+      _pfChartCanvasDraw(c);
       return;
     }
     var drag = c.drag, start = drag.viewport, p = c.projection;
@@ -2231,7 +2310,7 @@ function _pfChartCanvasBindInteraction(c) {
   }, { passive: false });
   bind('dblclick', function (event) {
     var point = _pfChartCanvasPoint(c, event), fit = _pfChartCanvasFit(c);
-    if (point && point.rsiAxis) { c.rsiRange = null; _pfChartCanvasDraw(); return; }
+    if (point && point.rsiAxis) { c.rsiRange = null; _pfChartCanvasDraw(c); return; }
     if (!point || !fit || !c.viewport) return;
     if (point.priceAxis) _pfChartCanvasSetViewport(c, { tMin: c.viewport.tMin, tMax: c.viewport.tMax, pMin: fit.pMin, pMax: fit.pMax });
     else if (point.timeAxis) _pfChartCanvasSetViewport(c, { tMin: fit.tMin, tMax: fit.tMax, pMin: c.viewport.pMin, pMax: c.viewport.pMax });
@@ -2244,17 +2323,21 @@ function _pfChartCanvasBindInteraction(c) {
 // Render into whichever container the page hands us. Mounting is idempotent:
 // a second run with a fresh result repaints the same surfaces rather than
 // leaving a detached canvas and its observers behind.
-function pfBenchDrawChart(container, payload) {
+// opts: {multi: true} keeps the charts in other containers up (a split desk);
+// {background: true} draws it without taking the page's focus.
+function pfBenchDrawChart(container, payload, opts) {
   if (!container) return false;
   if (!payload || !(payload.candles || []).length) {
-    _pfChartCanvasTeardown();
+    var gone = _pfChartFind(container.querySelector('#pf-bench-canvas-host'));
+    if (opts && opts.multi) { if (gone) _pfChartCanvasTeardown(gone); }
+    else _pfChartCanvasTeardown();
     container.innerHTML = '<p class="pf-bench-empty">No candles to draw.</p>';
     return false;
   }
   container.innerHTML = _pfBenchChartHostHtml();
   // Pass the container so the mount addresses THIS chart's surfaces, not
   // whichever host happens to come first in the document.
-  _pfChartCanvasMount(payload, container);
+  _pfChartCanvasMount(payload, container, opts);
   return true;
 }
 

@@ -4510,10 +4510,23 @@
                that hides the right column: one group, framed and sized like
                the timeframes and zoom beside it. -->
           <div class="terminal-cascade-tf-toggle scalp-chart-switches" role="group" aria-label="Chart layout">
-            <button type="button" class="terminal-cascade-tf-option" id="scalp-lines-side" onclick="toggleScalpLinesSide()" aria-label="Move the trade lines to the right" title="Move the trade lines to the right">&#8644;</button>
-            <button type="button" class="terminal-cascade-tf-option" id="scalp-lines-eye" onclick="toggleScalpLines()" aria-label="Hide the trade lines" title="Hide the trade lines" aria-pressed="false"></button>
+            <!-- One chart, or CE and PE side by side or stacked (Phil, 2026-10-29). -->
+            <button type="button" class="terminal-cascade-tf-option" id="scalp-layout-btn" onclick="toggleScalpLayoutMenu()" aria-haspopup="menu" aria-expanded="false" aria-controls="scalp-layout-menu" aria-label="Layout" title="Layout"></button>
+            <button type="button" class="terminal-cascade-tf-option" id="scalp-lines-side" onclick="toggleScalpLinesSide()" aria-label="Move B/S to the left and the trade lines to the right" title="Move B/S to the left and the trade lines to the right">&#8644;</button>
+            <button type="button" class="terminal-cascade-tf-option" id="scalp-lines-eye" onclick="toggleScalpLines()" aria-label="Hide B/S and the trade lines" title="Hide B/S and the trade lines" aria-pressed="false"></button>
             <button type="button" class="terminal-cascade-tf-option" id="scalp-chart-full-btn" onclick="toggleScalpChartFull()" aria-pressed="false" aria-label="Full screen" title="Full screen, with the controls"></button>
             <button type="button" class="terminal-cascade-tf-option scalp-rail-toggle" id="scalp-rail-toggle" onclick="toggleScalpRail()" aria-expanded="true" aria-label="Hide positions, launchpad and log" title="Hide positions, launchpad and log">&#9656;</button>
+          </div>
+        </div>
+        <div class="scalp-layout-menu" id="scalp-layout-menu" role="menu" aria-label="Chart layout" hidden>
+          <div class="scalp-layout-row">
+            <span class="scalp-layout-n">1</span>
+            <button type="button" class="scalp-layout-opt" role="menuitemradio" aria-checked="false" data-layout="one" onclick="setScalpChartLayout('one')" title="One chart" aria-label="One chart"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/></svg></button>
+          </div>
+          <div class="scalp-layout-row">
+            <span class="scalp-layout-n">2</span>
+            <button type="button" class="scalp-layout-opt" role="menuitemradio" aria-checked="false" data-layout="cols" onclick="setScalpChartLayout('cols')" title="CE | PE side by side" aria-label="CE and PE side by side"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M12 4.5v15"/></svg></button>
+            <button type="button" class="scalp-layout-opt" role="menuitemradio" aria-checked="false" data-layout="rows" onclick="setScalpChartLayout('rows')" title="CE over PE" aria-label="CE over PE"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 12h17"/></svg></button>
           </div>
         </div>
         <div id="scalp-dock-chart-body" class="scalp-dock-chart-body"><div class="pf-cascade-chart-empty">Pick a strike and an expiry to chart that option.</div></div>

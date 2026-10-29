@@ -10640,3 +10640,84 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   body.scalp-chart-full #toast { z-index: 2600; }
   body.scalp-chart-full .scalp-option-chart-overlay { z-index: 2700; }
 }
+
+/* ── Two charts on the Scalp desk (Phil, 2026-10-29: "build two charts on one
+   screen ... Clean and tidy"). The layout menu is TradingView's: 1, then 2
+   side by side or stacked. CE left (top), PE right (bottom); the pane the
+   form trades is outlined, the other is one click away. ── */
+@media (min-width: 1080px) {
+  #scalp-page .scalp-layout-menu {
+    position: absolute; z-index: 30; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
+    border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(16, 21, 32, 0.97); box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  }
+  #scalp-page .scalp-layout-menu[hidden] { display: none; }
+  #scalp-page .scalp-layout-row { display: flex; align-items: center; gap: 6px; }
+  #scalp-page .scalp-layout-row + .scalp-layout-row { border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 6px; }
+  #scalp-page .scalp-layout-n { width: 16px; text-align: center; color: #94a3b8; font: 600 13px 'JetBrains Mono', monospace; }
+  #scalp-page .scalp-layout-opt {
+    width: 42px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 9px; background: transparent; color: #cbd5e1; cursor: pointer;
+  }
+  #scalp-page .scalp-layout-opt:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+  #scalp-page .scalp-layout-opt.is-on { background: #e5e7eb; color: #0b1220; }
+  [data-theme="light"] #scalp-page .scalp-layout-menu { background: rgba(255, 255, 255, 0.98); border-color: rgba(15, 23, 42, 0.12); box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18); }
+  [data-theme="light"] #scalp-page .scalp-layout-opt { color: #334155; }
+  [data-theme="light"] #scalp-page .scalp-layout-opt:hover { background: rgba(15, 23, 42, 0.06); color: #0f172a; }
+  [data-theme="light"] #scalp-page .scalp-layout-opt.is-on { background: #1e293b; color: #f8fafc; }
+
+  #scalp-page .scalp-dock-chart-body > .scalp-split { flex: 1 1 auto; display: grid; gap: 8px; min-height: 0; }
+  #scalp-page .scalp-split.is-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  #scalp-page .scalp-split.is-rows { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  #scalp-page .scalp-pane {
+    position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14); overflow: hidden;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  #scalp-page .scalp-pane.is-active { border-color: rgba(96, 165, 250, 0.6); box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.16); }
+  #scalp-page .scalp-pane:not(.is-active) { cursor: pointer; }
+  #scalp-page .scalp-pane:not(.is-active):hover { border-color: rgba(148, 163, 184, 0.4); }
+  [data-theme="light"] #scalp-page .scalp-pane { border-color: rgba(15, 23, 42, 0.12); }
+  [data-theme="light"] #scalp-page .scalp-pane.is-active { border-color: rgba(37, 99, 235, 0.6); box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.14); }
+  #scalp-page .scalp-pane-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #scalp-page .scalp-pane-body > .scalp-dock-chart-canvas { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #scalp-page .scalp-split .scalp-dock-chart-canvas,
+  #scalp-page .scalp-split .scalp-dock-chart-canvas .pf-bench-canvas-host { min-height: 560px; }
+  #scalp-page .scalp-split.is-rows .scalp-dock-chart-canvas,
+  #scalp-page .scalp-split.is-rows .scalp-dock-chart-canvas .pf-bench-canvas-host { min-height: 300px; }
+  #scalp-page.scalp-rail-hidden .scalp-split.is-rows .scalp-dock-chart-canvas,
+  #scalp-page.scalp-rail-hidden .scalp-split.is-rows .scalp-dock-chart-canvas .pf-bench-canvas-host {
+    min-height: max(300px, calc((100vh - var(--pf-freeze-scalp-pos, 240px) - 98px) / 2));
+  }
+  /* The zoom is the toolbar's, for the outlined chart: no box in each pane. */
+  #scalp-page .scalp-split [data-bench-zoom] { display: none !important; }
+  /* Each pane's side and strike, on the B/S row's line at its far left. */
+  #scalp-page .scalp-pane-tag {
+    position: absolute; left: 8px; top: 9px; z-index: 3; box-sizing: border-box; height: 27px;
+    display: flex; align-items: center; gap: 7px; padding: 0 11px 0 3px; border-radius: 999px; pointer-events: none;
+    border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(12, 16, 26, 0.72);
+    font: 700 12px 'JetBrains Mono', monospace; color: #e2e8f0; white-space: nowrap;
+  }
+  #scalp-page .scalp-pane-tag b { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+  #scalp-page .scalp-pane-tag.is-ce b { color: #06120c; background: #34d399; }
+  #scalp-page .scalp-pane-tag.is-pe b { color: #1a0707; background: #f87171; }
+  #scalp-page .scalp-pane:not(.is-active) .scalp-pane-tag { color: #94a3b8; }
+  #scalp-page .scalp-pane-hint { display: none; color: #94a3b8; font-weight: 500; }
+  #scalp-page .scalp-pane:not(.is-active):hover .scalp-pane-hint { display: inline; }
+  [data-theme="light"] #scalp-page .scalp-pane-tag { background: rgba(255, 255, 255, 0.8); border-color: rgba(15, 23, 42, 0.1); color: #0f172a; }
+  [data-theme="light"] #scalp-page .scalp-pane:not(.is-active) .scalp-pane-tag { color: #64748b; }
+
+  /* B/S hidden and moved with the trade lines (see _applyScalpLines). */
+  #scalp-page .scalp-ticket.is-hidden { display: none; }
+  /* A narrow pane's O H L C: the plot's corner, as TradingView's legend. */
+  #scalp-page .scalp-ohlc.is-legend { height: 20px; padding: 0 4px; border-color: transparent; background: transparent; font-size: 11px; }
+  [data-theme="light"] #scalp-page .scalp-ohlc.is-legend { background: transparent; }
+}
+@media (min-width: 1080px) {
+  /* A narrow pane's ticket: B, lots and S slimmer, the same grid. */
+  #scalp-page .scalp-ticket.is-compact { grid-template-columns: 27px 58px 96px 58px; }
+  #scalp-page .scalp-ticket.is-compact .scalp-toggle-btn { font-size: 10px; padding-left: 0; padding-right: 0; }
+}
+@media (min-width: 1080px) {
+  #scalp-page .scalp-ohlc.is-legend em { display: none; }
+}

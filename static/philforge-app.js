@@ -14606,10 +14606,13 @@ function _scalpChartDocked() {
 
 function _scalpChartEls(docked) {
   const p = docked ? 'scalp-dock-chart' : 'scalp-option-chart';
+  // Split, the chart draws in the active pane only: an error or a "Loading"
+  // written to the whole body would wipe the chart beside it.
+  const pane = docked && _scalpSplitOn() ? document.querySelector('#scalp-split .scalp-pane.is-active .scalp-pane-body') : null;
   return {
     title: document.getElementById(p + '-title'),
     meta: document.getElementById(p + '-meta'),
-    body: document.getElementById(p + '-body'),
+    body: pane || document.getElementById(p + '-body'),
     canvasId: p + '-canvas',
     canvasClass: docked ? 'scalp-option-chart-canvas scalp-dock-chart-canvas' : 'scalp-option-chart-canvas',
   };
@@ -14634,14 +14637,16 @@ function _scalpDockShow() {
   const dock = document.getElementById('scalp-dock-chart');
   if (!dock) return;
   dock.hidden = false;
+  _scalpSplitEnsure();
   if (!_scalpDockStripBuilt && typeof pfChartStrip === 'function') {
     _scalpDockStripBuilt = true;
     const actions = document.getElementById('scalp-dock-chart-actions');
+    // The timeframe and refresh drive both charts of a split.
     pfChartStrip(actions, {
       timeframes: ['1m', '3m', '5m', '15m', '1h'],
       active: _scalpOptionChartTf,
-      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
-      onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); },
+      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
+      onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
     });
     // The studies and drawing tools fold into a drawer beside the heading.
     const title = document.querySelector('#scalp-dock-chart .terminal-cascade-chart-title');
@@ -14783,6 +14788,8 @@ function _scalpFormKey() {
 function _scalpDockFollow(openTrades) {
   if (!_scalpChartDocked() || _scalpDockYields()) return;
   _scalpDockShow();
+  _scalpSplitSync();
+  if (_scalpSplitOn()) _scalpAltRefresh(false);
   const open = Array.isArray(openTrades) ? openTrades : _scalpDockOpenTrades;
   const form = _scalpFormContract();
   const pin = _scalpDockPin;
@@ -14799,6 +14806,361 @@ function _scalpDockFollow(openTrades) {
   else if (form) _scalpDockDraw({ contract: form });
 }
 let _scalpDockOpenTrades = [];
+
+// ── TWO CHARTS, CE beside PE (Phil, 2026-10-29: "build two charts on one
+// screen ... When I click on the left screen, it has to be CE controls
+// enabled and if I click on the right, PE controls"). The layout menu offers
+// one chart, two side by side, or two stacked, as TradingView's does. CE is
+// left (or top), PE right (or bottom). The pane of the form's CE/PE is the
+// ACTIVE one: it is the chart the page has always had -- its B and S, trade
+// lines, O H L C, drawing tools and the form all speak to it. The other pane
+// shows the option a click on it would trade: the same rule the form uses
+// on a CE/PE switch (the in-the-money strike), drawn with the same studies
+// and its own live candle. A click on it turns the form to that side, and
+// the two charts trade places without a redraw.
+const _SCALP_LAYOUT_KEY = 'pf-scalp-chart-layout';
+let _scalpLayout = (() => {
+  try { const v = localStorage.getItem(_SCALP_LAYOUT_KEY); return v === 'cols' || v === 'rows' ? v : 'one'; } catch (_) { return 'one'; }
+})();
+const _SCALP_LAYOUT_ICON = {
+  one: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/></svg>',
+  cols: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M12 4.5v15"/></svg>',
+  rows: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 12h17"/></svg>',
+};
+
+function _scalpSplitOn() {
+  return _scalpLayout !== 'one' && _scalpChartDocked();
+}
+
+// The panes in the dock, built to match the layout. Rebuilt only when the
+// layout changes: a chart already drawn is never thrown away by a tick.
+function _scalpSplitEnsure() {
+  const body = document.getElementById('scalp-dock-chart-body');
+  if (!body) return;
+  const split = document.getElementById('scalp-split');
+  const want = _scalpSplitOn() ? _scalpLayout : 'one';
+  const have = split ? split.dataset.layout : 'one';
+  const dock = document.getElementById('scalp-dock-chart');
+  if (dock) dock.dataset.layout = want;
+  if (want === have) return;
+  if (want === 'one') {
+    if (split) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
+    return;
+  }
+  if (split) {
+    split.dataset.layout = want;
+    split.classList.toggle('is-cols', want === 'cols');
+    split.classList.toggle('is-rows', want === 'rows');
+    return;
+  }
+  const opt = document.getElementById('scalp-option-type')?.value === 'PE' ? 'PE' : 'CE';
+  const pane = (side) => `<div class="scalp-pane${side === opt ? ' is-active' : ''}" data-opt="${side}">
+      <div class="scalp-pane-body"><div class="scalp-option-chart-canvas scalp-dock-chart-canvas" id="${side === opt ? 'scalp-dock-chart-canvas' : 'scalp-dock-alt-canvas'}"><div class="pf-cascade-chart-empty">Loading ${side} candles...</div></div></div>
+      <div class="scalp-pane-tag is-${side.toLowerCase()}" title="${side === 'CE' ? 'Calls' : 'Puts'}"><b>${side}</b><span class="scalp-pane-strike"></span><span class="scalp-pane-hint">Click to trade</span></div>
+    </div>`;
+  body.innerHTML = `<div class="scalp-split is-${want}" id="scalp-split" data-layout="${want}">${pane('CE')}${pane('PE')}</div>`;
+  // A press anywhere on the other pane turns the form to its side. In
+  // capture, ahead of the chart's own handling of the same press.
+  body.querySelector('#scalp-split').addEventListener('pointerdown', (event) => {
+    const hit = event.target.closest('.scalp-pane');
+    if (!hit || hit.classList.contains('is-active')) return;
+    setScalpOptionType(hit.dataset.opt);
+  }, true);
+  _scalpOptionChartDrawnKey = '';
+  _scalpAltReset();
+}
+
+// The active pane follows the form's CE/PE. The chart already drawn in the
+// pane becomes the page's chart at once; the one it leaves becomes the
+// companion, which redraws itself for its own side's strike.
+function _scalpSplitSync() {
+  const split = document.getElementById('scalp-split');
+  if (!split || !_scalpSplitOn()) return;
+  const opt = document.getElementById('scalp-option-type')?.value === 'PE' ? 'PE' : 'CE';
+  const panes = [...split.querySelectorAll('.scalp-pane')];
+  const active = panes.find(p => p.dataset.opt === opt);
+  const other = panes.find(p => p !== active);
+  if (!active || !other || active.classList.contains('is-active')) return;
+  _scalpEndDraw();
+  panes.forEach(p => p.classList.toggle('is-active', p === active));
+  const nowEl = active.querySelector('.scalp-dock-chart-canvas');
+  const thenEl = other.querySelector('.scalp-dock-chart-canvas');
+  if (nowEl) nowEl.id = 'scalp-dock-chart-canvas';
+  if (thenEl) thenEl.id = 'scalp-dock-alt-canvas';
+  const was = _scalpChartShown;
+  const wasContract = _scalpOptionChartContract;
+  const alt = _scalpAlt;
+  _scalpOptionChartRequest++;
+  if (alt.data && nowEl && typeof pfChartFocus === 'function' && pfChartFocus(nowEl)) {
+    _scalpChartShown = { key: alt.key, data: alt.data };
+    _scalpOptionChartContract = alt.contract;
+    _scalpOptionChartTradeId = null;
+    _scalpOptionChartDrawnKey = `${alt.key}|${alt.data.timeframe || _scalpOptionChartTf}`;
+    const wasBar = was && _scalpLiveBar && _scalpLiveBar.key === was.key ? _scalpLiveBar : null;
+    _scalpLiveBar = alt.bar;
+    _scalpAlt = _scalpAltBlank();
+    if (was && was.data) {
+      Object.assign(_scalpAlt, { key: was.key, contract: wasContract, data: was.data, bar: wasBar,
+        drawnKey: `${was.key}|${was.data.timeframe || _scalpOptionChartTf}` });
+    }
+    // Both charts re-dressed for their new parts.
+    _scalpRedecorate();
+  } else {
+    // Nothing drawn on that side yet: the dock draws it now.
+    _scalpChartShown = null;
+    _scalpOptionChartDrawnKey = '';
+    _scalpAlt = _scalpAltBlank();
+  }
+  _scalpPaintUndo();
+  _scalpHudTrades(_scalpHudOpen);
+  _scalpAltRefresh(true);
+}
+
+function setScalpChartLayout(layout) {
+  _scalpLayoutMenu(false);
+  if (!['one', 'cols', 'rows'].includes(layout) || layout === _scalpLayout) return;
+  // The stretch of time on screen carries into the new layout.
+  if (_scalpChartShown && typeof pfChartCurrentWindow === 'function' && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas
+    && _pfChartCanvas.data === _scalpChartShown.data) _scalpChartWindow = pfChartCurrentWindow() || _scalpChartWindow;
+  _scalpLayout = layout;
+  try { localStorage.setItem(_SCALP_LAYOUT_KEY, layout); } catch (_) {}
+  _paintScalpLayout();
+  if (!_scalpChartDocked() || _scalpDockYields()) return;
+  _scalpEndDraw();
+  if (typeof _pfChartCanvasTeardown === 'function' && document.querySelector('#scalp-dock-chart #pf-bench-canvas-host')) _pfChartCanvasTeardown();
+  const body = document.getElementById('scalp-dock-chart-body');
+  if (body) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading exact option candles...</div>';
+  _scalpChartShown = null;
+  _scalpOptionChartDrawnKey = '';
+  _scalpAlt = _scalpAltBlank();
+  _scalpDockFailed = { key: '', at: 0 };
+  _scalpDockPendingKey = '';
+  _scalpSplitEnsure();
+  _scalpOptionChartRequest++;
+  const target = _scalpOptionChartContract ? { contract: _scalpOptionChartContract } : (_scalpOptionChartTradeId ? { tradeId: _scalpOptionChartTradeId } : null);
+  if (target) openScalpOptionChart(target.contract ? null : target.tradeId, target.contract ? { contract: target.contract } : {});
+  else _scalpDockFollow();
+  _scalpAltRefresh(true);
+  const studio = document.querySelector('#scalp-dock-chart .scalp-studio');
+  if (studio) requestAnimationFrame(() => _placeScalpStudio(studio));
+}
+window.setScalpChartLayout = setScalpChartLayout;
+
+function _paintScalpLayout() {
+  const btn = document.getElementById('scalp-layout-btn');
+  if (btn) {
+    btn.innerHTML = _SCALP_LAYOUT_ICON[_scalpLayout];
+    btn.title = { one: 'Layout: one chart', cols: 'Layout: CE | PE side by side', rows: 'Layout: CE over PE' }[_scalpLayout];
+    btn.setAttribute('aria-label', btn.title);
+  }
+  document.querySelectorAll('#scalp-layout-menu [data-layout]').forEach((b) => {
+    const on = b.dataset.layout === _scalpLayout;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+function _scalpLayoutMenu(open) {
+  const menu = document.getElementById('scalp-layout-menu');
+  const btn = document.getElementById('scalp-layout-btn');
+  if (!menu || !btn) return;
+  menu.hidden = !open;
+  btn.setAttribute('aria-expanded', String(!!open));
+  if (!open) return;
+  _paintScalpLayout();
+  // Under its button, its right edge on the button's.
+  const dock = menu.offsetParent || menu.parentElement;
+  const b = btn.getBoundingClientRect(), d = dock.getBoundingClientRect();
+  menu.style.top = `${Math.round(b.bottom - d.top + 6)}px`;
+  menu.style.left = `${Math.round(Math.max(8, b.right - d.left - menu.offsetWidth))}px`;
+}
+function toggleScalpLayoutMenu() {
+  _scalpLayoutMenu(document.getElementById('scalp-layout-menu')?.hidden);
+}
+window.toggleScalpLayoutMenu = toggleScalpLayoutMenu;
+document.addEventListener('pointerdown', (event) => {
+  if (event.target && event.target.closest && event.target.closest('#scalp-layout-btn, #scalp-layout-menu')) return;
+  _scalpLayoutMenu(false);
+}, true);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !document.getElementById('scalp-layout-menu')?.hidden) _scalpLayoutMenu(false);
+});
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _paintScalpLayout);
+else _paintScalpLayout();
+
+// ── The companion chart: the pane beside the active one ──
+function _scalpAltBlank() {
+  return { key: '', contract: null, data: null, drawnKey: '', bar: null, price: 0, priceKey: '', busy: false, priceBusy: false, at: 0, priceAt: 0, failedKey: '', failedAt: 0 };
+}
+let _scalpAlt = _scalpAltBlank();
+let _scalpAltTimer = null;
+
+function _scalpAltReset() {
+  _scalpAlt = _scalpAltBlank();
+}
+
+// The option a click on the other pane would trade: the form's contract on
+// the other side, at the strike the form itself moves to on that switch.
+function _scalpAltContract() {
+  const form = _scalpFormContract();
+  if (!form) return null;
+  const opt = form.option_type === 'PE' ? 'CE' : 'PE';
+  const spot = _scalpSpotCache[form.underlying] || 0;
+  const strike = spot > 0 ? Number(_scalpListedStrike(form.underlying, form.expiry, _scalpITMStrike(spot, form.underlying, opt))) || form.strike : form.strike;
+  return { underlying: form.underlying, strike, expiry: form.expiry, option_type: opt };
+}
+
+function _scalpAltEl() {
+  return document.getElementById('scalp-dock-alt-canvas');
+}
+
+function _scalpAltLive() {
+  return _scalpSplitOn() && !document.getElementById('scalp-dock-chart')?.hidden && !_scalpDockYields()
+    && (typeof _isPageVisible !== 'function' || _isPageVisible()) && !document.hidden;
+}
+
+// Its open trades as plain lines: the pills, Exit and the ticket stay with
+// the active pane; a click brings them here.
+function _scalpAltTradeLines(contract) {
+  return (_scalpHudOpen || []).filter(t => t.status !== 'pending' && _scalpSameContract(
+    { underlying: t.underlying, strike: t.strike, expiry: t.expiry, option_type: t.option_type }, contract))
+    .map((t) => {
+      const buy = String(t.transaction_type || 'BUY').toUpperCase() !== 'SELL';
+      return { price: Number(t.entry_premium || 0), label: `${buy ? 'B' : 'S'} ${t.lots}`,
+        color: buy ? '#34d399' : '#f87171', dash: [5, 4], width: 1.2, opacity: 0.9 };
+    })
+    .filter(line => line.price > 0);
+}
+
+// The studies of the active chart, without what belongs to the active one
+// alone: the O H L C readout and the ticket's placing.
+function _scalpAltDecorate(data) {
+  if (!data) return;
+  _scalpDecorate(data);
+  data.onDraw = null;
+  data.onCrosshair = null;
+  if (_scalpAlt.contract) data.lines = data.lines.concat(_scalpAltTradeLines(_scalpAlt.contract));
+}
+
+function _scalpAltPaintTags() {
+  const split = document.getElementById('scalp-split');
+  if (!split) return;
+  const form = _scalpFormContract();
+  split.querySelectorAll('.scalp-pane').forEach((pane) => {
+    const activeSide = pane.classList.contains('is-active');
+    const c = activeSide ? form : _scalpAlt.contract;
+    // Its strike only: the price is on its own axis.
+    const strikeEl = pane.querySelector('.scalp-pane-strike');
+    if (strikeEl) strikeEl.textContent = c ? String(c.strike) : '';
+    pane.title = activeSide ? '' : `Click to trade ${c ? `${c.strike} ` : ''}${pane.dataset.opt}`;
+  });
+}
+
+function _scalpAltDraw(data) {
+  const el = _scalpAltEl();
+  if (!el || typeof pfBenchDrawChart !== 'function') return;
+  const drawnKey = `${_scalpAlt.key}|${data.timeframe || _scalpOptionChartTf}`;
+  const mounted = typeof pfChartWith === 'function' && !!pfChartWith(el, () => true);
+  if (mounted && drawnKey === _scalpAlt.drawnKey) {
+    pfChartWith(el, () => { _scalpAltDecorate(data); _pfChartCanvasRefresh(data, _pfChartCanvasRefreshState()); });
+    return;
+  }
+  _scalpAltDecorate(data);
+  pfBenchDrawChart(el, data, { multi: true, background: true });
+  _scalpAlt.drawnKey = drawnKey;
+  // The same stretch of time as the active chart beside it.
+  const win = typeof pfChartCurrentWindow === 'function' ? pfChartCurrentWindow() : null;
+  if (win) pfChartWith(el, () => pfChartApplyWindow(win));
+}
+
+async function _scalpAltFetchPrice(contract, key) {
+  const trade = (_scalpHudOpen || []).find(t => _scalpSameContract(
+    { underlying: t.underlying, strike: t.strike, expiry: t.expiry, option_type: t.option_type }, contract) && Number(t.current_premium) > 0);
+  if (trade) { _scalpAlt.price = Number(trade.current_premium); _scalpAlt.priceKey = key; return; }
+  if (_scalpAlt.priceBusy) return;
+  _scalpAlt.priceBusy = true;
+  try {
+    const broker = document.getElementById('scalp-broker')?.value || 'dhan';
+    const r = await fetch(`/api/option-ltp?${new URLSearchParams({ ...contract, strike: String(contract.strike), broker })}`, { cache: 'no-store' });
+    const d = await r.json().catch(() => ({}));
+    if (_scalpAlt.key !== key) return;
+    if (d.status === 'ok' && d.ltp > 0 && d.source !== 'last_close') { _scalpAlt.price = Number(d.ltp); _scalpAlt.priceKey = key; }
+  } catch (_) {
+    /* the next tick asks again */
+  } finally {
+    _scalpAlt.priceBusy = false;
+  }
+}
+
+async function _scalpAltFetchChart(contract, key) {
+  if (_scalpAlt.busy) return;
+  _scalpAlt.busy = true;
+  _scalpAlt.at = Date.now();
+  const tf = _scalpOptionChartTf;
+  try {
+    const live = _scalpAlt.priceKey === key ? _scalpAlt.price : 0;
+    const r = await fetch(`/api/scalp/contract-chart?${new URLSearchParams({ ...contract, strike: String(contract.strike), timeframe: tf, live_price: String(live || 0) })}`,
+      { credentials: 'same-origin', cache: 'no-store' });
+    const data = await r.json().catch(() => ({}));
+    if (_scalpAlt.key !== key || tf !== _scalpOptionChartTf || !_scalpAltLive()) return;
+    if (!r.ok || data.status !== 'ok' || !(data.candles || []).length) throw new Error(pfErrorText(data, 'No candles'));
+    data.fit_sessions = _SCALP_CHART_DAYS;
+    data.countdown = true;
+    _scalpApplyLiveBar(data, key, _scalpAlt);
+    _scalpAlt.data = data;
+    _scalpAltDraw(data);
+  } catch (error) {
+    if (_scalpAlt.key !== key) return;
+    _scalpAlt.failedKey = key;
+    _scalpAlt.failedAt = Date.now();
+    const el = _scalpAltEl();
+    if (el && !_scalpAlt.data) el.innerHTML = `<div class="pf-cascade-chart-empty">${escapeHtml(error.message || 'Chart unavailable')}</div>`;
+  } finally {
+    _scalpAlt.busy = false;
+  }
+}
+
+// Once a second while split: the live candle from its own price (asked every
+// 2s), and its candles again every 3s -- or at once for a new strike or
+// timeframe (force). Out of the session there is no price to ask for and the
+// candles cannot change: one look a minute (Dhan's rate budget is the whole
+// account's).
+function _scalpAltRefresh(force) {
+  if (!_scalpAltLive()) return;
+  if (!_scalpAltTimer) _scalpAltTimer = setInterval(() => _scalpAltRefresh(false), 1000);
+  const contract = _scalpAltContract();
+  _scalpAltPaintTags();
+  if (!contract) return;
+  const key = _scalpContractKey(contract.underlying, contract.strike, contract.expiry, contract.option_type);
+  if (key !== _scalpAlt.key) {
+    // A new strike or side: the old one's price and candle are not its own.
+    Object.assign(_scalpAlt, { key, contract, price: 0, priceKey: '', bar: null, at: 0, priceAt: 0, failedKey: '' });
+    force = true;
+  }
+  const now = Date.now();
+  const tf = _scalpOptionChartTf;
+  const open = !!(_scalpAlt.data && typeof pfChartBarWindow === 'function'
+    && pfChartBarWindow(now / 1000, _SCALP_TF_SEC[tf] || 300, _scalpAlt.data.session));
+  if (open && (force || now - _scalpAlt.priceAt >= 2000)) { _scalpAlt.priceAt = now; _scalpAltFetchPrice(contract, key); }
+  const stale = !_scalpAlt.data || (_scalpAlt.data.timeframe || tf) !== tf || !String(_scalpAlt.drawnKey).startsWith(`${key}|`);
+  const failedRecently = _scalpAlt.failedKey === key && now - _scalpAlt.failedAt < _SCALP_DOCK_RETRY_MS;
+  if (!failedRecently && (force || stale || now - _scalpAlt.at >= (open ? 3000 : 60000))) { _scalpAltFetchChart(contract, key); return; }
+  const el = _scalpAltEl();
+  // Another chart opened over the desk took this one down: it comes back
+  // from what it already holds, not a minute later.
+  if (_scalpAlt.data && el && !pfChartWith(el, () => true)) {
+    _scalpAlt.drawnKey = '';
+    _scalpAltDraw(_scalpAlt.data);
+    return;
+  }
+  // Between fetches, the forming candle grows from the price.
+  if (_scalpAlt.data && el && _scalpAlt.priceKey === key) {
+    pfChartWith(el, () => {
+      const state = _pfChartCanvasRefreshState();
+      if (_scalpApplyLiveBar(_scalpAlt.data, key, _scalpAlt)) { _scalpAltDecorate(_scalpAlt.data); _pfChartCanvasRefresh(_scalpAlt.data, state); }
+    });
+  }
+}
 
 // ── The chart's own ticket and trade lines (Phil, 2026-10-28) ──
 // "a buy and a sell button with B and S inside the chart with lots inbetween
@@ -15000,27 +15362,59 @@ function _scalpHudPlace() {
   // Beside the chart's own zoom box, to its left (Phil, 2026-10-28: "Make the
   // B and S buttons near or to the left of the chart zoom"); the plot's top
   // right corner if the box is not there.
+  // The row above the plot: the zoom box's line, or (split, where the panes
+  // leave the zoom to the toolbar) the middle of the plot's top margin.
   const ticket = document.getElementById('scalp-ticket');
+  const zoom = c.host.querySelector('[data-bench-zoom]');
+  const zb = zoom && zoom.getClientRects().length ? zoom.getBoundingClientRect() : null;
+  const rowTop = zb ? zb.top - box.top : oy + Math.max(4, Math.round((p.padT - 27) / 2));
+  // A split pane's CE/PE tag holds the far left of that row.
+  const tag = _scalpSplitOn() ? document.querySelector('#scalp-split .scalp-pane.is-active .scalp-pane-tag') : null;
+  const tb = tag && tag.getClientRects().length ? tag.getBoundingClientRect() : null;
+  let leftEdge = tb ? tb.right - box.left + 8 : ox + 8;
+  const rightEdge = zb ? zb.left - box.left - 8 : ox + p.padL + p.plotW - 8;
+  const ticketShown = ticket && !ticket.classList.contains('is-hidden');
+  // A pane too narrow for the ticket on that row: first a slimmer ticket,
+  // then the plot's top corner -- never over the tag.
+  let dropped = false;
   if (ticket) {
-    const zoom = c.host.querySelector('[data-bench-zoom]');
-    const zb = zoom && zoom.getClientRects().length ? zoom.getBoundingClientRect() : null;
-    const right = zb ? zb.left - box.left - 8 : ox + p.padL + p.plotW - 8;
-    const top = zb ? zb.top - box.top : oy + p.padT + 6;
-    ticket.style.left = `${Math.round(Math.max(ox + p.padL + 8, right - ticket.offsetWidth))}px`;
-    ticket.style.top = `${Math.round(top)}px`;
+    ticket.classList.remove('is-compact');
+    if (ticketShown && leftEdge + ticket.offsetWidth > rightEdge) ticket.classList.add('is-compact');
+    dropped = ticketShown && leftEdge + ticket.offsetWidth > rightEdge;
+    const toLeft = ticket.classList.contains('is-left');
+    // Moved with the trade lines (see _applyScalpLines): left, after the tag,
+    // or right, beside the zoom.
+    const left = toLeft
+      ? (dropped ? ox + p.padL + 8 : leftEdge)
+      : Math.max(ox + p.padL + 8, (dropped ? ox + p.padL + p.plotW - 8 : rightEdge) - ticket.offsetWidth);
+    ticket.style.left = `${Math.round(left)}px`;
+    ticket.style.top = `${Math.round(dropped ? oy + p.padT + 6 : rowTop)}px`;
+    if (ticketShown && toLeft && !dropped) leftEdge = left + ticket.offsetWidth + 8;
   }
   // On the B/S line, at the chart's far left (Phil, 2026-10-28: "need it on
-  // the B and S like to the extreme left").
+  // the B and S like to the extreme left"). Where that row has no room for it
+  // (a narrow pane), it drops into the plot's corner as TradingView's legend.
   const ohlc = document.getElementById('scalp-ohlc');
   if (ohlc) {
-    ohlc.style.left = `${Math.round(ox + 8)}px`;
-    ohlc.style.top = ticket ? ticket.style.top : `${Math.round(oy + p.padT + 4)}px`;
     _scalpOhlcShow();
+    ohlc.classList.remove('is-legend');
+    const roomRight = ticketShown && !dropped && !ticket.classList.contains('is-left') ? parseFloat(ticket.style.left) - 8 : rightEdge;
+    if (dropped || leftEdge + ohlc.offsetWidth > roomRight) {
+      ohlc.classList.add('is-legend');
+      ohlc.style.left = `${Math.round(ox + p.padL + 6)}px`;
+      // Under a ticket that dropped into the plot.
+      ohlc.style.top = `${Math.round(dropped ? ticket.offsetTop + ticket.offsetHeight + 6 : oy + p.padT + 4)}px`;
+    } else {
+      ohlc.style.left = `${Math.round(leftEdge)}px`;
+      ohlc.style.top = `${Math.round(rowTop)}px`;
+    }
   }
   const top = oy + p.padT, bottom = oy + p.padT + p.plotH;
-  // Lines on the right keep clear of the ticket in that corner.
+  // The lines start below the ticket's row, and below the legend when the
+  // O H L C has dropped into the plot.
+  const legend = ohlc && ohlc.classList.contains('is-legend') ? ohlc.offsetTop + ohlc.offsetHeight + 16 : 0;
   const onRight = document.getElementById('scalp-chart-pills')?.classList.contains('is-right');
-  const ceiling = onRight && ticket ? Math.max(top + 40, ticket.offsetTop + ticket.offsetHeight + 16) : top + 40;
+  const ceiling = Math.max((onRight || dropped) && ticketShown ? Math.max(top + 40, ticket.offsetTop + ticket.offsetHeight + 16) : top + 40, legend);
   let lastY = -Infinity;
   [...document.querySelectorAll('#scalp-chart-pills .scalp-pill-row')]
     .map(row => ({ row, y: oy + p.yOf(Number(row.dataset.price)) }))
@@ -15121,6 +15515,10 @@ const _SCALP_EYE = {
 function _scalpLinesPrefs() {
   try { return JSON.parse(localStorage.getItem(_SCALP_LINES_KEY) || '{}') || {}; } catch (err) { return {}; }
 }
+// The B and S ticket goes with them (Phil, 2026-10-29: "The eye and move
+// buttons ... has to be also for the B and S button"): hidden together, and
+// moved together -- the ticket always on the side the lines are not, so the
+// two never sit on each other.
 function _applyScalpLines() {
   const prefs = _scalpLinesPrefs();
   const host = document.getElementById('scalp-chart-pills');
@@ -15128,16 +15526,20 @@ function _applyScalpLines() {
     host.classList.toggle('is-right', prefs.side === 'right');
     host.classList.toggle('is-hidden', !!prefs.hidden);
   }
+  const ticket = document.getElementById('scalp-ticket');
+  if (ticket) {
+    ticket.classList.toggle('is-left', prefs.side === 'right');
+    ticket.classList.toggle('is-hidden', !!prefs.hidden);
+  }
   const side = document.getElementById('scalp-lines-side');
   if (side) {
-    const to = prefs.side === 'right' ? 'left' : 'right';
-    side.title = `Move the trade lines to the ${to}`;
+    side.title = prefs.side === 'right' ? 'Move B/S to the right and the trade lines to the left' : 'Move B/S to the left and the trade lines to the right';
     side.setAttribute('aria-label', side.title);
   }
   const eye = document.getElementById('scalp-lines-eye');
   if (eye) {
     eye.innerHTML = prefs.hidden ? _SCALP_EYE.off : _SCALP_EYE.on;
-    eye.title = prefs.hidden ? 'Show the trade lines' : 'Hide the trade lines';
+    eye.title = prefs.hidden ? 'Show B/S and the trade lines' : 'Hide B/S and the trade lines';
     eye.setAttribute('aria-label', eye.title);
     eye.setAttribute('aria-pressed', String(!!prefs.hidden));
   }
@@ -15147,8 +15549,8 @@ function _saveScalpLines(change) {
   try { localStorage.setItem(_SCALP_LINES_KEY, JSON.stringify(prefs)); } catch (err) {}
   _applyScalpLines();
 }
-function toggleScalpLinesSide() { _saveScalpLines({ side: _scalpLinesPrefs().side === 'right' ? 'left' : 'right' }); }
-function toggleScalpLines() { _saveScalpLines({ hidden: !_scalpLinesPrefs().hidden }); }
+function toggleScalpLinesSide() { _saveScalpLines({ side: _scalpLinesPrefs().side === 'right' ? 'left' : 'right' }); _scalpHudPlace(); }
+function toggleScalpLines() { _saveScalpLines({ hidden: !_scalpLinesPrefs().hidden }); _scalpHudPlace(); }
 window.toggleScalpLinesSide = toggleScalpLinesSide;
 window.toggleScalpLines = toggleScalpLines;
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _applyScalpLines);
@@ -15280,9 +15682,11 @@ function _scalpChartLivePrice(key) {
 
 // Fold the live price into data's last bar (or open the next one). True when
 // the candles changed. Builds new arrays so the renderer re-reads its axis.
-function _scalpApplyLiveBar(data, key) {
+// `alt`: the companion chart's state ({price, priceKey, bar}), which grows
+// its own candle from its own price.
+function _scalpApplyLiveBar(data, key, alt) {
   const candles = data && data.candles;
-  const price = _scalpChartLivePrice(key);
+  const price = alt ? (alt.priceKey === key ? Number(alt.price) || 0 : 0) : _scalpChartLivePrice(key);
   if (!(price > 0) || !Array.isArray(candles) || !candles.length || typeof pfChartBarWindow !== 'function') return false;
   const tf = _SCALP_TF_SEC[data.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300;
   const now = Date.now() / 1000;
@@ -15290,9 +15694,10 @@ function _scalpApplyLiveBar(data, key) {
   const last = candles[candles.length - 1];
   const lastT = Number(last.t);
   if (!win || pfChartIstDay(lastT) !== win.day || lastT > win.start || (lastT - win.open) % tf !== 0) return false;
-  let live = _scalpLiveBar;
+  let live = alt ? alt.bar : _scalpLiveBar;
   if (!live || live.key !== key || live.tf !== tf || live.t !== win.start) {
-    live = _scalpLiveBar = { key, tf, t: win.start, o: price, h: price, l: price };
+    live = { key, tf, t: win.start, o: price, h: price, l: price };
+    if (alt) alt.bar = live; else _scalpLiveBar = live;
   }
   live.h = Math.max(live.h, price);
   live.l = Math.min(live.l, price);
@@ -15590,6 +15995,16 @@ function _scalpDecorate(data) {
 }
 
 function _scalpRedecorate() {
+  // The chart beside it takes the same studies.
+  const altEl = _scalpAltEl();
+  if (altEl && _scalpAlt.data && typeof pfChartWith === 'function') {
+    pfChartWith(altEl, () => {
+      if (_pfChartCanvas.data !== _scalpAlt.data) return;
+      const state = _pfChartCanvasRefreshState();
+      _scalpAltDecorate(_scalpAlt.data);
+      _pfChartCanvasRefresh(_scalpAlt.data, state);
+    });
+  }
   const shown = _scalpChartShown;
   if (!shown || typeof _pfChartCanvas === 'undefined' || !_pfChartCanvas || _pfChartCanvas.data !== shown.data) return;
   const state = _pfChartCanvasRefreshState();
@@ -15964,7 +16379,8 @@ async function openScalpOptionChart(tradeId, options = {}) {
           const asked = { '1m': '1-minute', '3m': '3-minute', '5m': '5-minute', '15m': '15-minute', '1h': '1-hour' }[data.timeframe || _scalpOptionChartTf] || '5-minute';
           throw new Error(`No ${asked} candles for this contract yet — it may not have traded in the last few sessions.`);
         }
-        if (!pfBenchDrawChart(host, data)) throw new Error('Option chart could not be drawn.');
+        // Split, the chart beside it stays up.
+        if (!pfBenchDrawChart(host, data, docked && _scalpSplitOn() ? { multi: true } : undefined)) throw new Error('Option chart could not be drawn.');
       }
       if (!view && _scalpChartWindow && typeof pfChartApplyWindow === 'function') pfChartApplyWindow(_scalpChartWindow);
     }
