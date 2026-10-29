@@ -9413,6 +9413,7 @@ async def _delete_dashboard_recent_transaction_items(user_id: int, items: list[d
         skipped += 1
 
     if scalp_deleted_ids:
+        _forget_scalp_day_pnl(user_id)
         eng = _scalp_engines.get(int(user_id))
         if eng is not None:
             id_set = set(scalp_deleted_ids)
@@ -23179,6 +23180,10 @@ async def websocket_endpoint(ws: WebSocket):
             payload = {"type": "status", "_ts": time.time()}
 
             if scalp_data is not None:
+                try:
+                    scalp_data = await _with_scalp_day_pnl(int(user_id), scalp_data)
+                except Exception:
+                    pass
                 payload["scalp"] = scalp_data
 
             # Engine status — every ~5s (20 × 250ms) to avoid waste
@@ -25488,6 +25493,7 @@ async def bulk_delete_scalp_trades(request: Request):
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="ids must be a non-empty list")
     deleted = await _db_mod.bulk_delete_scalp_trades(user_id, ids)
+    _forget_scalp_day_pnl(user_id)
     eng = _scalp_engines.get(int(user_id))
     if eng is not None:
         id_set = {int(tid) for tid in ids}
@@ -25501,6 +25507,7 @@ async def delete_scalp_trade(tid: int, request: Request):
     """Delete a single persisted scalp trade by trade_id."""
     user_id = _request_user_id(request)
     await _db_mod.delete_scalp_trade(user_id, tid)
+    _forget_scalp_day_pnl(user_id)
     eng = _scalp_engines.get(int(user_id))
     if eng is not None:
         eng.closed_trades = [t for t in eng.closed_trades if t.get("trade_id") != tid]
@@ -26515,6 +26522,7 @@ def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | No
         async def _persist_closed_trade_async(owner_id: int, trade_dict: dict):
             try:
                 await _db_mod.create_scalp_trade(owner_id, trade_dict)
+                _forget_scalp_day_pnl(owner_id)
             except Exception as e:
                 print(f"[SCALP] Failed to persist closed trade for user {owner_id}: {e}")
             finally:
@@ -26555,6 +26563,48 @@ def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | No
     return eng
 
 
+# THE DAY'S P&L, NOT THE ENGINE'S. The Scalp header showed the sum of the
+# engine's in-memory closed trades, so every restart -- each deploy is one --
+# zeroed it mid-day (Phil, 2026-10-29: "Make this session PL as current day
+# PL... if engine restarts, it resets and start from beginning"). Today's
+# closed trades are read from the saved ledger, which survives a restart; the
+# engine's own list only adds a trade closed in the last moments, before the
+# ledger read refreshes. A saved trade wins over the engine's copy, since a
+# Dhan re-pricing rewrites the saved one.
+_SCALP_DAY_CLOSED_CACHE: dict[int, tuple[float, str, dict[str, float]]] = {}
+_SCALP_DAY_CLOSED_TTL_SEC = 5.0
+
+
+def _forget_scalp_day_pnl(user_id: int) -> None:
+    _SCALP_DAY_CLOSED_CACHE.pop(int(user_id), None)
+
+
+async def _scalp_day_closed_pnl(user_id: int, today: str) -> dict[str, float]:
+    """{trade key: P&L} of the saved scalp trades closed today (IST)."""
+    cached = _SCALP_DAY_CLOSED_CACHE.get(int(user_id))
+    if cached and cached[1] == today and time.monotonic() - cached[0] < _SCALP_DAY_CLOSED_TTL_SEC:
+        return cached[2]
+    closed: dict[str, float] = {}
+    for trade in await _db_mod.list_scalp_trades(int(user_id)):
+        if isinstance(trade, dict) and _trade_day_text(trade, prefer_exit=True) == today:
+            closed[_trade_unique_key(trade)] = float(trade.get("pnl") or 0)
+    _SCALP_DAY_CLOSED_CACHE[int(user_id)] = (time.monotonic(), today, closed)
+    return closed
+
+
+async def _with_scalp_day_pnl(user_id: int, status: dict) -> dict:
+    """Set the status's session_pnl to today's closed P&L plus what is open now."""
+    today = _ist_date_str()
+    closed = dict(await _scalp_day_closed_pnl(user_id, today))
+    for trade in status.get("closed_trades") or []:
+        if isinstance(trade, dict) and _trade_day_text(trade, prefer_exit=True) == today:
+            closed.setdefault(_trade_unique_key(trade), float(trade.get("pnl") or 0))
+    day_closed = round(sum(closed.values()), 2)
+    status["day_closed_pnl"] = day_closed
+    status["session_pnl"] = round(day_closed + float(status.get("open_pnl") or 0), 2)
+    return status
+
+
 @app.get("/api/scalp/status")
 async def get_scalp_status(request: Request):
     user_id = _request_user_id(request)
@@ -26587,7 +26637,7 @@ async def get_scalp_status(request: Request):
             status["recovery_pending"] = True
     file_trades = await _db_mod.list_scalp_trades(user_id)
     status["file_trades"] = list(reversed(file_trades))
-    return status
+    return await _with_scalp_day_pnl(user_id, status)
 
 
 @app.post("/api/scalp/trades/match-dhan")
@@ -26659,6 +26709,7 @@ async def match_scalp_trades_to_dhan(request: Request):
             result["broker_match"]["was"] = was
         claimed.update(result["broker_match"]["exit_order_ids"])
         updated = await _db_mod.update_scalp_trade(user_id, int(trade["trade_id"]), result)
+        _forget_scalp_day_pnl(user_id)
         eng = _scalp_engines.get(int(user_id))
         for row in getattr(eng, "closed_trades", None) or []:
             if int(row.get("trade_id") or 0) == int(trade["trade_id"]):
