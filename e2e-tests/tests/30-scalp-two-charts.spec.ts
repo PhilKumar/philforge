@@ -168,3 +168,34 @@ test('the eye hides B/S with the trade lines, and the move button swaps their si
   await expect(ticket).not.toHaveClass(/is-left/);
   await expect(pills).not.toHaveClass(/is-right/);
 });
+
+test('full screen keeps the Scalp controls in a column beside the chart; ▸ leaves the chart alone', async ({ page }) => {
+  // Phil, 2026-10-29: "Make the scalp controls on the right to be visible on
+  // the full screen as well".
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await twoCharts(page, 'cols');
+  await page.evaluate(() => (window as unknown as { toggleScalpChartFull: () => void }).toggleScalpChartFull());
+  await expect(page.locator('body')).toHaveClass(/scalp-chart-full/);
+  const box = (sel: string) => page.locator(sel).first().evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+  });
+  await expect.poll(async () => (await box('#scalp-dock-chart')).height).toBeGreaterThan(820);
+  const chart = await box('#scalp-dock-chart');
+  const form = await box('#scalp-page .ocp-pane-form');
+  const positions = await box('#scalp-page .scalp-positions-card');
+  // The chart from the top to the bottom of the screen, the controls to its right.
+  expect(chart.y).toBeLessThan(20);
+  expect(chart.bottom).toBeGreaterThan(880);
+  expect(form.x).toBeGreaterThan(chart.right);
+  expect(positions.x).toBeGreaterThan(chart.right);
+  expect(positions.height).toBeGreaterThan(60);
+  expect(form.y).toBeGreaterThan(positions.bottom - 1);
+  await expect(page.locator('#scalp-page .ocp-pane-form button', { hasText: 'BUY' }).first()).toBeVisible();
+
+  // ▸ hides the column: the chart takes the whole screen.
+  await page.click('#scalp-rail-toggle');
+  await expect.poll(async () => (await box('#scalp-dock-chart')).width).toBeGreaterThan(1500);
+  await page.click('#scalp-rail-toggle');
+  await expect.poll(async () => (await box('#scalp-page .ocp-pane-form')).x).toBeGreaterThan(1000);
+});

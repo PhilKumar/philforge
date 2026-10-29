@@ -10619,12 +10619,54 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   /* The card's glass blur makes it the frame a fixed child is held in, so the
      chart filled only the card. Off while full screen; nothing shows through. */
   body.scalp-chart-full #scalp-page > .card { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-  body.scalp-chart-full #scalp-page #scalp-dock-chart {
+  /* The right column hidden (▸): the chart alone fills the screen. */
+  body.scalp-chart-full #scalp-page.scalp-rail-hidden #scalp-dock-chart {
     position: fixed !important; inset: 0; z-index: 2500; margin: 0 !important;
     width: auto !important; max-width: none; border-radius: 0; border: 0;
     display: flex !important; flex-direction: column; padding: 12px 18px 14px;
     background: var(--bg);
   }
+  /* With the right column (Phil, 2026-10-29: "Make the scalp controls on the
+     right to be visible on the full screen as well"): the Scalp card fills
+     the screen. The chart takes the left at the screen's full height and
+     stays put; the engine line, positions, launchpad and log are the right
+     column, which scrolls on its own beside it. Only the history goes. */
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card {
+    position: fixed !important; inset: 0; z-index: 2500; margin: 0 !important;
+    width: auto !important; max-width: none !important; border: 0 !important; border-radius: 0 !important;
+    padding: 12px 16px 12px 18px !important; background: var(--bg) !important;
+    overflow-y: auto; overscroll-behavior: contain; align-content: start;
+    --scalp-full-rail: max(440px, calc((100vw - 48px) * .3));
+    grid-template-columns: minmax(0, 1fr) var(--scalp-full-rail);
+    grid-template-rows: auto auto auto auto;
+  }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-head { grid-column: 2; grid-row: 1; min-width: 0; }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .scalp-positions-card { grid-row: 2; }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-form { grid-row: 3; }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-event-card { grid-row: 4; }
+  /* Out of the grid's flow, held to the left: spanning the rows at the
+     screen's height, it squeezed the column's rows to nothing. */
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart {
+    position: fixed !important; left: 18px; top: 12px; bottom: 12px; z-index: 1;
+    width: calc(100vw - 48px - var(--scalp-full-rail)); height: auto; margin: 0 !important;
+  }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .scalp-history-card { display: none !important; }
+  /* The page's frozen tops are measured for the page, not this column: here
+     the column scrolls as one, and nothing pins or paints past its edge. */
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > :is(.ocp-head, .scalp-positions-card) {
+    position: static !important; top: auto !important; box-shadow: none !important;
+  }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .scalp-positions-card > [role="region"] {
+    max-height: 34vh !important; overflow-y: auto;
+  }
+  /* The engine line in the column's width: status on its own line, the
+     day's P&L and the engine buttons under it. */
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-head { flex-wrap: wrap; }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) .scalp-engine-bar {
+    flex: 1 1 100%; flex-wrap: wrap !important; row-gap: 10px; justify-content: space-between !important;
+  }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) .scalp-engine-bar > :first-child { flex: 1 1 100% !important; }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) .scalp-engine-name { white-space: nowrap; }
   body.scalp-chart-full #scalp-page #scalp-dock-chart > .scalp-dock-chart-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   body.scalp-chart-full #scalp-page .scalp-dock-chart-canvas,
   body.scalp-chart-full #scalp-page .scalp-dock-chart-canvas .pf-bench-canvas-host {
@@ -10646,25 +10688,22 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
    side by side or stacked. CE left (top), PE right (bottom); the pane the
    form trades is outlined, the other is one click away. ── */
 @media (min-width: 1080px) {
+  /* The layout menu wears the chart's other menu (Fib) and the underlying
+     picker: a solid panel, mono labels, the tint on the chosen row. */
   #scalp-page .scalp-layout-menu {
-    position: absolute; z-index: 30; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
-    border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(16, 21, 32, 0.97); box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+    position: absolute; z-index: 30; display: grid; gap: 2px; padding: 4px; min-width: 196px;
+    background: #0d1526; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
   }
   #scalp-page .scalp-layout-menu[hidden] { display: none; }
-  #scalp-page .scalp-layout-row { display: flex; align-items: center; gap: 6px; }
-  #scalp-page .scalp-layout-row + .scalp-layout-row { border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 6px; }
-  #scalp-page .scalp-layout-n { width: 16px; text-align: center; color: #94a3b8; font: 600 13px 'JetBrains Mono', monospace; }
   #scalp-page .scalp-layout-opt {
-    width: 42px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
-    border: 0; border-radius: 9px; background: transparent; color: #cbd5e1; cursor: pointer;
+    display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 9px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--text); font: 600 11px var(--font-mono, monospace); text-align: left; cursor: pointer;
   }
-  #scalp-page .scalp-layout-opt:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-  #scalp-page .scalp-layout-opt.is-on { background: #e5e7eb; color: #0b1220; }
-  [data-theme="light"] #scalp-page .scalp-layout-menu { background: rgba(255, 255, 255, 0.98); border-color: rgba(15, 23, 42, 0.12); box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18); }
-  [data-theme="light"] #scalp-page .scalp-layout-opt { color: #334155; }
-  [data-theme="light"] #scalp-page .scalp-layout-opt:hover { background: rgba(15, 23, 42, 0.06); color: #0f172a; }
-  [data-theme="light"] #scalp-page .scalp-layout-opt.is-on { background: #1e293b; color: #f8fafc; }
+  #scalp-page .scalp-layout-opt svg { flex: none; color: var(--muted); }
+  #scalp-page .scalp-layout-opt:hover { background: rgba(148, 163, 184, .14); }
+  #scalp-page .scalp-layout-opt.is-on { background: rgba(var(--pf-tint-primary-rgb, 6, 182, 212), .16); }
+  #scalp-page .scalp-layout-opt.is-on svg { color: rgb(var(--pf-tint-primary-rgb, 6, 182, 212)); }
+  [data-theme="light"] #scalp-page .scalp-layout-menu { background: #ffffff; box-shadow: 0 14px 36px rgba(15, 23, 42, .18); }
 
   #scalp-page .scalp-dock-chart-body > .scalp-split { flex: 1 1 auto; display: grid; gap: 8px; min-height: 0; }
   #scalp-page .scalp-split.is-cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
