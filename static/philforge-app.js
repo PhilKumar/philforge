@@ -14950,7 +14950,7 @@ function _paintScalpLayout() {
   const btn = document.getElementById('scalp-layout-btn');
   if (btn) {
     btn.innerHTML = _SCALP_LAYOUT_ICON[_scalpLayout];
-    btn.title = { one: 'Layout: one chart', cols: 'Layout: CE | PE side by side', rows: 'Layout: CE over PE' }[_scalpLayout];
+    btn.title = 'Layout';
     btn.setAttribute('aria-label', btn.title);
   }
   document.querySelectorAll('#scalp-layout-menu [data-layout]').forEach((b) => {

@@ -10691,13 +10691,13 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   /* The layout menu wears the chart's other menu (Fib) and the underlying
      picker: a solid panel, mono labels, the tint on the chosen row. */
   #scalp-page .scalp-layout-menu {
-    position: absolute; z-index: 30; display: grid; gap: 2px; padding: 4px; min-width: 196px;
+    position: absolute; z-index: 30; display: flex; gap: 2px; padding: 4px;
     background: #0d1526; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
   }
   #scalp-page .scalp-layout-menu[hidden] { display: none; }
   #scalp-page .scalp-layout-opt {
-    display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 9px; border: 0; border-radius: 6px;
-    background: transparent; color: var(--text); font: 600 11px var(--font-mono, monospace); text-align: left; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 30px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: var(--text); cursor: pointer;
   }
   #scalp-page .scalp-layout-opt svg { flex: none; color: var(--muted); }
   #scalp-page .scalp-layout-opt:hover { background: rgba(148, 163, 184, .14); }
