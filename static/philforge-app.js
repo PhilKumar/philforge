@@ -14249,6 +14249,10 @@ var _scalpAllClosed = [];
 var _scalpSortCol = 'trade_id';
 var _scalpSortAsc = false;
 
+function _scalpTradeBroker(t) {
+  return String(t?.broker || '').toLowerCase() === 'zerodha' ? 'zerodha' : 'dhan';
+}
+
 function _getScalpSortVal(t) {
   switch(_scalpSortCol) {
     case 'date': return new Date(t.entry_time || 0).getTime() || 0;
@@ -14260,7 +14264,7 @@ function _getScalpSortVal(t) {
     case 'lots': return t.lots || 1;
     case 'pnl': return t.pnl || 0;
     case 'reason': return (t.exit_reason||'').toLowerCase();
-    case 'mode': return (t.mode||'').toLowerCase();
+    case 'mode': return (t.mode||'').toLowerCase() + (t.mode === 'live' ? ':' + _scalpTradeBroker(t) : '');
     default: return t.trade_id || 0;
   }
 }
@@ -14299,7 +14303,13 @@ function _renderScalpHistoryPage() {
     histBody.innerHTML = page.map(t => {
       const pnl = t.pnl || 0;
       const pnlColor = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--muted)';
-      const modeBadge = _getModeBadge(t.mode, true);
+      // Which broker a live trade went to (Phil, 2026-10-29: "which one is
+      // on which broker... like a tag"). A trade saved before Zerodha existed
+      // has no broker and was Dhan's.
+      const brokerTag = t.mode === 'live'
+        ? ` <span class="scalp-broker-tag is-${_scalpTradeBroker(t)}">${_scalpTradeBroker(t) === 'zerodha' ? 'ZERODHA' : 'DHAN'}</span>`
+        : '';
+      const modeBadge = _getModeBadge(t.mode, true) + brokerTag;
       const entryTime = _fmtScalpTime(t.entry_time);
       const exitTime = _fmtScalpTime(t.exit_time);
       const lots = t.lots || 1;
@@ -14317,7 +14327,7 @@ function _renderScalpHistoryPage() {
         <td style="padding:7px 10px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;">${lotsStr}</td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
         <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${escapeHtml((t.exit_reason||'').replace(/_/g,' '))}</td>
-        <td style="padding:7px 6px;text-align:center;">${modeBadge}</td>
+        <td style="padding:7px 6px;text-align:center;white-space:nowrap;">${modeBadge}</td>
         <td style="padding:7px 6px;text-align:center;white-space:nowrap;">
           <button class="btn btn-danger btn-sm" onclick="deleteScalpHistoryTrade(${t.trade_id})" style="padding:2px 8px;font-size:10px;">✕</button>
         </td>
