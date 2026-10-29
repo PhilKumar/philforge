@@ -448,7 +448,10 @@ function _pfChartCanvasFit(c, initial) {
   if (!candles.length) return null;
   var axis = _pfChartCanvasAxisOf(c);
   var last = candles.length - 1;
-  var iMin = -0.5, iMax = last + 0.5;
+  // future_bars: empty bars kept past the last candle for levels drawn ahead
+  // of the price -- the Scalp chart's next-day CPR (2026-10-29).
+  var rightEdge = last + 0.5 + Math.max(0, Number(d.future_bars) || 0);
+  var iMin = -0.5, iMax = rightEdge;
   var entries = d.entries || [], exits = d.exits || [];
   if (entries.length) {
     var entryIdx = Infinity;
@@ -479,8 +482,8 @@ function _pfChartCanvasFit(c, initial) {
   var barsWanted = Number((initial && d.initial_bars) || d.fit_bars) || 0;
   if (barsWanted > 0) {
     var keepBars = entries.length && isFinite(entryIdx) ? iMin : Infinity;
-    iMin = Math.max(-0.5, Math.min(last + 0.5 - barsWanted, keepBars));
-    iMax = last + 0.5;
+    iMin = Math.max(-0.5, Math.min(rightEdge - barsWanted, keepBars));
+    iMax = rightEdge;
   }
   // fit_sessions: N frames the last N trading days (IST dates) up to the
   // latest bar, widened only to keep a marked entry in view.
@@ -497,7 +500,7 @@ function _pfChartCanvasFit(c, initial) {
     }
     var keepEntry = entries.length && isFinite(entryIdx) ? iMin : Infinity;
     iMin = Math.max(-0.5, Math.min(startIdx - 0.5, keepEntry));
-    iMax = last + 0.5;
+    iMax = rightEdge;
   }
   var from = Math.max(Math.ceil(iMin), 0), to = Math.min(Math.floor(iMax), last);
   var lo = Number(candles[from].l), hi = Number(candles[from].h);

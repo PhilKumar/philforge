@@ -59,7 +59,11 @@ class TheChartKeepsItsPivots(unittest.TestCase):
         self.assertNotIn("dashed", fn)
 
     def test_the_pivot_builder_really_emits_them(self):
+        # The levels themselves are built by _cpr_level_overlays, which the
+        # per-session loop and the next-day CPR (2026-10-29) both call.
         block = APP_PY.split("def _chart_session_analytics(")[1].split("\ndef ")[0]
+        self.assertIn("_cpr_level_overlays(", block)
+        block = APP_PY.split("def _cpr_level_overlays(")[1].split("\ndef ")[0]
         for label in ("CPR TC", "CPR P", "CPR BC", "R1", "R4", "S1", "S4"):
             self.assertIn(f'"{label}"', block, label)
 

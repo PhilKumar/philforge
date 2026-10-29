@@ -25809,28 +25809,9 @@ def _chart_session_analytics(candles: list[dict], session_close_hm: tuple[int, i
         day = datetime.fromtimestamp(int(bar["t"]), IST).date().isoformat()
         sessions.setdefault(day, []).append(bar)
     days = sorted(sessions)
-    # TRADINGVIEW'S COLOURS, the ones the Journal page's charts already use
-    # (journal_charts.previous_session_levels): the CPR band in blue with its
-    # pivot in magenta, resistance red, support green. Phil, 2026-10-13: "make
-    # the standard default chart like trading view colours".
-    cpr_blue, cpr_pivot, red, green = "#2962ff", "#d946ef", "#ef3340", "#34a853"
     for index in range(1, len(days)):
         prev = sessions[days[index - 1]]
         today = sessions[days[index]]
-        high = max(float(b["h"]) for b in prev)
-        low = min(float(b["l"]) for b in prev)
-        close = float(prev[-1]["c"])
-        p = (high + low + close) / 3.0
-        bc = (high + low) / 2.0
-        tc = 2.0 * p - bc
-        bc, tc = min(bc, tc), max(bc, tc)
-        rng = high - low
-        r1, s1 = 2 * p - low, 2 * p - high
-        r2, s2 = p + rng, p - rng
-        r3, s3 = high + 2 * (p - low), low - 2 * (high - p)
-        # Traditional floor pivots, as engine/indicators.py cpr() and TradingView draw them.
-        r4, s4 = 3 * p + (high - 3 * low), 3 * p - (3 * high - low)
-        s5 = 4 * p - (4 * high - low)
         last_day = index == len(days) - 1
         # A day's levels are fixed at 09:15 -- they come from the day before --
         # so the current session's are drawn to its close from the first bar,
@@ -25842,40 +25823,129 @@ def _chart_session_analytics(candles: list[dict], session_close_hm: tuple[int, i
                 date.fromisoformat(days[index]), dt_time(session_close_hm[0], session_close_hm[1]), tzinfo=IST
             )
             end_t = max(int(end_t), int(session_close.timestamp()))
-        span = [{"t": today[0]["t"], "price": 0.0}, {"t": end_t, "price": 0.0}]
-        for label, price, color in (
-            ("CPR TC", tc, cpr_blue),
-            ("CPR P", p, cpr_pivot),
-            ("CPR BC", bc, cpr_blue),
-            ("R1", r1, red),
-            ("R2", r2, red),
-            ("R3", r3, red),
-            ("R4", r4, red),
-            ("S1", s1, green),
-            ("S2", s2, green),
-            ("S3", s3, green),
-            ("S4", s4, green),
-            ("S5", s5, green),
-        ):
-            overlays.append(
-                {
-                    # Only the newest session labels the gutter; twelve labels a
-                    # day would bury the chart it is meant to explain.
-                    "label": f"{label} ({price:,.2f})" if last_day else "",
-                    "color": color,
-                    # Solid, every one: R and S are drawn as TradingView draws
-                    # the main pivot levels (Phil, 2026-10-14: "R and S line in
-                    # CPR without dashed lines").
-                    "dash": [],
-                    "width": 1.1 if label == "CPR P" else 0.9,
-                    "opacity": 0.85 if label.startswith("CPR") else 0.55,
-                    "points": [{"t": pt["t"], "price": round(price, 4)} for pt in span],
-                    # So a chart can show or hide the pivot set as one (the
-                    # Scalp chart's CPR switch, 2026-10-16).
-                    "group": "cpr",
-                }
-            )
+        # Only the newest session labels the gutter; twelve labels a day would
+        # bury the chart it is meant to explain.
+        overlays.extend(_cpr_level_overlays(prev, today[0]["t"], end_t, labelled=last_day))
     return {"lines": lines, "overlays": overlays}
+
+
+# TRADINGVIEW'S COLOURS, the ones the Journal page's charts already use
+# (journal_charts.previous_session_levels): the CPR band in blue with its pivot
+# in magenta, resistance red, support green. Phil, 2026-10-13: "make the
+# standard default chart like trading view colours".
+_CPR_BLUE, _CPR_PIVOT, _CPR_RED, _CPR_GREEN = "#2962ff", "#d946ef", "#ef3340", "#34a853"
+
+
+def _cpr_level_overlays(prev: list[dict], start_t: int, end_t: int, labelled: bool) -> list[dict]:
+    """CPR, R1-R4 and S1-S5 from one session's bars, drawn flat from start_t to end_t."""
+    high = max(float(b["h"]) for b in prev)
+    low = min(float(b["l"]) for b in prev)
+    close = float(prev[-1]["c"])
+    p = (high + low + close) / 3.0
+    bc = (high + low) / 2.0
+    tc = 2.0 * p - bc
+    bc, tc = min(bc, tc), max(bc, tc)
+    rng = high - low
+    r1, s1 = 2 * p - low, 2 * p - high
+    r2, s2 = p + rng, p - rng
+    r3, s3 = high + 2 * (p - low), low - 2 * (high - p)
+    # Traditional floor pivots, as engine/indicators.py cpr() and TradingView draw them.
+    r4, s4 = 3 * p + (high - 3 * low), 3 * p - (3 * high - low)
+    s5 = 4 * p - (4 * high - low)
+    span = (int(start_t), int(end_t))
+    out = []
+    for label, price, color in (
+        ("CPR TC", tc, _CPR_BLUE),
+        ("CPR P", p, _CPR_PIVOT),
+        ("CPR BC", bc, _CPR_BLUE),
+        ("R1", r1, _CPR_RED),
+        ("R2", r2, _CPR_RED),
+        ("R3", r3, _CPR_RED),
+        ("R4", r4, _CPR_RED),
+        ("S1", s1, _CPR_GREEN),
+        ("S2", s2, _CPR_GREEN),
+        ("S3", s3, _CPR_GREEN),
+        ("S4", s4, _CPR_GREEN),
+        ("S5", s5, _CPR_GREEN),
+    ):
+        out.append(
+            {
+                "label": f"{label} ({price:,.2f})" if labelled else "",
+                "color": color,
+                # Solid, every one: R and S are drawn as TradingView draws the
+                # main pivot levels (Phil, 2026-10-14: "R and S line in CPR
+                # without dashed lines").
+                "dash": [],
+                "width": 1.1 if label == "CPR P" else 0.9,
+                "opacity": 0.85 if label.startswith("CPR") else 0.55,
+                "points": [{"t": t, "price": round(price, 4)} for t in span],
+                # So a chart can show or hide the pivot set as one (the Scalp
+                # chart's CPR switch, 2026-10-16).
+                "group": "cpr",
+            }
+        )
+    return out
+
+
+# NEXT DAY'S CPR, once the day has closed (Phil, 2026-10-29: "add next day CPR
+# for the options chart... I only need it after the market closed.. after 3:30
+# and 11:30 for comodity"). Tomorrow's levels come from today's finished bars,
+# so they are final the moment the session closes and never shown before. They
+# are drawn in a block of empty bars past the last candle -- the x-axis walks
+# bars, and the renderer places a time past the data at one bar per barSec --
+# and take over the gutter labels from today's set, which has nothing left to
+# trade against. An option that expired today has no tomorrow, so none is drawn.
+_NEXT_DAY_CPR_GAP_BARS = 2
+
+
+def _chart_next_day_cpr(
+    candles: list[dict], underlying: str, tf_minutes: int, expiry: str = "", now: datetime | None = None
+) -> dict:
+    """{"overlays", "future_bars"}: tomorrow's CPR past the last bar, or nothing."""
+    none = {"overlays": [], "future_bars": 0}
+    if not candles:
+        return none
+    now = now or datetime.now(IST)
+    last_t = int(candles[-1]["t"])
+    day = datetime.fromtimestamp(last_t, IST).date()
+    session = _scalp_session(underlying, day)
+    open_h, open_m = (int(x) for x in session["open"].split(":"))
+    close_h, close_m = (int(x) for x in session["close"].split(":"))
+    if now < datetime.combine(day, dt_time(close_h, close_m), tzinfo=IST):
+        return none
+    try:
+        if expiry and date.fromisoformat(str(expiry)[:10]) <= day:
+            return none
+    except ValueError:
+        pass
+    bars = [b for b in candles if datetime.fromtimestamp(int(b["t"]), IST).date() == day]
+    step = max(int(tf_minutes), 1) * 60
+    # A third of a session wide: room for the levels to read as a block
+    # without shrinking the three days of candles beside it.
+    session_bars = ((close_h * 60 + close_m) - (open_h * 60 + open_m)) * 60 // step
+    width = max(6, int(session_bars) // 3)
+    start_t = last_t + _NEXT_DAY_CPR_GAP_BARS * step
+    end_t = start_t + width * step
+    overlays = _cpr_level_overlays(bars, start_t, end_t, labelled=True)
+    for ov in overlays:
+        ov["next_day"] = True
+    return {"overlays": overlays, "future_bars": _NEXT_DAY_CPR_GAP_BARS + width}
+
+
+def _with_next_day_cpr(
+    payload: dict, candles: list[dict], underlying: str, tf_minutes: int, expiry: str = "", now: datetime | None = None
+) -> dict:
+    """Lay tomorrow's CPR on a chart payload once the session has closed."""
+    nxt = _chart_next_day_cpr(candles, underlying, tf_minutes, expiry, now)
+    if not nxt["overlays"]:
+        return payload
+    overlays = [
+        {**ov, "label": ""} if ov.get("group") == "cpr" and not ov.get("next_day") else ov
+        for ov in payload.get("overlays") or []
+    ]
+    payload["overlays"] = overlays + nxt["overlays"]
+    payload["future_bars"] = nxt["future_bars"]
+    return payload
 
 
 # The Scalp chart's timeframes: label -> (the candle Dhan is asked for, minutes).
@@ -26090,6 +26160,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
         "overlays": analytics["overlays"],
         "trade_id": int(trade_id),
     }
+    _with_next_day_cpr(payload, candles, underlying, tf_minutes, expiry)
     _SCALP_OPTION_CHART_CACHE[cache_key] = (time.monotonic(), payload)
     return _scalp_option_chart_with_live_price(payload, trade)
 
@@ -26351,6 +26422,7 @@ async def get_scalp_contract_chart(
         "lines": list(analytics["lines"]),
         "overlays": analytics["overlays"],
     }
+    _with_next_day_cpr(payload, candles, underlying, tf_minutes, expiry)
     if len(_SCALP_CONTRACT_CHART_CACHE) > 64:  # a strike stepped through leaves a trail
         _SCALP_CONTRACT_CHART_CACHE.clear()
     _SCALP_CONTRACT_CHART_CACHE[cache_key] = (time.monotonic(), payload)
@@ -26424,6 +26496,7 @@ async def scalp_underlying_chart(request: Request, underlying: str = "", expiry:
         "live_price": float(candles[-1]["c"]),
         "fit_sessions": 3,
     }
+    _with_next_day_cpr(payload, candles, name, tf_minutes, str(expiry or "") if mcx else "")
     if len(_SCALP_UNDERLYING_CHART_CACHE) > 64:
         _SCALP_UNDERLYING_CHART_CACHE.clear()
     _SCALP_UNDERLYING_CHART_CACHE[cache_key] = (time.monotonic(), payload)

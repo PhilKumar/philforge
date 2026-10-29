@@ -93,14 +93,27 @@ def test_websocket_rejects_explicit_invalid_origin_before_authentication(origins
 def analytics():
     return functions(
         ROOT / "app.py",
-        {"_chart_session_analytics"},
+        {"_chart_session_analytics", "_cpr_level_overlays"},
         {
             "datetime": datetime,
             "date": __import__("datetime").date,
             "dt_time": __import__("datetime").time,
             "IST": timezone(timedelta(hours=5, minutes=30)),
+            "_CPR_BLUE": "#2962ff",
+            "_CPR_PIVOT": "#d946ef",
+            "_CPR_RED": "#ef3340",
+            "_CPR_GREEN": "#34a853",
         },
     )["_chart_session_analytics"]
+
+
+def _levels(result):
+    # The pivots ride as flat overlays; the newest session's carry the labels.
+    return {
+        x["label"].split(" (")[0]: x["points"][0]["price"]
+        for x in result["overlays"]
+        if x.get("group") == "cpr" and x["label"]
+    }
 
 
 def test_support_4_and_5_use_previous_session_without_lookahead(analytics):
@@ -108,7 +121,7 @@ def test_support_4_and_5_use_previous_session_without_lookahead(analytics):
         {"t": 1788758400, "o": 100, "h": 120, "l": 90, "c": 93},
         {"t": 1788844800, "o": 110, "h": 1000, "l": 1, "c": 700},
     ]
-    levels = {x["label"]: x["price"] for x in analytics(candles)["lines"]}
+    levels = _levels(analytics(candles))
     pivot = (120 + 90 + 93) / 3
     s3 = 90 - 2 * (120 - pivot)
     # Traditional floor pivots, as TradingView draws them (Phil, 2026-09-15):
@@ -117,7 +130,7 @@ def test_support_4_and_5_use_previous_session_without_lookahead(analytics):
     assert levels["S5"] == pytest.approx(s3 - 2 * (120 - pivot), abs=0.0001)
     assert levels["CPR BC"] <= levels["CPR P"] <= levels["CPR TC"]
     candles[-1].update(h=3000, l=0, c=10)
-    assert levels == {x["label"]: x["price"] for x in analytics(candles)["lines"]}
+    assert levels == _levels(analytics(candles))
 
 
 def test_no_previous_session_does_not_invent_supports(analytics):

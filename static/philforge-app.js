@@ -15584,6 +15584,9 @@ function _scalpDecorate(data) {
   data.onCrosshair = (idx) => { _scalpOhlcHover = idx; _scalpOhlcShow(); };
   data.overlays = overlays;
   data.lines = lines;
+  // The room past the last candle is the next-day CPR's, so it goes with it.
+  if (data._base.future_bars == null) data._base.future_bars = data.future_bars || 0;
+  data.future_bars = _scalpChartCprOn ? data._base.future_bars : 0;
 }
 
 function _scalpRedecorate() {
