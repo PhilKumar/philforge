@@ -71,6 +71,16 @@ class NextDayCpr(unittest.TestCase):
         out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-31T10:00:00"))
         self.assertEqual(len(out["overlays"]), 12)
 
+    def test_the_block_is_timed_at_the_next_session_open(self):
+        # The crosshair over the block reads tomorrow 09:15, not today 15:40.
+        out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T18:00:00"))
+        self.assertEqual(out["future_t0"], int(_at("2026-10-29T09:15:00").timestamp()))
+        self.assertEqual(out["future_gap"], app._NEXT_DAY_CPR_GAP_BARS)
+        # A Friday's block opens on Monday.
+        friday = _candles("2026-10-29", 2)
+        out = app._chart_next_day_cpr(friday, "NIFTY", 5, now=_at("2026-10-31T10:00:00"))
+        self.assertEqual(out["future_t0"], int(_at("2026-11-02T09:15:00").timestamp()))
+
     def test_no_tomorrow_for_an_option_that_expired_today(self):
         out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, "2026-10-28", now=_at("2026-10-28T16:00:00"))
         self.assertEqual(out["overlays"], [])
@@ -84,6 +94,7 @@ class NextDayCpr(unittest.TestCase):
         self.assertEqual(app._chart_next_day_cpr(mcx, "CRUDEOIL", 5, now=_at("2026-10-28T20:00:00"))["overlays"], [])
         later = app._chart_next_day_cpr(mcx, "CRUDEOIL", 5, now=_at(f"2026-10-28T{close}:00"))
         self.assertEqual(len(later["overlays"]), 12)
+        self.assertEqual(later["future_t0"], int(_at("2026-10-29T09:00:00").timestamp()))
 
     def test_the_payload_moves_the_labels_to_tomorrow(self):
         analytics = app._chart_session_analytics(self.candles)

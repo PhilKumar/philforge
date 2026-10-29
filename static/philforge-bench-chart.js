@@ -390,12 +390,17 @@ function _pfChartCanvasAxisBuild(d) {
   diffs.sort(function (a, b) { return a - b; });
   // Median, not mean: one weekend in the diffs would drag a mean to hours.
   var barSec = diffs.length ? diffs[Math.floor(diffs.length / 2)] : _pfChartCanvasTimeframeSeconds(d);
-  return { source: candles, times: times, barSec: Math.max(barSec, 1) };
+  // future_t0: the next session's open, where the bars drawn ahead of the
+  // price (the Scalp chart's next-day CPR) begin, future_gap bars past the last.
+  var futureT0 = Number(d.future_bars) > 0 && Number(d.future_t0) > 0 ? Number(d.future_t0) : 0;
+  return { source: candles, times: times, barSec: Math.max(barSec, 1), futureT0: futureT0, futureGap: Math.max(0, Number(d.future_gap) || 0) };
 }
 
 function _pfChartCanvasAxisOf(c) {
-  var candles = (c.data || {}).candles || [];
-  if (!c.axis || c.axis.source !== candles) c.axis = _pfChartCanvasAxisBuild(c.data || {});
+  var d = c.data || {};
+  var candles = d.candles || [];
+  var futureT0 = Number(d.future_bars) > 0 && Number(d.future_t0) > 0 ? Number(d.future_t0) : 0;
+  if (!c.axis || c.axis.source !== candles || c.axis.futureT0 !== futureT0) c.axis = _pfChartCanvasAxisBuild(d);
   return c.axis;
 }
 
@@ -407,6 +412,7 @@ function _pfChartCanvasIdxOf(axis, t) {
   t = Number(t);
   if (t <= times[0]) return (t - times[0]) / axis.barSec;
   var last = times.length - 1;
+  if (axis.futureT0 && t >= axis.futureT0) return last + axis.futureGap + (t - axis.futureT0) / axis.barSec;
   if (t >= times[last]) return last + (t - times[last]) / axis.barSec;
   var lo = 0, hi = last;
   while (hi - lo > 1) {
@@ -423,6 +429,7 @@ function _pfChartCanvasTimeAt(axis, idx) {
   idx = Number(idx);
   if (idx <= 0) return times[0] + idx * axis.barSec;
   var last = times.length - 1;
+  if (axis.futureT0 && idx >= last + axis.futureGap) return axis.futureT0 + (idx - last - axis.futureGap) * axis.barSec;
   if (idx >= last) return times[last] + (idx - last) * axis.barSec;
   var lo = Math.floor(idx);
   return times[lo] + (idx - lo) * (times[lo + 1] - times[lo]);

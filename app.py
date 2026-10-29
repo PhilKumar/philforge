@@ -25936,7 +25936,18 @@ def _chart_next_day_cpr(
     overlays = _cpr_level_overlays(bars, start_t, end_t, labelled=True)
     for ov in overlays:
         ov["next_day"] = True
-    return {"overlays": overlays, "future_bars": _NEXT_DAY_CPR_GAP_BARS + width}
+    # The crosshair over the block reads the NEXT session's clock, not 15:40
+    # counted on from today's last bar (Phil, 2026-10-29).
+    next_day = day + timedelta(days=1)
+    while _nse_session_closed(next_day):
+        next_day += timedelta(days=1)
+    next_open = int(datetime.combine(next_day, dt_time(open_h, open_m), tzinfo=IST).timestamp())
+    return {
+        "overlays": overlays,
+        "future_bars": _NEXT_DAY_CPR_GAP_BARS + width,
+        "future_gap": _NEXT_DAY_CPR_GAP_BARS,
+        "future_t0": next_open,
+    }
 
 
 def _with_next_day_cpr(
@@ -25952,6 +25963,8 @@ def _with_next_day_cpr(
     ]
     payload["overlays"] = overlays + nxt["overlays"]
     payload["future_bars"] = nxt["future_bars"]
+    payload["future_gap"] = nxt["future_gap"]
+    payload["future_t0"] = nxt["future_t0"]
     return payload
 
 
