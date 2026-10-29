@@ -263,7 +263,7 @@ class TestLedgerAutomation(unittest.TestCase):
                 {
                     "name": "Sweep overdraft ··8452",
                     "account_no": "035005008452",
-                    "drawn_amount": 105556.4,
+                    "drawn_amount": 224443.6,
                     "stated_on": "2026-10-29",
                 },
             )
@@ -273,7 +273,7 @@ class TestLedgerAutomation(unittest.TestCase):
         self.assertEqual(st["in_bank"], 117234.54)
         # The limit less what is drawn — not the limit, and not a stale
         # "amount held" that was the limit typed in as cash.
-        self.assertEqual(st["od_headroom"], 224443.6)
+        self.assertEqual(st["od_headroom"], 105556.4)
         # And the headroom must not have crept into the net by another door.
         self.assertEqual(st["net"], round(st["held"] + 117234.54 - st["total_debt"], 2))
 
@@ -1809,7 +1809,8 @@ class ANameThatHoldsNothingTests(unittest.TestCase):
 class TheOverdraftIsNotMoneyHeHasTests(unittest.TestCase):
     """On the 29th of October the tile said ₹88,542 "in the bank".
 
-    His bank said ₹6,600 in the account and ₹1,05,556 OWED on the overdraft.
+    His bank said ₹6,600 in the account, and ₹1,05,556 left to draw on a
+    ₹3,30,000 overdraft — ₹2,24,444 owed.
     The ₹81,942 the tile added was the overdraft's limit, stated once as
     "money parked in the sweep account" and worn down by two months of
     sweeps. It was never his — it is a line of credit he draws on.
@@ -1888,7 +1889,7 @@ class TheOverdraftIsNotMoneyHeHasTests(unittest.TestCase):
         self.assertEqual(bank["balance"], 6600.31)
 
     def test_headroom_is_the_limit_less_what_the_card_says_is_drawn(self):
-        self.assertEqual(self.s._od_headroom(330000.0, {"drawn_amount": 105556.4, "stated_on": "2026-10-29"}), 224443.6)
+        self.assertEqual(self.s._od_headroom(330000.0, {"drawn_amount": 224443.6, "stated_on": "2026-10-29"}), 105556.4)
 
     def test_headroom_with_no_dated_drawn_figure_is_not_guessed(self):
         """A limit alone is not headroom; it is a guess that he owes nothing."""
@@ -1920,6 +1921,17 @@ class TheOverdraftIsNotMoneyHeHasTests(unittest.TestCase):
         # missed the bank by a lakh and a half.
         self.assertNotIn("make that the figure", page)
         self.assertNotIn('id="od-accept"', page)
+
+    def test_the_owed_form_asks_for_the_number_his_bank_shows(self):
+        """His app prints what he can still DRAW, not what he owes. Asking
+        him for "owed" made him do the subtraction — and the one time he
+        gave the app's figure, it was read the wrong way round."""
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            page = handle.read()
+        self.assertIn("It says you can still draw", page)
+        self.assertIn("cap - Number(avail)", page)
+        self.assertIn("So you owe", page)
 
 
 class FromTheFileToTheTileTests(unittest.TestCase):

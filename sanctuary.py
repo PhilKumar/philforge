@@ -1716,7 +1716,7 @@ async def _od_limit(user_id: int) -> float | None:
     premise was wrong for his account. It is a line of credit he draws on,
     not a place his surplus is parked — and the figure stated was its limit.
     Carried forward by two months of sweeps it read ₹81,942 "in the sweep"
-    on a day his bank said ₹1,05,556 OWED on it.
+    on a day his bank said ₹2,24,444 owed on it, ₹1,05,556 still to draw.
 
     The limit is still worth knowing, so it is all that is kept. What he has
     drawn belongs to the overdraft's own card, which is the one place a
@@ -1749,8 +1749,8 @@ async def _bank_balance(user_id: int) -> dict:
     # holds his surplus. His does not: it is a line of credit he draws on.
     # The figure being added was his LIMIT, stated on the 3rd of September
     # and worn down by every sweep since — ₹81,942 of it on the 29th of
-    # October, when the bank said ₹6,600 in the account and ₹1,05,556
-    # OWED on the overdraft. The page was counting what he could borrow as
+    # October, when the bank said ₹6,600 in the account, ₹2,24,444 owed on
+    # the overdraft and ₹1,05,556 still to draw. The page was counting what he could borrow as
     # money he had. "Left to breathe" and "Where I stand" had already
     # stopped; this was the last place still doing it.
     return {
