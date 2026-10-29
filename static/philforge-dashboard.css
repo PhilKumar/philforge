@@ -1,0 +1,345 @@
+/* PhilForge Dashboard (Phil, 2026-10-29: "redesign my dashboard completely").
+   Loaded after the glass sheet, so it sets the page's own layout and leaves the
+   site's card surfaces, tint and table contract to the sheets that own them.
+   Every rule is scoped to #dashboard-page.pf-dash. */
+
+#dashboard-page.pf-dash {
+  --pfd-gap: 16px;
+  --pfd-radius: 18px;
+  --pfd-tint: var(--pf-tint-primary-rgb, 20, 184, 166);
+  --pfd-line: rgba(189, 218, 235, .12);
+  --pfd-well: rgba(255, 255, 255, .035);
+  --pfd-well-hover: rgba(255, 255, 255, .06);
+  --pfd-label: var(--muted);
+  --pfd-mono: var(--font-mono, 'JetBrains Mono', monospace);
+}
+html[data-theme="light"] #dashboard-page.pf-dash {
+  --pfd-line: rgba(64, 104, 137, .16);
+  --pfd-well: rgba(15, 23, 42, .035);
+  --pfd-well-hover: rgba(15, 23, 42, .06);
+}
+
+/* ── Hero meta: three live facts instead of three labels ───────────────── */
+#dashboard-page.pf-dash .pf-workspace-hero-meta strong { font-family: var(--pfd-mono); font-weight: 600; letter-spacing: -.01em; }
+#dashboard-page.pf-dash #pfd-session.is-open { color: var(--success); }
+#dashboard-page.pf-dash #pfd-session.is-pre { color: var(--warn); }
+
+/* ── Shared panel ───────────────────────────────────────────────────────── */
+#dashboard-page.pf-dash .pfd-panel {
+  margin: 0 !important;
+  padding: 18px 20px !important;
+  border-radius: var(--pfd-radius) !important;
+  min-width: 0;
+}
+#dashboard-page.pf-dash .pfd-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0 0 14px; min-width: 0;
+}
+#dashboard-page.pf-dash .pfd-panel-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+#dashboard-page.pf-dash .pfd-panel-title h3 {
+  margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--text);
+}
+#dashboard-page.pf-dash .pfd-panel-sub { font-size: 11.5px; color: var(--pfd-label); }
+#dashboard-page.pf-dash .pfd-panel-head .btn { font-size: 11px; padding: 6px 14px; white-space: nowrap; }
+
+/* ── Headline cards ─────────────────────────────────────────────────────── */
+#dashboard-page.pf-dash .pfd-kpis {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--pfd-gap); margin: 0 0 var(--pfd-gap);
+}
+#dashboard-page.pf-dash .pfd-kpi {
+  position: relative; display: flex; flex-direction: column; gap: 10px;
+  min-height: 132px; padding: 16px 18px !important; margin: 0;
+  border-radius: var(--pfd-radius) !important; overflow: hidden; min-width: 0;
+}
+#dashboard-page.pf-dash .pfd-kpi-head { display: flex; align-items: center; gap: 9px; }
+#dashboard-page.pf-dash .pfd-kpi .stat-label {
+  margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--pfd-label);
+}
+#dashboard-page.pf-dash .pfd-kpi-icon {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; flex: none;
+  border-radius: 9px; color: var(--kpi, var(--accent));
+  background: color-mix(in srgb, var(--kpi, var(--accent)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--kpi, var(--accent)) 26%, transparent);
+}
+#dashboard-page.pf-dash .pfd-kpi-paper { --kpi: var(--warn); }
+#dashboard-page.pf-dash .pfd-kpi-real { --kpi: var(--success); }
+#dashboard-page.pf-dash .pfd-kpi-form { --kpi: #a78bfa; }
+#dashboard-page.pf-dash .dash-summary-mini { --kpi: #38bdf8; }
+/* A soft wash of the card's own colour in its corner. */
+#dashboard-page.pf-dash .pfd-kpi::after {
+  content: ''; position: absolute; right: -40px; top: -40px; width: 140px; height: 140px; pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--kpi, var(--accent)) 16%, transparent) 0%, transparent 70%);
+}
+#dashboard-page.pf-dash .pfd-kpi .dash-today-value {
+  font-family: var(--pfd-mono); font-size: clamp(24px, 2.3vw, 32px); font-weight: 700;
+  letter-spacing: -.03em; line-height: 1.05; margin: 2px 0 0;
+}
+#dashboard-page.pf-dash .pfd-kpi-foot {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  margin-top: auto; font-size: 11.5px; color: var(--pfd-label);
+}
+#dashboard-page.pf-dash .pfd-kpi-foot :is(.dash-card-sub, .dash-card-meta) { margin: 0; font-size: inherit; color: inherit; }
+#dashboard-page.pf-dash .pfd-kpi-foot .dash-card-meta { font-family: var(--pfd-mono); white-space: nowrap; }
+
+/* Form */
+#dashboard-page.pf-dash .pfd-form-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+#dashboard-page.pf-dash .pfd-form-streak { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+#dashboard-page.pf-dash #win-streak-count { font-family: var(--pfd-mono); font-size: clamp(24px, 2.3vw, 32px); font-weight: 700; line-height: 1.05; }
+#dashboard-page.pf-dash #win-streak-fire { font-size: 12px; color: var(--pfd-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dashboard-page.pf-dash .pfd-form-score { font-family: var(--pfd-mono); font-size: 15px; font-weight: 700; color: var(--pfd-label); }
+#dashboard-page.pf-dash .pfd-meter { height: 6px; border-radius: 99px; background: var(--pfd-well-hover); overflow: hidden; }
+#dashboard-page.pf-dash #confidence-bar { width: 0; height: 100%; border-radius: inherit; background: var(--success); transition: width .6s ease; }
+#dashboard-page.pf-dash .pfd-form-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; }
+#dashboard-page.pf-dash #confidence-label { font-size: 11.5px; color: var(--pfd-label); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dashboard-page.pf-dash .pfd-dots { display: flex; gap: 4px; flex: none; }
+
+/* Brokers */
+#dashboard-page.pf-dash .dash-broker-cols { display: flex; gap: 12px; margin-top: auto; min-width: 0; }
+#dashboard-page.pf-dash .dash-broker-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+#dashboard-page.pf-dash .dash-broker-col[hidden] { display: none; }
+#dashboard-page.pf-dash .dash-broker-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#dashboard-page.pf-dash :is(#broker-text, #broker-zerodha-text) {
+  font-size: 13.5px; font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#dashboard-page.pf-dash .pfd-broker-btns { display: flex; gap: 6px; }
+#dashboard-page.pf-dash .pfd-broker-btns .btn { flex: 1; font-size: 11px; padding: 6px 12px; min-height: 0; }
+#dashboard-page.pf-dash #broker-refresh-btn { flex: 0 0 auto; }
+
+/* ── Main: work on the left, market on the right ───────────────────────── */
+#dashboard-page.pf-dash .pfd-main {
+  display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+  gap: var(--pfd-gap); margin: 0 0 var(--pfd-gap); align-items: start;
+}
+#dashboard-page.pf-dash .pfd-col { display: flex; flex-direction: column; gap: var(--pfd-gap); min-width: 0; }
+
+/* Live now */
+#dashboard-page.pf-dash .pfd-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; align-self: center; flex: none;
+  background: var(--pfd-label); opacity: .5;
+}
+#dashboard-page.pf-dash .pfd-live.is-live .pfd-live-dot {
+  background: var(--success); opacity: 1;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent);
+  animation: pfd-pulse 2.2s ease-out infinite;
+}
+@keyframes pfd-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 50%, transparent); } 70%, 100% { box-shadow: 0 0 0 8px transparent; } }
+@media (prefers-reduced-motion: reduce) { #dashboard-page.pf-dash .pfd-live.is-live .pfd-live-dot { animation: none; } }
+#dashboard-page.pf-dash .pfd-live:not(.is-live) #dash-active-open-btn { display: none; }
+#dashboard-page.pf-dash .pfd-live.is-live .pfd-empty { display: none; }
+#dashboard-page.pf-dash .pfd-empty {
+  display: flex; align-items: center; gap: 14px; padding: 16px 18px;
+  border: 1px dashed var(--pfd-line); border-radius: 14px; background: var(--pfd-well);
+}
+#dashboard-page.pf-dash .pfd-empty-icon {
+  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; flex: none;
+  color: var(--accent); background: rgba(var(--pfd-tint), .12);
+}
+#dashboard-page.pf-dash .pfd-empty strong { display: block; font-size: 13.5px; color: var(--text); }
+#dashboard-page.pf-dash .pfd-empty span { font-size: 12px; color: var(--pfd-label); }
+
+#dashboard-page.pf-dash #dash-active-engines { margin: 0 0 14px; padding: 0; background: none; border: 0; box-shadow: none; }
+#dashboard-page.pf-dash #dash-active-engines:last-child { margin-bottom: 0; }
+#dashboard-page.pf-dash .pfd-engine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+#dashboard-page.pf-dash .pfd-engine {
+  padding: 14px 16px; border-radius: 14px; border: 1px solid var(--pfd-line); background: var(--pfd-well); min-width: 0;
+}
+#dashboard-page.pf-dash .pfd-engine-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+#dashboard-page.pf-dash .pfd-engine-kind { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--kind); }
+#dashboard-page.pf-dash .pfd-engine-badge {
+  font-size: 10px; font-weight: 700; color: var(--success); padding: 2px 8px; border-radius: 99px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+#dashboard-page.pf-dash .pfd-engine .dash-active-name { font-size: 13.5px; font-weight: 600; color: var(--text); margin: 0 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dashboard-page.pf-dash .pfd-engine-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#dashboard-page.pf-dash .pfd-engine-stats > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#dashboard-page.pf-dash .pfd-engine-stats span { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--pfd-label); }
+#dashboard-page.pf-dash .pfd-engine-stats strong { font-family: var(--pfd-mono); font-size: 15px; font-weight: 700; color: var(--text); }
+#dashboard-page.pf-dash .pfd-engine-stats em { font-style: normal; font-size: 11px; color: var(--pfd-label); }
+#dashboard-page.pf-dash .pfd-engine .dash-card-note { margin-top: 8px; font-size: 11px; color: var(--pfd-label); }
+
+/* Each running engine as one row: name, state, P&L, jump. The card markup
+   comes from renderRunningArsenal; its head is unwrapped so its two halves
+   take their own columns. */
+#dashboard-page.pf-dash #arsenal-running-wrap { margin: 0; }
+#dashboard-page.pf-dash .pfd-sublabel {
+  margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--pfd-label);
+}
+#dashboard-page.pf-dash #arsenal-running-grid { display: flex; flex-direction: column; gap: 8px; }
+#dashboard-page.pf-dash #arsenal-running-grid > .card {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px 16px;
+  margin: 0; padding: 10px 14px !important; min-height: 0; border-radius: 12px !important; cursor: pointer;
+  background: var(--pfd-well) !important;
+}
+#dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-card-head { display: contents; }
+#dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-card-name {
+  order: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-status-row { order: 2; display: flex; flex-wrap: wrap; gap: 5px; margin: 0; }
+#dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-card-head > div:last-child { order: 3; }
+#dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-card-head > div:last-child > div:first-child { font-size: 14px !important; }
+#dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-actions { order: 4; display: flex; gap: 6px; margin: 0; }
+#dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-actions .btn { min-width: 0 !important; padding: 5px 12px !important; }
+@media (max-width: 900px) {
+  #dashboard-page.pf-dash #arsenal-running-grid > .card { grid-template-columns: minmax(0, 1fr) auto; }
+  #dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-status-row { order: 3; }
+  #dashboard-page.pf-dash #arsenal-running-grid .arsenal-running-card-head > div:last-child { order: 2; }
+}
+
+/* Desks */
+#dashboard-page.pf-dash .pfd-desks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#dashboard-page.pf-dash .pfd-desk {
+  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: start;
+  padding: 16px; margin: 0; border-radius: 14px; cursor: pointer; overflow: hidden;
+  border: 1px solid var(--pfd-line); background: var(--pfd-well);
+  transition: border-color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+#dashboard-page.pf-dash .pfd-desk::before {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--tint); opacity: .75;
+}
+#dashboard-page.pf-dash .pfd-desk:hover,
+#dashboard-page.pf-dash .pfd-desk:focus-visible {
+  border-color: color-mix(in srgb, var(--tint) 45%, transparent);
+  background: color-mix(in srgb, var(--tint) 7%, var(--pfd-well));
+  box-shadow: 0 14px 30px -22px color-mix(in srgb, var(--tint) 80%, transparent);
+  transform: translateY(-1px); outline: none;
+}
+#dashboard-page.pf-dash .pfd-desk-icon {
+  display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; font-size: 17px;
+  color: var(--tint); background: color-mix(in srgb, var(--tint) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tint) 28%, transparent);
+}
+#dashboard-page.pf-dash .pfd-desk-body { min-width: 0; }
+#dashboard-page.pf-dash .pfd-desk .arsenal-template-title { font-size: 14px; font-weight: 700; color: var(--text); margin: 0 0 4px; }
+#dashboard-page.pf-dash .pfd-desk .arsenal-template-copy { font-size: 12px; line-height: 1.5; color: var(--pfd-label); margin: 0 0 10px; }
+#dashboard-page.pf-dash .pfd-desk .arsenal-template-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; }
+#dashboard-page.pf-dash .pfd-desk-go {
+  align-self: center; font-size: 16px; color: var(--pfd-label); opacity: .5;
+  transition: transform .18s ease, opacity .18s ease, color .18s ease;
+}
+#dashboard-page.pf-dash .pfd-desk:hover .pfd-desk-go { opacity: 1; color: var(--tint); transform: translateX(3px); }
+@media (prefers-reduced-motion: reduce) {
+  #dashboard-page.pf-dash .pfd-desk, #dashboard-page.pf-dash .pfd-desk-go { transition: none; }
+  #dashboard-page.pf-dash .pfd-desk:hover { transform: none; }
+}
+
+/* ── Market flow ────────────────────────────────────────────────────────── */
+/* The old light theme greys this card out with !important; give it back the
+   site's card surface. */
+html[data-theme="light"] #dashboard-page.pf-dash #dash-fiidii-card {
+  background: var(--pf-skin-card, var(--card)) !important;
+  border-color: rgba(var(--pfd-tint), .20) !important;
+}
+#dashboard-page.pf-dash .pfd-asof { font-family: var(--pfd-mono); font-size: 11px; color: var(--pfd-label); white-space: nowrap; }
+#dashboard-page.pf-dash .pfd-flow-latest { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+#dashboard-page.pf-dash .pfd-flow-tile { padding: 11px 13px; border-radius: 12px; background: var(--pfd-well); border: 1px solid var(--pfd-line); min-width: 0; }
+#dashboard-page.pf-dash .pfd-flow-tile span { display: block; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--pfd-label); }
+#dashboard-page.pf-dash .pfd-flow-tile strong { display: block; margin-top: 4px; font-family: var(--pfd-mono); font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+#dashboard-page.pf-dash .pfd-flow-chart { margin-bottom: 12px; }
+#dashboard-page.pf-dash .pfd-flow-chart-head { display: flex; justify-content: space-between; gap: 8px; font-size: 10.5px; color: var(--pfd-label); margin-bottom: 6px; }
+#dashboard-page.pf-dash .pfd-flow-key { display: inline-flex; align-items: center; gap: 5px; }
+#dashboard-page.pf-dash .pfd-flow-key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-left: 6px; }
+#dashboard-page.pf-dash .pfd-flow-key i.fii, #dashboard-page.pf-dash .pfd-flow-bar.fii { background: #38bdf8; }
+#dashboard-page.pf-dash .pfd-flow-key i.dii, #dashboard-page.pf-dash .pfd-flow-bar.dii { background: #f5b84b; }
+/* Two bars a day around one zero line: up is buying, down is selling. */
+#dashboard-page.pf-dash .pfd-flow-bars {
+  position: relative; display: flex; align-items: stretch; gap: 2px; height: 96px; padding: 0 2px;
+  border-radius: 10px; background: var(--pfd-well);
+}
+#dashboard-page.pf-dash .pfd-flow-bars::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--pfd-line);
+}
+#dashboard-page.pf-dash .pfd-flow-day { position: relative; flex: 1 1 0; display: flex; gap: 1px; min-width: 0; }
+#dashboard-page.pf-dash .pfd-flow-day:hover { background: var(--pfd-well-hover); border-radius: 3px; }
+#dashboard-page.pf-dash .pfd-flow-bar { position: absolute; width: calc(50% - .5px); border-radius: 2px; opacity: .85; }
+#dashboard-page.pf-dash .pfd-flow-bar.fii { left: 0; }
+#dashboard-page.pf-dash .pfd-flow-bar.dii { right: 0; }
+#dashboard-page.pf-dash .pfd-flow-bars-empty { margin: auto; font-size: 11.5px; color: var(--pfd-label); }
+
+#dashboard-page.pf-dash .pfd-flow-roll { border-top: 1px solid var(--pfd-line); padding-top: 4px; }
+#dashboard-page.pf-dash .pfd-flow-roll-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t c" "v v"; gap: 6px 10px;
+  width: 100%; padding: 8px 2px; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; font: inherit;
+}
+#dashboard-page.pf-dash .pfd-flow-roll-title { grid-area: t; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--pfd-label); }
+#dashboard-page.pf-dash .pfd-flow-roll-title small { font-weight: 500; letter-spacing: 0; text-transform: none; margin-left: 4px; }
+#dashboard-page.pf-dash .pfd-flow-roll-totals { grid-area: v; display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--pfd-label); }
+#dashboard-page.pf-dash .pfd-flow-roll-totals strong { font-family: var(--pfd-mono); font-size: 14px; font-weight: 700; margin-left: 4px; }
+#dashboard-page.pf-dash .pfd-chevron { grid-area: c; font-size: 12px; color: var(--pfd-label); transition: transform .2s ease; }
+#dashboard-page.pf-dash #dash-fiidii-rollup-card.open .pfd-chevron { transform: rotate(180deg); }
+#dashboard-page.pf-dash .pfd-flow-roll-body { display: none; padding: 6px 0 2px; }
+#dashboard-page.pf-dash #dash-fiidii-rollup-card.open .pfd-flow-roll-body { display: block; }
+
+/* ── Records ────────────────────────────────────────────────────────────── */
+#dashboard-page.pf-dash .pfd-records { display: flex; flex-direction: column; gap: 8px; }
+#dashboard-page.pf-dash .pfd-records .pfd-panel-head { margin-bottom: 6px; }
+#dashboard-page.pf-dash .pfd-record {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  padding: 11px 13px; border-radius: 12px; cursor: pointer;
+  background: var(--pfd-well); border: 1px solid var(--pfd-line); transition: border-color .18s ease, background .18s ease;
+}
+#dashboard-page.pf-dash .pfd-record-best { --rec: var(--success); }
+#dashboard-page.pf-dash .pfd-record-worst { --rec: var(--warn); }
+#dashboard-page.pf-dash .pfd-record:hover { border-color: color-mix(in srgb, var(--rec) 40%, transparent); background: var(--pfd-well-hover); }
+#dashboard-page.pf-dash .pfd-record-icon {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px;
+  color: var(--rec); background: color-mix(in srgb, var(--rec) 13%, transparent);
+}
+#dashboard-page.pf-dash .pfd-record-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#dashboard-page.pf-dash .pfd-record-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--rec); }
+#dashboard-page.pf-dash .pfd-record-name { font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dashboard-page.pf-dash .pfd-record-pnl { font-family: var(--pfd-mono); font-size: 15px; font-weight: 700; color: var(--rec); white-space: nowrap; }
+
+/* ── Creed: the day's line sits in the banner ─────────────────────────── */
+#dashboard-page.pf-dash .pfd-creed #daily-mantra { font-style: italic; color: var(--text); opacity: .86; }
+#dashboard-page.pf-dash .pfd-creed #daily-mantra-author { white-space: nowrap; }
+
+/* ── Activity ───────────────────────────────────────────────────────────── */
+#dashboard-page.pf-dash .pfd-activity-head { flex-wrap: wrap; }
+#dashboard-page.pf-dash .pfd-tabs {
+  display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px;
+  background: var(--pfd-well); border: 1px solid var(--pfd-line);
+}
+#dashboard-page.pf-dash .pfd-tab {
+  padding: 7px 14px; border: 0; border-radius: 9px; background: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--pfd-label);
+  transition: background .15s ease, color .15s ease;
+}
+#dashboard-page.pf-dash .pfd-tab:hover { color: var(--text); }
+#dashboard-page.pf-dash .pfd-tab.is-active {
+  color: var(--accent); background: rgba(var(--pfd-tint), .14);
+  box-shadow: inset 0 0 0 1px rgba(var(--pfd-tint), .32);
+}
+#dashboard-page.pf-dash .pfd-activity-tools { display: flex; align-items: center; gap: 8px; }
+#dashboard-page.pf-dash .pfd-activity-tools [hidden] { display: none !important; }
+#dashboard-page.pf-dash .pfd-activity-tools .dash-table-search { width: 240px; max-width: 100%; margin: 0; }
+#dashboard-page.pf-dash .pfd-pane[hidden] { display: none; }
+#dashboard-page.pf-dash .pfd-pane-empty { text-align: center; padding: 28px 12px; color: var(--pfd-label); font-size: 13px; }
+#dashboard-page.pf-dash #dash-saved-strategies-card { background: none; border: 0; box-shadow: none; }
+#dashboard-page.pf-dash #dash-saved-strategies-card .dashboard-flow-panel-body-inner { padding: 0 !important; }
+
+/* ── Narrower windows ───────────────────────────────────────────────────── */
+/* Desks go to one column only while they share the row with Market flow. */
+@media (min-width: 1101px) and (max-width: 1280px) {
+  #dashboard-page.pf-dash .pfd-desks { grid-template-columns: 1fr; }
+}
+@media (max-width: 1100px) {
+  #dashboard-page.pf-dash .pfd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #dashboard-page.pf-dash .pfd-main { grid-template-columns: minmax(0, 1fr); }
+  #dashboard-page.pf-dash .pfd-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  #dashboard-page.pf-dash .pfd-side .pfd-flow { grid-row: span 2; }
+}
+@media (max-width: 760px) {
+  #dashboard-page.pf-dash { --pfd-gap: 12px; }
+  #dashboard-page.pf-dash .pfd-side { display: flex; }
+  #dashboard-page.pf-dash .pfd-panel { padding: 15px 14px !important; }
+  #dashboard-page.pf-dash .pfd-activity-tools { width: 100%; }
+  #dashboard-page.pf-dash .pfd-activity-tools .dash-table-search { width: 100%; }
+  #dashboard-page.pf-dash .pfd-tabs { width: 100%; }
+  #dashboard-page.pf-dash .pfd-tab { flex: 1; padding: 7px 8px; }
+}
+@media (max-width: 520px) {
+  #dashboard-page.pf-dash .pfd-kpis { grid-template-columns: minmax(0, 1fr); }
+  #dashboard-page.pf-dash .pfd-kpi { min-height: 0; }
+}

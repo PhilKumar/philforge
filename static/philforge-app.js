@@ -17081,6 +17081,9 @@ function toggleDashboardSavedStrategies(forceOpen = null) {
   toggle.setAttribute('aria-expanded', String(open));
   body.setAttribute('aria-hidden', String(!open));
   body.inert = !open;
+  // On the redesigned Dashboard the panel lives in the Activity tabs; opening
+  // a folder from a running engine has to bring that tab forward.
+  if (forceOpen === true && typeof setDashboardActivityTab === 'function') setDashboardActivityTab('saved');
 }
 
 window.toggleDashboardSavedStrategies = toggleDashboardSavedStrategies;
@@ -17253,9 +17256,11 @@ function renderRunningArsenal(engines) {
   if (!wrap || !grid) return;
 
   const running = (engines || []).filter((engine) => !!engine?.running);
+  _dashRunningEngineCount = running.length;
   if (!running.length) {
     wrap.style.display = 'none';
     grid.innerHTML = '';
+    _syncDashboardLivePanel();
     return;
   }
 
@@ -17303,6 +17308,7 @@ function renderRunningArsenal(engines) {
       </div>
     </div>`;
   }).join('');
+  _syncDashboardLivePanel();
 }
 
 async function refreshStrategyArsenalRunning() {
@@ -22136,7 +22142,103 @@ function _renderDashboardFiiDiiPanel(block) {
   rollingDiiEl.style.color = _dashValueColor(rollingDii);
 
   _renderFiiDiiRollup();
+  _renderFiiDiiBars();
 }
+
+// Daily FII and DII net as paired bars around one zero line, oldest on the
+// left. One scale for both, so a tall bar is a big day for either side.
+function _renderFiiDiiBars() {
+  const host = document.getElementById('pfd-flow-bars');
+  if (!host) return;
+  const rows = (Array.isArray(_lastFiiDiiRows) ? _lastFiiDiiRows : [])
+    .filter((row) => row && (row.date || row.display_date))
+    .slice()
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+    .slice(-30);
+  if (!rows.length) {
+    host.innerHTML = '<span class="pfd-flow-bars-empty">Waiting for NSE history</span>';
+    return;
+  }
+  const peak = Math.max(1, ...rows.map((row) => Math.max(Math.abs(Number(row.fii_net || 0)), Math.abs(Number(row.dii_net || 0)))));
+  const bar = (kind, value) => {
+    const h = Math.max(1, Math.abs(value) / peak * 50);
+    const edge = value >= 0 ? `bottom:50%` : `top:50%`;
+    return `<i class="pfd-flow-bar ${kind}" style="${edge};height:${h.toFixed(2)}%"></i>`;
+  };
+  host.innerHTML = rows.map((row) => {
+    const fii = Number(row.fii_net || 0);
+    const dii = Number(row.dii_net || 0);
+    const label = row.display_date || row.date;
+    const tip = `${label} · FII ${_dashMoneyCr(fii)} · DII ${_dashMoneyCr(dii)}`;
+    return `<span class="pfd-flow-day" title="${escapeAttr(tip)}">${bar('fii', fii)}${bar('dii', dii)}</span>`;
+  }).join('');
+}
+
+// ── Dashboard: Activity tabs, Live now, and the banner's three facts ──
+let _dashRunningEngineCount = 0;
+let _dashSummaryEnginesActive = false;
+
+function setDashboardActivityTab(name) {
+  const page = document.getElementById('dashboard-page');
+  if (!page) return;
+  page.querySelectorAll('[data-pfd-tab]').forEach((tab) => {
+    const on = tab.getAttribute('data-pfd-tab') === name;
+    tab.classList.toggle('is-active', on);
+    tab.setAttribute('aria-selected', String(on));
+  });
+  page.querySelectorAll('[data-pfd-pane]').forEach((pane) => {
+    pane.hidden = pane.getAttribute('data-pfd-pane') !== name;
+  });
+  page.querySelectorAll('[data-pfd-for]').forEach((tool) => {
+    tool.hidden = tool.getAttribute('data-pfd-for') !== name;
+  });
+  try { localStorage.setItem('pf-dash-activity-tab', name); } catch (e) {}
+}
+window.setDashboardActivityTab = setDashboardActivityTab;
+
+function _syncDashboardLivePanel() {
+  const panel = document.getElementById('pfd-live');
+  const live = _dashSummaryEnginesActive || _dashRunningEngineCount > 0;
+  if (panel) panel.classList.toggle('is-live', live);
+  const count = Math.max(_dashRunningEngineCount, _dashSummaryEnginesActive ? 1 : 0);
+  const runningEl = document.getElementById('pfd-running');
+  if (runningEl) runningEl.textContent = count ? `${count} engine${count === 1 ? '' : 's'}` : 'None';
+  const subEl = document.getElementById('pfd-live-sub');
+  if (subEl) subEl.textContent = live ? 'Engines running today' : 'No engine running';
+}
+
+// NSE cash session by the IST clock: 09:00 pre-open, 09:15 to 15:30 open.
+// The clock does not know exchange holidays, so it says "hours", not "open".
+function _tickDashboardSession() {
+  const el = document.getElementById('pfd-session');
+  if (!el) return;
+  const now = _istNowParts();
+  const weekday = new Date(`${now.date}T12:00:00Z`).getUTCDay();
+  const m = now.minuteOfDay;
+  const span = (mins) => (mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`);
+  let text = 'Closed';
+  let cls = '';
+  if (weekday === 0 || weekday === 6) text = 'Weekend';
+  else if (m >= 555 && m < 930) { text = `Open · ${span(930 - m)} left`; cls = 'is-open'; }
+  else if (m >= 540 && m < 555) { text = `Pre-open · ${span(555 - m)}`; cls = 'is-pre'; }
+  else if (m < 540) text = `Opens in ${span(555 - m)}`;
+  el.textContent = text;
+  el.className = cls;
+  const greet = document.getElementById('pfd-greeting');
+  if (greet) {
+    const h = Math.floor(m / 60);
+    greet.textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  }
+}
+
+(function _initDashboardChrome() {
+  let tab = 'txns';
+  try { tab = localStorage.getItem('pf-dash-activity-tab') || 'txns'; } catch (e) {}
+  if (!['txns', 'runs', 'saved'].includes(tab)) tab = 'txns';
+  setDashboardActivityTab(tab);
+  _tickDashboardSession();
+  setInterval(() => { if (_isPageVisible()) _tickDashboardSession(); }, 30000);
+})();
 
 async function loadDashboardSummary() {
   try {
@@ -22231,6 +22333,12 @@ async function loadDashboardSummary() {
       }
     } else {
       enginesPanel.style.display = 'none';
+    }
+    _dashSummaryEnginesActive = !!(paperStrategyFlow.active || liveStrategyFlow.active || scalpFlow.active);
+    _syncDashboardLivePanel();
+    const updatedEl = document.getElementById('pfd-updated');
+    if (updatedEl) {
+      updatedEl.textContent = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()) + ' IST';
     }
 
     _renderDashboardFiiDiiPanel(d.fii_dii);

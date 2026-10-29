@@ -75,6 +75,7 @@
 <script src="/static/error-handler.js" defer></script>
 <script src="/static/pwa.js?v=__ASSET_VERSION__" defer></script>
 <link rel="stylesheet" href="/static/philforge-glass.css?v=__ASSET_VERSION__">
+<link rel="stylesheet" href="/static/philforge-dashboard.css?v=__ASSET_VERSION__">
 <script src="/static/philforge-artwork.js?v=20261006-artwork-13" defer></script>
 </head>
 <body>
@@ -232,373 +233,369 @@
 
 <!-- ═══ DASHBOARD ═══ -->
 <main id="main-content" tabindex="-1" aria-label="Dashboard workspace">
-<div id="dashboard-page" class="page-section active-page pf-unified-page">
+<div id="dashboard-page" class="page-section active-page pf-unified-page pf-dash">
+  <!-- Phil, 2026-10-29: "redesign my dashboard completely ... meaningful and
+       sensible". One question per band, read top to bottom: how is today
+       going (the four headline cards), what is running and where do I start
+       one (Live now + Desks), where is the market leaning (Market flow), and
+       what happened (Activity). Every id the app writes into is unchanged. -->
   <section class="pf-workspace-hero" aria-label="Dashboard overview">
     <i class="pf-hero-rail" aria-hidden="true"></i>
     <div class="pf-workspace-hero-copy">
-      <div class="pf-workspace-eyebrow">Market operations</div>
+      <div class="pf-workspace-eyebrow" id="pfd-greeting">Market operations</div>
       <h1>Trading Command Center</h1>
-      <p>Your account pulse, active engines, and strategy book in one disciplined view.</p>
+      <p class="pfd-creed"><span id="daily-mantra">&ldquo;The market rewards patience and punishes impulse.&rdquo;</span> <span id="daily-mantra-author">— Trading Wisdom</span></p>
     </div>
-    <div class="pf-workspace-hero-meta" aria-hidden="true">
-      <div><span>Workspace</span><strong>Overview</strong></div>
-      <div><span>Focus</span><strong>Today</strong></div>
-      <div><span>Desk</span><strong>PhilForge</strong></div>
+    <div class="pf-workspace-hero-meta">
+      <div><span>NSE hours</span><strong id="pfd-session">—</strong></div>
+      <div><span>Running</span><strong id="pfd-running">—</strong></div>
+      <div><span>Updated</span><strong id="pfd-updated">—</strong></div>
     </div>
   </section>
 
-    <div class="pf-dashboard-overview" style="margin: 0 0 12px;">
-    <div id="dash-fiidii-card" class="card-glass" style="display: none;">
-      <div class="dash-fiidii-head">
-        <div class="dash-fiidii-title">
-          <div class="dash-fiidii-kicker">FII / DII Flow</div>
-          <div id="dash-fiidii-caption" class="dash-fiidii-caption">Official NSE feed</div>
-        </div>
-        <div id="dash-fiidii-strip-grid">
-          <div class="dash-fiidii-metric neg">
-            <div class="dash-fiidii-metric-label">Latest FII</div>
-            <div id="dash-fiidii-latest-fii" class="dash-fiidii-metric-value">₹0 CR</div>
-          </div>
-          <div class="dash-fiidii-metric pos">
-            <div class="dash-fiidii-metric-label">Latest DII</div>
-            <div id="dash-fiidii-latest-dii" class="dash-fiidii-metric-value">₹0 CR</div>
-          </div>
-          <div class="dash-fiidii-metric rollup" id="dash-fiidii-rollup-card" onclick="toggleFiiDiiRollup()">
-            <div class="dash-fiidii-rollup-titleline">
-              <div class="dash-fiidii-metric-label">30D Flow</div>
-              <div id="dash-fiidii-rollup-sub" class="dash-fiidii-rollup-sub">(0 sessions total)</div>
-            </div>
-            <div class="dash-fiidii-rollup-totals">
-              <div class="dash-fiidii-rollup-total">
-                <span class="dash-fiidii-rollup-total-label">FII</span>
-                <span id="dash-fiidii-rolling-fii" class="dash-fiidii-rollup-total-value">₹0 CR</span>
-              </div>
-              <div class="dash-fiidii-rollup-total">
-                <span class="dash-fiidii-rollup-total-label">DII</span>
-                <span id="dash-fiidii-rolling-dii" class="dash-fiidii-rollup-total-value">₹0 CR</span>
-              </div>
-            </div>
-            <div class="dash-fiidii-rollup-body" onclick="event.stopPropagation()">
-              <div id="dash-fiidii-rollup-list" class="dash-fiidii-rollup-list"></div>
-              <div class="dash-fiidii-rollup-pagination">
-                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-prev" onclick="changeFiiDiiRollupPage(-1)">‹</button>
-                <div id="dash-fiidii-rollup-page" class="dash-fiidii-rollup-page">Page 1</div>
-                <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-next" onclick="changeFiiDiiRollupPage(1)">›</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="dash-fiidii-meta">
-          <div id="dash-fiidii-asof" style="font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">—</div>
-        </div>
-      </div>
-    </div>
-
-    <div id="dash-summary-grid">
-      <!-- Three panels, three equal columns. Paper and Real used to share one
-           card split by a divider, which left the third column carrying Broker
-           Status alone and stretched — the empty space on the right Phil
-           flagged. Every id is unchanged; only the shell around them moved. -->
-      <div id="dash-paper-card-shell" class="stat-box">
+  <!-- How is today going -->
+  <div class="pfd-kpis">
+    <div id="dash-paper-card-shell" class="stat-box pfd-kpi pfd-kpi-paper">
+      <div class="pfd-kpi-head">
+        <span class="pfd-kpi-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
         <div class="stat-label">Today's P&L · Paper</div>
-        <div id="dash-paper-pnl-card" class="dash-today-value">₹0.00</div>
-        <div id="dash-paper-pnl-sub" class="dash-card-sub">Strategy + SCALP</div>
-        <div id="dash-paper-pnl-trades" class="dash-card-meta">0 trades</div>
       </div>
-      <div id="dash-real-card-shell" class="stat-box">
+      <div id="dash-paper-pnl-card" class="dash-today-value">₹0.00</div>
+      <div class="pfd-kpi-foot">
+        <span id="dash-paper-pnl-sub" class="dash-card-sub">Strategy + SCALP</span>
+        <span id="dash-paper-pnl-trades" class="dash-card-meta">0 trades</span>
+      </div>
+    </div>
+    <div id="dash-real-card-shell" class="stat-box pfd-kpi pfd-kpi-real">
+      <div class="pfd-kpi-head">
+        <span class="pfd-kpi-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 13h20"/></svg></span>
         <div class="stat-label">Today's P&L · Real</div>
-        <div id="dash-real-pnl-card" class="dash-today-value">₹0.00</div>
-        <div id="dash-real-pnl-sub" class="dash-card-sub">Dhan today</div>
-        <div id="dash-real-pnl-trades" class="dash-card-meta">0 trades</div>
       </div>
-      <div id="dash-broker-summary-card" class="stat-box dash-summary-mini">
-        <div class="stat-label">Broker Status</div>
-        <!-- One column per broker, side by side, each with its own check
-             (Phil, 2026-10-11: "make it side by side", then "give 2 separate
-             buttons"). Zerodha's column shows once a Kite app is saved; until
-             then Dhan's takes the whole card, as before. -->
-        <div class="dash-broker-cols">
-          <div class="dash-broker-col">
-            <div class="dash-broker-line">
-              <span id="broker-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
-              <span id="broker-text" style="font-weight: 600; font-size: 14px;">Checking...</span>
-            </div>
-            <div style="display: flex; gap: 6px;">
-              <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; flex: 1;">Check</button>
-              <button id="broker-refresh-btn" onclick="refreshToken()" class="read-only-lock btn" style="font-size: 11px; padding: 6px 10px; display: none; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.35) 100%); --btn-border: rgba(245,158,11,0.4); --btn-color: rgb(245,158,11);" title="Regenerate Dhan access token">⟳ Token</button>
-            </div>
-          </div>
-          <div class="dash-broker-col" id="broker-zerodha-row" hidden>
-            <div class="dash-broker-line">
-              <span id="broker-zerodha-dot" style="height: 12px; width: 12px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
-              <span id="broker-zerodha-text" style="font-weight: 600; font-size: 14px;">Zerodha</span>
-            </div>
-            <button id="broker-zerodha-btn" onclick="toggleZerodhaBroker()" class="btn" style="font-size: 11px; padding: 6px 16px; width: 100%;">Check</button>
-          </div>
-        </div>
+      <div id="dash-real-pnl-card" class="dash-today-value">₹0.00</div>
+      <div class="pfd-kpi-foot">
+        <span id="dash-real-pnl-sub" class="dash-card-sub">Dhan today</span>
+        <span id="dash-real-pnl-trades" class="dash-card-meta">0 trades</span>
       </div>
     </div>
-
-    <!-- Running Now sits WITH Active Trading, not inside the Arsenal. The
-         Arsenal is where you pick a strategy to start; what is already running
-         belongs beside the panel that reports on it (Phil, 2026-08-15). -->
-    <div id="arsenal-running-wrap" style="display:none; margin-bottom: 16px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-        <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(16,185,129,0.16),rgba(52,211,153,0.08));border:1px solid rgba(16,185,129,0.28);border-radius:7px;color:var(--success);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m9 12 2 2 4-4"></path></svg></span></span>
-        <div style="font-size:12px;font-weight:800;letter-spacing:0.35px;color:var(--success);">Running Now</div>
-        <div class="arsenal-running-subtitle">Quick jump to active engines</div>
+    <!-- Form: the old Confidence Meter and Win Streak, one card. -->
+    <div class="stat-box pfd-kpi pfd-kpi-form">
+      <div class="pfd-kpi-head">
+        <span class="pfd-kpi-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></span>
+        <div class="stat-label">Form · last 20 runs</div>
       </div>
-      <div id="arsenal-running-grid"></div>
-    </div>
-
-    <!-- Active Trading Status -->
-    <div id="dash-active-engines" class="card-glass" style="padding: 16px; margin-bottom: 16px; display: none;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-        <h3 style="font-size: 14px; margin: 0;" id="h-active-trading">Active Trading</h3>
-        <button id="dash-active-open-btn" class="btn btn-sm" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();" style="font-size: 11px; padding: 5px 14px;">Open Live Monitor →</button>
+      <div class="pfd-form-row">
+        <div class="pfd-form-streak">
+          <span id="win-streak-count">0</span>
+          <span id="win-streak-fire">wins in a row</span>
+        </div>
+        <span id="confidence-val" class="pfd-form-score" title="Confidence: 60% win rate, 40% streak">—</span>
       </div>
-      <div id="dash-active-grid">
-        <div id="dash-paper-card" class="dash-active-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--warn);">Paper Strategy</span>
-            <span id="dash-paper-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
-          </div>
-          <div class="dash-active-name" id="dash-paper-name">—</div>
-          <div class="dash-active-stats">
-            <span>P&L: <strong id="dash-paper-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
-            <span>Trades: <strong id="dash-paper-trades">0</strong></span>
-          </div>
-          <div id="dash-paper-note" class="dash-card-note">Paper strategy only</div>
-        </div>
-        <div id="dash-live-card" class="dash-active-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: var(--accent2);">Live Trades</span>
-            <span id="dash-live-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
-          </div>
-          <div class="dash-active-name" id="dash-live-name">—</div>
-          <div class="dash-active-stats">
-            <span>P&L: <strong id="dash-live-pnl" style="font-family: 'JetBrains Mono';">₹0</strong></span>
-            <span>Trades: <strong id="dash-live-trades">0</strong></span>
-          </div>
-          <div id="dash-live-note" class="dash-card-note">Dhan today excluding SCALP</div>
-        </div>
-        <div id="dash-scalp-card" class="dash-active-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-weight: 700; font-size: 12px; color: #06b6d4;">SCALP</span>
-            <span id="dash-scalp-badge" style="font-size: 10px; font-weight: 600; color: #4ade80;">RUNNING</span>
-          </div>
-          <div class="dash-active-name" id="dash-scalp-name">—</div>
-          <div class="dash-scalp-split">
-            <div class="dash-split-box paper">
-              <div class="dash-split-kicker">Paper</div>
-              <div id="dash-scalp-paper-pnl" style="font-family: 'JetBrains Mono'; font-weight: 700; margin-top: 4px;">₹0</div>
-              <div id="dash-scalp-paper-trades" class="dash-split-note">0 trades</div>
-            </div>
-            <div class="dash-split-box real">
-              <div class="dash-split-kicker">Real</div>
-              <div id="dash-scalp-real-pnl" style="font-family: 'JetBrains Mono'; font-weight: 700; margin-top: 4px;">₹0</div>
-              <div id="dash-scalp-real-trades" class="dash-split-note">0 trades</div>
-            </div>
-          </div>
-        </div>
+      <div class="pfd-meter" aria-hidden="true"><div id="confidence-bar"></div></div>
+      <div class="pfd-form-foot">
+        <span id="confidence-label">Calculated from recent win rate & streak</span>
+        <div id="win-streak-dots" class="pfd-dots" title="Last 10 runs, oldest first"></div>
       </div>
     </div>
-
-    <!-- Greatest Conquest / Battle Scars -->
-    <div class="pf-dashboard-highlights" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
-      <div class="card" style="padding: 0; border-left: 3px solid var(--success); cursor: pointer; overflow: hidden; position: relative;" id="dash-best-run" onclick="openDashboardLeaderboardCard(this)">
-        <div style="position: absolute; top: -8px; right: -8px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(4,120,87,0.12) 0%, transparent 70%); pointer-events: none;"></div>
-        <div style="padding: 16px 16px 12px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <div style="font-size: 10px; color: var(--success); text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">Greatest Conquest</div>
-            <div style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: linear-gradient(135deg, rgba(4,120,87,0.2), rgba(52,211,153,0.1)); border: 1px solid rgba(4,120,87,0.3); border-radius: 8px; color: var(--success); font-size: 14px;" title="Hall of Fame"><span class="ico" style="line-height:0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H3V5a1 1 0 0 1 1-1h2"/><path d="M18 9h3V5a1 1 0 0 0-1-1h-2"/><path d="M6 4h12v6a6 6 0 0 1-12 0V4z"/><path d="M9 20h6"/><path d="M12 16v4"/></svg></span></div>
-          </div>
-          <div style="font-size: 20px; font-weight: 800; color: var(--success); font-family: 'JetBrains Mono'; margin-bottom: 4px;" id="dash-best-pnl">—</div>
-          <div style="font-size: 12px; color: var(--text); opacity: 0.85;" id="dash-best-name">No conquests yet — deploy your first strategy</div>
-        </div>
+    <div id="dash-broker-summary-card" class="stat-box pfd-kpi dash-summary-mini">
+      <div class="pfd-kpi-head">
+        <span class="pfd-kpi-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+        <div class="stat-label">Brokers</div>
       </div>
-      <div class="card" style="padding: 0; border-left: 3px solid rgba(245,158,11,0.6); cursor: pointer; overflow: hidden; position: relative;" id="dash-worst-run" onclick="openDashboardLeaderboardCard(this)">
-        <div style="position: absolute; top: -8px; right: -8px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(245,158,11,0.1) 0%, transparent 70%); pointer-events: none;"></div>
-        <div style="padding: 16px 16px 12px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <div style="font-size: 10px; color: var(--warn); text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">Battle Scars</div>
-            <div style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(251,191,36,0.08)); border: 1px solid rgba(245,158,11,0.25); border-radius: 8px; color: var(--warn); font-size: 14px;" title="Market Wisdom"><span class="ico" style="line-height:0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span></div>
+      <!-- One column per broker, side by side, each with its own check
+           (Phil, 2026-10-11: "make it side by side", then "give 2 separate
+           buttons"). Zerodha's column shows once a Kite app is saved; until
+           then Dhan's takes the whole card, as before. -->
+      <div class="dash-broker-cols">
+        <div class="dash-broker-col">
+          <div class="dash-broker-line">
+            <span id="broker-dot" style="height: 10px; width: 10px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
+            <span id="broker-text">Checking...</span>
           </div>
-          <div style="font-size: 20px; font-weight: 800; color: var(--warn); font-family: 'JetBrains Mono'; margin-bottom: 4px;" id="dash-worst-pnl">—</div>
-          <div style="font-size: 12px; color: var(--text); opacity: 0.85;" id="dash-worst-name">No lessons yet — the market will teach you</div>
+          <div class="pfd-broker-btns">
+            <button id="broker-toggle-btn" onclick="toggleBroker()" class="btn">Check</button>
+            <button id="broker-refresh-btn" onclick="refreshToken()" class="read-only-lock btn" style="display: none; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.2) 0%, rgba(245,158,11,0.35) 100%); --btn-border: rgba(245,158,11,0.4); --btn-color: rgb(245,158,11);" title="Regenerate Dhan access token">⟳ Token</button>
+          </div>
+        </div>
+        <div class="dash-broker-col" id="broker-zerodha-row" hidden>
+          <div class="dash-broker-line">
+            <span id="broker-zerodha-dot" style="height: 10px; width: 10px; background-color: grey; border-radius: 50%; display: inline-block; flex-shrink: 0;"></span>
+            <span id="broker-zerodha-text">Zerodha</span>
+          </div>
+          <div class="pfd-broker-btns">
+            <button id="broker-zerodha-btn" onclick="toggleZerodhaBroker()" class="btn">Check</button>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Strategy Arsenal -->
-  <div id="strategy-arsenal-card" class="card arsenal-shell">
-    <div class="arsenal-heading">
-      <span style="color:var(--accent);line-height:0;"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/></svg></span></span>
-      <h3 style="margin:0; font-size: 16px;">Strategy Arsenal</h3>
-      <span class="arsenal-subtitle">Choose Your Weapon</span>
+  <div class="pfd-main">
+    <div class="pfd-col">
+      <!-- What is running -->
+      <section id="pfd-live" class="card pfd-panel pfd-live" aria-labelledby="h-active-trading">
+        <header class="pfd-panel-head">
+          <div class="pfd-panel-title">
+            <span class="pfd-live-dot" aria-hidden="true"></span>
+            <h3 id="h-active-trading">Live now</h3>
+            <span class="pfd-panel-sub" id="pfd-live-sub">Engines running today</span>
+          </div>
+          <button id="dash-active-open-btn" class="btn btn-sm" onclick="showPage('live-page', document.getElementById('nav-live')); startLiveMonitor();">Open Live Monitor →</button>
+        </header>
+        <div id="pfd-live-empty" class="pfd-empty">
+          <span class="pfd-empty-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor" stroke="none"/></svg></span>
+          <div>
+            <strong>Nothing is running</strong>
+            <span>Pick a desk below to start a paper or live run.</span>
+          </div>
+        </div>
+        <div id="dash-active-engines" style="display: none;">
+          <div class="pfd-engine-grid">
+            <div id="dash-paper-card" class="dash-active-card pfd-engine">
+              <div class="pfd-engine-head">
+                <span class="pfd-engine-kind" style="--kind: var(--warn);">Paper strategy</span>
+                <span id="dash-paper-badge" class="pfd-engine-badge">Running</span>
+              </div>
+              <div class="dash-active-name" id="dash-paper-name">—</div>
+              <div class="pfd-engine-stats">
+                <div><span>P&L</span><strong id="dash-paper-pnl">₹0</strong></div>
+                <div><span>Trades</span><strong id="dash-paper-trades">0</strong></div>
+              </div>
+              <div id="dash-paper-note" class="dash-card-note">Paper strategy only</div>
+            </div>
+            <div id="dash-live-card" class="dash-active-card pfd-engine">
+              <div class="pfd-engine-head">
+                <span class="pfd-engine-kind" style="--kind: var(--danger);">Live trades</span>
+                <span id="dash-live-badge" class="pfd-engine-badge">Running</span>
+              </div>
+              <div class="dash-active-name" id="dash-live-name">—</div>
+              <div class="pfd-engine-stats">
+                <div><span>P&L</span><strong id="dash-live-pnl">₹0</strong></div>
+                <div><span>Trades</span><strong id="dash-live-trades">0</strong></div>
+              </div>
+              <div id="dash-live-note" class="dash-card-note">Dhan today excluding SCALP</div>
+            </div>
+            <div id="dash-scalp-card" class="dash-active-card pfd-engine">
+              <div class="pfd-engine-head">
+                <span class="pfd-engine-kind" style="--kind: #06b6d4;">Scalp</span>
+                <span id="dash-scalp-badge" class="pfd-engine-badge">Running</span>
+              </div>
+              <div class="dash-active-name" id="dash-scalp-name">—</div>
+              <div class="pfd-engine-stats">
+                <div><span>Paper</span><strong id="dash-scalp-paper-pnl">₹0</strong><em id="dash-scalp-paper-trades">0 trades</em></div>
+                <div><span>Real</span><strong id="dash-scalp-real-pnl">₹0</strong><em id="dash-scalp-real-trades">0 trades</em></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Each running engine, with its own jump to the monitor. -->
+        <div id="arsenal-running-wrap" style="display:none;">
+          <div class="pfd-sublabel">Each engine</div>
+          <div id="arsenal-running-grid"></div>
+        </div>
+      </section>
+
+      <!-- Where to start one. The desks themselves, in the order Phil ranks
+           them; each opens the real strategy page (and its tab). -->
+      <section id="strategy-arsenal-card" class="card pfd-panel arsenal-shell" aria-labelledby="pfd-desks-h">
+        <header class="pfd-panel-head">
+          <div class="pfd-panel-title">
+            <h3 id="pfd-desks-h">Desks</h3>
+            <span class="pfd-panel-sub">Open a strategy desk</span>
+          </div>
+        </header>
+        <div class="pfd-desks">
+          <div class="arsenal-template-card arsenal-strategy-card pfd-desk" role="link" tabindex="0" style="--tint:#f5b84b;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="space">
+            <span class="arsenal-template-icon pfd-desk-icon" aria-hidden="true">◈</span>
+            <div class="pfd-desk-body">
+              <div class="arsenal-template-title">Fib Space Cascade</div>
+              <div class="arsenal-template-copy">Your mother candle, then the desk draws its own trendlines and fibs and buys where two of them converge.</div>
+              <div class="arsenal-template-tags">
+                <span class="arsenal-tag instrument">NIFTY · BANKNIFTY</span>
+                <span class="arsenal-tag warning">15m geometry</span>
+                <span class="arsenal-tag success">Paper</span>
+              </div>
+            </div>
+            <span class="pfd-desk-go" aria-hidden="true">→</span>
+          </div>
+          <div class="arsenal-template-card arsenal-strategy-card pfd-desk" role="link" tabindex="0" style="--tint:#a78bfa;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="fib">
+            <span class="arsenal-template-icon pfd-desk-icon" aria-hidden="true">⑃</span>
+            <div class="pfd-desk-body">
+              <div class="arsenal-template-title">Fib Boundary Ladder</div>
+              <div class="arsenal-template-copy">A swing-anchored touch ladder on 1m bars: one lot at every fib rung from L2 down to L16, target a quarter of the span.</div>
+              <div class="arsenal-template-tags">
+                <span class="arsenal-tag instrument">NIFTY 1m</span>
+                <span class="arsenal-tag purple">L2 → L16</span>
+                <span class="arsenal-tag success">Paper + Backtest</span>
+              </div>
+            </div>
+            <span class="pfd-desk-go" aria-hidden="true">→</span>
+          </div>
+          <div class="arsenal-template-card arsenal-strategy-card pfd-desk" role="link" tabindex="0" style="--tint:#38bdf8;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="candle">
+            <span class="arsenal-template-icon pfd-desk-icon" aria-hidden="true">◧</span>
+            <div class="pfd-desk-body">
+              <div class="arsenal-template-title">Two Red Candles</div>
+              <div class="arsenal-template-copy">Two reds break lower, then buy the recovery — climbing 1m to 1H and sizing 1, 2, 3, 4 lots as the ladder deepens.</div>
+              <div class="arsenal-template-tags">
+                <span class="arsenal-tag instrument">NIFTY</span>
+                <span class="arsenal-tag info">1m → 1H</span>
+                <span class="arsenal-tag success">Paper</span>
+              </div>
+            </div>
+            <span class="pfd-desk-go" aria-hidden="true">→</span>
+          </div>
+          <div class="arsenal-template-card arsenal-strategy-card pfd-desk" role="link" tabindex="0" style="--tint:#34d399;" data-pf-desk-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
+            <span class="arsenal-template-icon pfd-desk-icon" aria-hidden="true">◰</span>
+            <div class="pfd-desk-body">
+              <div class="arsenal-template-title">Equity Cash Cascade</div>
+              <div class="arsenal-template-copy">The same ladder on cash equity — Nifty 200 names and the BEES ETFs, on your own broker holdings.</div>
+              <div class="arsenal-template-tags">
+                <span class="arsenal-tag instrument">Nifty 200 + BEES</span>
+                <span class="arsenal-tag success">Cash delivery</span>
+              </div>
+            </div>
+            <span class="pfd-desk-go" aria-hidden="true">→</span>
+          </div>
+        </div>
+      </section>
     </div>
-    <div id="template-grid">
-      <!-- The desks themselves, in the order Phil ranks them. These are not
-           Builder templates: each card opens the real strategy page (and its
-           tab), because a card that only filled a form was advertising a
-           strategy the desk does not run. -->
-      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#f5b84b;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="space">
-        <div class="arsenal-template-glow" aria-hidden="true"></div>
-        <div class="arsenal-template-head">
-          <span class="arsenal-template-icon" aria-hidden="true">◈</span>
-          <div class="arsenal-template-title">Fib Space Cascade</div>
+
+    <aside class="pfd-col pfd-side">
+      <!-- Where the market is leaning -->
+      <section id="dash-fiidii-card" class="card pfd-panel pfd-flow" style="display: none;" aria-labelledby="pfd-flow-h">
+        <header class="pfd-panel-head">
+          <div class="pfd-panel-title">
+            <h3 id="pfd-flow-h">Market flow</h3>
+            <span id="dash-fiidii-caption" class="pfd-panel-sub">Official NSE feed</span>
+          </div>
+          <span id="dash-fiidii-asof" class="pfd-asof">—</span>
+        </header>
+        <div class="pfd-flow-latest">
+          <div class="pfd-flow-tile">
+            <span>FII today</span>
+            <strong id="dash-fiidii-latest-fii">₹0 CR</strong>
+          </div>
+          <div class="pfd-flow-tile">
+            <span>DII today</span>
+            <strong id="dash-fiidii-latest-dii">₹0 CR</strong>
+          </div>
         </div>
-        <div class="arsenal-template-copy">Your mother candle, then the desk draws its own trendlines and fibs and buys where two of them converge. The measured design.</div>
-        <div class="arsenal-template-tags">
-          <span class="arsenal-tag instrument">NIFTY · BANKNIFTY</span>
-          <span class="arsenal-tag warning">15m geometry</span>
-          <span class="arsenal-tag success">Paper</span>
+        <div class="pfd-flow-chart">
+          <div class="pfd-flow-chart-head">
+            <span>Daily net, oldest → newest</span>
+            <span class="pfd-flow-key"><i class="fii"></i>FII <i class="dii"></i>DII</span>
+          </div>
+          <div id="pfd-flow-bars" class="pfd-flow-bars" role="img" aria-label="FII and DII daily net flows"></div>
         </div>
-      </div>
-      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#a78bfa;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="fib">
-        <div class="arsenal-template-glow" aria-hidden="true"></div>
-        <div class="arsenal-template-head">
-          <span class="arsenal-template-icon" aria-hidden="true">⑃</span>
-          <div class="arsenal-template-title">Fib Boundary Ladder</div>
+        <div id="dash-fiidii-rollup-card" class="pfd-flow-roll">
+          <button type="button" class="pfd-flow-roll-head" onclick="toggleFiiDiiRollup()">
+            <span class="pfd-flow-roll-title">30-day total <small id="dash-fiidii-rollup-sub">(0 sessions total)</small></span>
+            <span class="pfd-flow-roll-totals">
+              <span>FII <strong id="dash-fiidii-rolling-fii">₹0 CR</strong></span>
+              <span>DII <strong id="dash-fiidii-rolling-dii">₹0 CR</strong></span>
+            </span>
+            <span class="pfd-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="pfd-flow-roll-body" onclick="event.stopPropagation()">
+            <div id="dash-fiidii-rollup-list" class="dash-fiidii-rollup-list"></div>
+            <div class="dash-fiidii-rollup-pagination">
+              <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-prev" onclick="changeFiiDiiRollupPage(-1)">‹</button>
+              <div id="dash-fiidii-rollup-page" class="dash-fiidii-rollup-page">Page 1</div>
+              <button class="dash-fiidii-rollup-btn" id="dash-fiidii-rollup-next" onclick="changeFiiDiiRollupPage(1)">›</button>
+            </div>
+          </div>
         </div>
-        <div class="arsenal-template-copy">A swing-anchored touch ladder on 1m bars: one lot at every fib rung from L2 down to L16, target a quarter of the span.</div>
-        <div class="arsenal-template-tags">
-          <span class="arsenal-tag instrument">NIFTY 1m</span>
-          <span class="arsenal-tag purple">L2 → L16</span>
-          <span class="arsenal-tag success">Paper + Backtest</span>
+      </section>
+
+      <!-- Best and worst run -->
+      <section class="card pfd-panel pfd-records" aria-labelledby="pfd-records-h">
+        <header class="pfd-panel-head">
+          <div class="pfd-panel-title">
+            <h3 id="pfd-records-h">Records</h3>
+            <span class="pfd-panel-sub">Best and worst saved run</span>
+          </div>
+        </header>
+        <div id="dash-best-run" class="pfd-record pfd-record-best" onclick="openDashboardLeaderboardCard(this)">
+          <span class="pfd-record-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H3V5a1 1 0 0 1 1-1h2"/><path d="M18 9h3V5a1 1 0 0 0-1-1h-2"/><path d="M6 4h12v6a6 6 0 0 1-12 0V4z"/><path d="M9 20h6"/><path d="M12 16v4"/></svg></span>
+          <div class="pfd-record-body">
+            <span class="pfd-record-label">Greatest conquest</span>
+            <span class="pfd-record-name" id="dash-best-name">No conquests yet — deploy your first strategy</span>
+          </div>
+          <strong class="pfd-record-pnl" id="dash-best-pnl">—</strong>
         </div>
-      </div>
-      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#38bdf8;" data-pf-desk-page="options-cascade-page" data-pf-after-nav="initOptionsCascadePage" data-pf-desk-tab="candle">
-        <div class="arsenal-template-glow" aria-hidden="true"></div>
-        <div class="arsenal-template-head">
-          <span class="arsenal-template-icon" aria-hidden="true">◧</span>
-          <div class="arsenal-template-title">Two Red Candles</div>
+        <div id="dash-worst-run" class="pfd-record pfd-record-worst" onclick="openDashboardLeaderboardCard(this)">
+          <span class="pfd-record-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          <div class="pfd-record-body">
+            <span class="pfd-record-label">Battle scars</span>
+            <span class="pfd-record-name" id="dash-worst-name">No lessons yet — the market will teach you</span>
+          </div>
+          <strong class="pfd-record-pnl" id="dash-worst-pnl">—</strong>
         </div>
-        <div class="arsenal-template-copy">Two reds break lower, then buy the recovery — climbing 1m to 1H and sizing 1, 2, 3, 4 lots as the ladder deepens.</div>
-        <div class="arsenal-template-tags">
-          <span class="arsenal-tag instrument">NIFTY</span>
-          <span class="arsenal-tag info">1m → 1H</span>
-          <span class="arsenal-tag success">Paper</span>
-        </div>
-      </div>
-      <div class="card card-compact arsenal-template-card arsenal-strategy-card" role="link" tabindex="0" style="--tint:#34d399;" data-pf-desk-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
-        <div class="arsenal-template-glow" aria-hidden="true"></div>
-        <div class="arsenal-template-head">
-          <span class="arsenal-template-icon" aria-hidden="true">◰</span>
-          <div class="arsenal-template-title">Equity Cash Cascade</div>
-        </div>
-        <div class="arsenal-template-copy">The same ladder on cash equity — Nifty 200 names and the BEES ETFs, on your own broker holdings.</div>
-        <div class="arsenal-template-tags">
-          <span class="arsenal-tag instrument">Nifty 200 + BEES</span>
-          <span class="arsenal-tag success">Cash delivery</span>
-        </div>
-      </div>
-    </div>
+      </section>
+
+    </aside>
   </div>
 
-  <!-- Trader's Edge — Mood Widgets -->
-  <div style="margin: 0 0 20px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px;" id="mood-widgets">
-    <!-- Daily Trading Mantra -->
-    <div class="card" style="padding: 14px 18px; position: relative; overflow: hidden;">
-      <div style="position:absolute;top:-16px;right:-16px;width:64px;height:64px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-        <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.06));border-radius:6px;color:var(--accent);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none"/></svg></span></span>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;font-weight:700;">Warrior's Creed</div>
+  <!-- What happened: three ledgers, one panel. -->
+  <section class="card pfd-panel pfd-activity" aria-label="Activity">
+    <header class="pfd-panel-head pfd-activity-head">
+      <div class="pfd-tabs" role="tablist" aria-label="Activity">
+        <button type="button" role="tab" class="pfd-tab is-active" aria-selected="true" data-pfd-tab="txns" onclick="setDashboardActivityTab('txns')">Transactions</button>
+        <button type="button" role="tab" class="pfd-tab" aria-selected="false" data-pfd-tab="runs" onclick="setDashboardActivityTab('runs')">All runs</button>
+        <button type="button" role="tab" class="pfd-tab" aria-selected="false" data-pfd-tab="saved" onclick="setDashboardActivityTab('saved')">Saved strategies</button>
       </div>
-      <div id="daily-mantra" style="font-size:13px;color:var(--text);font-style:italic;line-height:1.5;font-weight:500;">&ldquo;The market rewards patience and punishes impulse.&rdquo;</div>
-      <div id="daily-mantra-author" style="font-size:10px;color:var(--muted);margin-top:6px;">— Trading Wisdom</div>
+      <div class="pfd-activity-tools">
+        <input type="text" id="transactions-search-input" class="dash-table-search" data-pfd-for="txns" placeholder="Search transactions…" oninput="setDashboardTransactionSearch(this.value)">
+        <button class="read-only-lock btn btn-sm btn-purple" data-pfd-for="saved" onclick="addNewFolder()" hidden>+ New Folder</button>
+      </div>
+    </header>
+
+    <div class="pfd-pane" data-pfd-pane="txns" role="tabpanel">
+      <div id="transactions-bulk-bar" class="bulk-bar" style="display:none;"></div>
+      <div class="dash-table-wrap">
+        <table class="dash-table">
+          <thead>
+            <tr>
+              <th style="width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" id="transactions-check-all" aria-label="Select all recent transactions" onchange="toggleAllDashboardTransactions(this)"></th>
+              <th style="min-width: 200px; cursor: pointer;" onclick="_toggleDashboardTxnSort('symbol')">Instrument <span id="dash-txn-sort-symbol"></span></th>
+              <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('entryTime')">Entry Time <span id="dash-txn-sort-entryTime"></span></th>
+              <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('exitTime')">Exit Time <span id="dash-txn-sort-exitTime"></span></th>
+              <th style="width: 90px; text-align: right; cursor: pointer;" onclick="_toggleDashboardTxnSort('transactionType')">Dir <span id="dash-txn-sort-transactionType"></span></th>
+              <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('entryPrice')">Entry <span id="dash-txn-sort-entryPrice"></span></th>
+              <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('exitPrice')">Exit <span id="dash-txn-sort-exitPrice"></span></th>
+              <th style="width: 80px; text-align: right; cursor: pointer;" onclick="_toggleDashboardTxnSort('quantity')">Qty <span id="dash-txn-sort-quantity"></span></th>
+              <th style="width: 120px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('pnl')">P&amp;L <span id="dash-txn-sort-pnl"></span></th>
+              <th style="min-width: 140px; text-align: left; cursor: pointer;" onclick="_toggleDashboardTxnSort('reason')">Reason <span id="dash-txn-sort-reason"></span></th>
+              <th style="width: 90px; text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="transactions-body"><tr><td colspan="11" class="dash-txn-empty">No recent transactions</td></tr></tbody>
+        </table>
+      </div>
+      <div id="transactions-mobile-cards" class="mobile-data-cards"></div>
+      <div id="transactions-pagination" class="pagination-bar" style="display:none;"></div>
     </div>
-    <!-- Confidence Meter -->
-    <div class="card" style="padding: 14px 18px; position: relative; overflow: hidden;">
-      <div style="position:absolute;top:-16px;right:-16px;width:64px;height:64px;background:radial-gradient(circle,rgba(4,120,87,0.06) 0%,transparent 70%);pointer-events:none;"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-        <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(4,120,87,0.12),rgba(52,211,153,0.06));border-radius:6px;color:var(--success);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span></span>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;font-weight:700;">Confidence Meter</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:99px;overflow:hidden;">
-          <div id="confidence-bar" style="width:50%;height:100%;background:linear-gradient(90deg,var(--success),#34d399);border-radius:99px;transition:width 0.6s ease;"></div>
+
+    <div class="pfd-pane" data-pfd-pane="runs" role="tabpanel" hidden>
+      <div id="runs-list" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+      <div id="runs-pagination-dash" class="pagination-bar" style="display:none;"></div>
+      <div id="runs-empty" class="pfd-pane-empty">No runs yet. Run a backtest or start paper/live trading.</div>
+    </div>
+
+    <!-- Saved Strategies keeps its own open/closed panel for the code that
+         opens a folder from a running engine; here it is always open and the
+         tab is what shows it. -->
+    <div class="pfd-pane" data-pfd-pane="saved" role="tabpanel" hidden>
+      <div id="dash-saved-strategies-card" class="dashboard-flow-panel open">
+        <button id="dash-saved-strategies-toggle" class="dashboard-flow-panel-toggle" type="button" aria-expanded="true" aria-controls="dash-saved-strategies-body" hidden></button>
+        <div id="dash-saved-strategies-body" class="dashboard-flow-panel-body" aria-hidden="false">
+          <div class="dashboard-flow-panel-body-inner">
+            <div id="saved-strategies-grouped" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
+            <div id="saved-strategies-empty" class="pfd-pane-empty">No saved strategies found.</div>
+          </div>
         </div>
-        <span id="confidence-val" style="font-size:14px;font-weight:800;font-family:'JetBrains Mono';color:var(--success);min-width:32px;text-align:right;">—</span>
-      </div>
-      <div id="confidence-label" style="font-size:10px;color:var(--muted);margin-top:6px;">Calculated from recent win rate & streak</div>
-    </div>
-    <!-- Win Streak -->
-    <div class="card" style="padding: 14px 18px; position: relative; overflow: hidden;">
-      <div style="position:absolute;top:-16px;right:-16px;width:64px;height:64px;background:radial-gradient(circle,rgba(245,158,11,0.06) 0%,transparent 70%);pointer-events:none;"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-        <span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(251,191,36,0.06));border-radius:6px;color:var(--warn);flex-shrink:0;"><span class="ico" style="line-height:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2c.5 4-3 6-3 10a5 5 0 1 0 10 0c0-5-5-6-5-10a5 5 0 0 0-2 0z" opacity="0.85"/></svg></span></span>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;font-weight:700;">Win Streak</div>
-      </div>
-      <div style="display:flex;align-items:baseline;gap:8px;">
-        <span id="win-streak-count" style="font-size:26px;font-weight:800;font-family:'JetBrains Mono';color:var(--warn);">0</span>
-        <span id="win-streak-fire" style="font-size:11px;color:var(--muted);">wins in a row</span>
-      </div>
-      <div style="display:flex;gap:4px;margin-top:8px;" id="win-streak-dots"></div>
-    </div>
-  </div>
-  <div id="dash-saved-strategies-card" class="card dashboard-flow-panel" style="margin: 0 0 20px;">
-    <div class="dashboard-flow-panel-head">
-      <button id="dash-saved-strategies-toggle" class="dashboard-flow-panel-toggle" type="button" aria-expanded="false" aria-controls="dash-saved-strategies-body" onclick="toggleDashboardSavedStrategies()">
-        <span>
-          <strong>Saved Strategies</strong>
-          <small>Folders and reusable strategy setups</small>
-        </span>
-        <span class="dashboard-flow-panel-chevron" aria-hidden="true">&#9654;</span>
-      </button>
-      <button class="read-only-lock btn btn-sm btn-purple" onclick="addNewFolder()" style="font-size: 11px; padding: 5px 12px;">+ New Folder</button>
-    </div>
-    <div id="dash-saved-strategies-body" class="dashboard-flow-panel-body" aria-hidden="true" inert>
-      <div class="dashboard-flow-panel-body-inner">
-        <div id="saved-strategies-grouped" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
-        <div id="saved-strategies-empty" style="text-align: center; padding: 20px; color: var(--muted);">No saved strategies found.</div>
       </div>
     </div>
-  </div>
-  <div class="card" style="margin: 0 0 20px;">
-    <h3 style="margin-bottom: 16px; font-size: 16px;">All Runs</h3>
-    <div id="runs-list" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
-    <div id="runs-pagination-dash" class="pagination-bar" style="display:none;"></div>
-    <div id="runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No runs yet. Run a backtest or start paper/live trading.</div>
-  </div>
-  <div class="card" style="margin: 0;">
-    <div class="dash-table-toolbar">
-      <h3 style="margin: 0; font-size: 16px;">Recent Transactions</h3>
-      <div class="dash-table-toolbar-right">
-        <input
-          type="text"
-          id="transactions-search-input"
-          class="dash-table-search"
-          placeholder="Search transactions..."
-          oninput="setDashboardTransactionSearch(this.value)"
-        >
-      </div>
-    </div>
-    <div id="transactions-bulk-bar" class="bulk-bar" style="display:none;"></div>
-    <div class="dash-table-wrap">
-      <table class="dash-table">
-        <thead>
-          <tr>
-            <th style="width: 36px; text-align: center;"><input type="checkbox" class="tbl-chk" id="transactions-check-all" aria-label="Select all recent transactions" onchange="toggleAllDashboardTransactions(this)"></th>
-            <th style="min-width: 200px; cursor: pointer;" onclick="_toggleDashboardTxnSort('symbol')">Instrument <span id="dash-txn-sort-symbol"></span></th>
-            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('entryTime')">Entry Time <span id="dash-txn-sort-entryTime"></span></th>
-            <th style="min-width: 150px; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('exitTime')">Exit Time <span id="dash-txn-sort-exitTime"></span></th>
-            <th style="width: 90px; text-align: right; cursor: pointer;" onclick="_toggleDashboardTxnSort('transactionType')">Dir <span id="dash-txn-sort-transactionType"></span></th>
-            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('entryPrice')">Entry <span id="dash-txn-sort-entryPrice"></span></th>
-            <th style="width: 110px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('exitPrice')">Exit <span id="dash-txn-sort-exitPrice"></span></th>
-            <th style="width: 80px; text-align: right; cursor: pointer;" onclick="_toggleDashboardTxnSort('quantity')">Qty <span id="dash-txn-sort-quantity"></span></th>
-            <th style="width: 120px; text-align: right; font-family: 'JetBrains Mono', monospace; cursor: pointer;" onclick="_toggleDashboardTxnSort('pnl')">P&amp;L <span id="dash-txn-sort-pnl"></span></th>
-            <th style="min-width: 140px; text-align: left; cursor: pointer;" onclick="_toggleDashboardTxnSort('reason')">Reason <span id="dash-txn-sort-reason"></span></th>
-            <th style="width: 90px; text-align: right;">Action</th>
-          </tr>
-        </thead>
-        <tbody id="transactions-body"><tr><td colspan="11" class="dash-txn-empty">No recent transactions</td></tr></tbody>
-      </table>
-    </div>
-    <div id="transactions-mobile-cards" class="mobile-data-cards"></div>
-    <div id="transactions-pagination" class="pagination-bar" style="display:none;"></div>
-  </div>
+  </section>
 </div>
 
 <!-- ═══ STRATEGY BUILDER ═══ -->
