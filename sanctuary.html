@@ -3402,8 +3402,10 @@ function renderFinance(){
     <div class="tile card"><div class="lbl">In the bank</div>
       <div class="val num ${f.bank_balance != null && f.bank_balance < 0 ? "neg" : ""}">${f.bank_balance != null ? inr(f.bank_balance) : "—"}</div>
       <div class="sub">${f.bank_balance == null ? "no statement figure yet"
-        : `${niceDate(f.bank_as_of)}${f.od && f.od.owed_said && f.od.owed
-          ? ` · overdraft owes <b class="num">${inr(f.od.owed)}</b>` : ""}`}</div></div>
+        : `${niceDate(f.bank_as_of)} · <span class="edit" id="od-owed-tile" title="Change it to what the bank app shows">${
+          f.od && f.od.owed_said && f.od.owed
+            ? `overdraft owes <b class="num">${inr(f.od.owed)}</b>${f.od.stated_on ? ` as of ${esc(niceDate(f.od.stated_on))}` : ""}`
+            : "overdraft — set it"}</span>`}</div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
       <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}${t.inflow ? ` · came in ${inr(t.inflow)}` : ""}</div></div>
@@ -5577,6 +5579,10 @@ $("vault-family-clear").onclick = async () => {
 
 document.addEventListener("click", (e) => {
   if (e.target.id === "od-held-edit") odHeldForm();
+  /* The figure he is looking at is the one he changes. The overdraft card
+     that also does this sits far down under Loans & EMIs, and the first
+     time he needed it he could not find it. */
+  if (e.target.closest("#od-owed-tile")) odOwedForm(S.od || (S.fin && S.fin.od) || {});
   if (e.target.id === "salary-edit") salaryModal();
 });
 
