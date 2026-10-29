@@ -1708,26 +1708,47 @@ def _od_movement(ledger: list[dict]) -> dict:
 OD_HELD_STATE = "od_held"
 
 
-async def _od_limit(user_id: int) -> float | None:
-    """What the overdraft would lend him at most, as he read it off the bank.
+async def _money_sitting_in_the_od(user_id: int) -> dict:
+    """What is in the sweep account, and how it has moved since he said so.
 
-    This used to be "money sitting in the sweep account": a figure he stated
-    once and every sweep carried forward, added to the account as his. The
-    premise was wrong for his account. It is a line of credit he draws on,
-    not a place his surplus is parked — and the figure stated was its limit.
-    Carried forward by two months of sweeps it read ₹81,942 "in the sweep"
-    on a day his bank said ₹1,05,556 OWED on it.
+    A sweep-linked overdraft is one account, not a line of credit sitting
+    somewhere abstract. When the current account is in surplus the money
+    sweeps INTO it and stays there; when the current account is short it
+    sweeps back out. So the balance printed on his statement is what is left
+    AFTER the sweep took money away — the two hundred and forty-four thousand
+    that went across on the first of September is his, and appeared nowhere.
 
-    The limit is still worth knowing, so it is all that is kept. What he has
-    drawn belongs to the overdraft's own card, which is the one place a
-    debt is stated and the one place it is counted.
+    He states it once. Every sweep after that day carries it: money swept in
+    adds to it, money swept back out takes from it, which is exactly what
+    those rows already record.
     """
     held = await sanctuary_db.get_json_state(user_id, OD_HELD_STATE, {})
     try:
         limit = round(float(held.get("limit")), 2)
     except (TypeError, ValueError):
-        return None
-    return limit if limit > 0 else None
+        limit = None
+    try:
+        stated = round(float(held.get("amount")), 2)
+    except (TypeError, ValueError):
+        return {"held": None, "stated": None, "on": "", "moved": 0.0, "sweeps": 0, "limit": limit}
+    on = str(held.get("on") or "")
+    rows = await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], since=on) if on else []
+    into = sum(r["amount"] for r in rows if r.get("source") != "statement-in")
+    out = sum(r["amount"] for r in rows if r.get("source") == "statement-in")
+    moved = round(into - out, 2)
+    return {
+        "held": round(stated + moved, 2),
+        "stated": stated,
+        "on": on,
+        "moved": moved,
+        "sweeps": len(rows),
+        # What it would LEND him if he drew on it. Recorded because it is
+        # worth knowing and because the two are so easily confused — a bank
+        # showing "available balance" adds the two together, and a page that
+        # did the same would be telling him he owns money he would have to
+        # borrow. It is never added to anything here.
+        "limit": limit,
+    }
 
 
 async def _bank_balance(user_id: int) -> dict:
@@ -1740,23 +1761,21 @@ async def _bank_balance(user_id: int) -> dict:
     can say so rather than pretending to be today's.
     """
     known = await sanctuary_db.balance_last_known(user_id)
-    limit = await _od_limit(user_id)
+    od = await _money_sitting_in_the_od(user_id)
     if known["balance"] is None:
-        return {"balance": None, "as_of": "", "after": 0, "current": None, "od_limit": limit}
+        return {"balance": None, "as_of": "", "after": 0, "current": None, "in_od": od["held"]}
     after = await sanctuary_db.rows_since(user_id, known["as_of"])
-    # The account, and only the account. This used to add "money parked in
-    # the sweep account" to it, on the idea that a sweep-linked overdraft
-    # holds his surplus. His does not: it is a line of credit he draws on.
-    # The figure being added was his LIMIT, stated on the 3rd of September
-    # and worn down by every sweep since — ₹81,942 of it on the 29th of
-    # October, when the bank said ₹6,600 in the account and ₹1,05,556
-    # OWED on the overdraft. The page was counting what he could borrow as
-    # money he had. "Left to breathe" and "Where I stand" had already
-    # stopped; this was the last place still doing it.
+    # The statement's figure is one account. Money parked in the sweep
+    # account is the same money and belongs in the same total, shown apart
+    # so the sum can be checked rather than believed.
+    total = round(known["balance"] + (od["held"] or 0), 2)
     return {
-        "balance": known["balance"],
+        "balance": total,
         "current": known["balance"],
-        "od_limit": limit,
+        "in_od": od["held"],
+        "od_on": od["on"],
+        "od_limit": od.get("limit"),
+        "od_sweeps": od["sweeps"],
         "as_of": known["as_of"],
         "after": after,
     }
@@ -1854,22 +1873,6 @@ def _od_view(ledger: list[dict], loans: list[dict], since_rows: list[dict] | Non
     view["sweeps_since"] = len(rows)
     view["now"] = round(view["owed"] + moved, 2) if view["owed_said"] else 0.0
     return view
-
-
-def _od_headroom(limit, od_card: dict | None) -> float:
-    """What the overdraft would still lend: its limit less what is drawn.
-
-    Nothing when either half is unknown. A limit with no drawn figure beside
-    it is not headroom — it is a guess that he owes nothing, and the one time
-    this page made that guess it was wrong by a lakh.
-    """
-    try:
-        cap = float(limit or 0)
-    except (TypeError, ValueError):
-        return 0.0
-    if cap <= 0 or not od_card or not str(od_card.get("stated_on") or ""):
-        return 0.0
-    return round(max(cap - float(od_card.get("drawn_amount") or 0), 0.0), 2)
 
 
 def _od_loan(loans: list[dict], account: str) -> dict | None:
@@ -2141,10 +2144,8 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
         # this panel never counted, while the page said the only thing
         # standing between him and the debt was sixty-six thousand of shares.
         "in_bank": bank_total,
-        # Said, never added: the headroom is a loan he has not taken. It is
-        # the limit less what the overdraft card says he has drawn — not the
-        # limit worn down by sweeps, which is what this used to show.
-        "od_headroom": _od_headroom(bank.get("od_limit"), od_card),
+        # Said, never added: the headroom is a loan he has not taken.
+        "od_headroom": round(float(bank.get("in_od") or 0), 2),
         # Debts minus what he owns: the honest distance to dry land.
         "net": round(held + bank_total - total_debt, 2),
         # The provident fund is his too, and it is the largest thing he owns
@@ -3052,23 +3053,37 @@ async def loan_create(request: Request, user: dict = Depends(_unlocked_user)):
 
 @router.put("/api/sanctuary/od/held")
 async def od_held_put(request: Request, user: dict = Depends(_unlocked_user)):
-    """Record the overdraft's limit, off the bank.
+    """Record what is sitting IN the sweep account, off the bank.
 
-    It used to take "your money parked in it" as well. For his account that
-    was never a real figure — the limit was typed into it — so it is no
-    longer kept. An "amount" sent by a page still open from before is read
-    and ignored rather than refused, so the save does not fail under him.
+    Not what it lends him — what of his is parked in it. The two are
+    different facts and the page must never add one to the other.
     """
     payload = await request.json()
-    try:
-        limit = round(float(payload.get("limit") or 0), 2)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="Bad amount") from None
-    if not 0 <= limit <= 100_000_000:
-        raise HTTPException(status_code=400, detail="Bad amount")
+    figures = {}
+    for field in ("amount", "limit"):
+        if field not in payload:
+            continue
+        try:
+            figures[field] = round(float(payload.get(field) or 0), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Bad amount") from None
+        if not 0 <= figures[field] <= 100_000_000:
+            raise HTTPException(status_code=400, detail="Bad amount")
+    amount = figures.get("amount", 0.0)
     user_id = int(user["id"])
-    await sanctuary_db.set_json_state(user_id, OD_HELD_STATE, {"limit": limit} if limit else {})
-    return {"limit": limit or None}
+    # Anchored the same way the drawn figure is: at the later of today and
+    # the newest sweep already posted, so a sweep dated ahead of today is
+    # not applied to it twice.
+    on = _od_anchor(
+        _today_ist().isoformat(),
+        await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY]),
+    )
+    kept = await sanctuary_db.get_json_state(user_id, OD_HELD_STATE, {})
+    kept.update({"amount": amount, "on": on})
+    if "limit" in figures:
+        kept["limit"] = figures["limit"]
+    await sanctuary_db.set_json_state(user_id, OD_HELD_STATE, kept)
+    return {"amount": amount, "on": on, "limit": kept.get("limit")}
 
 
 @router.put("/api/sanctuary/od/owed")
@@ -4144,6 +4159,8 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         # count of rows posted after it so a stale figure says so itself.
         "bank_balance": bank["balance"],
         "bank_current": bank.get("current"),
+        "bank_in_od": bank.get("in_od"),
+        "bank_od_on": bank.get("od_on", ""),
         "bank_od_limit": bank.get("od_limit"),
         "bank_as_of": bank["as_of"],
         "bank_after": bank["after"],
@@ -4171,9 +4188,9 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
             # also docked him for what he put ASIDE — sixty-four thousand to
             # a broker came off the month as though it had been spent.
             #
-            # The bank's own figure for the account. Where no statement has
-            # printed a balance yet the old reckoning still answers, so the
-            # tile is never blank.
+            # The bank's own figure, less what is parked in the sweep
+            # account. Where no statement has printed a balance yet the old
+            # reckoning still answers, so the tile is never blank.
             "left": (
                 round(bank["current"], 2)
                 if bank.get("current") is not None
