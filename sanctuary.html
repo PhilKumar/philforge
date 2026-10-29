@@ -1037,6 +1037,8 @@ th.sanct-sort{cursor:pointer;user-select:none} th.sanct-sort::after{content:"↕
 .od-what{font-family:var(--serif);font-weight:650;font-size:1.04rem}
 .od-owed{margin-left:auto;font-size:.9rem;font-weight:700;white-space:nowrap;color:var(--danger)}
 .od-owed.unknown{color:var(--soft);font-weight:600}
+/* The limit rides with what is owed, quieter: a ceiling, not a figure. */
+.od-limit{margin-left:8px;font-size:.78rem;font-weight:600;color:var(--soft)}
 .od-set{background:none;border:0;padding:0 0 0 6px;cursor:pointer;color:var(--moss);
   font-size:.78rem;font-weight:700;text-decoration:underline;text-underline-offset:2px}
 .od-net{font-weight:700;white-space:nowrap}
@@ -3041,16 +3043,17 @@ function renderOd(od, month){
     <div class="od-head"><span class="od-what">Sweep overdraft${
       od.account ? ` <span class="num">··${esc(od.account.slice(-4))}</span>` : ""}</span>
       ${od.owed_said
-        ? `<span class="od-owed">owed <b class="num">${inr(od.owed)}</b> <button class="od-set" id="od-set">change</button></span>`
+        ? `<span class="od-owed">owed <b class="num">${inr(od.owed)}</b> <button class="od-set" id="od-set">change</button>
+           <span class="od-limit">${S.fin && S.fin.bank_od_limit ? `of ${inr(S.fin.bank_od_limit)} limit` : "limit"}
+           <button class="od-set" id="od-held-edit">${S.fin && S.fin.bank_od_limit ? "edit" : "set"}</button></span></span>`
         : `<span class="od-owed unknown">${od.owed_unanchored
             ? "the figure here has no date on it, so it cannot be today's"
             : "balance not stated"} <button class="od-set" id="od-set">set it</button></span>`}</div>
     ${od.owed_said && od.sweeps_since ? `<div class="od-since">
-      ${od.moved_since
-        ? `${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"} since ${esc(niceDate(od.stated_on))} put it at about
-           <b class="num">${inr(od.now)}</b> <button class="od-set" id="od-accept">make that the figure</button>`
-        : `${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"} since ${esc(niceDate(od.stated_on))}, net nothing — still ${inr(od.owed)}`}
-      <small>an estimate from the statements you have imported; the bank's figure is the one that counts</small>
+      ${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"} since you stated it on ${esc(niceDate(od.stated_on))} —
+      check the bank and <button class="od-set" id="od-recheck">change it</button>
+      <small>The sweeps cannot say what it stands at: carried forward from 19 Sep they put it at ₹2.5 lakh on a day the
+      bank said ₹1,05,556. Only the bank's figure counts.</small>
     </div>` : ""}
     ${od.moves ? `<div class="od-flow">
       <span>${esc(niceMonth(month))}: drew <b class="num">${inr(od.drawn)}</b></span>
@@ -3061,38 +3064,31 @@ function renderOd(od, month){
   </div>`;
   const set = $("od-set");
   if (set) set.onclick = () => odOwedForm(od);
-  const accept = $("od-accept");
-  if (accept) accept.onclick = async () => {
-    try {
-      await api("/api/sanctuary/od/owed", {method: "PUT", body: {owed: od.now, account: od.account || ""}});
-      refreshFinance(); loadLoans();
-      toast(`Carried forward to ${inr(od.now)}. 🏛️`);
-    } catch (err) { toast(err.message || "That did not take"); }
-  };
+  const recheck = $("od-recheck");
+  if (recheck) recheck.onclick = () => odOwedForm(od);
 }
 /* What is PARKED in the sweep account — his money, not what it lends him.
    The statement's running balance is the current account only, and it is the
    figure AFTER a sweep has taken money across, so what went across appeared
    nowhere at all. Stated once; every sweep after that day carries it. */
+/* The overdraft's limit — what it would lend at most. It used to ask for
+   "your money parked in it" as well, which for his account was never a real
+   figure: the limit was typed into it, then counted as cash. */
 function odHeldForm(){
-  const held = (S.fin && S.fin.bank_in_od) || 0;
-  const wrap = modal(`<h4>Money sitting in the sweep account</h4>
-    <div class="section-sub" style="margin-bottom:10px">Two different facts, and a bank's "available balance" adds them
-    together. Only the first is your money; the second is what it would lend you, and nothing here ever counts it as yours.</div>
-    <label>Your money parked in it</label>
-    <input class="field num" id="odh-amt" type="number" min="0" step="0.01" value="${held || ""}" placeholder="330000">
-    <label>The limit it lends against <span style="font-weight:400">— recorded, never counted</span></label>
+  const wrap = modal(`<h4>The overdraft's limit</h4>
+    <div class="section-sub" style="margin-bottom:10px">The most it would lend you. Recorded so the page can say how much
+    you could still draw — never counted as money you have.</div>
+    <label>Limit (₹)</label>
     <input class="field num" id="odh-lim" type="number" min="0" step="0.01" value="${(S.fin && S.fin.bank_od_limit) || ""}" placeholder="330000">
     <div class="m-foot"><button class="btn subtle" id="odh-cancel">Leave it</button>
     <button class="btn" id="odh-save">Keep it</button></div>`);
   wrap.querySelector("#odh-cancel").onclick = () => wrap.remove();
   wrap.querySelector("#odh-save").onclick = async () => {
-    const amount = Number(wrap.querySelector("#odh-amt").value || 0);
     try {
       await api("/api/sanctuary/od/held", {method: "PUT",
-        body: {amount, limit: Number(wrap.querySelector("#odh-lim").value || 0)}});
+        body: {limit: Number(wrap.querySelector("#odh-lim").value || 0)}});
       wrap.remove(); refreshFinance(); loadLoans();
-      toast(amount ? "Counted with the bank now. 🏛️" : "Cleared.");
+      toast("Limit kept. 🏛️");
     } catch (err) { toast(err.message || "That did not take"); }
   };
 }
@@ -3376,13 +3372,15 @@ function renderFinance(){
   /* tiles */
   const t = f.totals;
   $("tiles").innerHTML = `
+    <!-- The account and nothing else — what his bank app shows as the
+         balance. The overdraft is named beside it as what it is, a debt,
+         and is never added in: the page once showed ₹88,542 here, the
+         ₹6,600 he had plus ₹81,942 of a credit limit worn down by sweeps. -->
     <div class="tile card"><div class="lbl">In the bank</div>
       <div class="val num ${f.bank_balance != null && f.bank_balance < 0 ? "neg" : ""}">${f.bank_balance != null ? inr(f.bank_balance) : "—"}</div>
-      <div class="sub">${f.bank_balance == null
-        ? `no statement figure yet · <span class="edit" id="od-held-edit">sweep account</span>`
-        : f.bank_in_od
-        ? `${inr(f.bank_current)} account + ${inr(f.bank_in_od)} sweep · <span class="edit" id="od-held-edit">edit</span>`
-        : `${niceDate(f.bank_as_of)} · <span class="edit" id="od-held-edit">money in the sweep account?</span>`}</div></div>
+      <div class="sub">${f.bank_balance == null ? "no statement figure yet"
+        : `${niceDate(f.bank_as_of)}${f.od && f.od.owed_said && f.od.owed
+          ? ` · overdraft owes <b class="num">${inr(f.od.owed)}</b>` : ""}`}</div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
       <div class="sub num">daily ${inr(t.expenses)} + EMIs ${inr(t.emis)}${t.inflow ? ` · came in ${inr(t.inflow)}` : ""}</div></div>
@@ -3391,8 +3389,7 @@ function renderFinance(){
       <div class="sub">NPS · PF · SIP…</div></div>
     <div class="tile card"><div class="lbl">Left to breathe</div>
       <div class="val num ${t.left < 0 ? "neg" : "pos"}">${inr(t.left)}</div>
-      <div class="sub">${f.bank_in_od ? `in the account, ${inr(f.bank_balance)} less the ${inr(f.bank_in_od)} swept aside`
-        : f.bank_balance != null ? `in the account, ${niceDate(f.bank_as_of)}` : "to spend − spent − saved"}</div></div>`;
+      <div class="sub">${f.bank_balance != null ? `in the account, ${niceDate(f.bank_as_of)}` : "to spend − spent − saved"}</div></div>`;
   renderOd(f.od, f.month);
   /* quick cats — fixed inline marks keep the fast row calm and legible without
      changing the category's stored emoji (which remains available elsewhere). */
