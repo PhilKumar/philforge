@@ -520,5 +520,87 @@ class DashboardSummaryTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class DashboardZerodhaRealTests(unittest.IsolatedAsyncioTestCase):
+    """The Real card is Dhan's day plus Zerodha's (Phil, 2026-10-29)."""
+
+    def setUp(self):
+        app_module._DASHBOARD_ZERODHA_CACHE.clear()
+
+    def _dhan(self, **over):
+        return {
+            "available": True,
+            "source": "dhan",
+            "source_label": "Dhan today",
+            "gross_pnl": 720.0,
+            "net_pnl": 700.0,
+            "charges": 20.0,
+            "trades": 4,
+            "stale": False,
+            **over,
+        }
+
+    def test_connected_zerodha_adds_to_dhan(self):
+        merged = app_module._merge_dashboard_zerodha(
+            self._dhan(),
+            {"connected": True, "net_pnl": -150.5, "gross_pnl": -120.0, "charges": 30.5, "trades": 2},
+        )
+        self.assertEqual(merged["net_pnl"], 549.5)
+        self.assertEqual(merged["trades"], 6)
+        self.assertEqual(merged["charges"], 50.5)
+        self.assertEqual(merged["source_label"], "Dhan + Zerodha today")
+
+    def test_zerodha_not_logged_in_says_so_and_keeps_dhan(self):
+        merged = app_module._merge_dashboard_zerodha(
+            self._dhan(), {"connected": False, "reason": "zerodha_login_needed"}
+        )
+        self.assertEqual(merged["net_pnl"], 700.0)
+        self.assertEqual(merged["source_label"], "Dhan today · Zerodha not logged in")
+
+    def test_no_kite_app_leaves_dhan_alone(self):
+        merged = app_module._merge_dashboard_zerodha(self._dhan(), {"connected": False, "reason": "zerodha_missing"})
+        self.assertEqual(merged, self._dhan())
+
+    def test_engine_fallback_is_not_double_counted(self):
+        fallback = app_module._empty_dashboard_real_snapshot("Broker not connected")
+        merged = app_module._merge_dashboard_zerodha(fallback, {"connected": True, "net_pnl": 500.0, "trades": 3})
+        self.assertEqual(merged, fallback)
+
+    async def test_yesterdays_fills_before_kite_clears_are_not_today(self):
+        class _Kite:
+            def get_positions(self):
+                return [{"dayPnl": 900.0, "netQty": 0}]
+
+            def get_trades(self):
+                return [{"orderId": "1", "exchangeTime": "2001-01-01 10:00:00"}]
+
+            def get_order_charges(self):
+                return {"total": 10.0, "brokerage": 5.0}
+
+        with patch.object(app_module, "_user_zerodha_client", return_value=(_Kite(), "zerodha")):
+            snap = await app_module._load_dashboard_zerodha_snapshot({"id": 7})
+        self.assertTrue(snap["connected"])
+        self.assertEqual((snap["net_pnl"], snap["trades"]), (0.0, 0))
+
+    async def test_todays_fills_count_net_of_charges(self):
+        today = app_module._ist_date_str()
+
+        class _Kite:
+            def get_positions(self):
+                return [{"dayPnl": 900.0, "netQty": 0}]
+
+            def get_trades(self):
+                return [
+                    {"orderId": "1", "exchangeTime": f"{today} 10:00:00"},
+                    {"orderId": "2", "exchangeTime": f"{today} 10:05:00"},
+                ]
+
+            def get_order_charges(self):
+                return {"total": 40.0, "brokerage": 40.0}
+
+        with patch.object(app_module, "_user_zerodha_client", return_value=(_Kite(), "zerodha")):
+            snap = await app_module._load_dashboard_zerodha_snapshot({"id": 7})
+        self.assertEqual((snap["net_pnl"], snap["gross_pnl"], snap["trades"]), (860.0, 900.0, 2))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1091,6 +1091,7 @@ def _iter_user_state_files(prefix: str):
 
 _DASHBOARD_REAL_CACHE: Dict[int, dict] = {}
 _DASHBOARD_REAL_CACHE_TTL_SECONDS = 20.0
+_DASHBOARD_ZERODHA_CACHE: Dict[int, dict] = {}
 _FII_DII_CACHE = {"timestamp": 0.0, "ttl": 1800.0, "data": None}
 _FII_DII_HISTORY_ROWS: list[dict] | None = None
 
@@ -1299,6 +1300,83 @@ def _load_dashboard_real_snapshot_sync(user_id: int, broker_client: DhanClient |
 
 async def _load_dashboard_real_snapshot(user_id: int, broker_client: DhanClient | None) -> dict:
     return await asyncio.to_thread(_load_dashboard_real_snapshot_sync, int(user_id), broker_client)
+
+
+async def _load_dashboard_zerodha_snapshot(user: dict | None) -> dict:
+    """Today's result at Zerodha for the Dashboard's Real card.
+
+    The card read Dhan's tradebook alone (Phil, 2026-10-29: "The real has only
+    Dhan... not both?"). Net of Kite's own charges where Kite can say them,
+    the same figure the Portfolio month panel books. Cached as Dhan's is, so
+    the 30-second refresh does not ask Kite three times a minute.
+    """
+    client, source = _user_zerodha_client(user)
+    if not client:
+        return {"connected": False, "reason": source}
+    user_id = int((user or {}).get("id") or 0)
+    today_str = _ist_date_str()
+    now = time.time()
+    cached = _DASHBOARD_ZERODHA_CACHE.get(user_id)
+    if (
+        cached
+        and cached.get("date") == today_str
+        and (now - float(cached.get("timestamp") or 0)) < _DASHBOARD_REAL_CACHE_TTL_SECONDS
+    ):
+        return deepcopy(cached["data"])
+    try:
+        positions, trades = await asyncio.gather(
+            asyncio.to_thread(client.get_positions), asyncio.to_thread(client.get_trades)
+        )
+        charges = None
+        if trades:
+            try:
+                charges = await asyncio.to_thread(client.get_order_charges)
+            except Exception as exc:
+                _logger.warning("[ZERODHA] charges for today's orders unavailable: %s", exc)
+    except Exception as exc:
+        if cached and cached.get("date") == today_str:
+            return {**deepcopy(cached["data"]), "stale": True}
+        return {"connected": False, "reason": str(exc)[:200]}
+    # Before Kite clears its day (~07:30-08:00) it still hands back
+    # yesterday's fills and positions; those are not today's money.
+    fills_day = _zerodha_fills_day(trades)
+    yesterday = (fills_day is not None and fills_day != today_str) or (
+        fills_day is None and datetime.now(IST).time() < dt_time(9, 15)
+    )
+    entry = None if yesterday else _zerodha_day_entry(positions, trades, charges)
+    data = {
+        "connected": True,
+        "net_pnl": round(float((entry or {}).get("real_net_pnl") or 0.0), 2),
+        "gross_pnl": round(float((entry or {}).get("real_pnl") or 0.0), 2),
+        "charges": round(float((entry or {}).get("real_total_costs") or 0.0), 2),
+        "trades": int((entry or {}).get("real_trades") or 0),
+        "stale": False,
+    }
+    _DASHBOARD_ZERODHA_CACHE[user_id] = {"date": today_str, "timestamp": now, "data": deepcopy(data)}
+    return data
+
+
+def _merge_dashboard_zerodha(real_snapshot: dict, zerodha: dict | None) -> dict:
+    """Dhan's day plus Zerodha's, for the Real card.
+
+    Only on top of Dhan's own tradebook: when Dhan cannot answer, the card
+    falls back to the engines' view, which already counts every broker's
+    engine trades, and adding Zerodha's tradebook to it would count them twice.
+    """
+    if not real_snapshot.get("available"):
+        return real_snapshot
+    zerodha = zerodha or {}
+    merged = dict(real_snapshot)
+    if zerodha.get("connected"):
+        for key in ("net_pnl", "gross_pnl", "charges"):
+            merged[key] = round(float(merged.get(key) or 0) + float(zerodha.get(key) or 0), 2)
+        merged["trades"] = int(merged.get("trades") or 0) + int(zerodha.get("trades") or 0)
+        merged["source"] = "dhan+zerodha"
+        merged["source_label"] = "Dhan + Zerodha today"
+        merged["stale"] = bool(merged.get("stale") or zerodha.get("stale"))
+    elif zerodha.get("reason") == "zerodha_login_needed":
+        merged["source_label"] = "Dhan today · Zerodha not logged in"
+    return merged
 
 
 def _parse_fii_dii_date(value: str) -> date | None:
@@ -9462,7 +9540,10 @@ async def dashboard_summary(request: Request):
     live_scalp_trades = int(scalp_flow["live"]["trades"] or 0)
 
     _user, broker_client, broker_source = await _request_broker_context(request)
-    real_snapshot = await _load_dashboard_real_snapshot(user_id, broker_client)
+    real_snapshot, zerodha_snapshot = await asyncio.gather(
+        _load_dashboard_real_snapshot(user_id, broker_client), _load_dashboard_zerodha_snapshot(_user)
+    )
+    real_snapshot = _merge_dashboard_zerodha(real_snapshot, zerodha_snapshot)
     fii_dii_snapshot = await _load_dashboard_fii_dii_snapshot()
 
     paper_total_pnl = round(paper_strategy_pnl_val + paper_scalp_pnl, 2)
