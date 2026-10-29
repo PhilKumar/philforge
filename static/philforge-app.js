@@ -15648,8 +15648,9 @@ window.toggleScalpRail = toggleScalpRail;
 // candles come from Dhan's history (reused for 20s on the server), so between
 // those the page builds the current bar itself from the premium it already
 // polls: high, low and close follow the price, and a new bar opens on the
-// 09:15 grid. Only on a day the chart already holds a bar from, so a holiday
-// or a closed market never grows bars from a stale price.
+// 09:15 grid. A new day's first bar only from a price trading that day (see
+// _scalpTradingToday), so a holiday or a closed market never grows bars from
+// a stale price.
 const _SCALP_TF_SEC = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600 };
 // The chart opens on three trading days -- today and the two before it, each
 // with its own CPR (Phil, 2026-10-20: "let the chart shows 3 days of data";
@@ -15685,6 +15686,21 @@ function _scalpChartLivePrice(key) {
 
 // Fold the live price into data's last bar (or open the next one). True when
 // the candles changed. Builds new arrays so the renderer re-reads its axis.
+// THE OPEN (Phil, 2026-10-29: "The first few seconds when the market starts,
+// I am not seeing any candles and not able to catch the best move"). Until
+// Dhan's history has a bar of today, the chart's last bar is yesterday's, and
+// the first bar of the session is opened here from the live price -- but only
+// from a price that is TRADING today: one that has moved since this page first
+// saw it in the session. At 09:15 that is the first tick; a holiday's quote
+// never moves, so it never opens a bar.
+const _scalpOpenSeen = {}; // key -> {day, first, moved}
+function _scalpTradingToday(key, day, price) {
+  let seen = _scalpOpenSeen[key];
+  if (!seen || seen.day !== day) seen = _scalpOpenSeen[key] = { day, first: price, moved: false };
+  if (price !== seen.first) seen.moved = true;
+  return seen.moved;
+}
+
 // `alt`: the companion chart's state ({price, priceKey, bar}), which grows
 // its own candle from its own price.
 function _scalpApplyLiveBar(data, key, alt) {
@@ -15696,7 +15712,12 @@ function _scalpApplyLiveBar(data, key, alt) {
   const win = pfChartBarWindow(now, tf, data.session);
   const last = candles[candles.length - 1];
   const lastT = Number(last.t);
-  if (!win || pfChartIstDay(lastT) !== win.day || lastT > win.start || (lastT - win.open) % tf !== 0) return false;
+  if (!win || lastT > win.start) return false;
+  if (pfChartIstDay(lastT) === win.day) {
+    if ((lastT - win.open) % tf !== 0) return false;
+  } else if (!_scalpTradingToday(key, win.day, price)) {
+    return false;
+  }
   let live = alt ? alt.bar : _scalpLiveBar;
   if (!live || live.key !== key || live.tf !== tf || live.t !== win.start) {
     live = { key, tf, t: win.start, o: price, h: price, l: price };

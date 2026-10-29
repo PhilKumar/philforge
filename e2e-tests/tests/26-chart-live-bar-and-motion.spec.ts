@@ -163,6 +163,29 @@ test('a day with no bar of its own grows nothing and shows no clock', async ({ p
   expect(now.paint.countdown).toBe('');
 });
 
+test('at the open the first bar is drawn from the price as soon as it trades, before Dhan has one', async ({ page }) => {
+  // Phil, 2026-10-29: "The first few seconds when the market starts, I am not
+  // seeing any candles". Dhan's history still ends yesterday at 09:15:20.
+  await page.clock.setFixedTime(new Date('2026-10-15T09:15:20+05:30'));
+  const candles = oneMinuteBars('2026-10-14', '15:29:00');
+  await scalpChart(page, candles, 150);
+  await page.waitForTimeout(1500);
+  // A price that has not moved yet could be a holiday's: nothing.
+  expect((await canvas(page)).candles.length).toBe(candles.length);
+  // It trades: the 09:15 bar opens at once, and follows.
+  await page.unroute('**/api/option-ltp**');
+  await page.route('**/api/option-ltp**', (route) => route.fulfill({ json: { status: 'ok', ltp: 152 } }));
+  await page.evaluate(() => { (window as unknown as { _scalpCurrentLTP: number })._scalpCurrentLTP = 152; });
+  await expect.poll(async () => (await canvas(page)).candles.length).toBe(candles.length + 1);
+  expect((await canvas(page)).candles.at(-1)).toMatchObject({ t: ist('2026-10-15T09:15:00'), o: 152, h: 152, l: 152, c: 152 });
+  await page.unroute('**/api/option-ltp**');
+  await page.route('**/api/option-ltp**', (route) => route.fulfill({ json: { status: 'ok', ltp: 149.5 } }));
+  await page.evaluate(() => { (window as unknown as { _scalpCurrentLTP: number })._scalpCurrentLTP = 149.5; });
+  await expect.poll(async () => (await canvas(page)).candles.at(-1)!.c).toBe(149.5);
+  expect((await canvas(page)).candles.at(-1)).toMatchObject({ o: 152, h: 152, l: 149.5 });
+  expect((await canvas(page)).candles.length).toBe(candles.length + 1);
+});
+
 test('the wheel glides, a sideways swipe pans, and a flicked pan coasts', async ({ page }) => {
   const candles = [...oneMinuteBars('2026-10-13', '15:29:00'), ...oneMinuteBars('2026-10-14', '15:29:00')];
   await page.setViewportSize({ width: 1400, height: 1000 });

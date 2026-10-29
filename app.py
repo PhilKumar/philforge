@@ -25523,6 +25523,33 @@ async def delete_scalp_trade(tid: int, request: Request):
 # or order decisions.
 _SCALP_OPTION_CHART_CACHE: Dict[tuple[int, int], tuple[float, dict]] = {}
 _SCALP_OPTION_CHART_CACHE_TTL_SEC = 20.0
+# THE OPEN (Phil, 2026-10-29: "The first few seconds when the market starts, I
+# am not seeing any candles"). A chart cached before 09:15 holds no bar of
+# today, and for 20 seconds every ask got it back. In the first minutes of a
+# session, a payload with no bar of today is asked of Dhan again after 3s.
+_SCALP_CHART_OPEN_TTL_SEC = 3.0
+_SCALP_CHART_OPEN_WINDOW_MIN = 5
+
+
+def _scalp_chart_cache_fresh(cached: tuple, now: datetime | None = None) -> bool:
+    age = time.monotonic() - cached[0]
+    if age >= _SCALP_OPTION_CHART_CACHE_TTL_SEC:
+        return False
+    if age < _SCALP_CHART_OPEN_TTL_SEC:
+        return True
+    payload = cached[1] or {}
+    candles = payload.get("candles") or []
+    session = payload.get("session") or {}
+    if not candles or not session.get("open"):
+        return True
+    now = now or datetime.now(IST)
+    if _nse_session_closed(now.date()):
+        return True
+    open_h, open_m = (int(x) for x in str(session["open"]).split(":"))
+    opened = datetime.combine(now.date(), dt_time(open_h, open_m), tzinfo=IST)
+    if not (opened <= now < opened + timedelta(minutes=_SCALP_CHART_OPEN_WINDOW_MIN)):
+        return True
+    return datetime.fromtimestamp(int(candles[-1]["t"]), IST).date() >= now.date()
 
 
 async def _scalp_open_trade_for_chart(user_id: int, trade_id: int) -> dict | None:
@@ -26075,7 +26102,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
     tf, candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
     cache_key = (int(user_id), int(trade_id), tf)
     cached = _SCALP_OPTION_CHART_CACHE.get(cache_key)
-    if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
+    if cached and _scalp_chart_cache_fresh(cached):
         return {**_scalp_option_chart_with_live_price(cached[1], trade), "cached": True}
 
     underlying = str(trade.get("underlying") or "").strip().upper()
@@ -26384,7 +26411,7 @@ async def get_scalp_contract_chart(
     live = {"current_premium": live_price if 0 < float(live_price or 0) < 1e6 else 0}
     cache_key = (int(user_id), underlying, strike, expiry, option_type, tf)
     cached = _SCALP_CONTRACT_CHART_CACHE.get(cache_key)
-    if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
+    if cached and _scalp_chart_cache_fresh(cached):
         return {**_scalp_option_chart_with_live_price(cached[1], live), "cached": True}
 
     security_id = await asyncio.to_thread(ScripMaster.lookup, underlying, strike, expiry, option_type)
@@ -26468,7 +26495,7 @@ async def scalp_underlying_chart(request: Request, underlying: str = "", expiry:
     mcx = is_mcx_underlying(name)
     cache_key = (name, str(expiry or "") if mcx else "", tf)
     cached = _SCALP_UNDERLYING_CHART_CACHE.get(cache_key)
-    if cached and time.monotonic() - cached[0] < _SCALP_OPTION_CHART_CACHE_TTL_SEC:
+    if cached and _scalp_chart_cache_fresh(cached):
         return {**cached[1], "cached": True}
     try:
         spec = await asyncio.to_thread(_ob.underlying_spec, name, str(expiry or ""))
