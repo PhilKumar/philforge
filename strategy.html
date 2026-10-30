@@ -67,9 +67,7 @@
   #insights-heatmap .card-heading h1, #insights-heatmap .card-heading h2, #insights-heatmap .rail-heading h3, #insights-heatmap .hero-symbol { font-family:var(--font-display, 'Syne', sans-serif); letter-spacing:-.02em; }
   [data-theme="light"] #insights-heatmap .surface-card { background:rgba(255,255,255,.86); box-shadow:0 8px 22px rgba(15,23,42,.06); }
   /* Light mode needs a real surface, not the dark universal monthly-tile wash. */
-  [data-theme="light"] #portfolio-page #portfolio-monthly-summary { background:rgba(255,255,255,.82) !important; border-color:rgba(15,23,42,.10) !important; }
-  [data-theme="light"] #portfolio-page .portfolio-monthly-day { background:rgba(255,255,255,.80) !important; border-color:rgba(15,23,42,.10) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.9) !important; }
-  [data-theme="light"] #portfolio-page .portfolio-monthly-day:not(.portfolio-paper-day) { border-top:2px solid color-mix(in srgb, var(--accent) 40%, transparent) !important; }
+  [data-theme="light"] #portfolio-page .portfolio-paper-day { background:rgba(255,255,255,.80) !important; border-color:rgba(15,23,42,.10) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.9) !important; }
   [data-theme="light"] #stock-regular-extra { background:linear-gradient(135deg, rgba(15,118,110,.055), rgba(14,165,233,.035)) !important; border-color:rgba(15,118,110,.18) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 </style>
 <script src="/static/error-handler.js" defer></script>
@@ -1425,194 +1423,137 @@
     <div class="pf-workspace-hero-copy">
       <div class="pf-workspace-eyebrow">Capital ledger</div>
       <h1>Portfolio</h1>
-      <p>Capital, daily performance, and every paper or live strategy session in one clean ledger.</p>
-    </div>
-    <div class="pf-workspace-hero-meta" aria-hidden="true">
-      <div><span>Capital</span><strong>Balance</strong></div>
-      <div><span>Performance</span><strong>Daily</strong></div>
-      <div><span>History</span><strong>Sessions</strong></div>
-    </div>
-  </section>
-  <!-- Compact capital ledger — the same information density as Cascade. -->
-  <section class="portfolio-capital-ledger" aria-labelledby="portfolio-capital-ledger-title">
-    <header class="portfolio-capital-ledger-head">
-      <div>
-        <span id="portfolio-capital-ledger-title">Capital &amp; session pulse</span>
-        <strong>Available funds and today's execution health</strong>
-      </div>
-      <em id="portfolio-capital-count">4 live metrics</em>
-    </header>
-    <div class="portfolio-broker-tag" id="portfolio-dhan-tag" hidden><b class="pf-broker-chip pf-broker-dhan">Dhan</b></div>
-    <div class="portfolio-capital-grid">
-      <article class="portfolio-capital-metric">
-        <div class="portfolio-metric-label">Available Balance</div>
-        <div class="portfolio-metric-value accent" id="portfolio-balance">₹0.00</div>
-        <div class="portfolio-metric-note">Total funds available</div>
-      </article>
-      <article class="portfolio-capital-metric">
-        <div class="portfolio-metric-label">Today's P&amp;L</div>
-        <div class="portfolio-metric-value positive" id="portfolio-today-pnl">₹0.00</div>
-        <div class="portfolio-metric-note">Daily profit or loss</div>
-      </article>
-      <article class="portfolio-capital-metric">
-        <div class="portfolio-metric-label">Trades Today</div>
-        <div class="portfolio-metric-value secondary" id="portfolio-total-trades">0</div>
-        <div class="portfolio-metric-note">Orders executed today</div>
-      </article>
-      <article class="portfolio-capital-metric">
-        <div class="portfolio-metric-label">Win Rate</div>
-        <div class="portfolio-metric-value positive" id="portfolio-win-rate">0%</div>
-        <div class="portfolio-metric-note">Profitable closed trades</div>
-      </article>
-    </div>
-    <!-- The second broker's own row; shown once a Kite app is saved. -->
-    <div id="portfolio-zerodha-row" hidden>
-      <div class="portfolio-broker-tag"><b class="pf-broker-chip pf-broker-zerodha">Zerodha</b><span id="portfolio-zerodha-id"></span><em id="portfolio-zerodha-note"></em></div>
-      <div class="portfolio-capital-grid">
-        <article class="portfolio-capital-metric">
-          <div class="portfolio-metric-label">Available Balance</div>
-          <div class="portfolio-metric-value accent" id="portfolio-zerodha-balance">—</div>
-          <div class="portfolio-metric-note">Funds available at Zerodha</div>
-        </article>
-        <article class="portfolio-capital-metric">
-          <div class="portfolio-metric-label">Today's P&amp;L</div>
-          <div class="portfolio-metric-value" id="portfolio-zerodha-pnl">—</div>
-          <div class="portfolio-metric-note">Booked and open, as Zerodha reports it</div>
-        </article>
-        <article class="portfolio-capital-metric">
-          <div class="portfolio-metric-label">Trades Today</div>
-          <div class="portfolio-metric-value secondary" id="portfolio-zerodha-trades">—</div>
-          <div class="portfolio-metric-note">Orders filled today</div>
-        </article>
-        <article class="portfolio-capital-metric">
-          <div class="portfolio-metric-label">Open Positions</div>
-          <div class="portfolio-metric-value" id="portfolio-zerodha-open">—</div>
-          <div class="portfolio-metric-note">Held right now</div>
-        </article>
-      </div>
+      <p>Both accounts, the month, every session.</p>
     </div>
   </section>
 
-  <!-- Paper Trade P&L + Monthly P&L side-by-side. With a Zerodha app saved
-       the two brokers' months sit side by side and Paper drops beneath them
-       (the grid gets .has-zerodha; the order is set in the stylesheet). -->
-  <div class="portfolio-book-grid" id="portfolio-dual-grid">
-
-  <!-- Paper Trade P&L Summary -->
-  <section class="card portfolio-book-card portfolio-paper-book">
-    <header class="portfolio-book-head">
-      <div>
-        <h3>Paper Trade P&amp;L</h3>
-        <p>Active simulation and realised paper performance</p>
-      </div>
-      <span>Paper</span>
-    </header>
-    <div class="portfolio-paper-metrics">
-      <article class="portfolio-paper-metric">
-        <div class="portfolio-metric-label">Status</div>
-        <div class="portfolio-paper-value" id="portfolio-paper-status">Idle</div>
-      </article>
-      <article class="portfolio-paper-metric portfolio-paper-symbol">
-        <div class="portfolio-metric-label">Strategy</div>
-        <div class="portfolio-paper-value" id="portfolio-paper-symbol">—</div>
-      </article>
-      <article class="portfolio-paper-metric">
-        <div class="portfolio-metric-label">Total P&amp;L</div>
-        <div class="portfolio-paper-value mono" id="portfolio-paper-total-pnl">₹0.00</div>
-      </article>
-      <article class="portfolio-paper-metric">
-        <div class="portfolio-metric-label">Trades</div>
-        <div class="portfolio-paper-value mono" id="portfolio-paper-trades-count">0</div>
-      </article>
+  <!-- Phil, 2026-10-30: "redesign my portfolio page ... something new and
+       modern and aesthetic ... like this" (a soft glass banking dashboard).
+       Pill tabs pick the account; the month flows as rounded bars; the
+       balance is a card; today's trades are a list. -->
+  <div class="pfx-bar">
+    <div class="pfx-tabs" id="portfolio-month-broker" role="radiogroup" aria-label="Account" hidden>
+      <button type="button" data-broker="all" role="radio">All</button>
+      <button type="button" data-broker="dhan" role="radio">Dhan</button>
+      <button type="button" data-broker="zerodha" role="radio">Zerodha</button>
     </div>
-    <div id="portfolio-paper-meta">No paper run active</div>
-    <div id="portfolio-paper-monthly"></div>
-  </section>
-
-  <!-- Monthly P&L Chart (Daily breakdown for current month) -->
-  <section class="card portfolio-book-card portfolio-monthly-book">
-    <header class="portfolio-book-head">
-      <div>
-        <h3><b class="pf-broker-chip pf-broker-dhan" id="portfolio-monthly-dhan-chip" hidden>Dhan</b>Monthly Profit &amp; Loss</h3>
-        <p>Realised execution by trading day</p>
-      </div>
-      <!-- The site's own square control, the one every chart toolbar wears.
-           These were generic .btn, which is the glossy raised blue button and
-           the only thing on the page still shaped like one. -->
-      <div class="portfolio-month-controls" aria-label="Choose portfolio month">
-        <button type="button" onclick="changeMonthlyMonth(-1)" class="terminal-cascade-chart-control" aria-label="Previous month">&#9664;</button>
-        <span id="portfolio-monthly-label"></span>
-        <button type="button" onclick="changeMonthlyMonth(1)" class="terminal-cascade-chart-control" aria-label="Next month">&#9654;</button>
-      </div>
-    </header>
-    <div id="portfolio-monthly-summary"></div>
-    <div id="portfolio-monthly-grid"></div>
-    <!-- Trades for month: day-by-day table -->
-    <div id="portfolio-monthly-trades" style="margin-top: 18px; overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
-  </section>
-
-  <!-- Zerodha's month. Kite keeps no history, so this is built from the days
-       PhilForge has recorded since the account was connected. -->
-  <section class="card portfolio-book-card portfolio-monthly-book portfolio-zerodha-book" id="portfolio-zerodha-book" hidden>
-    <header class="portfolio-book-head">
-      <div>
-        <h3><b class="pf-broker-chip pf-broker-zerodha">Zerodha</b>Monthly Profit &amp; Loss</h3>
-        <p>Recorded by PhilForge from each trading day · <label class="pf-zerodha-import read-only-lock" title="Older months: Zerodha Console → Reports → Tradebook, download as CSV or Excel, then choose it here">Import Console tradebook<input type="file" id="portfolio-zerodha-import" accept=".csv,.xlsx" hidden></label></p>
-      </div>
-      <div class="portfolio-month-controls" aria-label="Choose portfolio month">
-        <button type="button" onclick="changeMonthlyMonth(-1)" class="terminal-cascade-chart-control" aria-label="Previous month">&#9664;</button>
-        <span id="portfolio-zerodha-monthly-label"></span>
-        <button type="button" onclick="changeMonthlyMonth(1)" class="terminal-cascade-chart-control" aria-label="Next month">&#9654;</button>
-      </div>
-    </header>
-    <div id="portfolio-zerodha-monthly-summary"></div>
-    <div id="portfolio-zerodha-monthly-grid"></div>
-    <div id="portfolio-zerodha-monthly-trades" style="margin-top: 18px; overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
-  </section>
-
-  </div><!-- end dual-column grid -->
-
-  <!-- Today's Trades -->
-  <div class="card portfolio-ledger-panel">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Today's Trades</h3>
-    <div style="overflow-x: auto;">
-      <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 12px;">
-        <thead>
-          <tr style="border-bottom: 2px solid var(--border); color: var(--muted);">
-            <th style="padding: 10px 0;">Time</th>
-            <th>Instrument</th>
-            <th>Type</th>
-            <th>Entry Price</th>
-            <th>Exit Price</th>
-            <th>Qty</th>
-            <th style="color: var(--success);">P&L</th>
-          </tr>
-        </thead>
-        <tbody id="portfolio-trades-body">
-          <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No trades executed today</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div id="trade-log-mobile-cards" class="mobile-data-cards"></div>
+    <div class="portfolio-month-controls pfx-month-nav" aria-label="Choose portfolio month">
+      <button type="button" onclick="changeMonthlyMonth(-1)" aria-label="Previous month">&#8249;</button>
+      <span id="portfolio-monthly-label"></span>
+      <button type="button" onclick="changeMonthlyMonth(1)" aria-label="Next month">&#8250;</button>
     </div>
+  </div>
+
+  <div class="pfx-grid" id="portfolio-strip">
+    <div class="pfx-main">
+      <section class="pfx-card pfx-flow" id="portfolio-month">
+        <header class="pfx-head"><h3>P&amp;L flow</h3><div id="portfolio-monthly-summary"></div></header>
+        <div class="pfx-chart" id="portfolio-monthly-grid"></div>
+      </section>
+
+      <div class="pfx-pair">
+        <section class="pfx-card pfx-split">
+          <header class="pfx-head"><h3>Where the month went</h3></header>
+          <div id="portfolio-month-ring"></div>
+        </section>
+        <div class="pfx-stack">
+          <section class="pfx-card pfx-mini">
+            <header class="pfx-head"><h3>Today</h3><span class="pfx-pill" id="portfolio-today-pill">0T</span></header>
+            <strong class="pfx-big" id="portfolio-total-today">₹0</strong>
+            <div class="pfx-lines">
+              <span><b class="pf-broker-chip pf-broker-dhan">Dhan</b><em id="portfolio-today-pnl">₹0.00</em></span>
+              <span class="pfolio-z"><b class="pf-broker-chip pf-broker-zerodha">Zerodha</b><em id="portfolio-zerodha-pnl">—</em></span>
+            </div>
+          </section>
+          <section class="pfx-card pfx-mini is-alt">
+            <header class="pfx-head"><h3>This month</h3><span class="pfx-pill is-alt" id="portfolio-month-pill">0/0</span></header>
+            <strong class="pfx-big" id="portfolio-total-month">₹0</strong>
+            <div class="pfx-lines">
+              <span><b class="pf-broker-chip pf-broker-dhan">Dhan</b><em id="portfolio-month-dhan">₹0.00</em></span>
+              <span class="pfolio-z"><b class="pf-broker-chip pf-broker-zerodha">Zerodha</b><em id="portfolio-month-zerodha">—</em></span>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <aside class="pfx-card pfx-wallet">
+      <header class="pfx-head"><h3>Total balance</h3><span class="pfx-pill" id="portfolio-balance-pill">today ₹0</span></header>
+      <strong class="pfx-hero-figure" id="portfolio-total-balance">₹0</strong>
+      <!-- Each account a card, fanned like a wallet: Dhan in front. -->
+      <div class="pfx-wallet-cards">
+        <div class="pfx-acct is-zerodha pfolio-z">
+          <span class="pfx-acct-name">Zerodha</span>
+          <span class="pfx-acct-label">Available</span>
+          <strong id="portfolio-zerodha-balance">—</strong>
+        </div>
+        <div class="pfx-acct is-dhan">
+          <span class="pfx-acct-name">Dhan</span>
+          <i class="pfx-acct-chip" aria-hidden="true"></i>
+          <span class="pfx-acct-label">Available</span>
+          <strong id="portfolio-balance">₹0.00</strong>
+        </div>
+      </div>
+      <!-- Only when Zerodha cannot answer: what to do about it. -->
+      <div class="pfolio-z-note" id="portfolio-zerodha-row" hidden>
+        <b class="pf-broker-chip pf-broker-zerodha">Zerodha</b><span id="portfolio-zerodha-id"></span><em id="portfolio-zerodha-note"></em>
+      </div>
+      <header class="pfx-head pfx-txn-head"><h3>Today's trades</h3></header>
+      <div class="pfx-txns" id="portfolio-trades-body"><div class="pfx-empty">No trades executed today</div></div>
+      <div class="pfx-pair pfx-tiles">
+        <section class="pfx-tile">
+          <span>Win rate</span>
+          <strong id="portfolio-win-rate">0%</strong>
+          <em><span id="portfolio-total-trades">0</span>T Dhan<span class="pfolio-z"> · <span id="portfolio-zerodha-trades">—</span>T Zerodha · <span id="portfolio-zerodha-open">—</span> open</span></em>
+        </section>
+        <section class="pfx-tile pfx-wave">
+          <span>Month curve</span>
+          <div id="portfolio-month-wave"></div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <section class="pfx-card pfx-wide">
+    <div id="portfolio-monthly-trades"></div>
+    <!-- Kite keeps today only; Console's tradebook brings the older months. -->
+    <div class="pfolio-month-foot" id="portfolio-zerodha-tools" hidden>
+      <label class="pf-zerodha-import read-only-lock" title="Zerodha Console → Reports → Tradebook, download as CSV or Excel, then choose it here">Import Zerodha Console tradebook<input type="file" id="portfolio-zerodha-import" accept=".csv,.xlsx" hidden></label>
+    </div>
+  </section>
 
   <!-- Year-to-Date Performance (Monthly grid per year) -->
   <!-- A viewer sees this panel in full — the years, the months, the trade
        counts — with the rupee figures masked. The server sends them as null;
        see _redact_money in app.py. Hiding the whole card was the earlier
        answer and it took away far more than the numbers. -->
-  <div class="card portfolio-ledger-panel">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Year-to-Date Performance<span class="portfolio-ytd-brokers" id="portfolio-ytd-brokers" hidden><b class="pf-broker-chip pf-broker-dhan">Dhan</b>+<b class="pf-broker-chip pf-broker-zerodha">Zerodha</b></span></h3>
+  <section class="pfx-card pfx-wide portfolio-ledger-panel">
+    <header class="pfx-head"><h3>Year to date<span class="portfolio-ytd-brokers" id="portfolio-ytd-brokers" hidden><b class="pf-broker-chip pf-broker-dhan">Dhan</b>+<b class="pf-broker-chip pf-broker-zerodha">Zerodha</b></span></h3></header>
     <div style="overflow-x: auto;" id="portfolio-yearly-grid"></div>
-  </div>
+  </section>
 
-  <!-- Strategy Run Sessions -->
-  <div class="card portfolio-ledger-panel">
-    <h3 style="margin-bottom: 16px; font-size: 16px; font-weight: 700;">Strategy Run Sessions</h3>
+  <!-- Paper and the strategy sessions: open on a click. -->
+  <details class="pfx-card pfx-wide pfolio-fold portfolio-paper-book">
+    <summary class="pfx-head">
+      <h3>Paper</h3>
+      <span class="pfolio-fold-figure" id="portfolio-paper-total-pnl">₹0.00</span>
+    </summary>
+    <div class="pfolio-paper-row">
+      <span>Status <b id="portfolio-paper-status">Idle</b></span>
+      <span>Strategy <b id="portfolio-paper-symbol">—</b></span>
+      <span>Trades <b id="portfolio-paper-trades-count">0</b></span>
+      <span id="portfolio-paper-meta">No paper run active</span>
+    </div>
+    <div id="portfolio-paper-monthly"></div>
+  </details>
+
+  <details class="pfx-card pfx-wide pfolio-fold">
+    <summary class="pfx-head"><h3>Strategy sessions</h3></summary>
     <div id="portfolio-paper-runs" style="overflow-x: auto; -webkit-overflow-scrolling: touch;"></div>
     <div id="portfolio-paper-pagination" class="pagination-bar" style="display:none;"></div>
     <div id="portfolio-paper-runs-empty" style="text-align: center; padding: 20px; color: var(--muted);">No paper/live strategy sessions yet.</div>
-  </div>
+  </details>
+  <div id="trade-log-mobile-cards" class="mobile-data-cards" hidden></div>
 </div>
 
 <!-- ═══ EQUITY PAGE (two strategies: Cash Cascade, Two-red ladder) ═══ -->

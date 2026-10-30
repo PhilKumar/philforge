@@ -21260,33 +21260,88 @@ function round2(n) { return Math.round(n * 100) / 100; }
 // Zerodha's own row on the Portfolio page: shown once a Kite app is saved, with
 // the Dhan row tagged so it is plain whose money each row is. Kite keeps only
 // the current day's fills, so this row is today alone.
+// The money strip: both accounts added up, each one's share beneath. Rupees
+// with Indian grouping here, where the figures are read at a glance.
+window._portfolioMoney = window._portfolioMoney || { dhanBalance: 0, dhanToday: 0, zerodha: null };
+
+function pfMoneyGrouped(value, digits = 0) {
+  if (isReadOnlyAccount()) return '₹' + PF_MONEY_MASK;
+  const n = Number(value || 0);
+  return (n < 0 ? '-₹' : '₹') + Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function _portfolioMonthNet(daily, ym) {
+  return Object.entries(daily || {}).reduce((sum, [day, row]) => (
+    String(day).startsWith(ym + '-') && row ? sum + Number(row.real_net_pnl ?? row.real_pnl ?? 0) : sum
+  ), 0);
+}
+
+function _portfolioPaintStrip() {
+  const strip = document.getElementById('portfolio-strip');
+  if (!strip) return;
+  const money = window._portfolioMoney;
+  const z = money.zerodha;
+  const zLive = !!(z && z.configured && z.connected);
+  strip.classList.toggle('has-zerodha', !!(z && z.configured));
+  const ym = getMarketYearMonth();
+  const dhanMonth = _portfolioMonthNet(window._portfolioDaily, ym);
+  const zMonth = _portfolioMonthNet(window._portfolioZerodhaDaily, ym);
+  const tone = (n) => pfMoneyTone(n > 0 ? 'var(--success)' : n < 0 ? 'var(--danger)' : 'var(--text)');
+  const set = (id, text, color = '') => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = color;
+  };
+  const balance = money.dhanBalance + (zLive ? Number(z.available || 0) : 0);
+  const today = money.dhanToday + (zLive ? Number(z.day_pnl || 0) : 0);
+  const month = dhanMonth + (z && z.configured ? zMonth : 0);
+  set('portfolio-total-balance', pfMoneyGrouped(balance));
+  set('portfolio-total-today', pfMoneyGrouped(today), tone(today));
+  set('portfolio-total-month', pfMoneyGrouped(month), tone(month));
+  set('portfolio-month-dhan', pfMoney(dhanMonth), tone(dhanMonth));
+  set('portfolio-month-zerodha', z && z.configured ? pfMoney(zMonth) : '—', tone(zMonth));
+  // The pills: today against the balance, today's trades, the month's green days.
+  const pct = balance > 0 && !isReadOnlyAccount() ? (today / balance) * 100 : 0;
+  const pill = document.getElementById('portfolio-balance-pill');
+  if (pill) {
+    pill.textContent = isReadOnlyAccount() ? 'today' : `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(2)}% today`;
+    pill.classList.toggle('is-down', pct < 0);
+  }
+  const trades = (Number(window._portfolioTodayDisplayTradeCount || 0) || 0) + (zLive ? Number(z.trades_today || 0) : 0);
+  set('portfolio-today-pill', `${trades} trade${trades === 1 ? '' : 's'}`);
+  const { totals } = _portfolioMonthEntries(
+    z && z.configured ? _portfolioMergeDaily(window._portfolioDaily, window._portfolioZerodhaDaily) : (window._portfolioDaily || {}), ym, 0);
+  set('portfolio-month-pill', isReadOnlyAccount() ? `${totals.tradingDays} days` : `${totals.profitDays}/${totals.tradingDays} green`);
+}
+
 function renderPortfolioZerodha(data) {
   const row = document.getElementById('portfolio-zerodha-row');
-  const dhanTag = document.getElementById('portfolio-dhan-tag');
-  if (!row || !dhanTag) return;
+  if (!row) return;
   const show = !!(data && data.configured);
-  row.hidden = !show;
-  dhanTag.hidden = !show;
-  const count = document.getElementById('portfolio-capital-count');
-  if (count) count.textContent = show ? '2 accounts · 8 live metrics' : '4 live metrics';
-  if (!show) return;
+  window._portfolioMoney.zerodha = show ? data : null;
   const set = (id, text, color = '') => {
     const el = document.getElementById(id);
     el.textContent = text;
     el.style.color = color;
   };
+  // The note line is for when Zerodha cannot answer; connected, the strip says it all.
+  row.hidden = !show || !!data.connected;
+  if (!show) { _portfolioPaintStrip(); return; }
   set('portfolio-zerodha-id', data.user_id || '');
   if (!data.connected) {
     set('portfolio-zerodha-note', data.logged_in_today ? (data.reason || 'Zerodha did not answer') : 'Log in to Zerodha for today (Account Settings)');
     ['portfolio-zerodha-balance', 'portfolio-zerodha-pnl', 'portfolio-zerodha-trades', 'portfolio-zerodha-open'].forEach(id => set(id, '—'));
+    _portfolioPaintStrip();
     return;
   }
   const pnl = Number(data.day_pnl || 0);
   set('portfolio-zerodha-note', '');
-  set('portfolio-zerodha-balance', pfMoney(Number(data.available || 0)));
+  set('portfolio-zerodha-balance', pfMoneyGrouped(Number(data.available || 0)));
   set('portfolio-zerodha-pnl', pfMoney(pnl), pfMoneyTone(pnl >= 0 ? 'var(--success)' : 'var(--danger)'));
   set('portfolio-zerodha-trades', String(Number(data.trades_today || 0)));
   set('portfolio-zerodha-open', String(Number(data.open_positions || 0)));
+  _portfolioPaintStrip();
 }
 
 // Zerodha's month panel. Kite has no trade history, so the days come from
@@ -21319,13 +21374,10 @@ document.addEventListener('change', (event) => {
 });
 
 async function loadPortfolioZerodhaMonth(configured) {
-  const book = document.getElementById('portfolio-zerodha-book');
-  const dualGrid = document.getElementById('portfolio-dual-grid');
-  const dhanChip = document.getElementById('portfolio-monthly-dhan-chip');
-  if (!book || !dualGrid || !dhanChip) return;
-  book.hidden = !configured;
-  dhanChip.hidden = !configured;
-  dualGrid.classList.toggle('has-zerodha', configured);
+  const seg = document.getElementById('portfolio-month-broker');
+  const tools = document.getElementById('portfolio-zerodha-tools');
+  if (seg) seg.hidden = !configured;
+  if (tools) tools.hidden = !configured;
   if (!configured) { window._portfolioZerodhaDaily = {}; return; }
   try {
     const data = await fetch('/api/zerodha/history').then(r => r.json());
@@ -21725,7 +21777,9 @@ async function loadPortfolioData() {
     const availableBal = Number(brokerData.available_balance || brokerData.funds?.availabelBalance || 0);
 
     // Update the UI
-    document.getElementById('portfolio-balance').textContent = pfMoney(availableBal);
+    window._portfolioMoney.dhanBalance = availableBal;
+    window._portfolioMoney.dhanToday = Number(todayPnL) || 0;
+    document.getElementById('portfolio-balance').textContent = pfMoneyGrouped(availableBal);
     document.getElementById('portfolio-today-pnl').textContent = pfMoney(todayPnL);
     document.getElementById('portfolio-today-pnl').style.color = pfMoneyTone(todayPnL >= 0 ? 'var(--success)' : 'var(--danger)');
     const todayTradeCount = Number(
@@ -21791,13 +21845,14 @@ async function loadPortfolioData() {
     window._currentMonthlyView = getMarketYearMonth();
     renderMonthlyDailyGrid();
     renderYearlyMonthlyTable();
+    _portfolioPaintStrip();
     _renderPortfolioPaperRuns(_allRunsCache);
     if (_portfolioRunExpandedKey) _renderPortfolioPaperRuns(_allRunsCache);
 
-    // Render today's trades (from Dhan or paper trading)
+    // Today's trades as a list: what, when, how, and the result in a pill.
     const tradesBody = document.getElementById('portfolio-trades-body');
     if (todayTradesDisplay.length === 0) {
-      tradesBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--muted);">No trades executed today</td></tr>';
+      tradesBody.innerHTML = '<div class="pfx-empty">No trades executed today</div>';
     } else {
       tradesBody.innerHTML = todayTradesDisplay.slice().reverse().map(t => {
         // Handle paired Dhan trades, raw Dhan trades, and paper trades
@@ -21815,28 +21870,30 @@ async function loadPortfolioData() {
         }
 
         const symbol = t.tradingSymbol || t.symbol || t.securityId || '-';
-        const brokerTag = t.broker ? ` <span class="pf-broker-chip is-${escapeAttr(t.broker)}">${t.broker === 'zerodha' ? 'ZERODHA' : 'DHAN'}${t.product ? ' · ' + escapeHtml(t.product) : ''}</span>` : '';
+        const broker = t.broker ? `<span class="pf-broker-chip is-${escapeAttr(t.broker)}">${t.broker === 'zerodha' ? 'ZERODHA' : 'DHAN'}${t.product ? ' · ' + escapeHtml(t.product) : ''}</span>` : '';
         const txnType = t.transactionType === 'PAIR' ? 'BUY→SELL' : (t.transactionType || t.transaction_type || '-');
         const optionType = t.option_type ? ' ' + t.option_type : '';
+        const side = /PE\b|-PE$|PE$/.test(String(symbol)) ? 'PE' : (/CE\b|-CE$|CE$/.test(String(symbol)) ? 'CE' : (t.option_type || '•'));
 
         // Prices: prefer paired format (buyAvgPrice/sellAvgPrice)
         const buyPrice = Number(t.buyAvgPrice || t.buyPrice || t.entry_price || t.tradedPrice || 0);
         const sellPrice = Number(t.sellAvgPrice || t.sellPrice || t.exit_price || 0);
         const qty = t.tradedQuantity || t.quantity || t.qty || t.lots || '-';
 
-        return `
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 10px 0;">${escapeHtml(tradeTime)}</td>
-            <td>${escapeHtml(symbol)}${brokerTag}</td>
-            <td>${escapeHtml(txnType + optionType)}</td>
-            <td style="font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(buyPrice)}</td>
-            <td style="font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(sellPrice)}</td>
-            <td>${escapeHtml(qty)}</td>
-            <td style="font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(pnl)}</td>
-          </tr>
-        `;
+        return `<div class="pfx-txn">
+            <span class="pfx-txn-ico is-${escapeAttr(String(side).toLowerCase())}">${escapeHtml(String(side))}</span>
+            <div class="pfx-txn-what">
+              <strong>${escapeHtml(symbol)}</strong>
+              <span>${escapeHtml(tradeTime)} · ${escapeHtml(txnType + optionType)} · ${escapeHtml(qty)} · ${pfMoney(buyPrice)} → ${pfMoney(sellPrice)} ${broker}</span>
+            </div>
+            <div class="pfx-txn-pnl">
+              <b style="color:${pfMoneyTone(isWin ? 'var(--text)' : 'var(--danger)')}">${pfMoney(pnl)}</b>
+              <em class="pfx-status ${isWin ? 'is-win' : 'is-loss'}">${isWin ? 'WIN' : 'LOSS'}</em>
+            </div>
+          </div>`;
       }).join('');
     }
+    _portfolioPaintStrip();
   } catch (err) {
     console.error('Failed to load portfolio data:', err);
     ['portfolio-balance', 'portfolio-today-pnl', 'portfolio-total-trades', 'portfolio-win-rate'].forEach(id => {
@@ -21974,169 +22031,249 @@ function changeMonthlyMonth(delta) {
   renderMonthlyDailyGrid();
 }
 
-// One broker's month: the summary, the day tiles and the "Trades for month"
-// table. Dhan's and Zerodha's panels are the same drawing over two ledgers.
-const PORTFOLIO_MONTH_PANELS = {
-  dhan: { prefix: 'portfolio-monthly', daily: () => window._portfolioDaily || {}, todayCount: () => Number(window._portfolioTodayDisplayTradeCount || 0) || 0 },
-  zerodha: { prefix: 'portfolio-zerodha-monthly', daily: () => window._portfolioZerodhaDaily || {}, todayCount: () => 0 },
-};
+// The month, for the account chosen above it: All (Dhan and Zerodha added
+// day by day), Dhan, or Zerodha. One calendar, one curve, one set of totals.
+const _PORTFOLIO_BROKER_KEY = 'pf-portfolio-month-broker';
+let _portfolioMonthBroker = (() => {
+  try { const v = localStorage.getItem(_PORTFOLIO_BROKER_KEY); return v === 'dhan' || v === 'zerodha' ? v : 'all'; } catch (_) { return 'all'; }
+})();
 
-function renderMonthlyDailyGrid() {
-  const dayEntries = _renderPortfolioMonthPanel(PORTFOLIO_MONTH_PANELS.dhan);
-  if (document.getElementById('portfolio-zerodha-book') && !document.getElementById('portfolio-zerodha-book').hidden) {
-    _renderPortfolioMonthPanel(PORTFOLIO_MONTH_PANELS.zerodha);
-  }
-  _renderPortfolioPaperMonth(dayEntries);
+function setPortfolioMonthBroker(broker) {
+  if (!['all', 'dhan', 'zerodha'].includes(broker)) return;
+  _portfolioMonthBroker = broker;
+  try { localStorage.setItem(_PORTFOLIO_BROKER_KEY, broker); } catch (_) {}
+  renderMonthlyDailyGrid();
+}
+window.setPortfolioMonthBroker = setPortfolioMonthBroker;
+document.addEventListener('click', (event) => {
+  const btn = event.target && event.target.closest && event.target.closest('#portfolio-month-broker [data-broker]');
+  if (btn) setPortfolioMonthBroker(btn.dataset.broker);
+});
+
+// Two brokers' days added together, field by field. A day's count is its
+// fills where the ledger has them, else its trades -- per broker, then summed.
+function _portfolioMergeDaily(dhan, zerodha) {
+  const out = {};
+  const add = (src, broker) => Object.entries(src || {}).forEach(([day, r]) => {
+    if (!r) return;
+    const m = out[day] || (out[day] = { real_pnl: 0, real_net_pnl: 0, real_charges: 0, real_brokerage: 0, real_total_costs: 0,
+      real_trades: 0, real_trade_legs: 0, real_order_count: 0, paper_pnl: 0, paper_trades: 0, split: {} });
+    const net = Number(r.real_net_pnl ?? r.real_pnl ?? 0);
+    const fills = Number(r.real_trade_legs || r.real_trades || 0);
+    m.real_pnl += Number(r.real_pnl || 0);
+    m.real_net_pnl += net;
+    m.real_charges += Number(r.real_charges || 0);
+    m.real_brokerage += Number(r.real_brokerage || 0);
+    m.real_total_costs += Number(r.real_total_costs || (Number(r.real_charges || 0) + Number(r.real_brokerage || 0)));
+    m.real_trades += fills;
+    m.real_trade_legs += fills;
+    m.real_order_count += Number(r.real_order_count || 0);
+    m.paper_pnl += Number(r.paper_pnl || 0);
+    m.paper_trades += Number(r.paper_trades || 0);
+    if (r.source === 'console') m.source = 'console';
+    if (net || fills) m.split[broker] = net;
+  });
+  add(dhan, 'dhan');
+  add(zerodha, 'zerodha');
+  return out;
 }
 
-function _renderPortfolioMonthPanel(panel) {
-  const ym = window._currentMonthlyView;
+function _portfolioMonthSource() {
+  const zOn = !document.getElementById('portfolio-month-broker')?.hidden;
+  const broker = zOn ? _portfolioMonthBroker : 'dhan';
+  const dhan = window._portfolioDaily || {};
+  const zerodha = window._portfolioZerodhaDaily || {};
+  const dhanToday = Number(window._portfolioTodayDisplayTradeCount || 0) || 0;
+  if (broker === 'zerodha') return { broker, daily: zerodha, todayCount: 0 };
+  if (broker === 'dhan') return { broker, daily: dhan, todayCount: dhanToday };
+  const today = getMarketDateKey(new Date());
+  const zToday = zerodha[today] ? Number(zerodha[today].real_trade_legs || zerodha[today].real_trades || 0) : 0;
+  return { broker, daily: _portfolioMergeDaily(dhan, zerodha), todayCount: dhanToday ? dhanToday + zToday : 0 };
+}
+
+function renderMonthlyDailyGrid() {
+  document.querySelectorAll('#portfolio-month-broker [data-broker]').forEach((b) => {
+    const on = b.dataset.broker === _portfolioMonthBroker;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+  _renderPortfolioMonthPanel(_portfolioMonthSource());
+  // Paper is Dhan's ledger's, whichever account the month shows.
+  _renderPortfolioPaperMonth(_portfolioMonthEntries(window._portfolioDaily || {}, window._currentMonthlyView, 0).dayEntries);
+}
+
+// A month's days from one ledger, and their totals.
+function _portfolioMonthEntries(daily, ym, todayDisplayTradeCount) {
   const [year, month] = ym.split('-').map(Number);
-  const monthName = MONTH_NAMES_SHORT[month - 1] + ' ' + year;
   const todayDateStr = getMarketDateKey(new Date());
-  const todayDisplayTradeCount = panel.todayCount();
-
-  document.getElementById(`${panel.prefix}-label`).textContent = monthName;
-  const grid = document.getElementById(`${panel.prefix}-grid`);
-  const summaryEl = document.getElementById(`${panel.prefix}-summary`);
-
-  const daily = panel.daily();
-
-  // Get all days in this month that have data
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayEntries = [];
-  let totalGrossRealPnl = 0, totalNetRealPnl = 0, totalCharges = 0, totalBrokerage = 0, totalTrades = 0, tradingDays = 0, profitDays = 0;
-  let importedDays = 0;
-  let totalPaperPnl = 0;
-
+  const totals = { gross: 0, net: 0, charges: 0, brokerage: 0, trades: 0, tradingDays: 0, profitDays: 0, importedDays: 0 };
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = ym + '-' + String(d).padStart(2, '0');
     // An NSE holiday is not a closed day for MCX: crude trades into the night
     // on Dussehra too (Phil, 2026-10-21: "why yesterday's commodity trade is
     // not displayed yet?"). Only a closed day with nothing real on it is skipped.
-    const dayRow = daily[dateStr];
-    const realOnDay = !!dayRow && (Number(dayRow.real_trades || dayRow.real_trade_legs || 0) > 0 || Number(dayRow.real_pnl || 0) !== 0);
+    const entry = daily[dateStr];
+    const realOnDay = !!entry && (Number(entry.real_trades || entry.real_trade_legs || 0) > 0 || Number(entry.real_pnl || 0) !== 0);
     if (isClosedMarketDay(dateStr) && !realOnDay) continue;
-    const entry = dayRow;
-    if (entry) {
-      const grossRealPnl = Number(entry.real_pnl || 0);
-      const paperPnl = Number(entry.paper_pnl || 0);
-      const netRealPnl = Number(entry.real_net_pnl ?? entry.real_pnl ?? 0);
-      const charges = entry.real_charges || 0;
-      const brokerage = entry.real_brokerage || 0;
-      const totalCosts = entry.real_total_costs || (charges + brokerage);
-      const realTrades = entry.real_trade_legs || entry.real_trades || 0;
-      const realOrderCount = entry.real_order_count || 0;
-      const displayTradeCount = dateStr === todayDateStr
-        ? (todayDisplayTradeCount || realOrderCount || realTrades)
-        : realTrades;
-      const paperTrades = entry.paper_trades || 0;
-      const tradeLegs = entry.real_trade_legs || 0;
-      const hasRealActivity = displayTradeCount > 0 || tradeLegs > 0 || grossRealPnl !== 0 || netRealPnl !== 0 || charges > 0;
-      dayEntries.push({
-        day: d,
-        dateStr,
-        charges,
-        brokerage,
-        totalCosts,
-        tradeLegs,
-        grossReal: grossRealPnl,
-        netReal: netRealPnl,
-        paper: paperPnl,
-        realTrades,
-        realOrderCount,
-        displayTradeCount,
-        paperTrades,
-        hasRealActivity,
-      });
-      if (hasRealActivity && entry.source === 'console') importedDays++;
-      if (hasRealActivity) {
-        totalGrossRealPnl += grossRealPnl;
-        totalNetRealPnl += netRealPnl;
-        totalCharges += charges;
-        totalBrokerage += brokerage;
-        totalTrades += displayTradeCount;
-        tradingDays++;
-        if (netRealPnl > 0) profitDays++;
-      }
-      totalPaperPnl += paperPnl;
-    }
-  }
-
-  const realDayEntries = dayEntries.filter(e => e.hasRealActivity);
-
-  // Summary bar — real trades only (paper is shown in the Paper Trade P&L card)
-  const isGrossProfit = totalGrossRealPnl >= 0;
-  const isNetProfit = totalNetRealPnl >= 0;
-  summaryEl.innerHTML = tradingDays > 0 ? `
-    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
-      <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Net realised P&amp;L · after charges</div>
-        <div style="font-size: 19px; font-weight: 800; color: ${pfMoneyTone(isNetProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalNetRealPnl, 2, ' ')}</div>
-      </div>
-      <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Gross P&amp;L · before charges</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone(isGrossProfit ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(totalGrossRealPnl, 2, ' ')}</div>
-      </div>
-      <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Total Trades</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${totalTrades}</div>
-      </div>
-      <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Charges</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${pfMoney(totalCharges, 2, ' ')}</div>
-      </div>
-      <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Brokerage</div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--text); font-family: 'JetBrains Mono';">${pfMoney(totalBrokerage, 2, ' ')}</div>
-      </div>
-      <div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 2px;">Profitable Days</div>
-        <div style="font-size: 16px; font-weight: 700; color: ${pfMoneyTone('var(--success)')}; font-family: 'JetBrains Mono';">${isReadOnlyAccount() ? '*' : profitDays}/${tradingDays}</div>
-      </div>
-    </div>
-    <div style="margin-top: 8px; font-size: 10px; color: var(--muted);">Charges include GST, STT, SEBI Fees, Exchange Transaction Charges and Stamp Duty. Brokerage is shown separately.</div>
-  ` : `<span style="color: var(--muted);">No trades this month</span>`;
-  // A Console tradebook carries no charges: those days are gross, said so.
-  if (importedDays > 0 && tradingDays > 0) {
-    summaryEl.insertAdjacentHTML('beforeend', `<div class="pf-import-note">${importedDays} of ${tradingDays} day${tradingDays === 1 ? '' : 's'} imported from the Zerodha Console tradebook, before charges (a tradebook carries none).</div>`);
-  }
-
-  // Daily boxes
-  if (realDayEntries.length === 0) {
-    grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--muted);">No real trade data for ' + monthName + '</div>';
-  } else {
-    let html = '';
-    realDayEntries.forEach(e => {
-      // NET IS THE DAY'S RESULT, gross is the detail. The tile used to print
-      // and colour the gross, so a day whose charges turned it into a loss
-      // still read as a green win (Phil, 22-Sep-2026: "put the net real result
-      // on the Monthly profit and loss").
-      const isWin = e.netReal >= 0;
-      const dayLabel = String(e.day).padStart(2, '0') + ' ' + MONTH_NAMES_SHORT[month - 1];
-      const detailLines = [`Gross: ${pfMoney(e.grossReal)}`, `Net: ${pfMoney(e.netReal)}`];
-      if (e.charges > 0) detailLines.push(`Charges: ${pfMoney(e.charges)}`);
-      if (e.brokerage > 0) detailLines.push(`Brokerage: ${pfMoney(e.brokerage)}`);
-      if (e.realOrderCount > 0 && e.realOrderCount !== e.realTrades) detailLines.push(`Orders: ${e.realOrderCount}`);
-      if (e.paper !== 0) detailLines.push(`Paper: ${pfMoney(e.paper)}`);
-      const details = detailLines.length ? `\n${detailLines.join('\n')}` : '';
-      // The day tile's wash is the sign in another form, so a masked tile goes
-      // neutral: asterisks on a green card are still a green day.
-      const tileFill = isReadOnlyAccount() ? 'rgba(148,163,184,0.06)' : (isWin ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)');
-      const tileEdge = isReadOnlyAccount() ? 'rgba(148,163,184,0.18)' : (isWin ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)');
-      html += `
-        <div class="portfolio-monthly-day ${isWin ? 'is-profit' : 'is-loss'}" style="padding: 8px 6px; background: ${tileFill}; border: 1px solid ${tileEdge}; border-radius: 6px; text-align: center;" title="${e.dateStr}: Net ${pfMoney(e.netReal)}${details} (${e.displayTradeCount} trades)">
-          <div style="font-size: 10px; color: var(--muted); margin-bottom: 3px;">${dayLabel}</div>
-          <div style="font-size: 13px; font-weight: 700; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';" title="Net, after charges">${pfMoney(e.netReal, 0)}</div>
-          <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${e.displayTradeCount}T · gross ${pfMoney(e.grossReal, 0)}</div>
-        </div>
-      `;
+    if (!entry) continue;
+    const grossReal = Number(entry.real_pnl || 0);
+    const netReal = Number(entry.real_net_pnl ?? entry.real_pnl ?? 0);
+    const charges = Number(entry.real_charges || 0);
+    const brokerage = Number(entry.real_brokerage || 0);
+    const realTrades = Number(entry.real_trade_legs || entry.real_trades || 0);
+    const realOrderCount = Number(entry.real_order_count || 0);
+    const displayTradeCount = dateStr === todayDateStr
+      ? (todayDisplayTradeCount || realOrderCount || realTrades)
+      : realTrades;
+    const tradeLegs = Number(entry.real_trade_legs || 0);
+    const hasRealActivity = displayTradeCount > 0 || tradeLegs > 0 || grossReal !== 0 || netReal !== 0 || charges > 0;
+    dayEntries.push({
+      day: d, dateStr, charges, brokerage, totalCosts: Number(entry.real_total_costs || (charges + brokerage)), tradeLegs,
+      grossReal, netReal, paper: Number(entry.paper_pnl || 0), realTrades, realOrderCount, displayTradeCount,
+      paperTrades: Number(entry.paper_trades || 0), hasRealActivity, split: entry.split || null,
     });
-    grid.innerHTML = html;
+    if (!hasRealActivity) continue;
+    if (entry.source === 'console') totals.importedDays++;
+    totals.gross += grossReal;
+    totals.net += netReal;
+    totals.charges += charges;
+    totals.brokerage += brokerage;
+    totals.trades += displayTradeCount;
+    totals.tradingDays++;
+    if (netReal > 0) totals.profitDays++;
   }
+  return { dayEntries, totals };
+}
+
+// The month as P&L flow (Phil, 2026-10-30: "I want something new and modern
+// and aesthetic ... like this"). A rounded, hatched bar for every traded day,
+// up from zero for a green day, down for a red one; the latest traded day --
+// or the one under the pointer -- goes solid with its figure in a bubble.
+function _portfolioCompact(n) {
+  const a = Math.abs(n);
+  const t = a >= 1e5 ? (a / 1e5).toFixed(a >= 1e6 ? 0 : 1) + 'L' : a >= 1e3 ? (a / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k' : String(Math.round(a));
+  return (n < 0 ? '-' : '') + t.replace('.0', '');
+}
+
+function _portfolioBarsHtml(ym, realDayEntries) {
+  const [, month] = ym.split('-').map(Number);
+  if (!realDayEntries.length) return `<div class="pfx-empty">No trades in ${MONTH_NAMES_SHORT[month - 1]}</div>`;
+  const masked = isReadOnlyAccount();
+  const nets = realDayEntries.map(e => e.netReal);
+  const up = Math.max(0, ...nets), down = Math.max(0, ...nets.map(n => -n));
+  const range = (up + down) || 1;
+  const zero = (up / range) * 100;
+  const n = realDayEntries.length;
+  // Four guide values: the top, half of it, zero and the bottom.
+  const guides = [];
+  if (up > 0) guides.push([0, up], [zero / 2, up / 2]);
+  guides.push([zero, 0]);
+  if (down > 0) guides.push([100, -down]);
+  let html = `<div class="pfx-plot" style="--zero:${zero.toFixed(2)}%;--n:${n}">`;
+  html += `<div class="pfx-axis">${guides.map(([at, v]) => `<span style="top:${at.toFixed(2)}%">${masked ? '' : '₹' + _portfolioCompact(v)}</span>`).join('')}</div>`;
+  html += `<div class="pfx-cols">${guides.map(([at]) => `<i class="pfx-guide" style="top:${at.toFixed(2)}%"></i>`).join('')}`;
+  realDayEntries.forEach((e, i) => {
+    const win = e.netReal >= 0;
+    const len = Math.max(3, (Math.abs(e.netReal) / range) * 100);
+    const label = `${String(e.day).padStart(2, '0')} ${MONTH_NAMES_SHORT[month - 1]}`;
+    const edge = i < 2 ? ' is-start' : (i > n - 3 ? ' is-end' : '');
+    const split = e.split && Object.keys(e.split).length > 1 ? `<i>Dhan ${pfMoney(e.split.dhan, 0)} · Zerodha ${pfMoney(e.split.zerodha, 0)}</i>` : '';
+    const detail = `${label} · ${e.displayTradeCount} trades · gross ${pfMoney(e.grossReal)} · costs ${pfMoney(e.charges + e.brokerage)}`;
+    html += `<div class="pfx-col portfolio-monthly-day ${masked ? 'is-masked' : (win ? 'is-profit' : 'is-loss')}${i === n - 1 ? ' is-picked' : ''}" tabindex="0" aria-label="${label}" title="${detail}" style="--len:${len.toFixed(2)}%">`
+      + `<span class="pfx-pillbar"><b class="pfx-knob"></b></span>`
+      + `<span class="pfolio-tip${edge}"><strong>${win ? '+' : ''}${pfMoney(e.netReal)}</strong><em>${label} · ${e.displayTradeCount}T</em>${split}</span>`
+      + `<span class="pfx-col-day">${e.day}</span></div>`;
+  });
+  return html + '</div></div>';
+}
+
+// Where the month went: what the green days made, what the red days lost and
+// what the costs took -- three arcs with gaps, the net in the middle.
+function _portfolioRingHtml(realDayEntries, totals) {
+  if (!realDayEntries.length) return '<div class="pfx-empty">Nothing traded</div>';
+  const masked = isReadOnlyAccount();
+  const won = realDayEntries.filter(e => e.netReal > 0).reduce((s, e) => s + e.netReal, 0);
+  const lost = -realDayEntries.filter(e => e.netReal < 0).reduce((s, e) => s + e.netReal, 0);
+  const costs = totals.charges + totals.brokerage;
+  const parts = [
+    { key: 'won', label: `Green days · ${totals.profitDays}`, value: won },
+    { key: 'lost', label: `Red days · ${totals.tradingDays - totals.profitDays}`, value: lost },
+    { key: 'costs', label: 'Charges + brokerage', value: costs },
+  ];
+  const sum = parts.reduce((s, p) => s + p.value, 0) || 1;
+  const R = 15.5, C = 2 * Math.PI * R, gap = parts.filter(p => p.value > 0).length > 1 ? 2.4 : 0;
+  let at = 0;
+  const arcs = masked ? `<circle cx="18" cy="18" r="${R}" class="pfx-arc is-masked"/>` : parts.map((p) => {
+    const len = (p.value / sum) * C;
+    const arc = len > gap ? `<circle cx="18" cy="18" r="${R}" class="pfx-arc is-${p.key}" stroke-dasharray="${(len - gap).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-at).toFixed(2)}"/>` : '';
+    at += len;
+    return arc;
+  }).join('');
+  return `<div class="pfx-donut">
+      <div class="pfx-donut-ring">
+        <svg viewBox="0 0 36 36" aria-hidden="true">${arcs}</svg>
+        <div><strong style="color:${pfMoneyTone(totals.net >= 0 ? 'var(--text)' : 'var(--danger)')}">${pfMoneyGrouped(totals.net)}</strong><span>net</span></div>
+      </div>
+      <ul class="pfx-legend">${parts.map(p => `<li class="is-${p.key}"><i></i><span>${p.label}</span><b>${pfMoneyGrouped(p.value)}</b></li>`).join('')}</ul>
+    </div>`;
+}
+
+// The month's running total as a soft wave.
+function _portfolioWaveHtml(realDayEntries) {
+  if (realDayEntries.length < 2 || isReadOnlyAccount()) return '<div class="pfx-empty">—</div>';
+  let run = 0;
+  const pts = [0, ...realDayEntries.map(e => (run += e.netReal))];
+  const lo = Math.min(...pts), hi = Math.max(...pts), span = (hi - lo) || 1;
+  const W = 120, H = 44;
+  const xy = pts.map((v, i) => [(i / (pts.length - 1)) * W, 4 + (1 - (v - lo) / span) * (H - 8)]);
+  // A smooth curve through the points (Catmull-Rom as cubic Béziers).
+  let d = `M${xy[0][0].toFixed(1)},${xy[0][1].toFixed(1)}`;
+  for (let i = 0; i < xy.length - 1; i++) {
+    const p0 = xy[i - 1] || xy[i], p1 = xy[i], p2 = xy[i + 1], p3 = xy[i + 2] || p2;
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += `C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="${run >= 0 ? 'is-up' : 'is-down'}" aria-hidden="true">
+      <path d="${d}L${W},${H}L0,${H}Z" class="pfx-wave-fill"/><path d="${d}" class="pfx-wave-line"/></svg>
+    <b class="pfx-wave-end">${pfMoneyGrouped(run)}</b>`;
+}
+
+function _renderPortfolioMonthPanel(source) {
+  const ym = window._currentMonthlyView;
+  const [year, month] = ym.split('-').map(Number);
+  const monthName = MONTH_NAMES_SHORT[month - 1] + ' ' + year;
+  document.getElementById('portfolio-monthly-label').textContent = monthName;
+  const grid = document.getElementById('portfolio-monthly-grid');
+  const summaryEl = document.getElementById('portfolio-monthly-summary');
+  const ringEl = document.getElementById('portfolio-month-ring');
+  const { dayEntries, totals } = _portfolioMonthEntries(source.daily, ym, source.todayCount);
+  const realDayEntries = dayEntries.filter(e => e.hasRealActivity);
+  const tone = (n) => pfMoneyTone(n >= 0 ? 'var(--success)' : 'var(--danger)');
+
+  // NET IS THE RESULT, gross is the detail (Phil, 22-Sep-2026: "put the net
+  // real result on the Monthly profit and loss").
+  summaryEl.innerHTML = totals.tradingDays > 0 ? `
+    <dl class="pfx-facts">
+      <div class="is-net"><dt>Net</dt><dd style="color:${tone(totals.net)}">${pfMoney(totals.net, 2, ' ')}</dd></div>
+      <div><dt>Gross</dt><dd>${pfMoney(totals.gross, 2, ' ')}</dd></div>
+      <div title="GST, STT, SEBI fees, exchange charges and stamp duty"><dt>Charges</dt><dd>${pfMoney(totals.charges, 2, ' ')}</dd></div>
+      <div><dt>Brokerage</dt><dd>${pfMoney(totals.brokerage, 2, ' ')}</dd></div>
+      <div><dt>Trades</dt><dd>${totals.trades}</dd></div>
+    </dl>` : '';
+  // A Console tradebook carries no charges: those days are gross, said so.
+  if (totals.importedDays > 0 && totals.tradingDays > 0) {
+    summaryEl.insertAdjacentHTML('beforeend', `<div class="pf-import-note">${totals.importedDays} of ${totals.tradingDays} day${totals.tradingDays === 1 ? '' : 's'} imported from the Zerodha Console tradebook, before charges (a tradebook carries none).</div>`);
+  }
+  grid.innerHTML = _portfolioBarsHtml(ym, realDayEntries);
+  if (ringEl) ringEl.innerHTML = _portfolioRingHtml(realDayEntries, totals);
+  const waveEl = document.getElementById('portfolio-month-wave');
+  if (waveEl) waveEl.innerHTML = _portfolioWaveHtml(realDayEntries);
 
   // ── Trades for month: day-by-day breakdown table (like Dhan) ──
-  const tradesTableEl = document.getElementById(`${panel.prefix}-trades`);
+  const tradesTableEl = document.getElementById('portfolio-monthly-trades');
   if (realDayEntries.length > 0) {
     const totalMonthTrades = realDayEntries.reduce((sum, entry) => sum + Number(entry.displayTradeCount || 0), 0);
     let tableHtml = `<table class="portfolio-monthly-trades-table">

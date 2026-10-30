@@ -10760,3 +10760,499 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 @media (min-width: 1080px) {
   #scalp-page .scalp-ohlc.is-legend em { display: none; }
 }
+
+/* ══ PORTFOLIO, A GLASS DASHBOARD (Phil, 2026-10-30: "something new and modern
+   and aesthetic ... like this", two banking dashboards for reference). Soft
+   rounded glass cards, pill tabs, hatched pill bars with one solid bar and
+   its bubble, a gapped donut, the balance as wallet cards, trades as a list
+   with WIN/LOSS pills. Green and coral keep their P&L meaning throughout. */
+#portfolio-page {
+  --pfx-radius: 24px;
+  --pfx-card: linear-gradient(160deg, rgba(31, 54, 50, .74), rgba(13, 22, 27, .82));
+  --pfx-edge: rgba(255, 255, 255, .075);
+  --pfx-mint: #6ee7b7;
+  --pfx-mint-deep: #34d399;
+  --pfx-coral: #fb7185;
+  --pfx-lilac: #a78bfa;
+  --pfx-ink: #f1f5f9;
+  --pfx-soft: rgba(226, 232, 240, .62);
+  --pfx-glass: rgba(255, 255, 255, .06);
+}
+#portfolio-page .pfx-card {
+  position: relative;
+  min-width: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--pfx-edge);
+  border-radius: var(--pfx-radius);
+  background: var(--pfx-card);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .06);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  color: var(--pfx-ink);
+  font-family: var(--font-body);
+}
+#portfolio-page .pfx-wide { margin-bottom: 16px; }
+#portfolio-page .pfx-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+#portfolio-page .pfx-head h3 {
+  margin: 0 auto 0 0;
+  color: var(--pfx-ink);
+  font: 600 17px/1.2 var(--font-body);
+  letter-spacing: -.01em;
+}
+#portfolio-page .pfx-empty { padding: 18px 0; color: var(--pfx-soft); font: 400 13px var(--font-body); text-align: center; }
+#portfolio-page .pfx-pill {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(52, 211, 153, .16);
+  color: var(--pfx-mint);
+  font: 600 11.5px var(--font-body);
+  white-space: nowrap;
+}
+#portfolio-page .pfx-pill.is-alt { background: rgba(167, 139, 250, .18); color: #c4b5fd; }
+#portfolio-page .pfx-pill.is-down { background: rgba(251, 113, 133, .16); color: var(--pfx-coral); }
+
+/* The pill tabs and the month. */
+#portfolio-page .pfx-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+#portfolio-page .pfx-tabs { display: flex; gap: 10px; }
+#portfolio-page .pfx-tabs[hidden] { display: none; }
+#portfolio-page .pfx-tabs button {
+  min-height: 42px;
+  padding: 0 26px;
+  border: 1px solid var(--pfx-edge);
+  border-radius: 999px;
+  background: rgba(31, 54, 50, .55);
+  color: var(--pfx-soft);
+  font: 500 14px var(--font-body);
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: background .2s ease, color .2s ease;
+}
+#portfolio-page .pfx-tabs button:hover { color: var(--pfx-ink); }
+#portfolio-page .pfx-tabs button.is-on {
+  border-color: transparent;
+  background: linear-gradient(180deg, #4fc4a4, #2f9d83);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(52, 211, 153, .28);
+}
+#portfolio-page .portfolio-month-controls.pfx-month-nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: none;
+}
+#portfolio-page .pfx-month-nav button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--pfx-edge);
+  border-radius: 50%;
+  background: rgba(31, 54, 50, .55);
+  color: var(--pfx-ink);
+  font: 400 20px/1 var(--font-body);
+  cursor: pointer;
+}
+#portfolio-page .pfx-month-nav button:hover { background: rgba(52, 211, 153, .2); }
+#portfolio-page .pfx-month-nav #portfolio-monthly-label { min-width: 74px; color: var(--pfx-ink); font: 600 14px var(--font-body); text-align: center; }
+
+/* The page: the month on the left, the wallet on the right. */
+#portfolio-page .pfx-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(330px, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+#portfolio-page .pfx-main { display: grid; gap: 16px; min-width: 0; }
+#portfolio-page .pfx-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+#portfolio-page .pfx-stack { display: grid; gap: 16px; }
+#portfolio-page #portfolio-strip:not(.has-zerodha) .pfolio-z { display: none !important; }
+
+/* P&L flow. */
+#portfolio-page .pfx-flow .pfx-head { flex-wrap: wrap; }
+#portfolio-page #portfolio-monthly-summary {
+  min-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+#portfolio-page .pfx-facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; }
+#portfolio-page .pfx-facts dt { color: var(--pfx-soft); font: 500 10.5px var(--font-body); }
+#portfolio-page .pfx-facts dd { margin: 0; color: var(--pfx-ink); font: 600 13px var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#portfolio-page .pfx-facts .is-net dd { font-size: 15px; font-weight: 700; }
+#portfolio-page #portfolio-monthly-grid.pfx-chart { display: block; }
+#portfolio-page .pfx-plot {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  height: 250px;
+  margin: 44px 0 26px;
+}
+#portfolio-page .pfx-axis { position: relative; }
+#portfolio-page .pfx-axis span {
+  position: absolute;
+  right: 10px;
+  transform: translateY(-50%);
+  color: var(--pfx-soft);
+  font: 500 11px var(--font-body);
+  white-space: nowrap;
+}
+#portfolio-page .pfx-cols {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+}
+#portfolio-page .pfx-guide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, .06);
+}
+#portfolio-page .pfx-col { position: relative; min-width: 0; outline: none; cursor: default; }
+#portfolio-page .pfx-pillbar {
+  position: absolute;
+  left: 50%;
+  width: min(64%, 46px);
+  min-height: 10px;
+  height: var(--len);
+  transform: translateX(-50%);
+  border-radius: 999px;
+  transition: background .2s ease, box-shadow .2s ease, transform .25s cubic-bezier(.2, .8, .2, 1);
+}
+#portfolio-page .pfx-col.is-profit .pfx-pillbar,
+#portfolio-page .pfx-col.is-masked .pfx-pillbar {
+  bottom: calc(100% - var(--zero));
+  border: 1.5px solid rgba(110, 231, 183, .35);
+  background: repeating-linear-gradient(135deg, rgba(110, 231, 183, .85) 0 2px, transparent 2px 7px);
+}
+#portfolio-page .pfx-col.is-loss .pfx-pillbar {
+  top: var(--zero);
+  border: 1.5px solid rgba(251, 113, 133, .35);
+  background: repeating-linear-gradient(135deg, rgba(251, 113, 133, .85) 0 2px, transparent 2px 7px);
+}
+#portfolio-page .pfx-col.is-masked .pfx-pillbar { border-color: rgba(148, 163, 184, .3); background: repeating-linear-gradient(135deg, rgba(148, 163, 184, .6) 0 2px, transparent 2px 7px); }
+/* The picked bar: the latest day, or the one under the pointer. */
+#portfolio-page .pfx-cols:not(:hover) .pfx-col.is-picked .pfx-pillbar,
+#portfolio-page .pfx-col:is(:hover, :focus-visible) .pfx-pillbar { transform: translateX(-50%) scaleX(1.06); }
+#portfolio-page .pfx-cols:not(:hover) .pfx-col.is-profit.is-picked .pfx-pillbar,
+#portfolio-page .pfx-col.is-profit:is(:hover, :focus-visible) .pfx-pillbar {
+  border-color: transparent;
+  background: linear-gradient(180deg, #a7f3d0, var(--pfx-mint-deep));
+  box-shadow: 0 10px 30px rgba(52, 211, 153, .38);
+}
+#portfolio-page .pfx-cols:not(:hover) .pfx-col.is-loss.is-picked .pfx-pillbar,
+#portfolio-page .pfx-col.is-loss:is(:hover, :focus-visible) .pfx-pillbar {
+  border-color: transparent;
+  background: linear-gradient(0deg, #fecdd3, var(--pfx-coral));
+  box-shadow: 0 10px 30px rgba(251, 113, 133, .35);
+}
+#portfolio-page .pfx-knob {
+  position: absolute;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateX(-50%);
+  border: 4px solid #fff;
+  border-radius: 50%;
+  background: transparent;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+#portfolio-page .pfx-col.is-profit .pfx-knob { top: 5px; }
+#portfolio-page .pfx-col.is-loss .pfx-knob { bottom: 5px; }
+#portfolio-page .pfx-cols:not(:hover) .pfx-col.is-picked .pfx-knob,
+#portfolio-page .pfx-col:is(:hover, :focus-visible) .pfx-knob { opacity: 1; }
+#portfolio-page .pfx-col .pfolio-tip {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 6px 12px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 999px;
+  background: rgba(30, 41, 48, .92);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .35);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
+}
+#portfolio-page .pfx-col.is-profit .pfolio-tip { bottom: calc(100% - var(--zero) + var(--len) + 10px); }
+#portfolio-page .pfx-col.is-loss .pfolio-tip { top: calc(var(--zero) + var(--len) + 10px); }
+#portfolio-page .pfx-col .pfolio-tip.is-start { left: 0; transform: none; }
+#portfolio-page .pfx-col .pfolio-tip.is-end { left: auto; right: 0; transform: none; }
+#portfolio-page .pfx-cols:not(:hover) .pfx-col.is-picked .pfolio-tip,
+#portfolio-page .pfx-col:is(:hover, :focus-visible) .pfolio-tip { opacity: 1; }
+#portfolio-page .pfolio-tip strong { color: #fff; font: 700 13px var(--font-body); font-variant-numeric: tabular-nums; }
+#portfolio-page .pfolio-tip em, #portfolio-page .pfolio-tip i { color: var(--pfx-soft); font: 500 10px var(--font-body); font-style: normal; }
+#portfolio-page .pfx-col-day {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  color: var(--pfx-soft);
+  font: 500 11px var(--font-body);
+}
+
+/* Where the month went. */
+#portfolio-page .pfx-donut { display: flex; align-items: center; gap: 22px; }
+#portfolio-page .pfx-donut-ring { position: relative; flex: 0 0 auto; width: 158px; height: 158px; }
+#portfolio-page .pfx-donut-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+#portfolio-page .pfx-arc { fill: none; stroke-width: 4.4; stroke-linecap: round; }
+#portfolio-page .pfx-arc.is-won { stroke: var(--pfx-mint-deep); }
+#portfolio-page .pfx-arc.is-lost { stroke: var(--pfx-coral); }
+#portfolio-page .pfx-arc.is-costs { stroke: var(--pfx-lilac); }
+#portfolio-page .pfx-arc.is-masked { stroke: rgba(148, 163, 184, .4); }
+#portfolio-page .pfx-donut-ring > div {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+#portfolio-page .pfx-donut-ring strong { font: 700 19px var(--font-body); font-variant-numeric: tabular-nums; }
+#portfolio-page .pfx-donut-ring span { color: var(--pfx-soft); font: 500 11px var(--font-body); }
+#portfolio-page .pfx-legend { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+#portfolio-page .pfx-legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr); column-gap: 8px; }
+#portfolio-page .pfx-legend i { grid-row: span 2; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; }
+#portfolio-page .pfx-legend .is-won i { background: var(--pfx-mint-deep); }
+#portfolio-page .pfx-legend .is-lost i { background: var(--pfx-coral); }
+#portfolio-page .pfx-legend .is-costs i { background: var(--pfx-lilac); }
+#portfolio-page .pfx-legend span { color: var(--pfx-soft); font: 500 11.5px var(--font-body); }
+#portfolio-page .pfx-legend b { color: var(--pfx-ink); font: 600 13px var(--font-body); font-variant-numeric: tabular-nums; }
+
+/* Today and This month. */
+#portfolio-page .pfx-mini .pfx-head { margin-bottom: 8px; }
+#portfolio-page .pfx-big {
+  display: block;
+  color: var(--pfx-ink);
+  font: 600 32px/1.1 var(--font-body);
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+#portfolio-page .pfx-lines { display: grid; gap: 5px; margin-top: 12px; }
+#portfolio-page .pfx-lines > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#portfolio-page .pfx-lines em { color: var(--pfx-ink); font: 500 12.5px var(--font-body); font-style: normal; font-variant-numeric: tabular-nums; }
+#portfolio-page .pfx-lines .pf-broker-chip { margin-right: 0; padding: 2px 6px; font-size: 8px; }
+#portfolio-page #portfolio-strip:not(.has-zerodha) .pfx-lines { display: none; }
+
+/* The wallet. */
+#portfolio-page .pfx-wallet { position: sticky; top: 92px; }
+#portfolio-page .pfx-wallet .pfx-head { margin-bottom: 6px; }
+#portfolio-page .pfx-hero-figure {
+  display: block;
+  margin-bottom: 18px;
+  color: var(--pfx-ink);
+  font: 600 40px/1.05 var(--font-body);
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+#portfolio-page .pfx-wallet-cards { position: relative; height: 158px; margin-bottom: 18px; }
+#portfolio-page .pfx-acct {
+  position: absolute;
+  top: 0;
+  display: grid;
+  align-content: end;
+  gap: 2px;
+  height: 148px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  overflow: hidden;
+}
+#portfolio-page .pfx-acct.is-dhan {
+  left: 0;
+  width: 64%;
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(94, 234, 212, .28), transparent 55%),
+    linear-gradient(140deg, #123b3a 0%, #0b1f2b 55%, #18233d 100%);
+  box-shadow: 0 22px 40px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .12);
+  transition: transform .3s cubic-bezier(.2, .8, .2, 1);
+}
+#portfolio-page .pfx-acct.is-zerodha {
+  right: 0;
+  top: 10px;
+  width: 64%;
+  height: 128px;
+  justify-items: end;
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: linear-gradient(140deg, rgba(251, 146, 60, .32), rgba(255, 255, 255, .07) 60%);
+  backdrop-filter: blur(10px);
+  text-align: right;
+}
+#portfolio-page .pfx-wallet-cards:hover .pfx-acct.is-dhan { transform: translateX(-6px) rotate(-1.5deg); }
+#portfolio-page #portfolio-strip:not(.has-zerodha) .pfx-acct.is-dhan { width: 100%; }
+#portfolio-page .pfx-acct-name {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  color: #fff;
+  font: 700 16px var(--font-body);
+  letter-spacing: .01em;
+}
+#portfolio-page .pfx-acct.is-zerodha .pfx-acct-name { left: auto; right: 18px; color: #fed7aa; }
+#portfolio-page .pfx-acct-chip {
+  position: absolute;
+  top: 46px;
+  left: 18px;
+  width: 30px;
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #f8fafc, #94a3b8);
+  opacity: .8;
+}
+#portfolio-page .pfx-acct-label { color: rgba(255, 255, 255, .6); font: 500 11px var(--font-body); }
+#portfolio-page .pfx-acct strong { color: #fff; font: 600 21px var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#portfolio-page .pfx-acct.is-zerodha strong { font-size: 17px; }
+#portfolio-page .pfolio-z-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -6px 0 14px;
+  color: var(--pfx-soft);
+  font: 500 11px var(--font-body);
+}
+#portfolio-page .pfolio-z-note[hidden] { display: none; }
+#portfolio-page .pfolio-z-note .pf-broker-chip { margin-right: 0; }
+#portfolio-page .pfolio-z-note em { font-style: normal; color: var(--warn); }
+
+#portfolio-page .pfx-txn-head { margin: 4px 0 8px; }
+#portfolio-page .pfx-txns { display: grid; gap: 4px; max-height: 330px; overflow-y: auto; margin: 0 -6px 16px; padding: 0 6px; }
+#portfolio-page .pfx-txn {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 6px;
+  border-radius: 14px;
+  transition: background .15s ease;
+}
+#portfolio-page .pfx-txn:hover { background: var(--pfx-glass); }
+#portfolio-page .pfx-txn-ico {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, .14);
+  color: var(--pfx-ink);
+  font: 700 11px var(--font-body);
+}
+#portfolio-page .pfx-txn-ico.is-ce { background: rgba(52, 211, 153, .16); color: var(--pfx-mint); }
+#portfolio-page .pfx-txn-ico.is-pe { background: rgba(251, 113, 133, .16); color: var(--pfx-coral); }
+#portfolio-page .pfx-txn-what { min-width: 0; display: grid; gap: 2px; }
+#portfolio-page .pfx-txn-what strong { overflow: hidden; color: var(--pfx-ink); font: 600 13.5px var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+#portfolio-page .pfx-txn-what span { overflow: hidden; color: var(--pfx-soft); font: 400 11px var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+#portfolio-page .pfx-txn-what .pf-broker-chip { margin: 0 0 0 4px; padding: 1px 5px; font-size: 7.5px; }
+#portfolio-page .pfx-txn-pnl { display: grid; justify-items: end; gap: 4px; }
+#portfolio-page .pfx-txn-pnl b { font: 700 14px var(--font-body); font-variant-numeric: tabular-nums; }
+#portfolio-page .pfx-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font: 600 9.5px var(--font-body);
+  font-style: normal;
+  letter-spacing: .06em;
+}
+#portfolio-page .pfx-status::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+#portfolio-page .pfx-status.is-win { background: rgba(52, 211, 153, .16); color: var(--pfx-mint); }
+#portfolio-page .pfx-status.is-loss { background: rgba(251, 113, 133, .16); color: var(--pfx-coral); }
+
+#portfolio-page .pfx-tiles { gap: 12px; }
+#portfolio-page .pfx-tile {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 118px;
+  padding: 14px 16px;
+  border: 1px solid var(--pfx-edge);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .04);
+}
+#portfolio-page .pfx-tile > span { color: var(--pfx-soft); font: 500 12px var(--font-body); }
+#portfolio-page .pfx-tile strong { color: var(--pfx-ink); font: 600 26px var(--font-body); font-variant-numeric: tabular-nums; }
+#portfolio-page .pfx-tile em { color: var(--pfx-soft); font: 400 10.5px var(--font-body); font-style: normal; }
+#portfolio-page .pfx-wave { position: relative; }
+#portfolio-page .pfx-wave svg { display: block; width: 100%; height: 56px; margin-top: 6px; overflow: visible; }
+#portfolio-page .pfx-wave-line { fill: none; stroke-width: 2.6; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+#portfolio-page .pfx-wave svg.is-up .pfx-wave-line { stroke: var(--pfx-mint); filter: drop-shadow(0 3px 6px rgba(52, 211, 153, .45)); }
+#portfolio-page .pfx-wave svg.is-down .pfx-wave-line { stroke: var(--pfx-coral); }
+#portfolio-page .pfx-wave svg.is-up .pfx-wave-fill { fill: rgba(52, 211, 153, .12); }
+#portfolio-page .pfx-wave svg.is-down .pfx-wave-fill { fill: rgba(251, 113, 133, .12); }
+#portfolio-page .pfx-wave-end { position: absolute; top: 12px; right: 14px; color: var(--pfx-ink); font: 600 12px var(--font-body); }
+#portfolio-page .pfx-wave .pfx-empty { padding: 10px 0; }
+
+/* The rest: the month's trades, the year, the folds. */
+#portfolio-page .pfx-wide #portfolio-monthly-trades { margin-top: 0 !important; }
+#portfolio-page .pfolio-month-foot { margin-top: 12px; font: 500 11px var(--font-body); }
+#portfolio-page .pfolio-month-foot[hidden] { display: none; }
+#portfolio-page .pfolio-fold > summary { margin-bottom: 0; list-style: none; cursor: pointer; }
+#portfolio-page .pfolio-fold > summary::-webkit-details-marker { display: none; }
+#portfolio-page .pfolio-fold > summary::after { content: '▾'; color: var(--pfx-soft); font-size: 12px; transition: transform .15s ease; }
+#portfolio-page .pfolio-fold:not([open]) > summary::after { transform: rotate(-90deg); }
+#portfolio-page .pfolio-fold[open] > summary { margin-bottom: 14px; }
+#portfolio-page .pfolio-fold-figure { font: 700 14px var(--font-body); }
+#portfolio-page .pfolio-paper-row { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 10px; color: var(--pfx-soft); font: 500 12px var(--font-body); }
+#portfolio-page .pfolio-paper-row b { margin-left: 4px; color: var(--pfx-ink); }
+#portfolio-page #portfolio-paper-meta { padding: 0; border: 0; background: none; }
+
+/* Light: white glass; the Dhan card stays the dark card in the wallet. */
+[data-theme="light"] #portfolio-page {
+  --pfx-card: linear-gradient(160deg, rgba(255, 255, 255, .9), rgba(241, 245, 249, .84));
+  --pfx-edge: rgba(15, 23, 42, .08);
+  --pfx-ink: #0f172a;
+  --pfx-soft: rgba(51, 65, 85, .72);
+  --pfx-glass: rgba(15, 23, 42, .04);
+  --pfx-mint: #059669;
+  --pfx-coral: #e11d48;
+}
+[data-theme="light"] #portfolio-page .pfx-card { box-shadow: 0 18px 44px rgba(15, 23, 42, .08), inset 0 1px 0 #fff; }
+[data-theme="light"] #portfolio-page :is(.pfx-tabs button, .pfx-month-nav button) { background: rgba(255, 255, 255, .8); }
+[data-theme="light"] #portfolio-page .pfx-tabs button.is-on { background: linear-gradient(180deg, #34d399, #059669); color: #fff; }
+[data-theme="light"] #portfolio-page .pfx-guide { background: rgba(15, 23, 42, .07); }
+[data-theme="light"] #portfolio-page .pfx-acct.is-zerodha { background: linear-gradient(140deg, rgba(251, 146, 60, .38), rgba(255, 255, 255, .7) 60%); }
+[data-theme="light"] #portfolio-page .pfx-acct.is-zerodha :is(.pfx-acct-name, .pfx-acct-label, strong) { color: #7c2d12; }
+[data-theme="light"] #portfolio-page .pfx-tile { background: rgba(255, 255, 255, .6); }
+[data-theme="light"] #portfolio-page .pfx-col .pfolio-tip { background: rgba(15, 23, 42, .9); }
+
+@media (max-width: 1180px) {
+  #portfolio-page .pfx-grid { grid-template-columns: minmax(0, 1fr); }
+  #portfolio-page .pfx-wallet { position: relative; top: 0; }
+}
+@media (max-width: 780px) {
+  #portfolio-page .pfx-card { padding: 16px; border-radius: 20px; }
+  #portfolio-page .pfx-bar { flex-wrap: wrap; }
+  #portfolio-page .pfx-tabs button { min-height: 36px; padding: 0 16px; font-size: 13px; }
+  #portfolio-page .pfx-pair { grid-template-columns: minmax(0, 1fr); }
+  #portfolio-page .pfx-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #portfolio-page .pfx-plot { height: 190px; grid-template-columns: 38px minmax(0, 1fr); }
+  #portfolio-page .pfx-col-day { font-size: 9px; }
+  #portfolio-page .pfx-col:nth-child(odd of .pfx-col) .pfx-col-day { visibility: hidden; }
+  #portfolio-page .pfx-donut { gap: 16px; }
+  #portfolio-page .pfx-donut-ring { width: 128px; height: 128px; }
+  #portfolio-page .pfx-hero-figure { font-size: 34px; }
+  #portfolio-page .pfx-big { font-size: 28px; }
+}
+#portfolio-page .pfx-split { display: flex; flex-direction: column; align-self: stretch; }
+#portfolio-page .pfx-split > #portfolio-month-ring { flex: 1; display: grid; align-content: center; }
+#portfolio-page .pfx-pair { align-items: stretch; }
+[data-theme="light"] #portfolio-page .pfx-col .pfolio-tip :is(em, i) { color: rgba(226, 232, 240, .75); }
+[data-theme="light"] #portfolio-page .pfx-pill.is-alt { background: rgba(124, 58, 237, .12); color: #6d28d9; }

@@ -19,63 +19,75 @@ async function login(page: Page) {
   await page.waitForFunction(() => !!(history.state && (history.state as { page?: string }).page));
 }
 
-test('Portfolio uses the compact Cascade-style capital ledger', async ({ page }) => {
+// Phil, 2026-10-30: "redesign my portfolio page ... something new and modern
+// and aesthetic ... like this" (two glass banking dashboards). Pill tabs, the
+// month as hatched pill bars with the latest day solid in a bubble, a donut of
+// where the month went, the balance as wallet cards, trades as a list.
+test('Portfolio is a glass dashboard: P&L flow beside the wallet, bars from zero, a donut of the month', async ({ page }) => {
   await login(page);
   await page.click('#nav-portfolio');
   await expect(page.locator('#portfolio-page')).toBeVisible();
+  // The page's own load first, so it cannot land on top of this month.
+  await page.waitForFunction(() => !!(window as unknown as { _currentMonthlyView?: string })._currentMonthlyView);
+  await page.evaluate(() => {
+    const w = window as any;
+    w._portfolioDaily = {
+      '2026-09-01': { real_pnl: 1200, real_net_pnl: 1100, real_charges: 60, real_brokerage: 40, real_trades: 2, real_trade_legs: 2 },
+      '2026-09-02': { real_pnl: -400, real_net_pnl: -480, real_charges: 40, real_brokerage: 40, real_trades: 2, real_trade_legs: 2 },
+    };
+    w._currentMonthlyView = '2026-09';
+    w.renderMonthlyDailyGrid();
+  });
 
   const desktop = await page.evaluate(() => {
-    const ledger = document.querySelector<HTMLElement>('#portfolio-page .portfolio-capital-ledger')!;
-    const grid = document.querySelector<HTMLElement>('#portfolio-page .portfolio-capital-grid')!;
-    // The Zerodha row is in the page but hidden until a Kite app is saved.
-    const metrics = [...document.querySelectorAll<HTMLElement>('#portfolio-page .portfolio-capital-metric')]
-      .filter(metric => metric.getClientRects().length > 0);
-    const bookCard = document.querySelector<HTMLElement>('#portfolio-page .portfolio-book-card')!;
-    const firstValue = document.querySelector<HTMLElement>('#portfolio-balance')!;
+    const box = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    const flow = box('#portfolio-month'), wallet = box('#portfolio-page .pfx-wallet');
     return {
-      metricCount: metrics.length,
-      columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
-      ledgerHeight: ledger.getBoundingClientRect().height,
-      maxMetricHeight: Math.max(...metrics.map(metric => metric.getBoundingClientRect().height)),
-      valueFontSize: getComputedStyle(firstValue).fontSize,
-      // Zerodha's month panel is in the page too, hidden until a Kite app is saved.
-      bookCardCount: [...document.querySelectorAll('#portfolio-page .portfolio-book-card')].filter(card => card.getClientRects().length > 0).length,
-      paperMetricCount: document.querySelectorAll('#portfolio-page .portfolio-paper-metric').length,
-      bookPadding: getComputedStyle(bookCard).paddingTop,
-      legacySummaryCards: document.querySelectorAll('#portfolio-page .pf-summary-card').length,
+      walletBeside: wallet.left >= flow.right - 1 && Math.abs(wallet.top - flow.top) < 4,
+      folded: [...document.querySelectorAll<HTMLDetailsElement>('#portfolio-page details.pfolio-fold')].map(d => d.open),
+      // No Kite app: no account tabs, no Zerodha card.
+      tabs: !(document.getElementById('portfolio-month-broker') as HTMLElement).hidden,
+      zerodhaCard: (document.querySelector('#portfolio-page .pfx-acct.is-zerodha') as HTMLElement).getClientRects().length > 0,
     };
   });
+  expect(desktop).toEqual({ walletBeside: true, folded: [false, false], tabs: false, zerodhaCard: false });
 
-  expect(desktop).toMatchObject({
-    metricCount: 4,
-    columns: 4,
-    valueFontSize: '19px',
-    bookCardCount: 2,
-    paperMetricCount: 4,
-    bookPadding: '14px',
-    legacySummaryCards: 0,
-  });
-  expect(desktop.ledgerHeight).toBeLessThanOrEqual(146);
-  expect(desktop.maxMetricHeight).toBeLessThanOrEqual(72);
+  const bars = page.locator('#portfolio-monthly-grid .portfolio-monthly-day');
+  await expect(bars).toHaveCount(2);
+  await expect(bars.nth(0)).toHaveAttribute('aria-label', '01 Sep');
+  await expect(bars.nth(0)).toHaveClass(/is-profit/);
+  await expect(bars.nth(1)).toHaveClass(/is-loss/);
+  // The up bar stands on the zero line, the down bar hangs from it.
+  const geo = await bars.evaluateAll(els => els.map(el => el.querySelector('.pfx-pillbar')!.getBoundingClientRect()).map(r => ({ top: r.top, bottom: r.bottom })));
+  expect(Math.abs(geo[0].bottom - geo[1].top)).toBeLessThan(2);
+  // The latest day is the solid one, its bubble showing; a pointer moves it.
+  const tipOpacity = (i: number) => bars.nth(i).locator('.pfolio-tip').evaluate(el => getComputedStyle(el).opacity);
+  await expect(bars.nth(1)).toHaveClass(/is-picked/);
+  await expect.poll(() => tipOpacity(1)).toBe('1');
+  await expect.poll(() => tipOpacity(0)).toBe('0');
+  await bars.nth(0).hover();
+  await expect.poll(() => tipOpacity(0)).toBe('1');
+  await expect(bars.nth(0).locator('.pfolio-tip')).toContainText('+₹1100.00');
+
+  await expect(page.locator('#portfolio-monthly-summary')).toContainText('₹ 620.00');
+  // Where the month went: what green days made, red days lost, costs took.
+  const donut = page.locator('#portfolio-month-ring');
+  await expect(donut.locator('.pfx-donut-ring strong')).toHaveText('₹620');
+  await expect(donut.locator('.pfx-legend li')).toHaveText([/Green days · 1\s*₹1,100/, /Red days · 1\s*₹480/, /Charges \+ brokerage\s*₹180/]);
+  await expect(donut.locator('.pfx-arc')).toHaveCount(3);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  const mobile = await page.evaluate(() => {
-    const ledger = document.querySelector<HTMLElement>('#portfolio-page .portfolio-capital-ledger')!;
-    const grid = document.querySelector<HTMLElement>('#portfolio-page .portfolio-capital-grid')!;
-    const bookGrid = document.querySelector<HTMLElement>('#portfolio-dual-grid')!;
-    return {
-      columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
-      bookColumns: getComputedStyle(bookGrid).gridTemplateColumns.split(' ').length,
-      ledgerFits: ledger.scrollWidth <= ledger.clientWidth,
-    };
-  });
-
-  expect(mobile).toEqual({ columns: 2, bookColumns: 1, ledgerFits: true });
+  const mobile = await page.evaluate(() => ({
+    columns: getComputedStyle(document.querySelector('#portfolio-strip')!).gridTemplateColumns.split(' ').length,
+    fits: document.documentElement.scrollWidth <= window.innerWidth,
+  }));
+  expect(mobile).toEqual({ columns: 1, fits: true });
 });
 
 test('Monthly real-trades ledger keeps every financial value on one line', async ({ page }) => {
   await login(page);
   await page.click('#nav-portfolio');
+  await page.waitForFunction(() => !!(window as unknown as { _currentMonthlyView?: string })._currentMonthlyView);
   await page.evaluate(() => {
     (window as any)._portfolioDaily = {
       '2026-09-01': {
@@ -88,27 +100,29 @@ test('Monthly real-trades ledger keeps every financial value on one line', async
     (window as any).togglePortfolioMonthlyTrades();
   });
   await expect(page.locator('.portfolio-monthly-trades-table')).toBeVisible();
+  // The table spans the whole month card now, so it may fit; when it does
+  // not, it scrolls rather than breaking a figure over two lines.
   const layout = await page.evaluate(() => {
     const table = document.querySelector<HTMLElement>('.portfolio-monthly-trades-table')!;
     const scroll = table.closest<HTMLElement>('.trade-table-scroll')!;
     const cells = [...table.querySelectorAll<HTMLElement>('th, td')];
     return {
-      scrolls: table.scrollWidth > scroll.clientWidth,
+      scrolls: ['auto', 'scroll'].includes(getComputedStyle(scroll).overflowX),
       unbroken: cells.every(cell => getComputedStyle(cell).whiteSpace === 'nowrap'),
     };
   });
   expect(layout).toEqual({ scrolls: true, unbroken: true });
 });
 
-test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ page }) => {
+test('With a Kite app saved, the wallet holds both cards and the tabs switch the month between accounts', async ({ page }) => {
   await login(page);
   await page.click('#nav-portfolio');
   await expect(page.locator('#portfolio-page')).toBeVisible();
-  // No Kite app: one untagged row, as before.
+  // No Kite app: no split, no switch, no note.
+  await expect(page.locator('#portfolio-strip')).not.toHaveClass(/has-zerodha/);
   await expect(page.locator('#portfolio-zerodha-row')).toBeHidden();
-  await expect(page.locator('#portfolio-dhan-tag')).toBeHidden();
-  await expect(page.locator('#portfolio-zerodha-book')).toBeHidden();
-  await expect(page.locator('#portfolio-monthly-dhan-chip')).toBeHidden();
+  await expect(page.locator('#portfolio-month-broker')).toBeHidden();
+  await expect(page.locator('#portfolio-zerodha-tools')).toBeHidden();
   await expect(page.locator('#portfolio-ytd-brokers')).toBeHidden();
 
   // The days PhilForge has recorded at Zerodha, in the month on screen.
@@ -143,38 +157,42 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
     },
   }));
   await page.evaluate(() => (window as unknown as { loadPortfolioData: () => Promise<void> }).loadPortfolioData());
-  await expect(page.locator('#portfolio-zerodha-row')).toBeVisible();
-  await expect(page.locator('#portfolio-dhan-tag')).toBeVisible();
-  await expect(page.locator('#portfolio-zerodha-id')).toHaveText('AB1234');
-  await expect(page.locator('#portfolio-capital-count')).toHaveText('2 accounts · 8 live metrics');
-  await expect(page.locator('#portfolio-dhan-tag .pf-broker-dhan')).toHaveText('Dhan');
-  await expect(page.locator('#portfolio-zerodha-row .pf-broker-zerodha')).toHaveText('Zerodha');
-  await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('₹152340.50');
+  await expect(page.locator('#portfolio-strip')).toHaveClass(/has-zerodha/);
+  // Connected: the strip says it all, no note.
+  await expect(page.locator('#portfolio-zerodha-row')).toBeHidden();
+  await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('₹1,52,341');
+  await expect(page.locator('#portfolio-page .pfx-acct.is-zerodha')).toBeVisible();
   await expect(page.locator('#portfolio-zerodha-pnl')).toHaveText('₹-1250.75');
   await expect(page.locator('#portfolio-zerodha-trades')).toHaveText('3');
   await expect(page.locator('#portfolio-zerodha-open')).toHaveText('1');
-
-  // Each broker's month sits beside the other, tagged; Paper drops beneath.
-  await expect(page.locator('#portfolio-zerodha-book')).toBeVisible();
-  await expect(page.locator('#portfolio-monthly-dhan-chip')).toHaveText('Dhan');
-  await expect(page.locator('#portfolio-zerodha-book .pf-broker-zerodha')).toHaveText('Zerodha');
-  await expect(page.locator('#portfolio-zerodha-monthly-grid .portfolio-monthly-day')).toHaveCount(2);
-  await expect(page.locator('#portfolio-zerodha-monthly-summary')).toContainText('₹ 1469.75'); // 2480.25 - 1010.50
-  await expect(page.locator('#portfolio-zerodha-monthly-summary')).toContainText('1/2');
-  const layout = await page.evaluate(() => {
-    const top = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
-    const dhan = top('#portfolio-dual-grid > .portfolio-monthly-book:not(.portfolio-zerodha-book)');
-    const zerodha = top('#portfolio-zerodha-book');
-    const paper = top('#portfolio-dual-grid > .portfolio-paper-book');
-    const chip = (sel: string) => getComputedStyle(document.querySelector(sel)!).color;
+  await expect(page.locator('#portfolio-month-zerodha')).toHaveText('₹1469.75'); // 2480.25 - 1010.50
+  // The big figures are the two accounts added.
+  const totals = await page.evaluate(() => {
+    const w = window as unknown as { _portfolioMoney: { dhanBalance: number; dhanToday: number }; pfMoneyGrouped: (n: number) => string };
     return {
-      sideBySide: Math.abs(dhan.top - zerodha.top) < 2 && dhan.right <= zerodha.left,
-      paperBelow: paper.top >= Math.max(dhan.bottom, zerodha.bottom) - 1,
-      paperFullWidth: paper.width > dhan.width * 1.8,
-      differentColours: chip('#portfolio-zerodha-book .pf-broker-zerodha') !== chip('#portfolio-monthly-dhan-chip'),
+      balance: [document.getElementById('portfolio-total-balance')!.textContent, w.pfMoneyGrouped(w._portfolioMoney.dhanBalance + 152340.5)],
+      today: [document.getElementById('portfolio-total-today')!.textContent, w.pfMoneyGrouped(w._portfolioMoney.dhanToday - 1250.75)],
     };
   });
-  expect(layout).toEqual({ sideBySide: true, paperBelow: true, paperFullWidth: true, differentColours: true });
+  expect(totals.balance[0]).toBe(totals.balance[1]);
+  expect(totals.today[0]).toBe(totals.today[1]);
+  const chip = (sel: string) => page.locator(sel).first().evaluate(el => getComputedStyle(el).color);
+  expect(await chip('#portfolio-strip .pfx-lines .pf-broker-zerodha')).not.toBe(await chip('#portfolio-strip .pfx-lines .pf-broker-dhan'));
+
+  // The month: All, Dhan or Zerodha.
+  await expect(page.locator('#portfolio-month-broker')).toBeVisible();
+  await expect(page.locator('#portfolio-zerodha-tools')).toBeVisible();
+  await expect(page.locator('#portfolio-month-broker [data-broker="all"]')).toHaveClass(/is-on/);
+  const days = page.locator('#portfolio-monthly-grid .portfolio-monthly-day');
+  await expect(days).toHaveCount(2);
+  await page.click('#portfolio-month-broker [data-broker="zerodha"]');
+  await expect(page.locator('#portfolio-month-broker [data-broker="zerodha"]')).toHaveClass(/is-on/);
+  await expect(days).toHaveCount(2);
+  await expect(page.locator('#portfolio-monthly-summary')).toContainText('₹ 1469.75');
+  await expect(page.locator('#portfolio-month-ring .pfx-legend')).toContainText('Green days · 1');
+  await expect(page.locator('#portfolio-month-ring .pfx-legend')).toContainText('Red days · 1');
+  await page.click('#portfolio-month-broker [data-broker="dhan"]');
+  await expect(days).toHaveCount(0);
 
   // The yearly table adds the two accounts together, and says so.
   await expect(page.locator('#portfolio-ytd-brokers')).toBeVisible();
@@ -200,11 +218,13 @@ test('Zerodha gets its own row on Portfolio once a Kite app is saved', async ({ 
   expect(ytd.trades).toBe('23T');
   expect(ytd.title).toContain('Dhan: ₹22721.00 · Zerodha: ₹1469.75');
 
-  // Saved but not logged in today: the row stays and says what to do.
+  // Saved but not logged in today: the note says what to do.
   await page.route('**/api/zerodha/portfolio', route => route.fulfill({
     json: { status: 'ok', configured: true, logged_in_today: false, connected: false, user_id: 'AB1234', reason: 'login needed' },
   }));
   await page.evaluate(() => (window as unknown as { loadPortfolioData: () => Promise<void> }).loadPortfolioData());
+  await expect(page.locator('#portfolio-zerodha-row')).toBeVisible();
+  await expect(page.locator('#portfolio-zerodha-id')).toHaveText('AB1234');
   await expect(page.locator('#portfolio-zerodha-note')).toContainText('Log in to Zerodha');
   await expect(page.locator('#portfolio-zerodha-balance')).toHaveText('—');
 });
@@ -285,7 +305,7 @@ test("Today's Trades lists Zerodha's fills beside Dhan's, one row per contract a
     ],
   } }));
   await page.click('#nav-portfolio');
-  const rows = page.locator('#portfolio-trades-body tr');
+  const rows = page.locator('#portfolio-trades-body .pfx-txn');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText('ZERODHA · MIS');
   await expect(rows.nth(0)).toContainText('₹276.30');
@@ -307,7 +327,7 @@ test('A Zerodha Console tradebook fills the older Zerodha months, marked before 
     available: 0, day_pnl: 0, trades_today: 0, open_positions: 0, fills: [],
   } }));
   await page.click('#nav-portfolio');
-  await expect(page.locator('#portfolio-zerodha-book')).toBeVisible();
+  await expect(page.locator('#portfolio-zerodha-tools')).toBeVisible();
   const csv = [
     'symbol,isin,trade_date,exchange,segment,series,trade_type,auction,quantity,price,trade_id,order_id,order_execution_time,expiry_date',
     'NIFTY21AUG16400CE,,2021-08-10,NFO,NFO-OPT,,buy,false,50,100.00,T1,O1,2021-08-10T09:20:00,2021-08-12',
@@ -323,14 +343,14 @@ test('A Zerodha Console tradebook fills the older Zerodha months, marked before 
   expect([body.written, body.first, body.last, body.gross]).toEqual([2, '2021-08-10', '2021-08-11', 250]);
 
   await page.evaluate(() => {
-    const w = window as unknown as { _currentMonthlyView: string; renderMonthlyDailyGrid: () => void };
+    const w = window as unknown as { _currentMonthlyView: string; setPortfolioMonthBroker: (b: string) => void };
     w._currentMonthlyView = '2021-08';
-    w.renderMonthlyDailyGrid();
+    w.setPortfolioMonthBroker('zerodha');
   });
-  const summary = page.locator('#portfolio-zerodha-monthly-summary');
+  const summary = page.locator('#portfolio-monthly-summary');
   await expect(summary).toContainText('250');
   await expect(summary).toContainText('2 of 2 days imported from the Zerodha Console tradebook, before charges');
-  await expect(page.locator('#portfolio-zerodha-monthly-grid .portfolio-monthly-day')).toHaveCount(2);
+  await expect(page.locator('#portfolio-monthly-grid .portfolio-monthly-day')).toHaveCount(2);
 });
 
 test('A real MCX trade on an NSE holiday shows in the month; an empty holiday does not', async ({ page }) => {
@@ -349,6 +369,6 @@ test('A real MCX trade on an NSE holiday shows in the month; an empty holiday do
   });
   const tiles = page.locator('#portfolio-monthly-grid .portfolio-monthly-day');
   await expect(tiles).toHaveCount(2);
-  await expect(tiles.nth(1)).toContainText('20 Oct');
-  await expect(tiles.nth(1)).toContainText('₹271');
+  await expect(tiles.nth(1)).toHaveAttribute('aria-label', '20 Oct');
+  await expect(tiles.nth(1).locator('.pfolio-tip')).toContainText('₹270.82');
 });
