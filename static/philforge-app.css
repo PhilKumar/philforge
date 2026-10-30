@@ -10786,8 +10786,6 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   border-radius: var(--pfx-radius);
   background: var(--pfx-card);
   box-shadow: 0 18px 50px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .06);
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   color: var(--pfx-ink);
   font-family: var(--font-body);
 }
@@ -11023,7 +11021,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 #portfolio-page #portfolio-strip:not(.has-zerodha) .pfx-lines { display: none; }
 
 /* The wallet. */
-#portfolio-page .pfx-wallet { position: sticky; top: 92px; }
+#portfolio-page .pfx-wallet { position: relative; }
 #portfolio-page .pfx-wallet .pfx-head { margin-bottom: 6px; }
 #portfolio-page .pfx-hero-figure {
   display: block;
@@ -11062,7 +11060,6 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   justify-items: end;
   border: 1px solid rgba(255, 255, 255, .14);
   background: linear-gradient(140deg, rgba(251, 146, 60, .32), rgba(255, 255, 255, .07) 60%);
-  backdrop-filter: blur(10px);
   text-align: right;
 }
 #portfolio-page .pfx-wallet-cards:hover .pfx-acct.is-dhan { transform: translateX(-6px) rotate(-1.5deg); }
@@ -11204,7 +11201,6 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 
 @media (max-width: 1180px) {
   #portfolio-page .pfx-grid { grid-template-columns: minmax(0, 1fr); }
-  #portfolio-page .pfx-wallet { position: relative; top: 0; }
 }
 @media (max-width: 780px) {
   #portfolio-page .pfx-card { padding: 16px; border-radius: 20px; }
@@ -11272,8 +11268,6 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     radial-gradient(70% 50% at 100% 0%, rgba(129, 140, 248, .09), transparent 60%),
     var(--lv-card);
   box-shadow: 0 18px 50px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .06);
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   font-family: var(--font-body);
 }
 [data-theme="light"] #live-page .live-desk { box-shadow: 0 18px 44px rgba(15, 23, 42, .08), inset 0 1px 0 #fff; }
@@ -11358,3 +11352,10 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #live-page .live-panel-name { font-size: 20px; }
   #live-page .live-stat-value { font-size: 20px; }
 }
+
+/* NO BLUR UNDER SCROLL (Phil, 2026-10-30: "the screen is flickering while
+   scrolling"). The background art moves as the page scrolls, and a
+   backdrop-filter pane re-blurs it every frame -- on Portfolio, Dashboard and
+   Live that was a dozen large panes at once. The cards are 80-86% opaque, so
+   the blur bought nothing; it is gone, and the Zerodha card's glass is a
+   plain tint. */

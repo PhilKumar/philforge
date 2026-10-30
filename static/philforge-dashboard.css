@@ -376,8 +376,6 @@ html[data-theme="light"] #dashboard-page.pf-dash #dash-fiidii-card {
   border-radius: var(--pfd-radius) !important;
   background: var(--pfx-card) !important;
   box-shadow: 0 18px 50px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .06) !important;
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   font-family: var(--font-body);
 }
 html[data-theme="light"] #dashboard-page.pf-dash :is(.pfd-panel, .pfd-kpi, #dash-fiidii-card) {
