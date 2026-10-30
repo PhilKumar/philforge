@@ -1483,23 +1483,51 @@
       <header class="pfx-head"><h3>Total balance</h3><span class="pfx-pill" id="portfolio-balance-pill">today ₹0</span></header>
       <strong class="pfx-hero-figure" id="portfolio-total-balance">₹0</strong>
       <!-- Each account a card, fanned like a wallet: Dhan in front. -->
+      <!-- One card per account, side by side (Phil, 2026-10-30: "Why this
+           Dhan card is moving or sliding left ... Zerodha card is behind doing
+           nothing... Make it sensible"). A card is a button: it shows that
+           account's month, the same as its tab above. -->
       <div class="pfx-wallet-cards">
-        <div class="pfx-acct is-zerodha pfolio-z">
+        <button type="button" class="pfx-acct is-dhan" data-acct="dhan" onclick="pickPortfolioAccount(this.dataset.acct)" title="Show Dhan's month">
+          <span class="pfx-acct-name">Dhan</span>
+          <span class="pfx-acct-label">Available</span>
+          <strong id="portfolio-balance">₹0.00</strong>
+        </button>
+        <button type="button" class="pfx-acct is-zerodha pfolio-z" data-acct="zerodha" onclick="pickPortfolioAccount(this.dataset.acct)" title="Show Zerodha's month">
           <span class="pfx-acct-name">Zerodha</span>
           <span class="pfx-acct-label">Available</span>
           <strong id="portfolio-zerodha-balance">—</strong>
-        </div>
-        <div class="pfx-acct is-dhan">
-          <span class="pfx-acct-name">Dhan</span>
-          <i class="pfx-acct-chip" aria-hidden="true"></i>
-          <span class="pfx-acct-label">Available</span>
-          <strong id="portfolio-balance">₹0.00</strong>
-        </div>
+        </button>
       </div>
       <!-- Only when Zerodha cannot answer: what to do about it. -->
       <div class="pfolio-z-note" id="portfolio-zerodha-row" hidden>
         <b class="pf-broker-chip pf-broker-zerodha">Zerodha</b><span id="portfolio-zerodha-id"></span><em id="portfolio-zerodha-note"></em>
       </div>
+      <!-- What went to the bank (Phil, 2026-10-30: "I want a withdrawn amount
+           from each broker"). Dhan from its ledger statement, Zerodha from
+           Console's funds statement; the broker's own settlement payouts are
+           counted apart from Phil's withdrawals. -->
+      <section class="pfx-funds" id="portfolio-funds" hidden>
+        <header class="pfx-funds-head">
+          <h4>Withdrawn</h4>
+          <div class="scalp-toggle compact pfx-period" role="radiogroup" aria-label="Period">
+            <button type="button" class="scalp-toggle-btn" data-tone="paper" data-period="month" role="radio">Month</button>
+            <button type="button" class="scalp-toggle-btn" data-tone="paper" data-period="fy" role="radio">FY</button>
+            <button type="button" class="scalp-toggle-btn" data-tone="paper" data-period="all" role="radio">All</button>
+          </div>
+        </header>
+        <div class="pfx-funds-grid">
+          <div class="pfx-funds-acct is-dhan"><span>Dhan</span><strong id="portfolio-withdrawn-dhan">₹0</strong><em id="portfolio-withdrawn-dhan-sub"></em></div>
+          <div class="pfx-funds-acct is-zerodha pfolio-z"><span>Zerodha</span><strong id="portfolio-withdrawn-zerodha">₹0</strong><em id="portfolio-withdrawn-zerodha-sub"></em></div>
+        </div>
+        <div class="pfx-funds-total" id="portfolio-withdrawn-total"></div>
+        <details class="pfx-funds-list" id="portfolio-funds-list"><summary></summary><div></div></details>
+        <div class="pfx-funds-foot pfolio-z">
+          <label class="pf-zerodha-import read-only-lock" title="Zerodha Console → Funds → Statement, download as CSV or Excel, then choose it here">Import Zerodha funds statement<input type="file" id="portfolio-zerodha-ledger" accept=".csv,.xlsx" hidden></label>
+          <span id="portfolio-zerodha-ledger-when"></span>
+        </div>
+        <div class="pfx-funds-note" id="portfolio-funds-note" hidden></div>
+      </section>
       <header class="pfx-head pfx-txn-head"><h3>Today's trades</h3></header>
       <div class="pfx-txns" id="portfolio-trades-body"><div class="pfx-empty">No trades executed today</div></div>
       <div class="pfx-pair pfx-tiles">

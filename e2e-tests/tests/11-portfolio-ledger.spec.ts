@@ -421,3 +421,52 @@ test("Trades for month tags each row Dhan or Zerodha, and downloads as Excel", a
   await expect(rows).toHaveCount(2);
   await expect(page.locator('.portfolio-monthly-trades-table tbody tr[data-broker="zerodha"]')).toHaveCount(0);
 });
+
+// Phil, 2026-10-30: "I want a withdrawn amount from each broker on the
+// portfolio page", and the wallet cards: "Make it sensible".
+test('Withdrawn shows each broker apart, settlements apart, by month, FY or all; a wallet card picks its account', async ({ page }) => {
+  await page.route('**/api/zerodha/portfolio', route => route.fulfill({ json: {
+    status: 'ok', configured: true, logged_in_today: true, connected: true, user_id: 'AB1234',
+    available: 152340.5, day_pnl: 0, trades_today: 0, open_positions: 0, fills: [],
+  } }));
+  await page.route('**/api/funds-flow**', route => route.fulfill({ json: { status: 'ok',
+    dhan: { connected: true, note: '', flows: [
+      { broker: 'dhan', date: '2026-10-30', kind: 'withdrawal', amount: 5000, ref: 'a' },
+      { broker: 'dhan', date: '2026-10-19', kind: 'deposit', amount: 71023, ref: 'b' },
+      { broker: 'dhan', date: '2026-10-16', kind: 'settlement', amount: 71023.11, ref: 'c' },
+      { broker: 'dhan', date: '2026-04-02', kind: 'withdrawal', amount: 68500, ref: 'd' },
+      { broker: 'dhan', date: '2026-01-09', kind: 'withdrawal', amount: 168000, ref: 'e' },
+    ] },
+    zerodha: { configured: true, imported_at: 1793300000, flows: [{ broker: 'zerodha', date: '2026-10-12', kind: 'withdrawal', amount: 20000, ref: 'f' }] },
+  } }));
+  await login(page);
+  await page.click('#nav-portfolio');
+  await expect(page.locator('#portfolio-funds')).toBeVisible();
+  await page.evaluate(() => { (window as any)._currentMonthlyView = '2026-10'; (window as any).renderPortfolioFunds(); });
+  const pick = (p: string) => page.click(`#portfolio-funds [data-period="${p}"]`);
+  // FY 26-27 runs April to March: January's withdrawal is last year's.
+  await pick('fy');
+  await expect(page.locator('#portfolio-withdrawn-dhan')).toHaveText('₹73,500');
+  await expect(page.locator('#portfolio-withdrawn-zerodha')).toHaveText('₹20,000');
+  await expect(page.locator('#portfolio-withdrawn-total')).toContainText('₹93,500 withdrawn');
+  await expect(page.locator('#portfolio-withdrawn-total')).toContainText('₹71,023 settled to bank');
+  await pick('month');
+  await expect(page.locator('#portfolio-withdrawn-dhan')).toHaveText('₹5,000');
+  await pick('all');
+  await expect(page.locator('#portfolio-withdrawn-dhan')).toHaveText('₹2,41,500');
+  await expect(page.locator('#portfolio-funds-list .pfx-funds-row')).toHaveCount(6);
+
+  // The wallet: two cards side by side, none moving; a card shows its account's month.
+  const dhanCard = page.locator('#portfolio-page .pfx-acct.is-dhan');
+  const zCard = page.locator('#portfolio-page .pfx-acct.is-zerodha');
+  const [d, z] = [await dhanCard.boundingBox(), await zCard.boundingBox()];
+  expect(Math.abs(d!.y - z!.y)).toBeLessThan(1);
+  expect(d!.x + d!.width).toBeLessThanOrEqual(z!.x);
+  await zCard.click();
+  await expect(page.locator('#portfolio-month-broker [data-broker="zerodha"]')).toHaveClass(/is-on/);
+  await expect(zCard).toHaveClass(/is-on/);
+  await expect(dhanCard).toHaveClass(/is-dim/);
+  await zCard.click();
+  await expect(page.locator('#portfolio-month-broker [data-broker="all"]')).toHaveClass(/is-on/);
+  await expect(dhanCard).not.toHaveClass(/is-dim/);
+});

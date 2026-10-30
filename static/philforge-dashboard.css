@@ -593,3 +593,21 @@ html[data-theme="light"] #dashboard-page.pf-dash {
   --pfx-card: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(241, 245, 249, .86));
   --pfx-tile: rgba(255, 255, 255, .6);
 }
+
+/* A phone: one desk a row, its copy at full width; the arrow goes, the tile is the link. */
+@media (max-width: 760px) {
+  #dashboard-page.pf-dash .pfd-desks { grid-template-columns: minmax(0, 1fr); }
+  #dashboard-page.pf-dash .pfd-desk { grid-template-columns: auto minmax(0, 1fr); padding: 16px; }
+  #dashboard-page.pf-dash .pfd-desk-go { display: none; }
+  #dashboard-page.pf-dash .pfd-desk-icon { width: 40px; height: 40px; font-size: 17px; }
+}
+@media (max-width: 760px) {
+  /* Live now: the title row wraps rather than clip the monitor button. */
+  #dashboard-page.pf-dash .pfd-live .pfd-panel-head { flex-wrap: wrap; }
+  #dashboard-page.pf-dash #dash-active-open-btn { overflow: visible; padding: 6px 12px; }
+  /* FII/DII today: the crore figure whole, a size down. */
+  #dashboard-page.pf-dash .pfd-flow-tile { padding: 12px 13px; }
+  #dashboard-page.pf-dash .pfd-flow-tile strong { font-size: 16px; overflow: visible; text-overflow: clip; white-space: normal; }
+  /* The three activity tabs on one line each. */
+  #dashboard-page.pf-dash .pfd-tabs .scalp-toggle-btn { padding: 6px 4px; font-size: 11.5px; white-space: nowrap; }
+}

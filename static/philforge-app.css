@@ -11031,61 +11031,56 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   letter-spacing: -.03em;
   font-variant-numeric: tabular-nums;
 }
-#portfolio-page .pfx-wallet-cards { position: relative; height: 158px; margin-bottom: 18px; }
+#portfolio-page .pfx-wallet-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+#portfolio-page #portfolio-strip:not(.has-zerodha) .pfx-wallet-cards { grid-template-columns: minmax(0, 1fr); }
 #portfolio-page .pfx-acct {
-  position: absolute;
-  top: 0;
+  --acct: #5eead4;
+  position: relative;
   display: grid;
   align-content: end;
   gap: 2px;
-  height: 148px;
-  padding: 16px 18px;
+  min-width: 0;
+  min-height: 128px;
+  padding: 44px 16px 14px;
+  border: 1px solid color-mix(in srgb, var(--acct) 26%, transparent);
   border-radius: 20px;
   overflow: hidden;
+  color: #fff;
+  font-family: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 16px 30px -18px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .1);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
 }
 #portfolio-page .pfx-acct.is-dhan {
-  left: 0;
-  width: 64%;
   background:
-    radial-gradient(120% 90% at 0% 0%, rgba(94, 234, 212, .28), transparent 55%),
-    linear-gradient(140deg, #123b3a 0%, #0b1f2b 55%, #18233d 100%);
-  box-shadow: 0 22px 40px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .12);
-  transition: transform .3s cubic-bezier(.2, .8, .2, 1);
+    radial-gradient(120% 90% at 0% 0%, rgba(94, 234, 212, .30), transparent 58%),
+    linear-gradient(140deg, #123b3a 0%, #0b1f2b 60%, #172338 100%);
 }
 #portfolio-page .pfx-acct.is-zerodha {
-  right: 0;
-  top: 10px;
-  width: 64%;
-  height: 128px;
-  justify-items: end;
-  border: 1px solid rgba(255, 255, 255, .14);
-  background: linear-gradient(140deg, rgba(251, 146, 60, .32), rgba(255, 255, 255, .07) 60%);
-  text-align: right;
+  --acct: #fb923c;
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(251, 146, 60, .30), transparent 58%),
+    linear-gradient(140deg, #3b2312 0%, #1f160f 60%, #231a2e 100%);
 }
-#portfolio-page .pfx-wallet-cards:hover .pfx-acct.is-dhan { transform: translateX(-6px) rotate(-1.5deg); }
-#portfolio-page #portfolio-strip:not(.has-zerodha) .pfx-acct.is-dhan { width: 100%; }
-#portfolio-page .pfx-acct-name {
-  position: absolute;
-  top: 14px;
-  left: 18px;
-  color: #fff;
-  font: 700 16px var(--font-body);
-  letter-spacing: .01em;
+#portfolio-page .pfx-acct:hover,
+#portfolio-page .pfx-acct:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--acct) 60%, transparent);
+  box-shadow: 0 18px 32px -16px color-mix(in srgb, var(--acct) 55%, transparent), inset 0 1px 0 rgba(255, 255, 255, .12);
+  outline: none;
 }
-#portfolio-page .pfx-acct.is-zerodha .pfx-acct-name { left: auto; right: 18px; color: #fed7aa; }
-#portfolio-page .pfx-acct-chip {
-  position: absolute;
-  top: 46px;
-  left: 18px;
-  width: 30px;
-  height: 22px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #f8fafc, #94a3b8);
-  opacity: .8;
+/* The account the month shows is lit; the other steps back. */
+#portfolio-page .pfx-acct.is-on {
+  border-color: var(--acct);
+  box-shadow: 0 0 0 1px var(--acct), 0 18px 32px -16px color-mix(in srgb, var(--acct) 60%, transparent);
 }
-#portfolio-page .pfx-acct-label { color: rgba(255, 255, 255, .6); font: 500 11px var(--font-body); }
-#portfolio-page .pfx-acct strong { color: #fff; font: 600 21px var(--font-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
-#portfolio-page .pfx-acct.is-zerodha strong { font-size: 17px; }
+#portfolio-page .pfx-acct.is-dim { opacity: .55; }
+#portfolio-page .pfx-acct.is-dim:hover { opacity: .9; }
+#portfolio-page .pfx-acct-name { position: absolute; top: 14px; left: 16px; color: #fff; font: 700 15px var(--font-body); }
+#portfolio-page .pfx-acct.is-zerodha .pfx-acct-name { color: #fed7aa; }
+#portfolio-page .pfx-acct-label { color: rgba(255, 255, 255, .62); font: 500 11px var(--font-body); }
+#portfolio-page .pfx-acct strong { overflow: hidden; color: #fff; font: 600 20px var(--font-body); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 #portfolio-page .pfolio-z-note {
   display: flex;
   align-items: center;
@@ -11194,8 +11189,6 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 }
 [data-theme="light"] #portfolio-page .pfx-card { box-shadow: 0 18px 44px rgba(15, 23, 42, .08), inset 0 1px 0 #fff; }
 [data-theme="light"] #portfolio-page .pfx-guide { background: rgba(15, 23, 42, .07); }
-[data-theme="light"] #portfolio-page .pfx-acct.is-zerodha { background: linear-gradient(140deg, rgba(251, 146, 60, .38), rgba(255, 255, 255, .7) 60%); }
-[data-theme="light"] #portfolio-page .pfx-acct.is-zerodha :is(.pfx-acct-name, .pfx-acct-label, strong) { color: #7c2d12; }
 [data-theme="light"] #portfolio-page .pfx-tile { background: rgba(255, 255, 255, .6); }
 [data-theme="light"] #portfolio-page .pfx-col .pfolio-tip { background: rgba(15, 23, 42, .9); }
 
@@ -11363,5 +11356,80 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 /* Trades for month: the fold's head and the Excel download side by side. */
 #portfolio-page .pfx-trades-bar { display: flex; align-items: center; gap: 10px; }
 #portfolio-page .pfx-trades-bar .portfolio-monthly-trades-head { flex: 1; min-width: 0; }
-#portfolio-page .pfx-xlsx-btn { flex: 0 0 auto; gap: 6px; min-height: 32px; padding: 5px 14px; margin-right: 8px; }
+#portfolio-page .pfx-xlsx-btn { flex: 0 0 auto; width: auto; gap: 6px; min-height: 32px; padding: 5px 14px; margin-right: 8px; }
+/* A phone: the title keeps its line, the Excel button sits under it at its own size. */
+@media (max-width: 560px) {
+  #portfolio-page .pfx-trades-bar { flex-wrap: wrap; gap: 0; }
+  #portfolio-page .pfx-trades-bar .portfolio-monthly-trades-head { flex: 1 1 100%; }
+  #portfolio-page .pfx-xlsx-btn { width: auto; margin: 0 0 10px 14px; padding: 5px 14px; }
+}
 #portfolio-page .portfolio-monthly-trades-table .pf-broker-chip { margin-right: 0; }
+
+/* Withdrawn: each broker's money to the bank, under the account cards. */
+#portfolio-page .pfx-funds { margin: 0 0 18px; padding: 14px 16px; border: 1px solid var(--pfx-edge); border-radius: 18px; background: rgba(255, 255, 255, .03); }
+#portfolio-page .pfx-funds[hidden] { display: none; }
+#portfolio-page .pfx-funds-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+#portfolio-page .pfx-funds-head h4 { margin: 0 auto 0 0; color: var(--pfx-ink); font: 600 15px var(--font-body); }
+#portfolio-page .pfx-period { grid-template-columns: repeat(3, auto); }
+#portfolio-page .pfx-period .scalp-toggle-btn { min-height: 28px; padding: 4px 12px; font-size: 11.5px; }
+#portfolio-page .pfx-funds-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+#portfolio-page #portfolio-strip:not(.has-zerodha) .pfx-funds-grid { grid-template-columns: minmax(0, 1fr); }
+#portfolio-page .pfx-funds-acct {
+  --acct: #5eead4;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--acct);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--acct) 8%, transparent);
+}
+#portfolio-page .pfx-funds-acct.is-zerodha { --acct: #fb923c; }
+#portfolio-page .pfx-funds-acct span { color: var(--pfx-soft); font: 500 11.5px var(--font-body); }
+#portfolio-page .pfx-funds-acct strong { overflow: hidden; color: var(--pfx-ink); font: 600 20px var(--font-body); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+#portfolio-page .pfx-funds-acct em { overflow: hidden; color: var(--pfx-soft); font: 400 10.5px var(--font-body); font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+#portfolio-page .pfx-funds-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin-top: 10px; color: var(--pfx-soft); font: 400 11.5px var(--font-body); }
+#portfolio-page .pfx-funds-total span { margin-right: 4px; color: var(--pfx-ink); font-weight: 600; }
+#portfolio-page .pfx-funds-total b { color: var(--pfx-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+#portfolio-page .pfx-funds-total i { font-style: normal; opacity: .5; }
+#portfolio-page .pfx-funds-list { margin-top: 10px; }
+#portfolio-page .pfx-funds-list summary { color: var(--pfx-soft); font: 500 11.5px var(--font-body); cursor: pointer; }
+#portfolio-page .pfx-funds-list > div { display: grid; gap: 2px; max-height: 220px; margin-top: 8px; overflow-y: auto; }
+#portfolio-page .pfx-funds-row { display: grid; grid-template-columns: 92px auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 8px; font: 400 12px var(--font-body); color: var(--pfx-ink); }
+#portfolio-page .pfx-funds-row:hover { background: rgba(255, 255, 255, .04); }
+#portfolio-page .pfx-funds-row .pf-broker-chip { margin-right: 0; padding: 1px 5px; font-size: 7.5px; }
+#portfolio-page .pfx-funds-row em { color: var(--pfx-soft); font-style: normal; }
+#portfolio-page .pfx-funds-row strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+#portfolio-page .pfx-funds-row.is-deposit strong { color: var(--pfx-mint); }
+#portfolio-page .pfx-funds-row.is-settlement strong { color: var(--pfx-soft); }
+#portfolio-page .pfx-funds-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: var(--pfx-soft); font: 500 11px var(--font-body); }
+#portfolio-page .pfx-funds-note { margin-top: 8px; color: var(--warn); font: 500 11px var(--font-body); }
+
+/* LIVE ON A PHONE (Phil, 2026-10-30: "Mobile is not perfect"). The field list
+   is two columns and needs no 560px floor; the positions table still scrolls,
+   but its Action column stays pinned at the right edge, so Exit is always one
+   press away without scrolling sideways first. */
+@media (max-width: 760px) {
+  #live-page .live-field-table { min-width: 0 !important; }
+  #live-page .live-positions-table tr > :last-child {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    background: #111a2b !important;
+    box-shadow: -8px 0 12px -8px rgba(0, 0, 0, .55);
+  }
+  [data-theme="light"] #live-page .live-positions-table tr > :last-child { background: #f8fafc !important; box-shadow: -8px 0 12px -8px rgba(15, 23, 42, .18); }
+}
+@media (max-width: 560px) {
+  /* A movement on two lines: date over account and kind, the amount beside both. */
+  #portfolio-page .pfx-funds-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
+  #portfolio-page .pfx-funds-row > span { grid-column: 1 / 3; grid-row: 1; }
+  #portfolio-page .pfx-funds-row > b { grid-column: 1; grid-row: 2; justify-self: start; }
+  #portfolio-page .pfx-funds-row > em { grid-column: 2; grid-row: 2; font-size: 11px; }
+  #portfolio-page .pfx-funds-row > strong { grid-column: 3; grid-row: 1 / 3; align-self: center; }
+  /* The curve's figure under its title, not over it. */
+  #portfolio-page .pfx-wave-end { position: static; display: block; margin-top: 2px; }
+  /* Portfolio: notes under a figure wrap instead of trailing off. */
+  #portfolio-page .pfx-funds-acct em,
+  #portfolio-page .pfx-txn-what span { white-space: normal; }
+}

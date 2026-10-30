@@ -21068,6 +21068,9 @@ function renderLivePanel(d, idx) {
   const closedTradesBlockHtml = _renderCompletedTradesBlock(closed, {
     page: closedPage,
     perPage: _LIVE_TRADES_PER_PAGE,
+    // A phone hides every trade table for its cards; without them the block
+    // was an empty box there.
+    renderMobileCards: true,
     pageHandlerTemplate: `_goLiveClosedPage('${safeRunIdJs}','${safeModeJs}', __PAGE__)`,
     runId: d.run_id || runId,
   });
@@ -21397,6 +21400,121 @@ async function loadPortfolioZerodhaMonth(configured) {
     window._portfolioZerodhaDaily = window._portfolioZerodhaDaily || {};
   }
 }
+
+// ── Withdrawn: money to the bank from each broker (Phil, 2026-10-30: "I want a
+// withdrawn amount from each broker on the portfolio page"). Month follows the
+// month on view, FY is India's April-March year holding it, All is everything
+// read. The broker's own settlement payouts are counted apart.
+const _PORTFOLIO_FUNDS_PERIOD_KEY = 'pf-portfolio-funds-period';
+let _portfolioFundsPeriod = (() => {
+  try { const v = localStorage.getItem(_PORTFOLIO_FUNDS_PERIOD_KEY); return v === 'month' || v === 'all' ? v : 'fy'; } catch (_) { return 'fy'; }
+})();
+window._portfolioFunds = null;
+
+async function loadPortfolioFunds(refresh = false) {
+  const card = document.getElementById('portfolio-funds');
+  if (!card) return;
+  // A viewer is refused the money; the panel stays away rather than say so.
+  if (isReadOnlyAccount()) { card.hidden = true; return; }
+  try {
+    const r = await fetch(`/api/funds-flow${refresh ? '?refresh=1' : ''}`, { credentials: 'same-origin' });
+    if (!r.ok) { card.hidden = true; return; }
+    window._portfolioFunds = await r.json();
+  } catch (_) {
+    if (!window._portfolioFunds) { card.hidden = true; return; }
+  }
+  renderPortfolioFunds();
+}
+
+function _portfolioFundsWindow() {
+  const ym = window._currentMonthlyView || getMarketYearMonth();
+  const [y, m] = ym.split('-').map(Number);
+  if (_portfolioFundsPeriod === 'month') return { from: `${ym}-01`, to: `${ym}-31`, label: `${MONTH_NAMES_SHORT[m - 1]} ${y}` };
+  if (_portfolioFundsPeriod === 'fy') {
+    const start = m >= 4 ? y : y - 1;
+    return { from: `${start}-04-01`, to: `${start + 1}-03-31`, label: `FY ${String(start).slice(2)}-${String(start + 1).slice(2)}` };
+  }
+  return { from: '0000-01-01', to: '9999-12-31', label: 'All' };
+}
+
+function renderPortfolioFunds() {
+  const card = document.getElementById('portfolio-funds');
+  const data = window._portfolioFunds;
+  if (!card || !data || data.status !== 'ok') return;
+  card.hidden = false;
+  card.querySelectorAll('[data-period]').forEach((b) => {
+    const on = b.dataset.period === _portfolioFundsPeriod;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+  const win = _portfolioFundsWindow();
+  const zOn = !!(data.zerodha && data.zerodha.configured);
+  const flows = [...(data.dhan?.flows || []), ...(zOn ? (data.zerodha?.flows || []) : [])]
+    .filter(f => f.date >= win.from && f.date <= win.to)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const sum = (broker, kind) => flows.filter(f => (!broker || f.broker === broker) && f.kind === kind).reduce((s, f) => s + Number(f.amount || 0), 0);
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  set('portfolio-withdrawn-dhan', pfMoneyGrouped(sum('dhan', 'withdrawal')));
+  set('portfolio-withdrawn-zerodha', pfMoneyGrouped(sum('zerodha', 'withdrawal')));
+  const sub = (broker) => {
+    const added = sum(broker, 'deposit'), settled = sum(broker, 'settlement');
+    return [added ? `added ${pfMoneyGrouped(added)}` : '', settled ? `settled ${pfMoneyGrouped(settled)}` : ''].filter(Boolean).join(' · ') || win.label;
+  };
+  set('portfolio-withdrawn-dhan-sub', sub('dhan'));
+  set('portfolio-withdrawn-zerodha-sub', zOn && !(data.zerodha.flows || []).length ? 'import the funds statement' : sub('zerodha'));
+  const out = sum(null, 'withdrawal'), added = sum(null, 'deposit'), settled = sum(null, 'settlement');
+  const total = document.getElementById('portfolio-withdrawn-total');
+  if (total) {
+    total.innerHTML = `<span>${escapeHtml(win.label)}</span><b>${pfMoneyGrouped(out)}</b> withdrawn`
+      + `<i>·</i><b>${pfMoneyGrouped(added)}</b> added`
+      + (settled ? `<i>·</i><b>${pfMoneyGrouped(settled)}</b> settled to bank` : '');
+  }
+  const list = document.getElementById('portfolio-funds-list');
+  if (list) {
+    const word = { withdrawal: 'Withdrawn', deposit: 'Added', settlement: 'Settled to bank' };
+    list.querySelector('summary').textContent = `${flows.length} movement${flows.length === 1 ? '' : 's'} · ${win.label}`;
+    list.querySelector('div').innerHTML = flows.length ? flows.map(f => `<div class="pfx-funds-row is-${escapeAttr(f.kind)}">
+        <span>${escapeHtml(formatPortfolioDateLabel(f.date))}</span>
+        <b class="pf-broker-chip pf-broker-${escapeAttr(f.broker)}">${f.broker === 'zerodha' ? 'Zerodha' : 'Dhan'}</b>
+        <em>${word[f.kind] || f.kind}</em>
+        <strong>${f.kind === 'deposit' ? '+' : '−'}${pfMoneyGrouped(f.amount)}</strong>
+      </div>`).join('') : '<div class="pfx-empty">Nothing moved in this period</div>';
+  }
+  const when = document.getElementById('portfolio-zerodha-ledger-when');
+  if (when) when.textContent = data.zerodha?.imported_at ? `imported ${new Date(data.zerodha.imported_at * 1000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : '';
+  const note = document.getElementById('portfolio-funds-note');
+  if (note) { note.textContent = data.dhan?.note || ''; note.hidden = !data.dhan?.note; }
+}
+window.renderPortfolioFunds = renderPortfolioFunds;
+
+document.addEventListener('click', (event) => {
+  const btn = event.target && event.target.closest && event.target.closest('#portfolio-funds [data-period]');
+  if (!btn) return;
+  _portfolioFundsPeriod = btn.dataset.period;
+  try { localStorage.setItem(_PORTFOLIO_FUNDS_PERIOD_KEY, _portfolioFundsPeriod); } catch (_) {}
+  renderPortfolioFunds();
+});
+
+document.addEventListener('change', async (event) => {
+  const input = event.target;
+  if (!input || input.id !== 'portfolio-zerodha-ledger') return;
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const r = await fetch('/api/zerodha/import-ledger', { method: 'POST', body: form, credentials: 'same-origin' });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(pfErrorText(body, 'Import failed (' + r.status + ')'), 'error'); return; }
+    toast(`Read ${body.read} movement${body.read === 1 ? '' : 's'}: ${body.withdrawal} withdrawn, ${body.deposit} added, ${body.settlement} settled`
+      + (body.added !== body.read ? ` · ${body.read - body.added} already held` : ''), 'success', 7000);
+    await loadPortfolioFunds();
+  } catch (e) {
+    toast('Import failed: ' + e.message, 'error');
+  } finally {
+    input.value = '';
+  }
+});
 
 async function loadPortfolioData() {
   try {
@@ -21857,6 +21975,7 @@ async function loadPortfolioData() {
     renderMonthlyDailyGrid();
     renderYearlyMonthlyTable();
     _portfolioPaintStrip();
+    loadPortfolioFunds();
     _renderPortfolioPaperRuns(_allRunsCache);
     if (_portfolioRunExpandedKey) _renderPortfolioPaperRuns(_allRunsCache);
 
@@ -22051,11 +22170,18 @@ let _portfolioMonthBroker = (() => {
 
 function setPortfolioMonthBroker(broker) {
   if (!['all', 'dhan', 'zerodha'].includes(broker)) return;
+  // Only Dhan: nothing to switch between.
+  if (document.getElementById('portfolio-month-broker')?.hidden) return;
   _portfolioMonthBroker = broker;
   try { localStorage.setItem(_PORTFOLIO_BROKER_KEY, broker); } catch (_) {}
   renderMonthlyDailyGrid();
 }
 window.setPortfolioMonthBroker = setPortfolioMonthBroker;
+// A wallet card shows its account's month; pressed again, back to both.
+function pickPortfolioAccount(acct) {
+  setPortfolioMonthBroker(_portfolioMonthBroker === acct ? 'all' : acct);
+}
+window.pickPortfolioAccount = pickPortfolioAccount;
 document.addEventListener('click', (event) => {
   const btn = event.target && event.target.closest && event.target.closest('#portfolio-month-broker [data-broker]');
   if (btn) setPortfolioMonthBroker(btn.dataset.broker);
@@ -22109,7 +22235,16 @@ function renderMonthlyDailyGrid() {
     b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
+  // The wallet's cards say the same: the account on show lit, the other back.
+  const split = !document.getElementById('portfolio-month-broker')?.hidden;
+  document.querySelectorAll('#portfolio-page .pfx-acct[data-acct]').forEach((card) => {
+    const one = split && _portfolioMonthBroker !== 'all';
+    card.classList.toggle('is-on', one && card.dataset.acct === _portfolioMonthBroker);
+    card.classList.toggle('is-dim', one && card.dataset.acct !== _portfolioMonthBroker);
+    card.setAttribute('aria-pressed', String(one && card.dataset.acct === _portfolioMonthBroker));
+  });
   _renderPortfolioMonthPanel(_portfolioMonthSource());
+  if (window._portfolioFunds) renderPortfolioFunds();
   // Paper is Dhan's ledger's, whichever account the month shows.
   _renderPortfolioPaperMonth(_portfolioMonthEntries(window._portfolioDaily || {}, window._currentMonthlyView, 0).dayEntries);
 }
