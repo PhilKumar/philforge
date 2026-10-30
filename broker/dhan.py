@@ -2512,6 +2512,38 @@ class DhanClient:
                 queue[:0] = item
         return self._rows_in_units(normalized)
 
+    def get_ledger(self, from_date: str, to_date: str) -> list | str:
+        """The account's ledger statement for a date range (YYYY-MM-DD).
+
+        GET /v2/ledger?from-date=&to-date= -- every money movement: trades,
+        charges, and the fund pay-ins, payouts and settlements the Portfolio
+        page's withdrawals are read from. Returns RATE_LIMITED when Dhan asks
+        to slow down, and [] on any other refusal.
+        """
+        if not self._is_configured():
+            raise ConnectionError("Dhan credentials not configured")
+        url = f"{self.base_url}/v2/ledger"
+        params = {"from-date": from_date, "to-date": to_date}
+        try:
+            resp = _http_session.get(url, headers=self.headers, params=params, timeout=20)
+            if self._allow_token_refresh and _is_invalid_token_response(resp):
+                _dhan_log.warning("[DHAN] get_ledger -> Invalid Token (400), refreshing...")
+                if self.refresh_access_token():
+                    resp = _http_session.get(url, headers=self.headers, params=params, timeout=20)
+            if resp.status_code == 429:
+                return self.RATE_LIMITED
+            if resp.status_code != 200:
+                _dhan_log.warning("[DHAN] Ledger request failed status=%s", resp.status_code)
+                return []
+            data = resp.json()
+            if isinstance(data, dict) and data.get("errorCode") == "DH-904":
+                return self.RATE_LIMITED
+            rows = data if isinstance(data, list) else (data.get("data", []) if isinstance(data, dict) else [])
+            return rows if isinstance(rows, list) else []
+        except Exception as e:
+            _dhan_log.warning("[DHAN] Ledger request error: %s", e)
+            return []
+
     def get_funds(self) -> dict:
         """Get available margin/funds"""
         if not self._is_configured():

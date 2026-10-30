@@ -139,6 +139,7 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/orders' || path === '/api/positions') await route.fulfill({ json: { status: 'success', data: [] } });
     else if (path === '/api/portfolio/history') await route.fulfill({ json: { status: 'success', monthly: {}, yearly: {} } });
     else if (path === '/api/zerodha/portfolio') await route.fulfill({ json: { status: 'ok', configured: false, connected: false } });
+    else if (path === '/api/funds-flow') await route.fulfill({ json: { status: 'ok', dhan: { connected: false, flows: [], note: '' }, zerodha: { configured: false, flows: [] } } });
     // The Scalp page docks the option chart beside the form and asks for the
     // form's contract as soon as it opens (2026-10-15).
     // The Scalp picker's Stocks tab (2026-10-16).

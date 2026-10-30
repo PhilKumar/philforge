@@ -8785,6 +8785,111 @@ async def zerodha_import_tradebook(request: Request, file: UploadFile):
     return {"status": "ok", **summary, "written": written, "kept": kept}
 
 
+# ── Money in and out of each broker (Phil, 2026-10-30: "I want a withdrawn
+# amount from each broker on the portfolio page"). Dhan answers from its ledger
+# statement, read again at most every six hours and kept; Zerodha's Kite keeps
+# no fund history, so its movements come from Console's funds statement.
+_FUNDS_FLOW_TTL_SEC = 6 * 3600
+_FUNDS_FLOW_START = date(2024, 1, 1)
+
+
+def _funds_flow_key(broker: str, user_id: int) -> str:
+    return f"{broker}_funds_flow:{int(user_id)}"
+
+
+async def _load_funds_flow(key: str) -> dict:
+    raw = await _db_mod.get_app_state(key)
+    try:
+        state = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        state = {}
+    return state if isinstance(state, dict) else {}
+
+
+def _fetch_dhan_funds_flow(client, state: dict) -> tuple[list[dict], str, bool]:
+    """New Dhan movements since the last read, a year of ledger per request."""
+    import funds_flow as _ff
+
+    today = datetime.now(IST).date()
+    through = state.get("through")
+    try:
+        start = date.fromisoformat(through) - timedelta(days=10) if through else _FUNDS_FLOW_START
+    except ValueError:
+        start = _FUNDS_FLOW_START
+    flows: list[dict] = []
+    cursor = start
+    while cursor <= today:
+        end = min(date(cursor.year, 12, 31), today)
+        rows = client.get_ledger(cursor.isoformat(), end.isoformat())
+        if rows == getattr(client, "RATE_LIMITED", object()):
+            return flows, cursor.isoformat(), False
+        flows.extend(_ff.dhan_flows(rows if isinstance(rows, list) else []))
+        cursor = end + timedelta(days=1)
+    return flows, today.isoformat(), True
+
+
+@app.get("/api/funds-flow")
+async def funds_flow_summary(request: Request, refresh: bool = False):
+    """Withdrawals, deposits and settlements at Dhan and Zerodha."""
+    import funds_flow as _ff
+
+    user, broker_client, _source = await _request_broker_context(request)
+    user_id = _request_user_id(request)
+    dhan_key = _funds_flow_key("dhan", user_id)
+    dhan = await _load_funds_flow(dhan_key)
+    note = ""
+    stale = refresh or (time.time() - float(dhan.get("fetched_at") or 0)) > _FUNDS_FLOW_TTL_SEC
+    if broker_client and stale:
+        try:
+            new, through, complete = await asyncio.to_thread(_fetch_dhan_funds_flow, broker_client, dhan)
+            merged, _added = _ff.merge(dhan.get("flows") or [], new)
+            dhan = {
+                "flows": merged,
+                "through": through,
+                "fetched_at": time.time() if complete else dhan.get("fetched_at", 0),
+            }
+            await _db_mod.set_app_state(dhan_key, json.dumps(dhan, sort_keys=True))
+            if not complete:
+                note = "Dhan asked to slow down; the rest follows on the next visit."
+        except Exception as exc:
+            _logger.warning("[FUNDS] Dhan ledger read failed: %s", exc)
+            note = "Dhan's statement did not answer; showing what was read before."
+    zerodha = await _load_funds_flow(_funds_flow_key("zerodha", user_id))
+    return {
+        "status": "ok",
+        "dhan": {
+            "connected": bool(broker_client),
+            "flows": dhan.get("flows") or [],
+            "through": dhan.get("through"),
+            "note": note,
+        },
+        "zerodha": {
+            "configured": bool(_zerodha_profile_payload(user)["configured"]),
+            "flows": zerodha.get("flows") or [],
+            "imported_at": zerodha.get("imported_at"),
+        },
+    }
+
+
+@app.post("/api/zerodha/import-ledger")
+async def zerodha_import_ledger(request: Request, file: UploadFile):
+    """Zerodha's withdrawals and deposits from Console's funds statement."""
+    import funds_flow as _ff
+
+    user_id = _request_user_id(request)
+    data = await _read_upload_limited(file, 10 * 1024 * 1024)
+    try:
+        flows = _ff.zerodha_flows(_ff.read_table(data, file.filename or ""))
+    except _ff.LedgerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    key = _funds_flow_key("zerodha", user_id)
+    state = await _load_funds_flow(key)
+    merged, added = _ff.merge(state.get("flows") or [], flows)
+    await _db_mod.set_app_state(key, json.dumps({"flows": merged, "imported_at": time.time()}, sort_keys=True))
+    counts = {k: sum(1 for f in flows if f["kind"] == k) for k in _ff.KINDS}
+    return {"status": "ok", "read": len(flows), "added": added, **counts}
+
+
 @app.get("/api/zerodha/portfolio")
 async def zerodha_portfolio(request: Request):
     """Funds, today's P&L and today's orders at Zerodha, for the Portfolio page.
