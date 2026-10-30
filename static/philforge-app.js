@@ -21008,7 +21008,7 @@ function renderLivePanel(d, idx) {
     posHtml = positions.map((p, idx) => {
       const pnl = round2(p.unrealized_pnl || 0);
       const exitApi = mode === 'auto' ? '/api/live/exit-position' : '/api/paper/exit-position';
-      return `<tr><td>${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td>₹${round2(p.entry_premium||0).toFixed(2)}</td><td>₹${round2(p.current_premium||0).toFixed(2)}</td><td style="color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td><button type="button" class="cascade-options-control is-danger" onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx})">Exit</button></td></tr>`;
+      return `<tr><td>${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td>₹${round2(p.entry_premium||0).toFixed(2)}</td><td>₹${round2(p.current_premium||0).toFixed(2)}</td><td style="color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td><button type="button" class="cascade-options-control is-danger" onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx},this)">Exit</button></td></tr>`;
     }).join('');
   }
 
@@ -21224,9 +21224,17 @@ function _goLiveClosedPage(runId, mode, page) {
   renderLivePanel(eng, _selectedLiveTab);
 }
 
-async function _forceExitPosition(apiPath, runId, posIndex) {
-  const ok = await customConfirm('Are you sure you want to exit this position?', { title: 'Exit Position', okText: 'Exit', danger: true });
-  if (!ok) return;
+// One press exits: no "are you sure" (Phil, 2026-10-30: "remove the pop-up
+// while exiting a trade manually in Live. It creates delays not helping to
+// exit at the right price immediately"). What the dialog also did was stop a
+// second press -- so the button goes dead at once, and a position already
+// being exited ignores another press until the broker has answered.
+const _forceExitInFlight = new Set();
+async function _forceExitPosition(apiPath, runId, posIndex, button) {
+  const key = `${apiPath}|${runId}|${posIndex}`;
+  if (_forceExitInFlight.has(key)) return;
+  _forceExitInFlight.add(key);
+  if (button) { button.disabled = true; button.textContent = 'Exiting…'; }
   try {
     const res = await fetch(apiPath, {
       method: 'POST',
@@ -21249,6 +21257,9 @@ async function _forceExitPosition(apiPath, runId, posIndex) {
     }
   } catch (e) {
     showToast('Exit request failed: ' + e.message, 'error');
+  } finally {
+    _forceExitInFlight.delete(key);
+    if (button && button.isConnected) { button.disabled = false; button.textContent = 'Exit'; }
   }
 }
 
