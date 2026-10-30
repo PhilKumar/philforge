@@ -11359,3 +11359,9 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
    Live that was a dozen large panes at once. The cards are 80-86% opaque, so
    the blur bought nothing; it is gone, and the Zerodha card's glass is a
    plain tint. */
+
+/* Trades for month: the fold's head and the Excel download side by side. */
+#portfolio-page .pfx-trades-bar { display: flex; align-items: center; gap: 10px; }
+#portfolio-page .pfx-trades-bar .portfolio-monthly-trades-head { flex: 1; min-width: 0; }
+#portfolio-page .pfx-xlsx-btn { flex: 0 0 auto; gap: 6px; min-height: 32px; padding: 5px 14px; margin-right: 8px; }
+#portfolio-page .portfolio-monthly-trades-table .pf-broker-chip { margin-right: 0; }

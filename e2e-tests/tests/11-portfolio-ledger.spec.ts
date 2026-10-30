@@ -374,3 +374,50 @@ test('A real MCX trade on an NSE holiday shows in the month; an empty holiday do
   await expect(tiles.nth(1)).toHaveAttribute('aria-label', '20 Oct');
   await expect(tiles.nth(1).locator('.pfolio-tip')).toContainText('₹270.82');
 });
+
+// Phil, 2026-10-30: "Need dhan and zerodha tags separately ... and also need
+// to download excel from that data".
+test("Trades for month tags each row Dhan or Zerodha, and downloads as Excel", async ({ page }) => {
+  await login(page);
+  await page.click('#nav-portfolio');
+  await page.waitForFunction(() => !!(window as unknown as { _currentMonthlyView?: string })._currentMonthlyView);
+  await page.evaluate(() => {
+    const w = window as any;
+    w._portfolioDaily = {
+      '2026-09-01': { real_pnl: 1200, real_net_pnl: 1100, real_charges: 60, real_brokerage: 40, real_trades: 2, real_trade_legs: 2 },
+      '2026-09-02': { real_pnl: -400, real_net_pnl: -480, real_charges: 40, real_brokerage: 40, real_trades: 2, real_trade_legs: 2 },
+    };
+    w._portfolioZerodhaDaily = {
+      '2026-09-01': { real_pnl: 900, real_net_pnl: 810.5, real_charges: 49.5, real_brokerage: 40, real_trades: 2, real_trade_legs: 2 },
+    };
+    (document.getElementById('portfolio-month-broker') as HTMLElement).hidden = false;
+    w._currentMonthlyView = '2026-09';
+    w.setPortfolioMonthBroker('all');
+    w.togglePortfolioMonthlyTrades();
+  });
+  // All: 1 Sep traded at both, so two rows, each with its own figures.
+  const rows = page.locator('.portfolio-monthly-trades-table tbody tr');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toHaveAttribute('data-broker', 'dhan');
+  await expect(rows.nth(0).locator('.pf-broker-dhan')).toHaveText('Dhan');
+  await expect(rows.nth(0)).toContainText('₹ 1100.00');
+  await expect(rows.nth(1)).toHaveAttribute('data-broker', 'zerodha');
+  await expect(rows.nth(1).locator('.pf-broker-zerodha')).toHaveText('Zerodha');
+  await expect(rows.nth(1)).toContainText('₹ 810.50');
+  await expect(page.locator('.portfolio-monthly-trades-sub')).toHaveText('2 trading days · 6 trades');
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.click('#portfolio-month-xlsx')]);
+  expect(download.suggestedFilename()).toBe('philforge-trades-2026-09.xlsx');
+  const fs = await import('fs');
+  const body = fs.readFileSync((await download.path())!);
+  expect(body.subarray(0, 2).toString()).toBe('PK');
+  const xml = body.toString('utf8');
+  for (const want of ['<t>Date</t>', '<t>Account</t>', '<t>2026-09-01</t>', '<t>Dhan</t>', '<t>Zerodha</t>', '<v>810.5</v>', '<t>Total</t>', '<v>1430.5</v>']) {
+    expect(xml).toContain(want);
+  }
+
+  // One account: only its rows, still tagged.
+  await page.evaluate(() => (window as any).setPortfolioMonthBroker('dhan'));
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator('.portfolio-monthly-trades-table tbody tr[data-broker="zerodha"]')).toHaveCount(0);
+});

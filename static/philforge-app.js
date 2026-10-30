@@ -22284,14 +22284,22 @@ function _renderPortfolioMonthPanel(source) {
   const waveEl = document.getElementById('portfolio-month-wave');
   if (waveEl) waveEl.innerHTML = _portfolioWaveHtml(realDayEntries);
 
-  // ── Trades for month: day-by-day breakdown table (like Dhan) ──
+  // ── Trades for month: a row per day PER ACCOUNT, tagged Dhan or Zerodha
+  // (Phil, 2026-10-30: "Need dhan and zerodha tags separately ... and also
+  // need to download excel from that data"). On All, a day traded at both
+  // brokers is two rows, each its own figures.
   const tradesTableEl = document.getElementById('portfolio-monthly-trades');
-  if (realDayEntries.length > 0) {
-    const totalMonthTrades = realDayEntries.reduce((sum, entry) => sum + Number(entry.displayTradeCount || 0), 0);
+  const ledgerRows = _portfolioMonthLedgerRows(source, ym, realDayEntries);
+  _portfolioMonthLedger = { ym, rows: ledgerRows };
+  if (ledgerRows.length > 0) {
+    const days = new Set(ledgerRows.map(r => r.dateStr)).size;
+    const totalMonthTrades = ledgerRows.reduce((sum, r) => sum + Number(r.displayTradeCount || 0), 0);
+    const chip = (b) => `<b class="pf-broker-chip pf-broker-${b}">${b === 'zerodha' ? 'Zerodha' : 'Dhan'}</b>`;
     let tableHtml = `<table class="portfolio-monthly-trades-table">
       <thead>
         <tr>
           <th style="padding: 10px 8px; text-align: left;">Date</th>
+          <th style="padding: 10px 8px; text-align: left;">Account</th>
           <th style="padding: 10px 8px; text-align: center;">Trades</th>
           <th style="padding: 10px 8px; text-align: right;">Gross Real</th>
           <th style="padding: 10px 8px; text-align: right;">Net Real</th>
@@ -22300,12 +22308,13 @@ function _renderPortfolioMonthPanel(source) {
         </tr>
       </thead>
       <tbody>`;
-    realDayEntries.forEach(e => {
+    ledgerRows.forEach(e => {
       const isRealWin = e.grossReal >= 0;
       const isNetWin = e.netReal >= 0;
       const dateLabel = formatPortfolioDateLabel(e.dateStr);
-      tableHtml += `<tr>
+      tableHtml += `<tr data-broker="${e.broker}">
         <td style="padding: 10px 8px; font-weight: 500;">${dateLabel}</td>
+        <td style="padding: 10px 8px;">${chip(e.broker)}</td>
         <td style="padding: 10px 8px; text-align: center;" title="${e.realOrderCount > 0 && e.realOrderCount !== e.realTrades ? `${e.realOrderCount} orders, ${e.realTrades} fills` : `${e.displayTradeCount} trades`}">${e.displayTradeCount}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${pfMoneyTone(isRealWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.grossReal, 2, ' ')}</td>
         <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: ${pfMoneyTone(isNetWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono';">${pfMoney(e.netReal, 2, ' ')}</td>
@@ -22314,16 +22323,19 @@ function _renderPortfolioMonthPanel(source) {
       </tr>`;
     });
     tableHtml += `</tbody></table>`;
-    const cardHtml = realDayEntries.map(_portfolioMonthlyTradeCardHtml).join('');
+    const cardHtml = ledgerRows.map(e => _portfolioMonthlyTradeCardHtml(e).replace('<div class="mobile-data-card-title">', `<div class="mobile-data-card-title">${chip(e.broker)} `)).join('');
     tradesTableEl.innerHTML = `
       <div class="portfolio-monthly-trades-panel${_portfolioMonthlyTradesOpen ? ' open' : ''}">
-        <button type="button" class="portfolio-monthly-trades-head" onclick="togglePortfolioMonthlyTrades()">
-          <div>
-            <div class="portfolio-monthly-trades-title">Trades for month</div>
-            <div class="portfolio-monthly-trades-sub">${realDayEntries.length} trading day${realDayEntries.length !== 1 ? 's' : ''} · ${totalMonthTrades} trade${totalMonthTrades !== 1 ? 's' : ''}</div>
-          </div>
-          <span class="portfolio-monthly-trades-chevron">${_portfolioMonthlyTradesOpen ? '▲' : '▼'}</span>
-        </button>
+        <div class="pfx-trades-bar">
+          <button type="button" class="portfolio-monthly-trades-head" onclick="togglePortfolioMonthlyTrades()">
+            <div>
+              <div class="portfolio-monthly-trades-title">Trades for month</div>
+              <div class="portfolio-monthly-trades-sub">${days} trading day${days !== 1 ? 's' : ''} · ${totalMonthTrades} trade${totalMonthTrades !== 1 ? 's' : ''}</div>
+            </div>
+            <span class="portfolio-monthly-trades-chevron">${_portfolioMonthlyTradesOpen ? '▲' : '▼'}</span>
+          </button>
+          <button type="button" class="cascade-options-control pfx-xlsx-btn read-only-lock" id="portfolio-month-xlsx" onclick="downloadPortfolioMonthExcel()" title="Download this month's rows as an Excel file">${ICO.download(13)} Excel</button>
+        </div>
         <div class="portfolio-monthly-trades-body">
           <div class="trade-table-scroll">
             ${tableHtml}
@@ -22335,6 +22347,110 @@ function _renderPortfolioMonthPanel(source) {
     tradesTableEl.innerHTML = '';
   }
   return dayEntries;
+}
+
+// The month's rows, each tagged with its account. All, with Zerodha set up:
+// each broker's own days, side by side by date. One account: its days.
+let _portfolioMonthLedger = { ym: '', rows: [] };
+function _portfolioMonthLedgerRows(source, ym, realDayEntries) {
+  const zOn = !document.getElementById('portfolio-month-broker')?.hidden;
+  if (source.broker === 'all' && zOn) {
+    const dhan = _portfolioMonthEntries(window._portfolioDaily || {}, ym, Number(window._portfolioTodayDisplayTradeCount || 0) || 0)
+      .dayEntries.filter(e => e.hasRealActivity).map(e => ({ ...e, broker: 'dhan' }));
+    const zerodha = _portfolioMonthEntries(window._portfolioZerodhaDaily || {}, ym, 0)
+      .dayEntries.filter(e => e.hasRealActivity).map(e => ({ ...e, broker: 'zerodha' }));
+    return dhan.concat(zerodha).sort((a, b) => a.dateStr.localeCompare(b.dateStr) || a.broker.localeCompare(b.broker));
+  }
+  const broker = source.broker === 'zerodha' ? 'zerodha' : 'dhan';
+  return realDayEntries.map(e => ({ ...e, broker }));
+}
+
+// The same rows as an Excel workbook, written here: an .xlsx is a zip of a
+// few XML parts, and the site carries no spreadsheet library (the tradebook
+// import reads them the same way, by hand).
+function downloadPortfolioMonthExcel() {
+  const { ym, rows } = _portfolioMonthLedger;
+  if (!rows.length) { toast('No trades in this month', 'warn'); return; }
+  if (isReadOnlyAccount()) { toast('Figures are hidden on this account', 'warn'); return; }
+  const r2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+  const head = ['Date', 'Account', 'Trades', 'Gross real (₹)', 'Net real (₹)', 'Charges (₹)', 'Brokerage (₹)'];
+  const body = rows.map(e => [e.dateStr, e.broker === 'zerodha' ? 'Zerodha' : 'Dhan', Number(e.displayTradeCount || 0),
+    r2(e.grossReal), r2(e.netReal), r2(e.charges), r2(e.brokerage)]);
+  const sum = (i) => r2(body.reduce((s, row) => s + Number(row[i] || 0), 0));
+  const total = ['Total', '', sum(2), sum(3), sum(4), sum(5), sum(6)];
+  const blob = pfXlsxBlob(`Trades ${ym}`, [head, ...body, [], total]);
+  const view = _portfolioMonthBroker === 'all' || document.getElementById('portfolio-month-broker')?.hidden ? '' : `-${_portfolioMonthBroker}`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `philforge-trades-${ym}${view}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+window.downloadPortfolioMonthExcel = downloadPortfolioMonthExcel;
+
+// A one-sheet .xlsx from rows of strings and numbers: the header row bold,
+// figures as numbers so Excel adds them up. Stored (uncompressed) zip.
+function pfXlsxBlob(sheetName, rows) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const col = (i) => String.fromCharCode(65 + i);
+  const sheetRows = rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => {
+    const ref = `${col(c)}${r + 1}`;
+    const strong = r === 0 || row[0] === 'Total';
+    const money = typeof v === 'number' && c >= 3;
+    const bold = money ? (strong ? ' s="3"' : ' s="2"') : (strong ? ' s="1"' : '');
+    return typeof v === 'number' && Number.isFinite(v)
+      ? `<c r="${ref}"${bold}><v>${v}</v></c>`
+      : `<c r="${ref}" t="inlineStr"${bold}><is><t>${esc(v)}</t></is></c>`;
+  }).join('')}</row>`).join('');
+  const widths = rows[0].map((_, c) => `<col min="${c + 1}" max="${c + 1}" width="${c === 0 ? 13 : c === 1 ? 11 : 15}" customWidth="1"/>`).join('');
+  const files = {
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName.slice(0, 31))}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+    'xl/styles.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf xfId="0"/><xf xfId="0" fontId="1" applyFont="1"/><xf xfId="0" numFmtId="164" applyNumberFormat="1"/><xf xfId="0" fontId="1" numFmtId="164" applyFont="1" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>',
+    'xl/worksheets/sheet1.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${widths}</cols><sheetData>${sheetRows}</sheetData></worksheet>`,
+  };
+  return new Blob([pfZipStored(files)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+// A zip with every entry stored, no compression: local headers, then the
+// central directory, then its end record.
+function pfZipStored(files) {
+  const enc = new TextEncoder();
+  const crcTable = pfZipStored._t || (pfZipStored._t = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  }));
+  const crc32 = (bytes) => {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const parts = [], central = [];
+  let offset = 0;
+  Object.entries(files).forEach(([name, text]) => {
+    const nameBytes = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true);
+    local.setUint32(14, crc, true); local.setUint32(18, data.length, true); local.setUint32(22, data.length, true);
+    local.setUint16(26, nameBytes.length, true);
+    parts.push(new Uint8Array(local.buffer), nameBytes, data);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0x0800, true);
+    cen.setUint32(16, crc, true); cen.setUint32(20, data.length, true); cen.setUint32(24, data.length, true);
+    cen.setUint16(28, nameBytes.length, true); cen.setUint32(42, offset, true);
+    central.push(new Uint8Array(cen.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  });
+  const cenSize = central.reduce((s, p) => s + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  const count = Object.keys(files).length;
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, count, true); end.setUint16(10, count, true);
+  end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)]);
 }
 
 function _renderPortfolioPaperMonth(dayEntries) {
