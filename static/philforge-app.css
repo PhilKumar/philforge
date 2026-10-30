@@ -11224,3 +11224,23 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 #portfolio-page .pfx-pair { align-items: stretch; }
 [data-theme="light"] #portfolio-page .pfx-col .pfolio-tip :is(em, i) { color: rgba(226, 232, 240, .75); }
 [data-theme="light"] #portfolio-page .pfx-pill.is-alt { background: rgba(124, 58, 237, .12); color: #6d28d9; }
+
+/* NAVY, as the Dashboard (Phil, 2026-10-30: "make portfolio navy too"): the
+   site's navy glass, each card washed in its own colour from a corner. */
+#portfolio-page {
+  --pfx-card: linear-gradient(160deg, rgba(24, 32, 52, .80), rgba(10, 15, 28, .86));
+}
+#portfolio-page .pfx-card {
+  background:
+    radial-gradient(130% 120% at 0% 0%, color-mix(in srgb, var(--wash, transparent) 15%, transparent), transparent 58%),
+    var(--pfx-card);
+}
+#portfolio-page .pfx-flow { --wash: #34d399; }
+#portfolio-page .pfx-split { --wash: #a78bfa; }
+#portfolio-page .pfx-mini { --wash: #38bdf8; }
+#portfolio-page .pfx-mini.is-alt { --wash: #a78bfa; }
+#portfolio-page .pfx-wallet { --wash: #f5b84b; }
+#portfolio-page .pfx-wide { --wash: #818cf8; }
+#portfolio-page .pfx-tile { background: linear-gradient(160deg, rgba(56, 189, 248, .08), rgba(255, 255, 255, .03) 62%); }
+#portfolio-page .pfx-tile.pfx-wave { background: linear-gradient(160deg, rgba(52, 211, 153, .09), rgba(255, 255, 255, .03) 62%); }
+[data-theme="light"] #portfolio-page { --pfx-card: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(241, 245, 249, .86)); }
