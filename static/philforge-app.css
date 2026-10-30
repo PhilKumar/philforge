@@ -11244,3 +11244,117 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 #portfolio-page .pfx-tile { background: linear-gradient(160deg, rgba(56, 189, 248, .08), rgba(255, 255, 255, .03) 62%); }
 #portfolio-page .pfx-tile.pfx-wave { background: linear-gradient(160deg, rgba(52, 211, 153, .09), rgba(255, 255, 255, .03) 62%); }
 [data-theme="light"] #portfolio-page { --pfx-card: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(241, 245, 249, .86)); }
+
+/* ══ LIVE IN THE GLASS (Phil, 2026-10-30: "give the same treatment to the
+   Live page without altering any button functions"). Style only: the desk is
+   the site's navy glass, tabs are rounded pills with the chosen one lit,
+   tiles wash in their own colours, figures in the rounded face. Every button
+   keeps its own class, look and handler. */
+#live-page {
+  --lv-card: linear-gradient(160deg, rgba(24, 32, 52, .80), rgba(10, 15, 28, .86));
+  --lv-edge: rgba(255, 255, 255, .075);
+  --lv-tile: rgba(255, 255, 255, .035);
+  --lv-ink: #f1f5f9;
+  --lv-soft: rgba(226, 232, 240, .62);
+}
+[data-theme="light"] #live-page {
+  --lv-card: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(241, 245, 249, .86));
+  --lv-edge: rgba(15, 23, 42, .08);
+  --lv-tile: rgba(255, 255, 255, .62);
+  --lv-ink: #0f172a;
+  --lv-soft: rgba(51, 65, 85, .72);
+}
+#live-page .live-desk {
+  border: 1px solid var(--lv-edge);
+  border-radius: 24px;
+  background:
+    radial-gradient(90% 60% at 0% 0%, rgba(52, 211, 153, .10), transparent 60%),
+    radial-gradient(70% 50% at 100% 0%, rgba(129, 140, 248, .09), transparent 60%),
+    var(--lv-card);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .06);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  font-family: var(--font-body);
+}
+[data-theme="light"] #live-page .live-desk { box-shadow: 0 18px 44px rgba(15, 23, 42, .08), inset 0 1px 0 #fff; }
+
+/* The strategies: rounded glass pills, the chosen one lit. */
+#live-page #live-tabs-bar {
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--lv-edge);
+  background: none;
+}
+#live-page #live-tabs-bar .live-tabs-summary {
+  padding: 4px 18px 4px 4px;
+  border-right-color: var(--lv-edge);
+}
+#live-page #live-tabs-bar .live-tabs-label,
+#live-page #live-tabs-bar .live-tabs-sub { font: 500 11.5px var(--font-body); letter-spacing: 0; text-transform: none; color: var(--lv-soft); }
+#live-page #live-tabs-bar .live-tabs-figure { font: 600 22px/1.15 var(--font-body); letter-spacing: -.02em; }
+#live-page #live-tabs-bar .live-tab-item {
+  min-width: 170px;
+  padding: 10px 16px;
+  border: 1px solid var(--lv-edge);
+  border-radius: 18px;
+  background: var(--lv-tile);
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+#live-page #live-tabs-bar .live-tab-item:hover { background: rgba(255, 255, 255, .07); transform: translateY(-1px); }
+#live-page #live-tabs-bar .live-tab-item.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 20%, transparent), color-mix(in srgb, var(--accent) 6%, transparent));
+  box-shadow: 0 10px 26px -12px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+#live-page #live-tabs-bar .live-tab-text { font: 600 13.5px var(--font-body); color: var(--lv-ink); }
+#live-page #live-tabs-bar .live-tab-pnl { font: 600 16px var(--font-body); font-variant-numeric: tabular-nums; }
+
+/* The run header. */
+#live-page .live-panel-header { padding: 18px 20px; background: none; border-bottom-color: var(--lv-edge); }
+#live-page .live-panel-eyebrow { font-family: var(--font-body); }
+#live-page .live-panel-name { font: 600 24px/1.15 var(--font-body); letter-spacing: -.02em; color: var(--lv-ink); }
+#live-page .live-state-chip { padding: 5px 12px; border-radius: 999px; font-family: var(--font-body); font-weight: 600; letter-spacing: .04em; }
+#live-page .live-conditions { background: none; border-bottom-color: var(--lv-edge); }
+#live-page .live-chip { border-radius: 999px; }
+
+/* The tiles: each in its own colour, its figure round and large. */
+#live-page .live-panel-stats { gap: 12px; padding: 18px 20px; }
+#live-page .live-stat {
+  --tone: #38bdf8;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--tone) 22%, transparent);
+  border-radius: 18px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tone) 13%, transparent), var(--lv-tile) 62%);
+}
+#live-page .live-stat:nth-child(1) { --tone: #34d399; }
+#live-page .live-stat:nth-child(2) { --tone: #a78bfa; }
+#live-page .live-stat:nth-child(3) { --tone: #38bdf8; }
+#live-page .live-stat:nth-child(4) { --tone: #f5b84b; }
+#live-page .live-stat:nth-child(5) { --tone: #818cf8; }
+#live-page .live-stat:nth-child(6) { --tone: #22d3ee; }
+#live-page .live-stat:nth-child(7) { --tone: #2dd4bf; }
+#live-page .live-stat:nth-child(8) { --tone: #4ade80; }
+#live-page .live-stat-label { font: 500 11.5px var(--font-body); letter-spacing: 0; text-transform: none; color: var(--lv-soft); }
+#live-page .live-stat-value { font: 600 24px/1.1 var(--font-body); letter-spacing: -.02em; }
+#live-page .live-stat-value.is-text { font: 600 17px var(--font-body); }
+
+/* The data, positions, log and trades: soft rounded cards. */
+#live-page .live-panel-main { gap: 16px; padding: 0 20px 18px; }
+#live-page .live-panel-card {
+  border: 1px solid var(--lv-edge) !important;
+  border-radius: 20px !important;
+  background: var(--lv-tile) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+#live-page .live-card-head { padding: 14px 16px; border-bottom-color: var(--lv-edge); }
+#live-page .live-card-title { font: 600 15px var(--font-body); color: var(--lv-ink); }
+#live-page .live-closed-block { padding: 0 20px 20px; }
+#live-page .live-closed-block > :first-child { border-radius: 20px !important; overflow: hidden; }
+#live-page .live-event-line { font-family: var(--font-body); }
+
+@media (max-width: 760px) {
+  #live-page #live-tabs-bar .live-tab-item { min-width: 140px; }
+  #live-page .live-panel-name { font-size: 20px; }
+  #live-page .live-stat-value { font-size: 20px; }
+}
