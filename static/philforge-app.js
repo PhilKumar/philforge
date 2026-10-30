@@ -22515,12 +22515,39 @@ function downloadPortfolioMonthExcel() {
   const total = ['Total', '', sum(2), sum(3), sum(4), sum(5), sum(6)];
   const blob = pfXlsxBlob(`Trades ${ym}`, [head, ...body, [], total]);
   const view = _portfolioMonthBroker === 'all' || document.getElementById('portfolio-month-broker')?.hidden ? '' : `-${_portfolioMonthBroker}`;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `philforge-trades-${ym}${view}.xlsx`;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  pfSaveFile(blob, `philforge-trades-${ym}${view}.xlsx`);
+}
+
+// Hand a file made in the page to the person. On an iPhone or iPad the share
+// sheet (Save to Files, Excel, Numbers, WhatsApp): Safari there asks before a
+// download and had lost a blob link revoked a second after the tap (Phil,
+// 2026-10-30: "The excel button is not working on the portfolio page").
+// Elsewhere a plain download, its link kept for ten minutes.
+function pfSaveFile(blob, filename) {
+  const ios = /iP(hone|ad|od)/.test(navigator.platform || '') || (/Mac/.test(navigator.platform || '') && navigator.maxTouchPoints > 1);
+  const download = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    // Chrome reads the file only when the download actually starts -- after
+    // a Save dialog, if one is set. The first version let go of it after a
+    // second, and Chrome's download then failed ("it starts and it not
+    // downloading"). Ten minutes outlasts any dialog; the file is a few kB.
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 10 * 60 * 1000);
+  };
+  try {
+    const file = new File([blob], filename, { type: blob.type });
+    if (ios && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: filename }).catch((err) => {
+        if (err && err.name !== 'AbortError') download();
+      });
+      return;
+    }
+  } catch (_) { /* no File or share here: the plain download below */ }
+  download();
 }
 window.downloadPortfolioMonthExcel = downloadPortfolioMonthExcel;
 
