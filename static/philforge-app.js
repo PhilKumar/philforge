@@ -21481,7 +21481,12 @@ function renderPortfolioFunds() {
       </div>`).join('') : '<div class="pfx-empty">Nothing moved in this period</div>';
   }
   const when = document.getElementById('portfolio-zerodha-ledger-when');
-  if (when) when.textContent = data.zerodha?.imported_at ? `imported ${new Date(data.zerodha.imported_at * 1000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : '';
+  // Kite keeps no history: new days are recorded from it as they happen; the
+  // statement brings the months before.
+  if (when) {
+    const imported = data.zerodha?.imported_at ? `imported ${new Date(data.zerodha.imported_at * 1000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} · ` : '';
+    when.textContent = `${imported}new days recorded from Kite`;
+  }
   const note = document.getElementById('portfolio-funds-note');
   if (note) { note.textContent = data.dhan?.note || ''; note.hidden = !data.dhan?.note; }
 }

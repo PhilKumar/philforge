@@ -151,6 +151,42 @@ def zerodha_flows(table: list[list[str]]) -> list[dict]:
     return out
 
 
+def statement_span(table: list[list[str]]) -> tuple[str, str]:
+    """The first and last day a funds statement covers, from every dated row."""
+    days = sorted(d for d in (_parse_date(c) for row in table for c in row[:3] if c) if d)
+    return (days[0], days[-1]) if days else ("", "")
+
+
+def kite_day_flows(day: str, payout: float, payin: float) -> list[dict]:
+    """Today's movements as Kite's margins show them: a withdrawal asked for
+    (utilised.payout) and money added (available.intraday_payin)."""
+    out = []
+    for kind, amount in (("withdrawal", payout), ("deposit", payin)):
+        if amount and amount > 0:
+            out.append(
+                {
+                    **_flow("zerodha", day, kind, amount, "Recorded from Kite", f"zerodha-kite-{day}-{kind}"),
+                    "source": "kite",
+                }
+            )
+    return out
+
+
+def with_kite_day(flows: list[dict], day: str, today: list[dict]) -> list[dict]:
+    """The day's Kite entries replaced by today's figures; the rest kept."""
+    kept = [f for f in flows or [] if not (f.get("source") == "kite" and f.get("date") == day)]
+    rows = kept + today
+    rows.sort(key=lambda f: (str(f.get("date")), str(f.get("ref"))), reverse=True)
+    return rows
+
+
+def without_kite_between(flows: list[dict], first: str, last: str) -> list[dict]:
+    """Kite's day-by-day entries give way to a statement covering their days."""
+    if not first:
+        return list(flows or [])
+    return [f for f in flows or [] if not (f.get("source") == "kite" and first <= str(f.get("date")) <= last)]
+
+
 def read_table(data: bytes, filename: str = "") -> list[list[str]]:
     """A CSV or Excel (.xlsx) file as rows of cells."""
     import zerodha_tradebook as _ztb

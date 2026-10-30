@@ -149,3 +149,73 @@ def test_a_rate_limit_stops_the_read_and_says_where():
     _flows, through, complete = app_module._fetch_dhan_funds_flow(client, {})
     assert not complete
     assert through == "2025-01-01"
+
+
+# ── Zerodha, recorded day by day from Kite (Kite keeps no fund history) ──
+def test_kite_margins_carry_todays_payout_and_payin(monkeypatch):
+    from broker import zerodha
+
+    client = zerodha.ZerodhaClient("k", "t", token_saved_at="2026-10-30T08:00:00+05:30")
+    monkeypatch.setattr(
+        client,
+        "_get_data",
+        lambda path, **kw: {
+            "net": 152340.5,
+            "available": {"opening_balance": 170000, "intraday_payin": 2500},
+            "utilised": {"debits": 1000, "payout": 20000},
+        },
+    )
+    funds = client.get_funds()
+    assert (funds["payout"], funds["payin"], funds["availabelBalance"]) == (20000.0, 2500.0, 152340.5)
+
+
+def test_a_days_kite_figures_replace_themselves_and_a_cancelled_request_goes():
+    day = "2026-10-30"
+    flows = ff.with_kite_day([], day, ff.kite_day_flows(day, 20000, 0))
+    assert [(f["kind"], f["amount"], f["source"]) for f in flows] == [("withdrawal", 20000.0, "kite")]
+    # Later that day: a second request and money added.
+    flows = ff.with_kite_day(flows, day, ff.kite_day_flows(day, 25000, 5000))
+    assert sorted((f["kind"], f["amount"]) for f in flows) == [("deposit", 5000.0), ("withdrawal", 25000.0)]
+    # The request is cancelled: nothing left to say that day.
+    assert ff.with_kite_day(flows, day, ff.kite_day_flows(day, 0, 0)) == []
+
+
+def test_a_statement_takes_over_the_days_it_covers():
+    kite = ff.kite_day_flows("2026-04-10", 20000, 0) + ff.kite_day_flows("2026-11-02", 3000, 0)
+    first, last = ff.statement_span(ZERODHA_STATEMENT)
+    assert (first, last) == ("2026-04-01", "2026-10-30")
+    kept = ff.without_kite_between(kite, first, last)
+    assert [f["date"] for f in kept] == ["2026-11-02"]
+    merged, _ = ff.merge(kept, ff.zerodha_flows(ZERODHA_STATEMENT))
+    # 10-Apr's withdrawal is counted once, from the statement.
+    assert [f["amount"] for f in merged if f["date"] == "2026-04-10"] == [20000.0]
+    assert all("source" not in f for f in merged if f["date"] == "2026-04-10")
+
+
+def test_recording_a_zerodha_day_writes_once_and_keeps_imported_rows(monkeypatch):
+    import asyncio
+    import json
+
+    store = {}
+
+    async def get_state(key):
+        return store.get(key)
+
+    async def set_state(key, value):
+        store[key] = value
+
+    monkeypatch.setattr(app_module._db_mod, "get_app_state", get_state)
+    monkeypatch.setattr(app_module._db_mod, "set_app_state", set_state)
+    key = app_module._funds_flow_key("zerodha", 7)
+    imported = ff.zerodha_flows(ZERODHA_STATEMENT)
+    store[key] = json.dumps({"flows": imported, "imported_at": 1.0})
+    asyncio.run(app_module._record_zerodha_funds_day(7, {"payout": 15000.0, "payin": 0.0}))
+    state = json.loads(store[key])
+    assert state["imported_at"] == 1.0
+    kite = [f for f in state["flows"] if f.get("source") == "kite"]
+    assert len(kite) == 1 and kite[0]["kind"] == "withdrawal" and kite[0]["amount"] == 15000.0
+    assert len(state["flows"]) == len(imported) + 1
+    # A Dhan-shaped funds answer (no payout field) records nothing.
+    before = store[key]
+    asyncio.run(app_module._record_zerodha_funds_day(7, {"availabelBalance": 1.0}))
+    assert store[key] == before

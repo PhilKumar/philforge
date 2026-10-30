@@ -883,10 +883,15 @@ class ZerodhaClient:
     def get_funds(self) -> dict:
         data = self._get_data("/user/margins/equity") or {}
         available = data.get("available") or {}
+        utilised = data.get("utilised") or {}
         return {
             "availabelBalance": float(data.get("net") or 0.0),
             "sodLimit": float(available.get("opening_balance") or 0.0),
-            "utilizedAmount": float((data.get("utilised") or {}).get("debits") or 0.0),
+            "utilizedAmount": float(utilised.get("debits") or 0.0),
+            # Today's money moved: withdrawals asked for, and money added. Kite
+            # keeps no fund history, so these are recorded day by day.
+            "payout": float(utilised.get("payout") or 0.0),
+            "payin": float(available.get("intraday_payin") or 0.0),
             "broker": "zerodha",
         }
 

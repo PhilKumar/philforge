@@ -8747,6 +8747,10 @@ async def _snapshot_zerodha_closes(now: datetime) -> int:
         if not client:
             continue
         await _record_zerodha_day(user_id, client)
+        try:
+            await _record_zerodha_funds_day(user_id, await asyncio.to_thread(client.get_funds))
+        except Exception as exc:
+            _logger.warning("[ZERODHA] the day's money moved was not recorded: %s", exc)
         _zerodha_closed_on[user_id] = now.date()
         kept += 1
     return kept
@@ -8828,6 +8832,21 @@ def _fetch_dhan_funds_flow(client, state: dict) -> tuple[list[dict], str, bool]:
     return flows, today.isoformat(), True
 
 
+async def _record_zerodha_funds_day(user_id: int, funds: dict) -> None:
+    """Today's Zerodha withdrawal and money added, from Kite's margins."""
+    import funds_flow as _ff
+
+    if not isinstance(funds, dict) or "payout" not in funds:
+        return
+    day = datetime.now(IST).date().isoformat()
+    key = _funds_flow_key("zerodha", user_id)
+    state = await _load_funds_flow(key)
+    today = _ff.kite_day_flows(day, float(funds.get("payout") or 0), float(funds.get("payin") or 0))
+    flows = _ff.with_kite_day(state.get("flows") or [], day, today)
+    if flows != (state.get("flows") or []):
+        await _db_mod.set_app_state(key, json.dumps({**state, "flows": flows}, sort_keys=True))
+
+
 @app.get("/api/funds-flow")
 async def funds_flow_summary(request: Request, refresh: bool = False):
     """Withdrawals, deposits and settlements at Dhan and Zerodha."""
@@ -8879,12 +8898,16 @@ async def zerodha_import_ledger(request: Request, file: UploadFile):
     user_id = _request_user_id(request)
     data = await _read_upload_limited(file, 10 * 1024 * 1024)
     try:
-        flows = _ff.zerodha_flows(_ff.read_table(data, file.filename or ""))
+        table = _ff.read_table(data, file.filename or "")
+        flows = _ff.zerodha_flows(table)
     except _ff.LedgerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     key = _funds_flow_key("zerodha", user_id)
     state = await _load_funds_flow(key)
-    merged, added = _ff.merge(state.get("flows") or [], flows)
+    # The statement is the record for the days it covers: what Kite showed on
+    # those days steps aside, so nothing is counted twice.
+    first, last = _ff.statement_span(table)
+    merged, added = _ff.merge(_ff.without_kite_between(state.get("flows") or [], first, last), flows)
     await _db_mod.set_app_state(key, json.dumps({"flows": merged, "imported_at": time.time()}, sort_keys=True))
     counts = {k: sum(1 for f in flows if f["kind"] == k) for k in _ff.KINDS}
     return {"status": "ok", "read": len(flows), "added": added, **counts}
@@ -8921,6 +8944,10 @@ async def zerodha_portfolio(request: Request):
         await _record_zerodha_day(int(user["id"]), client, positions, trades)
     except Exception as exc:
         _logger.warning("[ZERODHA] today's ledger entry was not written: %s", exc)
+    try:
+        await _record_zerodha_funds_day(int(user["id"]), funds)
+    except Exception as exc:
+        _logger.warning("[ZERODHA] today's money moved was not recorded: %s", exc)
     # Today's fills, for the Portfolio page's Today's Trades beside Dhan's
     # (Phil, 2026-10-15: "why only one trade or is it from Dhan only?").
     fills = [
