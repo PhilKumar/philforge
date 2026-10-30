@@ -49,6 +49,8 @@ async function twoCharts(page: Page, layout: 'cols' | 'rows') {
   await login(page);
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+  // The saved form is restored first, so it cannot land on top of this one.
+  await page.waitForFunction('_scalpFormInitialized === true');
   await page.evaluate(() => {
     const w = window as unknown as { _scalpOptionChartTf: string; _syncScalpContractChartLabel: () => void };
     const sel = document.getElementById('scalp-expiry') as HTMLSelectElement;
@@ -146,6 +148,45 @@ test('a click on the PE pane turns the form to PE, and that chart takes the tick
   await page.evaluate(() => (window as unknown as { setScalpOptionType: (v: string) => void }).setScalpOptionType('CE'));
   await expect(page.locator('#scalp-split .scalp-pane[data-opt="CE"]')).toHaveClass(/is-active/);
   await expect.poll(() => charts(page)).toEqual({ panes: ['CE:CE', 'PE:PE'], focused: 'CE' });
+});
+
+// Phil, 2026-10-30: "The charts are not staying on the strike price I
+// select... It defaults to a different strike".
+test('each side keeps the strike picked for it, and the other pane does not follow the index', async ({ page }) => {
+  await twoCharts(page, 'cols');
+  type W = { setScalpOptionType: (v: string) => void; _scalpAltContract: () => { strike: number; option_type: string } };
+  const pick = (strike: string) => page.evaluate((s) => {
+    const inp = document.getElementById('scalp-strike') as HTMLInputElement;
+    inp.value = s;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+  }, strike);
+  const side = (v: string) => page.evaluate((s) => (window as unknown as W).setScalpOptionType(s), v);
+  const other = () => page.evaluate(() => (window as unknown as W)._scalpAltContract());
+  const strike = page.locator('#scalp-strike');
+
+  await page.evaluate('_scalpSpotCache.NIFTY = 22810; _scalpSideStrikes = {};');
+  await pick('22650');
+  // The PE pane starts at its in-the-money strike...
+  expect(await other()).toMatchObject({ option_type: 'PE', strike: 22900 });
+  // ...and stays there as the index moves.
+  await page.evaluate('_scalpSpotCache.NIFTY = 23110');
+  expect(await other()).toMatchObject({ option_type: 'PE', strike: 22900 });
+
+  // PE opens on the strike its pane showed; a strike picked there is PE's.
+  await side('PE');
+  await expect(strike).toHaveValue('22900');
+  await pick('23000');
+  // Back to CE: the strike picked for CE, not a new in-the-money one.
+  await side('CE');
+  await expect(strike).toHaveValue('22650');
+  expect(await other()).toMatchObject({ option_type: 'PE', strike: 23000 });
+  await side('PE');
+  await expect(strike).toHaveValue('23000');
+  // And across a reload.
+  await page.reload();
+  await page.waitForFunction(() => typeof (window as unknown as { _scalpKeptStrike?: unknown })._scalpKeptStrike === 'function');
+  expect(await page.evaluate(() => (window as unknown as { _scalpKeptStrike: (u: string, e: string, o: string) => number })
+    ._scalpKeptStrike('NIFTY', '2026-10-19', 'CE'))).toBe(22650);
 });
 
 test('the eye hides B/S with the trade lines, and the move button swaps their sides', async ({ page }) => {

@@ -13085,6 +13085,8 @@ function _persistScalpFormState() {
   // on both at once.
   try { _scalpSyncTicket(); } catch (e) {}
   if (_scalpRestoringState) return;
+  const kept = _scalpFormContract();
+  if (kept) _scalpKeepStrike(kept.underlying, kept.expiry, kept.option_type, kept.strike);
   try {
     _setLocalState(_SCALP_FORM_STORAGE_KEY, JSON.stringify(_readScalpFormState()));
   } catch (e) {}
@@ -13256,7 +13258,13 @@ function setScalpOptionType(value) {
   if (!input || input.value === value) return;
   input.value = value;
   _syncScalpToggleGroup('scalp-option-toggle', 'scalp-option-type');
-  updateScalpStrike();
+  const kept = _scalpKeptStrike(document.getElementById('scalp-underlying')?.value, document.getElementById('scalp-expiry')?.value || '', value);
+  if (kept) {
+    document.getElementById('scalp-strike').value = _scalpStrikeText(kept);
+    fetchScalpLTP();
+  } else {
+    updateScalpStrike();
+  }
   fetchScalpLTPThrottled();
   _persistScalpFormState();
 }
@@ -13562,6 +13570,35 @@ function _scalpITMStrike(spotPrice, underlying, optionType) {
   const atm = Math.round(spotPrice / step) * step;
   // Default to 2 strikes in-the-money.
   return _scalpStrikeText(optionType === 'CE' ? atm - 2 * step : atm + 2 * step);
+}
+
+// Each side keeps its strike (Phil, 2026-10-30: "The charts are not staying
+// on the strike price I select... It defaults to a different strike"). A
+// CE/PE switch used to put the in-the-money strike back every time, and the
+// other pane followed the in-the-money strike as the index moved. That strike
+// is now only where a side starts: once a side has a strike, picked or
+// defaulted, it stays until changed, for this underlying and expiry.
+const _SCALP_SIDE_STRIKES_KEY = 'pf-scalp-side-strikes';
+let _scalpSideStrikes = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(_SCALP_SIDE_STRIKES_KEY) || 'null');
+    return v && typeof v === 'object' ? v : {};
+  } catch (_) { return {}; }
+})();
+
+function _scalpKeptStrike(underlying, expiry, optionType) {
+  if (_scalpSideStrikes.base !== `${underlying}|${expiry}`) return 0;
+  const kept = Number(_scalpSideStrikes[optionType]);
+  return kept > 0 ? kept : 0;
+}
+
+function _scalpKeepStrike(underlying, expiry, optionType, strike) {
+  if (!(strike > 0) || !expiry || !underlying) return;
+  const base = `${underlying}|${expiry}`;
+  if (_scalpSideStrikes.base !== base) _scalpSideStrikes = { base };
+  if (_scalpSideStrikes[optionType] === strike) return;
+  _scalpSideStrikes[optionType] = strike;
+  try { localStorage.setItem(_SCALP_SIDE_STRIKES_KEY, JSON.stringify(_scalpSideStrikes)); } catch (_) {}
 }
 
 // A stock's listed strikes for one expiry (from /api/scalp/contract-spec).
@@ -15000,13 +15037,18 @@ function _scalpAltReset() {
 }
 
 // The option a click on the other pane would trade: the form's contract on
-// the other side, at the strike the form itself moves to on that switch.
+// the other side, at the strike the form itself moves to on that switch --
+// the one that side keeps, or its in-the-money start, kept from then on.
 function _scalpAltContract() {
   const form = _scalpFormContract();
   if (!form) return null;
   const opt = form.option_type === 'PE' ? 'CE' : 'PE';
-  const spot = _scalpSpotCache[form.underlying] || 0;
-  const strike = spot > 0 ? Number(_scalpListedStrike(form.underlying, form.expiry, _scalpITMStrike(spot, form.underlying, opt))) || form.strike : form.strike;
+  let strike = _scalpKeptStrike(form.underlying, form.expiry, opt);
+  if (!strike) {
+    const spot = _scalpSpotCache[form.underlying] || 0;
+    strike = spot > 0 ? Number(_scalpListedStrike(form.underlying, form.expiry, _scalpITMStrike(spot, form.underlying, opt))) || form.strike : form.strike;
+    if (spot > 0) _scalpKeepStrike(form.underlying, form.expiry, opt, strike);
+  }
   return { underlying: form.underlying, strike, expiry: form.expiry, option_type: opt };
 }
 
