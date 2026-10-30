@@ -22095,6 +22095,7 @@ function renderMonthlyDailyGrid() {
   document.querySelectorAll('#portfolio-month-broker [data-broker]').forEach((b) => {
     const on = b.dataset.broker === _portfolioMonthBroker;
     b.classList.toggle('is-on', on);
+    b.classList.toggle('active', on);
     b.setAttribute('aria-checked', String(on));
   });
   _renderPortfolioMonthPanel(_portfolioMonthSource());

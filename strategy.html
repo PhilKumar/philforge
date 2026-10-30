@@ -1432,15 +1432,17 @@
        Pill tabs pick the account; the month flows as rounded bars; the
        balance is a card; today's trades are a list. -->
   <div class="pfx-bar">
-    <div class="pfx-tabs" id="portfolio-month-broker" role="radiogroup" aria-label="Account" hidden>
-      <button type="button" data-broker="all" role="radio">All</button>
-      <button type="button" data-broker="dhan" role="radio">Dhan</button>
-      <button type="button" data-broker="zerodha" role="radio">Zerodha</button>
+    <!-- The site's own controls: the Scalp segmented toggle (Dhan teal,
+         Zerodha orange) and the glossy chart-control arrows. -->
+    <div class="scalp-toggle compact pfx-tabs" id="portfolio-month-broker" role="radiogroup" aria-label="Account" hidden>
+      <button type="button" class="scalp-toggle-btn" data-broker="all" data-tone="paper" role="radio">All</button>
+      <button type="button" class="scalp-toggle-btn" data-broker="dhan" data-tone="dhan" role="radio">Dhan</button>
+      <button type="button" class="scalp-toggle-btn" data-broker="zerodha" data-tone="zerodha" role="radio">Zerodha</button>
     </div>
     <div class="portfolio-month-controls pfx-month-nav" aria-label="Choose portfolio month">
-      <button type="button" onclick="changeMonthlyMonth(-1)" aria-label="Previous month">&#8249;</button>
+      <button type="button" onclick="changeMonthlyMonth(-1)" class="terminal-cascade-chart-control" aria-label="Previous month">&#9664;</button>
       <span id="portfolio-monthly-label"></span>
-      <button type="button" onclick="changeMonthlyMonth(1)" aria-label="Next month">&#8250;</button>
+      <button type="button" onclick="changeMonthlyMonth(1)" class="terminal-cascade-chart-control" aria-label="Next month">&#9654;</button>
     </div>
   </div>
 
