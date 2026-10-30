@@ -358,6 +358,8 @@ test('A real MCX trade on an NSE holiday shows in the month; an empty holiday do
   // -- a crude trade on Dussehra (20-Oct), an NSE holiday, MCX open.
   await login(page);
   await page.click('#nav-portfolio');
+  // The page's own load first, so it cannot land on top of this month.
+  await page.waitForFunction(() => !!(window as unknown as { _currentMonthlyView?: string })._currentMonthlyView);
   await page.evaluate(() => {
     (window as any)._portfolioDaily = {
       '2026-10-19': { real_pnl: -10003.49, real_net_pnl: -10817.11, real_charges: 533.62, real_brokerage: 280, real_trades: 14, real_trade_legs: 14 },
