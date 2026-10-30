@@ -36,12 +36,18 @@ test('Dashboard: running engines light Live now, flows draw as bars, ledgers are
   await expect(page.locator('#pfd-running')).toHaveText('1 engine');
   await expect(page.locator('#arsenal-running-grid > .card')).toHaveCount(1);
   await expect(page.locator('#pfd-flow-bars .pfd-flow-day')).toHaveCount(5);
+  // The latest day stands lit, its figures in a bubble (Phil, 2026-10-30).
+  await expect(page.locator('#pfd-flow-bars .pfd-flow-day').last()).toHaveClass(/is-picked/);
+  await expect(page.locator('#pfd-flow-bars .pfd-flow-day.is-picked .pfd-flow-tip')).toContainText('24 Oct');
   await expect(page.locator('#pfd-session')).not.toHaveText('—');
 
   // Tabs: one pane at a time, and the search box only with Transactions.
   await expect(page.locator('[data-pfd-pane="txns"]')).toBeVisible();
   await page.click('[data-pfd-tab="runs"]');
   await expect(page.locator('[data-pfd-pane="runs"]')).toBeVisible();
+  // The tabs are the site's own toggle: the chosen one wears its active state.
+  await expect(page.locator('[data-pfd-tab="runs"]')).toHaveClass(/scalp-toggle-btn.*\bactive\b|\bactive\b.*scalp-toggle-btn/);
+  await expect(page.locator('[data-pfd-tab="txns"]')).not.toHaveClass(/\bactive\b/);
   await expect(page.locator('[data-pfd-pane="txns"]')).toBeHidden();
   await expect(page.locator('#transactions-search-input')).toBeHidden();
   // Opening a saved-strategy folder from elsewhere brings its tab forward.

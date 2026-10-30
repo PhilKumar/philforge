@@ -22798,12 +22798,16 @@ function _renderFiiDiiBars() {
     const edge = value >= 0 ? `bottom:50%` : `top:50%`;
     return `<i class="pfd-flow-bar ${kind}" style="${edge};height:${h.toFixed(2)}%"></i>`;
   };
-  host.innerHTML = rows.map((row) => {
+  // The latest day stands lit with its figures in a bubble, as Portfolio's
+  // P&L flow does; the pointer moves the light to any other day.
+  host.innerHTML = rows.map((row, i) => {
     const fii = Number(row.fii_net || 0);
     const dii = Number(row.dii_net || 0);
     const label = row.display_date || row.date;
     const tip = `${label} · FII ${_dashMoneyCr(fii)} · DII ${_dashMoneyCr(dii)}`;
-    return `<span class="pfd-flow-day" title="${escapeAttr(tip)}">${bar('fii', fii)}${bar('dii', dii)}</span>`;
+    const edge = i < 4 ? ' is-start' : (i > rows.length - 5 ? ' is-end' : '');
+    const bubble = `<span class="pfd-flow-tip${edge}"><strong>${escapeHtml(label)}</strong><em class="fii">FII ${_dashMoneyCr(fii)}</em><em class="dii">DII ${_dashMoneyCr(dii)}</em></span>`;
+    return `<span class="pfd-flow-day${i === rows.length - 1 ? ' is-picked' : ''}" title="${escapeAttr(tip)}">${bar('fii', fii)}${bar('dii', dii)}${bubble}</span>`;
   }).join('');
 }
 
@@ -22817,6 +22821,7 @@ function setDashboardActivityTab(name) {
   page.querySelectorAll('[data-pfd-tab]').forEach((tab) => {
     const on = tab.getAttribute('data-pfd-tab') === name;
     tab.classList.toggle('is-active', on);
+    tab.classList.toggle('active', on);
     tab.setAttribute('aria-selected', String(on));
   });
   page.querySelectorAll('[data-pfd-pane]').forEach((pane) => {

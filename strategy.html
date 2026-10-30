@@ -536,10 +536,10 @@
   <!-- What happened: three ledgers, one panel. -->
   <section class="card pfd-panel pfd-activity" aria-label="Activity">
     <header class="pfd-panel-head pfd-activity-head">
-      <div class="pfd-tabs" role="tablist" aria-label="Activity">
-        <button type="button" role="tab" class="pfd-tab is-active" aria-selected="true" data-pfd-tab="txns" onclick="setDashboardActivityTab('txns')">Transactions</button>
-        <button type="button" role="tab" class="pfd-tab" aria-selected="false" data-pfd-tab="runs" onclick="setDashboardActivityTab('runs')">All runs</button>
-        <button type="button" role="tab" class="pfd-tab" aria-selected="false" data-pfd-tab="saved" onclick="setDashboardActivityTab('saved')">Saved strategies</button>
+      <div class="scalp-toggle compact pfd-tabs" role="tablist" aria-label="Activity">
+        <button type="button" role="tab" class="scalp-toggle-btn pfd-tab is-active active" data-tone="paper" aria-selected="true" data-pfd-tab="txns" onclick="setDashboardActivityTab('txns')">Transactions</button>
+        <button type="button" role="tab" class="scalp-toggle-btn pfd-tab" data-tone="paper" aria-selected="false" data-pfd-tab="runs" onclick="setDashboardActivityTab('runs')">All runs</button>
+        <button type="button" role="tab" class="scalp-toggle-btn pfd-tab" data-tone="paper" aria-selected="false" data-pfd-tab="saved" onclick="setDashboardActivityTab('saved')">Saved strategies</button>
       </div>
       <div class="pfd-activity-tools">
         <input type="text" id="transactions-search-input" class="dash-table-search" data-pfd-for="txns" placeholder="Search transactions…" oninput="setDashboardTransactionSearch(this.value)">
