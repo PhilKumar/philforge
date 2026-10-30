@@ -554,3 +554,44 @@ html[data-theme="light"] #dashboard-page.pf-dash .pfd-form-score { color: #6d28d
   #dashboard-page.pf-dash .pfd-tabs .scalp-toggle-btn { padding: 6px 8px; }
   #dashboard-page.pf-dash .pfd-flow-bars { height: 120px; }
 }
+
+/* COLOUR, NOT GREEN (Phil, 2026-10-30: "Not so much greenish? The previous one
+   has some good colour variations"). The glass is the site's navy; each card
+   washes in its own colour from a corner -- Paper amber, Real green, Form
+   violet, Brokers sky; paper, live and scalp engines; every desk; the flow
+   sky and the records amber. */
+#dashboard-page.pf-dash {
+  --pfx-card: linear-gradient(160deg, rgba(24, 32, 52, .80), rgba(10, 15, 28, .86));
+  --pfx-tile: rgba(255, 255, 255, .035);
+}
+#dashboard-page.pf-dash :is(.pfd-panel, .pfd-kpi) {
+  background:
+    radial-gradient(130% 120% at 0% 0%, color-mix(in srgb, var(--wash, transparent) 15%, transparent), transparent 58%),
+    var(--pfx-card) !important;
+}
+#dashboard-page.pf-dash .pfd-kpi { --wash: var(--kpi); }
+#dashboard-page.pf-dash .pfd-kpi::after { opacity: 1; }
+#dashboard-page.pf-dash .pfd-live { --wash: var(--success); }
+#dashboard-page.pf-dash #strategy-arsenal-card { --wash: #a78bfa; }
+#dashboard-page.pf-dash .pfd-flow,
+html[data-theme="light"] #dashboard-page.pf-dash #dash-fiidii-card { --wash: #38bdf8; }
+#dashboard-page.pf-dash .pfd-records { --wash: #f5b84b; }
+#dashboard-page.pf-dash .pfd-activity { --wash: #818cf8; }
+#dashboard-page.pf-dash .pfd-engine {
+  border-color: color-mix(in srgb, var(--kind, var(--accent)) 22%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--kind, var(--accent)) 12%, transparent), var(--pfx-tile) 62%);
+}
+#dashboard-page.pf-dash #dash-paper-card { --kind: var(--warn); }
+#dashboard-page.pf-dash #dash-live-card { --kind: var(--danger); }
+#dashboard-page.pf-dash #dash-scalp-card { --kind: #06b6d4; }
+#dashboard-page.pf-dash .pfd-desk {
+  border-color: color-mix(in srgb, var(--tint) 20%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tint) 11%, transparent), var(--pfx-tile) 60%);
+}
+#dashboard-page.pf-dash .pfd-flow-tile:first-child { background: linear-gradient(160deg, rgba(56, 189, 248, .12), var(--pfx-tile) 65%); border-color: rgba(56, 189, 248, .2); }
+#dashboard-page.pf-dash .pfd-flow-tile:last-child { background: linear-gradient(160deg, rgba(245, 158, 11, .12), var(--pfx-tile) 65%); border-color: rgba(245, 158, 11, .2); }
+#dashboard-page.pf-dash .pfd-record { background: linear-gradient(160deg, color-mix(in srgb, var(--rec) 10%, transparent), var(--pfx-tile) 62%); }
+html[data-theme="light"] #dashboard-page.pf-dash {
+  --pfx-card: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(241, 245, 249, .86));
+  --pfx-tile: rgba(255, 255, 255, .6);
+}
