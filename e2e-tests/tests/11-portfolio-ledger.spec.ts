@@ -201,13 +201,12 @@ test('With a Kite app saved, the wallet holds both cards and the tabs switch the
     const w = window as unknown as { _portfolioMonthly: Record<string, { real_net_pnl?: number; real_pnl?: number; real_trades?: number }> };
     const dhan = w._portfolioMonthly[ym];
     const dhanNet = Number(dhan ? (dhan.real_net_pnl ?? dhan.real_pnl ?? 0) : 0);
-    const [year, mm] = ym.split('-');
-    const row = Array.from(document.querySelectorAll('.portfolio-ytd-table tbody tr')).find(tr => tr.firstElementChild!.textContent!.trim() === year)!;
-    const cell = row.children[Number(mm)] as HTMLElement;
+    // Each year is a column, its months folded four across.
+    const cell = document.querySelector(`.portfolio-ytd-table td[data-ym="${ym}"]`) as HTMLElement;
     return {
-      shown: cell.querySelector('div')!.textContent!.trim(),
+      shown: cell.querySelector('.ytd-pnl')!.textContent!.trim(),
       expected: '₹' + (dhanNet + 1469.75).toFixed(0),
-      trades: cell.querySelectorAll('div')[1].textContent!.trim(),
+      trades: cell.querySelector('.ytd-trades')!.textContent!.trim(),
       expectedTrades: `${Number((dhan && dhan.real_trades) || 0) + 4}T`,
       title: cell.getAttribute('title') || '',
     };

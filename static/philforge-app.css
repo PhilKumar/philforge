@@ -2128,6 +2128,31 @@
     border-collapse: collapse;
     font-size: 12px;
   }
+  .ytd-years {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .ytd-year-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 8px;
+  }
+  .ytd-year-head b { font-size: 15px; color: var(--text); }
+  .ytd-year-head .portfolio-ytd-total-cell { padding: 4px 10px; }
+  .ytd-year-head small { margin-left: 6px; font-size: 10px; color: var(--muted); }
+  .ytd-years .portfolio-ytd-table { min-width: 0; table-layout: fixed; }
+  .portfolio-ytd-table td {
+    padding: 8px 4px;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+  .portfolio-ytd-table td > span { display: block; }
+  .portfolio-ytd-table .ytd-mon { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .portfolio-ytd-table .ytd-pnl { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; margin: 2px 0; }
+  .portfolio-ytd-table .ytd-trades { font-size: 9px; color: var(--muted); }
+  .portfolio-ytd-table .ytd-none .ytd-pnl { color: var(--muted); font-weight: 400; }
   .portfolio-ytd-total-cell {
     border-radius: 10px;
     background: rgba(0,0,0,0.1);

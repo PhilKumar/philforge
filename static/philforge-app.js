@@ -22709,29 +22709,23 @@ function renderYearlyMonthlyTable() {
   const years = [];
   for (let y = currentYear; y >= startYear; y--) years.push(y);
 
-  // Build table
-  let html = `<table class="portfolio-ytd-table">
-    <thead>
-      <tr style="border-bottom: 2px solid var(--border);">
-        <th style="padding: 8px 6px; text-align: left; color: var(--muted); font-size: 11px; font-weight: 600;">Year</th>`;
-  MONTH_NAMES_SHORT.forEach(m => {
-    html += `<th style="padding: 8px 4px; text-align: center; color: var(--muted); font-size: 11px; font-weight: 600;">${m}</th>`;
-  });
-  html += `<th style="padding: 8px 6px; text-align: center; color: var(--accent); font-size: 11px; font-weight: 700;">Total</th></tr></thead><tbody>`;
-
+  // Each year is a column of its own, its twelve months folded into a grid
+  // four across (Phil, 31-Oct-2026: one row of twelve per year was too wide).
+  const tone = v => pfMoneyTone(v > 0 ? 'var(--success)' : v < 0 ? 'var(--danger)' : 'var(--muted)');
+  let html = '<div class="ytd-years">';
   years.forEach(year => {
     let yearTotal = 0;
-    html += `<tr style="border-bottom: 1px solid var(--border);">
-      <td style="padding: 10px 6px; font-weight: 700; color: var(--text);">${year}</td>`;
-
+    let yearTrades = 0;
+    let cells = '';
     for (let m = 1; m <= 12; m++) {
       const key = year + '-' + String(m).padStart(2, '0');
       const data = monthly[key];
+      if (m % 4 === 1) cells += '<tr>';
       if (data) {
         const pnl = Number(data.real_net_pnl ?? data.real_pnl ?? 0);
         yearTotal += pnl;
-        const isWin = pnl >= 0;
         const trades = _portfolioRealTrades(data);
+        yearTrades += trades;
         const grossRealPnl = Number(data.real_pnl || 0);
         const paperPnl = Number(data.paper_pnl || 0);
         const charges = Number(data.real_charges || 0);
@@ -22746,21 +22740,20 @@ function renderYearlyMonthlyTable() {
         }
         if (paperPnl !== 0) detailLines.push(`Paper: ${pfMoney(paperPnl)}`);
         if (data.split) detailLines.push(`Dhan: ${pfMoney(data.split.dhan)} · Zerodha: ${pfMoney(data.split.zerodha)}`);
-        html += `<td style="padding: 10px 4px; text-align: center;" title="${detailLines.join('\n')}">
-          <div style="font-weight: 600; color: ${pfMoneyTone(isWin ? 'var(--success)' : 'var(--danger)')}; font-family: 'JetBrains Mono'; font-size: 11px;">${pfMoney(pnl, 0)}</div>
-          <div style="font-size: 9px; color: var(--muted);">${trades}T</div>
-        </td>`;
+        cells += `<td data-ym="${key}" title="${detailLines.join('\n')}"><span class="ytd-mon">${MONTH_NAMES_SHORT[m - 1]}</span>`
+          + `<span class="ytd-pnl" style="color: ${tone(pnl)};">${pfMoney(pnl, 0)}</span>`
+          + `<span class="ytd-trades">${trades}T</span></td>`;
       } else {
-        html += `<td style="padding: 10px 4px; text-align: center; color: var(--muted); font-size: 11px;">—</td>`;
+        cells += `<td class="ytd-none"><span class="ytd-mon">${MONTH_NAMES_SHORT[m - 1]}</span><span class="ytd-pnl">—</span><span class="ytd-trades">&nbsp;</span></td>`;
       }
+      if (m % 4 === 0) cells += '</tr>';
     }
-
-    const isYearWin = yearTotal >= 0;
-    html += `<td class="portfolio-ytd-total-cell" style="padding: 10px 6px; text-align: center; color: ${pfMoneyTone(yearTotal !== 0 ? (isYearWin ? 'var(--success)' : 'var(--danger)') : 'var(--muted)')};"><span class="portfolio-ytd-total-value">${pfMoney(yearTotal, 0)}</span></td>`;
-    html += `</tr>`;
+    html += `<div class="ytd-year-col"><div class="ytd-year-head"><b>${year}</b>`
+      + `<span class="portfolio-ytd-total-cell" style="color: ${tone(yearTotal)};"><span class="portfolio-ytd-total-value">${pfMoney(yearTotal, 0)}</span>`
+      + `<small>${yearTrades}T</small></span></div>`
+      + `<table class="portfolio-ytd-table"><tbody>${cells}</tbody></table></div>`;
   });
-
-  html += `</tbody></table>`;
+  html += '</div>';
   container.innerHTML = html;
 }
 
