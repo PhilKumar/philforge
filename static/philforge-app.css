@@ -42,6 +42,11 @@
     --warn:       #fbbf24;
     --danger:     #f87171;
     --success:    #34d399;
+    /* Money-made greens the pages used to write by hand; dark keeps them,
+       light makes all three the theme's standard green (end of file). */
+    --pf-gain:        #6ee7b7;
+    --pf-gain-bright: #34d399;
+    --pf-gain-vivid:  #4ade80;
     --purple:     #a78bfa;
     --glass-hi:   rgba(255, 255, 255, 0.18);
     --glass-mid:  rgba(255, 255, 255, 0.09);
@@ -102,7 +107,7 @@
   .pf-cascade-calendar-weekdays, .pf-cascade-calendar-days { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:4px; }
   .pf-cascade-calendar-weekdays { margin-bottom:4px; color:var(--muted); font:9px 'JetBrains Mono',monospace; text-align:center; }
   .pf-cascade-calendar-day { min-height:32px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text); font:11px 'JetBrains Mono',monospace; cursor:pointer; }
-  .pf-cascade-calendar-day:hover, .pf-cascade-calendar-day.is-selected { border-color:rgba(var(--pf-tint-primary-rgb, 0,191,165),.55); background:rgba(var(--pf-tint-primary-rgb, 0,191,165),.14); color:#6ee7b7; }
+  .pf-cascade-calendar-day:hover, .pf-cascade-calendar-day.is-selected { border-color:rgba(var(--pf-tint-primary-rgb, 0,191,165),.55); background:rgba(var(--pf-tint-primary-rgb, 0,191,165),.14); color:var(--pf-gain); }
   .pf-cascade-calendar-day.is-today { box-shadow:inset 0 0 0 1px rgba(79,142,247,.48); }
   .pf-cascade-calendar-day.is-outside { opacity:.34; }
   /* A mother candle that has not printed yet is not a choice. Struck through
@@ -4166,7 +4171,7 @@
     background: rgba(255,255,255,0.035);
     font-size: 13px;
   }
-  .trading-section-icon-equity { color: #4ade80; }
+  .trading-section-icon-equity { color: var(--pf-gain-vivid); }
   .trading-section-icon-scalp { color: #22d3ee; }
   .trading-section-icon-cascade { color: #fbbf24; }
   .trading-section-icon-builder { color: #a78bfa; }
@@ -6631,7 +6636,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .ocp-auto-chain { width:100%; border-collapse:collapse; margin-top:6px; }
 .ocp-auto-chain th, .ocp-auto-chain td { padding:3px 6px; text-align:right; border-bottom:1px solid rgba(148,163,184,.12); white-space:nowrap; }
 .ocp-auto-chain th:nth-child(-n+3), .ocp-auto-chain td:nth-child(-n+3) { text-align:left; }
-.ocp-auto-chain td.pos { color:#6ee7b7; } .ocp-auto-chain td.neg { color:#fca5a5; }
+.ocp-auto-chain td.pos { color:var(--pf-gain); } .ocp-auto-chain td.neg { color:#fca5a5; }
 .ocp-auto-chain-wrap { overflow-x:auto; }
 [data-theme="light"] .ocp-auto-card { background: rgba(248,250,252,.9); border-color: rgba(15,23,42,.14); }
 /* The one-line summary of an older campaign, under the buttons. */
@@ -6794,7 +6799,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .ocp-overview-row { display:grid; grid-template-columns:132px minmax(0,1fr); gap:14px; padding:9px 0; border-bottom:1px solid rgba(148,163,184,.10); }
 .ocp-overview-label { color:var(--muted); font-size:11px; }
 .ocp-overview-value { color:var(--text); font-weight:700; font-size:12px; overflow-wrap:anywhere; }
-.ocp-overview-value.is-info { color:#93c5fd; }.ocp-overview-value.is-positive { color:#6ee7b7; }.ocp-overview-value.is-warning { color:#fde68a; }
+.ocp-overview-value.is-info { color:#93c5fd; }.ocp-overview-value.is-positive { color:var(--pf-gain); }.ocp-overview-value.is-warning { color:#fde68a; }
 .ocp-overview-detail { grid-column:2; margin-top:-8px; color:var(--muted); font-size:10px; line-height:1.4; }
 .ocp-table-wrap, .ocp-events { overflow:auto; }
 .ocp-table { width:100%; min-width:480px; border-collapse:collapse; font-size:11px; }
@@ -6917,7 +6922,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .oc-live-gate strong { color: #fde68a; font-size: 11px; letter-spacing: .05em; }
 #options-cascade-page .oc-live-gate span { color: var(--muted); font-size: 10px; line-height: 1.4; }
 #options-cascade-page .oc-live-gate.is-paper-live { border-color: rgba(52,211,153,.55); background: linear-gradient(180deg, rgba(6,78,59,.42), rgba(6,45,38,.26)); }
-#options-cascade-page .oc-live-gate.is-paper-live strong { color: #6ee7b7; }
+#options-cascade-page .oc-live-gate.is-paper-live strong { color: var(--pf-gain); }
 #options-cascade-page .oc-live-gate.is-replay { border-color: rgba(96,165,250,.52); background: linear-gradient(180deg, rgba(30,64,175,.24), rgba(15,23,42,.20)); }
 #options-cascade-page .oc-live-gate.is-replay strong { color: #bfdbfe; }
 #options-cascade-page .oc-live-gate.is-paused { border-color: rgba(148,163,184,.34); background: rgba(30,41,59,.28); }
@@ -7087,7 +7092,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 /* "Latest confirmed backtest" -- a quiet line inside the ⓘ doc, not a card on
    the page. Phil, 2026-08-20: the page carried too much text; the numbers are
    already in section 1, so this is only the way through to the sheet. */
-#options-cascade-page .ocp-confirmed-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid rgba(52,211,153,.34); border-radius: 999px; font: 10.5px 'JetBrains Mono', monospace; color: #6ee7b7; text-decoration: none; }
+#options-cascade-page .ocp-confirmed-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid rgba(52,211,153,.34); border-radius: 999px; font: 10.5px 'JetBrains Mono', monospace; color: var(--pf-gain); text-decoration: none; }
 #options-cascade-page .ocp-confirmed-link:hover { border-color: rgba(52,211,153,.65); background: rgba(6,32,26,.55); }
 [data-theme="light"] #options-cascade-page .ocp-confirmed-link { color: #047857; border-color: rgba(5,150,105,.42); }
 [data-theme="light"] #options-cascade-page .ocp-confirmed-link:hover { background: rgba(236,253,245,.9); }
@@ -7102,13 +7107,13 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .ocp-auto-head .cascade-options-control { margin-left: auto; min-height: 26px; padding: 3px 11px; font-size: 10.5px; }
 #options-cascade-page .ocp-auto-head > strong { font-size: 13px; color: var(--text); letter-spacing: .3px; }
 #options-cascade-page .ocp-auto-badge { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 9.5px; letter-spacing: .7px; color: var(--muted); }
-#options-cascade-page .ocp-auto-badge.is-live { color: #6ee7b7; border-color: rgba(52,211,153,.5); }
+#options-cascade-page .ocp-auto-badge.is-live { color: var(--pf-gain); border-color: rgba(52,211,153,.5); }
 #options-cascade-page .ocp-auto-badge.is-wait { color: #7dd3fc; border-color: rgba(56,189,248,.45); }
 #options-cascade-page .ocp-auto-badge.is-warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
 /* The live line: what auto is waiting for, and the minute it last looked. */
 #options-cascade-page .ocp-auto-state { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(148,163,184,.08); color: var(--text); }
 #options-cascade-page .ocp-auto-state > span { color: var(--muted); font-size: 10px; flex: none; }
-#options-cascade-page .ocp-auto-state.is-live { background: rgba(52,211,153,.10); color: #6ee7b7; }
+#options-cascade-page .ocp-auto-state.is-live { background: rgba(52,211,153,.10); color: var(--pf-gain); }
 #options-cascade-page .ocp-auto-state.is-warn { background: rgba(245,158,11,.12); color: #fbbf24; }
 #options-cascade-page .ocp-auto-alert { margin-top: 6px; color: #f59e0b; }
 #options-cascade-page .ocp-auto-today { margin-top: 8px; color: var(--text); }
@@ -7116,7 +7121,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 #options-cascade-page .ocp-auto-chain { width: 100%; border-collapse: collapse; margin-top: 6px; }
 #options-cascade-page .ocp-auto-chain th, #options-cascade-page .ocp-auto-chain td { padding: 3px 6px; text-align: right; border-bottom: 1px solid rgba(148,163,184,.12); }
 #options-cascade-page .ocp-auto-chain th:nth-child(-n+4), #options-cascade-page .ocp-auto-chain td:nth-child(-n+4) { text-align: left; }
-#options-cascade-page .ocp-auto-chain td.pos { color: #6ee7b7; }
+#options-cascade-page .ocp-auto-chain td.pos { color: var(--pf-gain); }
 #options-cascade-page .ocp-auto-chain td.neg { color: #fca5a5; }
 [data-theme="light"] #options-cascade-page .ocp-auto-card { background: rgba(248,250,252,.9); }
 #options-cascade-page .ocp-form-actions {
@@ -7143,7 +7148,7 @@ body.terminal-cascade-chart-open { overflow: hidden; }
   background: rgba(8,47,73,.28);
 }
 #options-cascade-page #oc-fib-mode-hint.is-live {
-  color: #6ee7b7 !important;
+  color: var(--pf-gain) !important;
   border-color: rgba(52,211,153,.34) !important;
   background: rgba(6,78,59,.22) !important;
 }
@@ -9462,7 +9467,7 @@ body :is(
   letter-spacing: .7px; text-transform: uppercase;
   border: 1px solid transparent;
 }
-#live-page .live-state-chip.is-trading { background: rgba(34,197,94,.14); color: #4ade80; border-color: rgba(34,197,94,.3); }
+#live-page .live-state-chip.is-trading { background: rgba(34,197,94,.14); color: var(--pf-gain-vivid); border-color: rgba(34,197,94,.3); }
 #live-page .live-state-chip.is-waiting { background: rgba(245,158,11,.14); color: #f59e0b; border-color: rgba(245,158,11,.3); }
 #live-page .live-state-chip.is-stopped { background: rgba(239,68,68,.14); color: var(--red); border-color: rgba(239,68,68,.3); }
 
@@ -10086,7 +10091,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 
 /* "Booked · ₹X" in each strategy header -- see _paintBookedPill. */
 .ocp-booked-pill { font: 800 10px 'JetBrains Mono', monospace; border: 1px solid var(--border); border-radius: 999px; padding: 5px 9px; color: var(--muted); white-space: nowrap; }
-.ocp-booked-pill[data-tone="up"] { color: #34d399; border-color: rgba(52,211,153,.45); }
+.ocp-booked-pill[data-tone="up"] { color: var(--pf-gain-bright); border-color: rgba(52,211,153,.45); }
 .ocp-booked-pill[data-tone="down"] { color: #f87171; border-color: rgba(248,113,113,.45); }
 [data-theme="light"] .ocp-booked-pill[data-tone="up"] { color: #047857; }
 [data-theme="light"] .ocp-booked-pill[data-tone="down"] { color: #b91c1c; }
@@ -10437,7 +10442,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page .scalp-pill-broker.is-dhan { color: #5eead4; }
   #scalp-page .scalp-pill-broker.is-zerodha { color: #fdba74; }
   #scalp-page .scalp-pill-entry { color: #94a3b8; }
-  #scalp-page .scalp-pill-pnl.is-up { color: #6ee7b7; }
+  #scalp-page .scalp-pill-pnl.is-up { color: var(--pf-gain); }
   #scalp-page .scalp-pill-pnl.is-down { color: #fca5a5; }
   /* Exit and Exit all: the site's glossy danger button, the pill's height. */
   #scalp-page .scalp-pill .btn.scalp-pill-btn {
@@ -10573,7 +10578,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     background: rgba(10, 16, 28, 0.92); font: 600 11px 'JetBrains Mono', monospace; color: #cbd5e1;
   }
   #scalp-page .scalp-ticket-status:empty { display: none; }
-  #scalp-page .scalp-ticket-status[data-tone="good"] { color: #6ee7b7; }
+  #scalp-page .scalp-ticket-status[data-tone="good"] { color: var(--pf-gain); }
   #scalp-page .scalp-ticket-status[data-tone="bad"] { color: #fca5a5; }
 }
 
@@ -11457,4 +11462,22 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   /* Portfolio: notes under a figure wrap instead of trailing off. */
   #portfolio-page .pfx-funds-acct em,
   #portfolio-page .pfx-txn-what span { white-space: normal; }
+}
+
+/* ── Light mode: one standard green on every page ──
+   Phil, 31-Oct-2026: "This month" read a pale mint beside FII today's green.
+   Portfolio, Results and Live each set a lighter green of their own, and the
+   money figures wrote theirs by hand. In light mode the pages take the
+   theme's green back, and the hand-written ones point at it. */
+[data-theme="light"] {
+  --pf-gain: var(--success);
+  --pf-gain-bright: var(--success);
+  --pf-gain-vivid: var(--success);
+}
+[data-theme="light"] #portfolio-page,
+[data-theme="light"] #results-content,
+[data-theme="light"] #results-page #results-content,
+[data-theme="light"] #live-page {
+  --success: inherit;
+  --green: inherit;
 }

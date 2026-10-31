@@ -441,7 +441,7 @@
             </div>
             <span class="pfd-desk-go" aria-hidden="true">→</span>
           </div>
-          <div class="arsenal-template-card arsenal-strategy-card pfd-desk" role="link" tabindex="0" style="--tint:#34d399;" data-pf-desk-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
+          <div class="arsenal-template-card arsenal-strategy-card pfd-desk" role="link" tabindex="0" style="--tint:var(--pf-gain-bright);" data-pf-desk-page="stock-terminal-page" data-pf-after-nav="initStockTerminalPage">
             <span class="arsenal-template-icon pfd-desk-icon" aria-hidden="true">◰</span>
             <div class="pfd-desk-body">
               <div class="arsenal-template-title">Equity Cash Cascade</div>
@@ -1023,7 +1023,7 @@
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="text" id="trade-search-input" placeholder="Search trades..." oninput="_filterTradesBySearch()" style="width: 160px; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card2); color: var(--text);">
           <span id="trade-count-display" style="background: rgba(0,200,150,0.1); border: 1px solid rgba(0,200,150,0.2); padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent);"></span>
-          <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(13,143,102,0.45) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(16,185,129,0.45); font-weight: 600; border-radius: 6px;">Download CSV</button>
+          <button class="btn" onclick="downloadCSV()" style="font-size: 11px; padding: 6px 14px; --btn-bg: linear-gradient(180deg, rgba(16,185,129,0.25) 0%, rgba(13,143,102,0.45) 100%); --btn-color: var(--pf-gain-bright); --btn-border: rgba(16,185,129,0.45); font-weight: 600; border-radius: 6px;">Download CSV</button>
         </div>
     </div>
       <div id="trade-log-wrap-panel" class="trade-table-scroll">
@@ -1078,7 +1078,7 @@
       <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
         <input type="text" id="runs-search-input" placeholder="Search runs..." oninput="_filterRunsBySearch()" style="width: 180px; font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card2); color: var(--text);">
         <div id="runs-filter-bar" style="display: flex; gap: 6px;">
-          <button class="btn btn-sm runs-filter-btn active" data-filter="all" onclick="filterRuns('all', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(0,200,150,0.3) 0%, rgba(0,150,110,0.5) 100%); --btn-color: rgb(52,211,153); --btn-border: rgba(0,200,150,0.5);">All</button>
+          <button class="btn btn-sm runs-filter-btn active" data-filter="all" onclick="filterRuns('all', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(0,200,150,0.3) 0%, rgba(0,150,110,0.5) 100%); --btn-color: var(--pf-gain-bright); --btn-border: rgba(0,200,150,0.5);">All</button>
           <button class="btn btn-sm runs-filter-btn" data-filter="backtest" onclick="filterRuns('backtest', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(59,130,246,0.25) 0%, rgba(40,90,180,0.4) 100%); --btn-color: rgb(96,165,250); --btn-border: rgba(59,130,246,0.5);">Backtest</button>
           <button class="btn btn-sm runs-filter-btn" data-filter="paper" onclick="filterRuns('paper', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(245,158,11,0.25) 0%, rgba(180,120,8,0.4) 100%); --btn-color: rgb(251,191,36); --btn-border: rgba(245,158,11,0.5);">Paper</button>
           <button class="btn btn-sm runs-filter-btn" data-filter="live" onclick="filterRuns('live', this)" style="font-size: 11px; padding: 5px 12px; --btn-bg: linear-gradient(180deg, rgba(139,92,246,0.25) 0%, rgba(100,60,200,0.4) 100%); --btn-color: rgb(167,139,250); --btn-border: rgba(139,92,246,0.5);">Live</button>
@@ -1376,7 +1376,7 @@
     </div>
     <div id="view-modal-content" style="font-size: 13px; line-height: 1.7;"></div>
     <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;" id="view-modal-actions">
-      <button class="btn" onclick="loadStrategyFromView()" style="--btn-bg: linear-gradient(180deg, rgba(0,200,150,0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(0,200,150,0.45); --btn-color: rgb(52,211,153); font-size: 12px;" id="view-modal-load-btn">Load into Builder</button>
+      <button class="btn" onclick="loadStrategyFromView()" style="--btn-bg: linear-gradient(180deg, rgba(0,200,150,0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(0,200,150,0.45); --btn-color: var(--pf-gain-bright); font-size: 12px;" id="view-modal-load-btn">Load into Builder</button>
       <button class="modal-close" onclick="closeViewModal()">Close</button>
     </div>
   </div>
@@ -1410,7 +1410,7 @@
       <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px;">Or create a new folder:</label>
       <div class="flex-row">
         <input type="text" id="move-new-folder" placeholder="New folder name..." style="flex: 1; padding: 8px; font-size: 12px;">
-        <button class="btn" onclick="confirmMoveToNew()" style="font-size: 11px; padding: 8px 12px; --btn-bg: linear-gradient(180deg, rgba(0,200,150,0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(0,200,150,0.45); --btn-color: rgb(52,211,153);">Create & Move</button>
+        <button class="btn" onclick="confirmMoveToNew()" style="font-size: 11px; padding: 8px 12px; --btn-bg: linear-gradient(180deg, rgba(0,200,150,0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(0,200,150,0.45); --btn-color: var(--pf-gain-bright);">Create & Move</button>
       </div>
     </div>
   </div>
@@ -2424,7 +2424,7 @@
       </div>
 
       <div style="display:flex;gap:8px;align-items:center;">
-        <button class="read-only-lock btn" onclick="submitStockTerminalOrder('BUY')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(52,211,153,0.28) 0%,rgba(16,150,90,0.48) 100%);--btn-color:#34d399;--btn-border:rgba(52,211,153,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▲ BUY</button>
+        <button class="read-only-lock btn" onclick="submitStockTerminalOrder('BUY')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(52,211,153,0.28) 0%,rgba(16,150,90,0.48) 100%);--btn-color:var(--pf-gain-bright);--btn-border:rgba(52,211,153,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▲ BUY</button>
         <button class="read-only-lock btn" onclick="submitStockTerminalOrder('SELL')" style="flex:1;--btn-bg:linear-gradient(180deg,rgba(248,113,113,0.28) 0%,rgba(185,38,38,0.48) 100%);--btn-color:#f87171;--btn-border:rgba(248,113,113,0.55);padding:10px 12px;font-size:13px;font-weight:800;letter-spacing:0.5px;">▼ SELL</button>
       </div>
       <div id="stock-terminal-entry-status" style="min-height:18px;margin-top:8px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;"></div>
@@ -3672,7 +3672,7 @@
     <div class="card" style="padding:18px;margin-bottom:16px;border-color:rgba(52,211,153,.30);">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
         <div>
-          <!-- High Entry had no descriptor at all; the other three did. Same row, same shape. --><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="oc-high-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:#6ee7b7;">TWO REDS &middot; STOP AT THE ENTRY LOW</span></div>
+          <!-- High Entry had no descriptor at all; the other three did. Same row, same shape. --><div class="ocp-title-row" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><h3 style="margin:5px 0 0;font-size:16px;display:inline-flex;align-items:center;gap:8px;">High Entry <button type="button" class="pf-info-btn" data-pf-info="oc-high-info" aria-expanded="false" aria-label="How this strategy works" title="How this strategy works">i</button></h3><span class="ocp-eyebrow" style="font:800 10px 'JetBrains Mono',monospace;letter-spacing:.7px;color:var(--pf-gain);">TWO REDS &middot; STOP AT THE ENTRY LOW</span></div>
           <div id="oc-high-info" class="pf-info-pop pf-info-doc">
             <div class="pf-doc-langs" role="tablist" aria-label="Language">
               <button type="button" class="pf-doc-lang-btn is-active" data-pf-doc-lang="en" role="tab" aria-selected="true">English</button>
@@ -4447,7 +4447,7 @@
             <button type="button" class="scalp-toggle-btn active" data-value="paper" data-tone="paper" onclick="setScalpMode('paper')"><span>Paper</span></button>
             <button type="button" class="scalp-toggle-btn" data-value="live" data-tone="live" onclick="setScalpMode('live')"><span>Live</span></button>
           </div>
-          <button class="read-only-lock btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
+          <button class="read-only-lock btn" onclick="submitScalpEntry('BUY')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: var(--pf-gain-bright); --btn-border: rgba(52,211,153,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▲ BUY</button>
           <button class="read-only-lock btn" onclick="submitScalpEntry('SELL')" style="flex: 1; --btn-bg: linear-gradient(180deg, rgba(248,113,113,0.28) 0%, rgba(185,38,38,0.48) 100%); --btn-color: #f87171; --btn-border: rgba(248,113,113,0.55); padding: 9px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.5px;">▼ SELL</button>
         </div>
         <div class="scalp-live-note" id="scalp-live-note">Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.</div>
@@ -4510,7 +4510,7 @@
             <button type="button" class="scalp-ticket-more" id="scalp-ticket-more" onclick="toggleScalpTicketMore()" aria-expanded="false" aria-controls="scalp-ticket-contract" aria-label="Show contract, mode and broker" title="Show contract, mode and broker">
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="1.5" y="1.5" width="5.2" height="5.2" rx="1.2"/><rect x="9.3" y="1.5" width="5.2" height="5.2" rx="1.2"/><rect x="1.5" y="9.3" width="5.2" height="5.2" rx="1.2"/><rect x="9.3" y="9.3" width="5.2" height="5.2" rx="1.2"/></svg>
             </button>
-            <button type="button" class="btn scalp-ticket-btn is-buy read-only-lock" id="scalp-ticket-buy" onclick="scalpTicketTrade('BUY')" style="--btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: #34d399; --btn-border: rgba(52,211,153,0.55);">B</button>
+            <button type="button" class="btn scalp-ticket-btn is-buy read-only-lock" id="scalp-ticket-buy" onclick="scalpTicketTrade('BUY')" style="--btn-bg: linear-gradient(180deg, rgba(52,211,153,0.28) 0%, rgba(16,150,90,0.48) 100%); --btn-color: var(--pf-gain-bright); --btn-border: rgba(52,211,153,0.55);">B</button>
             <div class="scalp-toggle compact scalp-ticket-lotbox" role="group" aria-label="Lots">
               <button type="button" class="scalp-ticket-step" onclick="stepScalpTicketLots(-1)" aria-label="One lot fewer" title="One lot fewer">&minus;</button>
               <input type="number" class="scalp-ticket-lots" id="scalp-ticket-lots" min="1" max="500" step="1" value="1" aria-label="Lots" title="Lots">
@@ -4961,7 +4961,7 @@
           <button class="read-only-lock btn" id="account-broker-save-btn" onclick="saveBrokerSettings()">Save Broker Credentials</button>
           <button class="btn" id="account-broker-check-btn" onclick="checkBrokerFromSettings()" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
           <button class="read-only-lock btn" id="account-broker-clear-btn" onclick="clearBrokerSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Stored Credentials</button>
-          <button class="btn" id="account-ip-refresh-btn" onclick="loadExecutionIpStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: #6ee7b7;">Refresh IP Check</button>
+          <button class="btn" id="account-ip-refresh-btn" onclick="loadExecutionIpStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: var(--pf-gain);">Refresh IP Check</button>
         </div>
       </div>
 
@@ -4987,7 +4987,7 @@
         </div>
         <div class="settings-actions-row">
           <button class="read-only-lock btn" id="account-zerodha-save-btn" onclick="saveZerodhaSettings()">Save Zerodha App</button>
-          <button class="btn" id="account-zerodha-login-btn" onclick="loginZerodha()" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: #6ee7b7;">Log in to Zerodha</button>
+          <button class="btn" id="account-zerodha-login-btn" onclick="loginZerodha()" style="--btn-bg: linear-gradient(180deg, rgba(16,185,129,0.16) 0%, rgba(16,185,129,0.28) 100%); --btn-border: rgba(52,211,153,0.24); --btn-color: var(--pf-gain);">Log in to Zerodha</button>
           <button class="btn" id="account-zerodha-check-btn" onclick="checkZerodhaStatus(false)" style="--btn-bg: linear-gradient(180deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.3) 100%); --btn-border: rgba(96,165,250,0.32); --btn-color: #93c5fd;">Test Connection</button>
           <button class="read-only-lock btn" id="account-zerodha-clear-btn" onclick="clearZerodhaSettings()" style="--btn-bg: linear-gradient(180deg, rgba(239,68,68,0.16) 0%, rgba(239,68,68,0.28) 100%); --btn-border: rgba(248,113,113,0.28); --btn-color: #fca5a5;">Clear Zerodha</button>
         </div>

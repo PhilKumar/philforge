@@ -102,7 +102,7 @@
       WATCHING: ['watching', 'var(--muted)'],
       ARMED: ['armed', '#fbbf24'],
       HOLDING: ['holding', '#38bdf8'],
-      CLOSED: ['closed', '#6ee7b7'],
+      CLOSED: ['closed', 'var(--pf-gain)'],
       VOID: ['void', 'var(--muted)'],
       KILLED: ['killed', 'var(--danger)']
     };
@@ -116,12 +116,12 @@
     // wrong statement. Same rule the fib-space book follows.
     if (campaign.realised) {
       var net = Number(campaign.realised.net_pnl);
-      return '<strong style="color:' + (net >= 0 ? '#6ee7b7' : 'var(--danger)') + ';">' +
+      return '<strong style="color:' + (net >= 0 ? 'var(--pf-gain)' : 'var(--danger)') + ';">' +
         rupees(net, 2) + '</strong><span class="cascade-scan-name">realised, after costs</span>';
     }
     if (campaign.open_money) {
       var open = Number(campaign.open_money.net_pnl);
-      return '<span style="color:' + (open >= 0 ? '#6ee7b7' : 'var(--danger)') + ';">' +
+      return '<span style="color:' + (open >= 0 ? 'var(--pf-gain)' : 'var(--danger)') + ';">' +
         rupees(open, 2) + '</span><span class="cascade-scan-name">if sold now</span>';
     }
     return '—';
@@ -225,7 +225,7 @@
           '<td class="num">' + (row.quantity || 0) + '</td>' +
           '<td class="num">' + rupees(row.invested, 0) + '</td>' +
           '<td class="num">' + (net === null ? '—' :
-            '<strong style="color:' + (net >= 0 ? '#6ee7b7' : 'var(--danger)') + ';">' + rupees(net, 2) + '</strong>') +
+            '<strong style="color:' + (net >= 0 ? 'var(--pf-gain)' : 'var(--danger)') + ';">' + rupees(net, 2) + '</strong>') +
           '</td></tr>';
       }).join('') + '</tbody></table></div>');
   }
@@ -325,7 +325,7 @@
    * the backtest's own detector and says which mothers are still worth taking.
    */
   function motherRow(row) {
-    var tone = row.state === 'ready' ? '#6ee7b7' : row.state === 'waiting' ? '#fbbf24' : 'var(--muted)';
+    var tone = row.state === 'ready' ? 'var(--pf-gain)' : row.state === 'waiting' ? '#fbbf24' : 'var(--muted)';
     var when = String(row.timestamp).slice(0, 10);
     var why = row.state === 'ready'
       ? 'fell ' + row.fall_pct.toFixed(1) + '% — deep enough to buy'

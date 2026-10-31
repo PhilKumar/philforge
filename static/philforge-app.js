@@ -2879,7 +2879,7 @@ function _cascadeOptionsSetFormStatus(message, tone = 'muted') {
   if (!el) return;
   el.textContent = message;
   _cascadeSetTone(el, tone);
-  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: 'var(--pf-gain)', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 // Every stamp on the page is IST. This used to strip only the two offsets it
 // expected (+05:30 and Z) and leave anything else in the string, so a run
@@ -2902,7 +2902,7 @@ function _cascadeOptionsTimestamp(value) {
 }
 function _cascadeOptionsToneClass(accent) {
   const tone = String(accent || '').toLowerCase();
-  if (tone.includes('6ee7b7') || tone.includes('34d399')) return 'is-positive';
+  if (tone.includes('6ee7b7') || tone.includes('34d399') || tone.includes('--pf-gain')) return 'is-positive';
   if (tone.includes('fde68a') || tone.includes('fbbf24')) return 'is-warning';
   if (tone.includes('fca5a5') || tone.includes('f87171')) return 'is-negative';
   return '';
@@ -2947,7 +2947,7 @@ function _renderCascadeOptionsStatus(payload) {
   }
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  const tone = isRunning ? '#6ee7b7' : 'var(--warn)';
+  const tone = isRunning ? 'var(--pf-gain)' : 'var(--warn)';
   if (badge) { badge.textContent = state; _cascadeSetTone(badge, isRunning ? 'success' : 'warning'); badge.style.color = tone; badge.style.borderColor = tone; }
   const c = campaign.contract || {};
   if (contract) contract.textContent = `${c.underlying || 'NIFTY'} ${Number(c.strike || 0).toLocaleString('en-IN')} ${c.option_type || 'CE'} · ${c.expiry || '—'} · ${c.lot_size || '—'} units/lot`;
@@ -2957,7 +2957,7 @@ function _renderCascadeOptionsStatus(payload) {
     summary.innerHTML = [
       _cascadeOptionsMetric('Index target', _cascadeNumber(campaign.target_index)),
       _cascadeOptionsMetric('Avg index', _cascadeNumber(campaign.average_index_entry)),
-      _cascadeOptionsMetric('Open quantity', String(campaign.open_quantity || 0), '#6ee7b7'),
+      _cascadeOptionsMetric('Open quantity', String(campaign.open_quantity || 0), 'var(--pf-gain)'),
       _cascadeOptionsMetric('Pending cash', _cascadeOptionsMoney(campaign.pending_inr || 0), '#fde68a'),
     ].join('');
   }
@@ -2971,11 +2971,11 @@ function _renderCascadeOptionsStatus(payload) {
   if (motherInput && !motherInput.value && motherTimestamp) motherInput.value = String(motherTimestamp).slice(0, 16);
   const fills = Array.isArray(campaign.open_fills) ? campaign.open_fills : [];
   const fillsEl = _cascadeOptionsEl('cascade-options-fills');
-  if (fillsEl) fillsEl.innerHTML = fills.length ? fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty</span><strong class="is-positive" style="color:#6ee7b7;">CE ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('') : '<div style="color:var(--muted);padding:8px 0;">No open paper CE basket.</div>';
+  if (fillsEl) fillsEl.innerHTML = fills.length ? fills.map(fill => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><span>${escapeHtml(String(fill.lots))} lot · ${escapeHtml(String(fill.quantity))} qty</span><strong class="is-positive" style="color:var(--pf-gain);">CE ₹${escapeHtml(_cascadeNumber(fill.option_premium))}</strong></div>`).join('') : '<div style="color:var(--muted);padding:8px 0;">No open paper CE basket.</div>';
   const rungs = Array.isArray(campaign.rungs) ? campaign.rungs : [];
   const rungsEl = _cascadeOptionsEl('cascade-options-rungs');
   if (rungsEl) rungsEl.innerHTML = rungs.length ? rungs.map(rung => {
-    const stateColor = ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa' }[rung.status] || 'var(--muted)');
+    const stateColor = ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: 'var(--pf-gain)', CLOSED: '#a78bfa' }[rung.status] || 'var(--muted)');
     return `<div style="padding:8px;border:1px solid var(--border);border-left:3px solid ${stateColor};border-radius:6px;"><div style="display:flex;justify-content:space-between;gap:5px;font:10px 'JetBrains Mono',monospace;"><strong>F${escapeHtml(rung.leg_id)} · L${escapeHtml(rung.level)}</strong><span style="color:${stateColor};">${escapeHtml(rung.status)}</span></div><div style="margin-top:4px;font:800 11px 'JetBrains Mono',monospace;">${escapeHtml(_cascadeNumber(rung.index_price))}</div></div>`;
   }).join('') : '<div style="grid-column:1/-1;color:var(--muted);font-size:11px;">Geometry has not drawn a fib ladder yet.</div>';
   _renderCascadeOptionsRounds(campaign.rounds || []);
@@ -2989,7 +2989,7 @@ function _renderCascadeOptionsRounds(rounds) {
   if (!body) return;
   body.innerHTML = rounds.length ? rounds.slice().reverse().map(row => {
     const pnl = Number(row.net_pnl || 0);
-    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    const color = pnl > 0 ? 'var(--pf-gain)' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
     return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(row.round_id)}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(row.exit_quantity)}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">₹${escapeHtml(_cascadeNumber(row.exit_option_premium))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.gross_pnl))}</td><td style="padding:9px 8px;text-align:right;font-family:'JetBrains Mono',monospace;">${escapeHtml(_cascadeOptionsMoney(row.costs?.total))}</td><td style="padding:9px 8px;text-align:right;font:800 11px 'JetBrains Mono',monospace;color:${color};">${escapeHtml(_cascadeOptionsMoney(row.net_pnl))}</td><td style="padding:9px 8px;color:var(--muted);">${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</td></tr>`;
   }).join('') : '<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--muted);">No completed paper round</td></tr>';
 }
@@ -3309,7 +3309,7 @@ function _setCandleEntryFormStatus(message, tone = 'muted') {
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
-  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: 'var(--pf-gain)', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 
 function _ceRenderTimeframes() {
@@ -4029,7 +4029,7 @@ function _renderCandleEntryBacktest(data) {
     const priced = data.pricing === 'recorded_history';
     const gaps = Number(c.unpriced_fills || 0) + ((data.premium_failures || []).length ? 1 : 0);
     badge.textContent = !priced ? 'GEOMETRY ONLY' : gaps ? `PRICED · ${c.unpriced_fills || 0} UNPRICED LEG${c.unpriced_fills === 1 ? '' : 'S'}` : (data.still_open ? 'REAL PREMIUMS · STILL OPEN' : 'REAL PREMIUMS');
-    badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : '#6ee7b7';
+    badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : 'var(--pf-gain)';
     badge.style.borderColor = badge.style.color;
   }
   const contract = document.getElementById('oc-candle-backtest-contract');
@@ -4048,8 +4048,8 @@ function _renderCandleEntryBacktest(data) {
     const exit = c.exit || {};
     const outcome = fills.length ? (exit.reason ? String(exit.reason).replaceAll('_', ' ') : 'still open') : 'no buy';
     summary.innerHTML = [
-      _cascadeOptionsMetric('Outcome', outcome.toUpperCase(), c.net_pnl > 0 ? '#6ee7b7' : c.net_pnl < 0 ? '#fca5a5' : 'var(--muted)'),
-      _cascadeOptionsMetric('Net P&L', c.net_pnl == null ? '—' : _cascadeOptionsMoney(c.net_pnl), c.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5'),
+      _cascadeOptionsMetric('Outcome', outcome.toUpperCase(), c.net_pnl > 0 ? 'var(--pf-gain)' : c.net_pnl < 0 ? '#fca5a5' : 'var(--muted)'),
+      _cascadeOptionsMetric('Net P&L', c.net_pnl == null ? '—' : _cascadeOptionsMoney(c.net_pnl), c.net_pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5'),
       _cascadeOptionsMetric('Gross', c.gross_pnl == null ? '—' : _cascadeOptionsMoney(c.gross_pnl)),
       _cascadeOptionsMetric('Costs', c.costs_total == null ? '—' : _cascadeOptionsMoney(c.costs_total), '#fde68a'),
       _cascadeOptionsMetric('Deployed', _cascadeOptionsMoney(Number(c.deployed_inr) || 0), '#fde68a'),
@@ -4092,7 +4092,7 @@ function _renderCandleEntryBacktest(data) {
     legs.innerHTML = fills.length ? fills.map(f => {
       const sold = soldFor(f);
       const pnl = sold == null || f.option_premium == null ? null : (sold - Number(f.option_premium)) * Number(f.quantity);
-      const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+      const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5';
       return `<tr style="border-bottom:1px solid var(--border);">`
         + `<td style="padding:7px 8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(f.rung))}</strong></td>`
         + `<td style="padding:7px 8px;">${escapeHtml(_TB_TF_LABEL[f.timeframe] || String(f.timeframe))}</td>`
@@ -4560,7 +4560,7 @@ function _setGapCarryFormStatus(message, tone = 'muted') {
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
-  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: 'var(--pf-gain)', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 
 function _gapCarryPayload() {
@@ -4906,7 +4906,7 @@ function _renderGapCarryAuto(auto) {
 // .ocp-tile-label / -value, which the stylesheet has never defined,
 // so every Gap Carry tile rendered as two runs of bare text.
 function _gapCarryTile(label, value, tone) {
-  const colour = tone === 'good' ? '#6ee7b7' : tone === 'bad' ? 'var(--danger)' : 'var(--text)';
+  const colour = tone === 'good' ? 'var(--pf-gain)' : tone === 'bad' ? 'var(--danger)' : 'var(--text)';
   return _ocpTile(String(label), String(value), colour);
 }
 
@@ -5029,7 +5029,7 @@ function _renderGapCarryStatus(campaign, running) {
           ? `${_GC_MONEY(row.exit.premium)}${row.exit.priced ? '' : ' <span style="color:var(--warn);">at intrinsic</span>'}`
           : (mark ? _GC_MONEY(mark.premium) : '—');
         const shown = net == null ? (mark ? Number(mark.unrealised) : null) : net;
-        const tone = shown == null ? 'var(--muted)' : (shown >= 0 ? '#6ee7b7' : 'var(--danger)');
+        const tone = shown == null ? 'var(--muted)' : (shown >= 0 ? 'var(--pf-gain)' : 'var(--danger)');
         return `<tr>`
           + `<td>${escapeHtml(String(row.session || ''))}${open ? ' <span style="color:#fde68a;">open</span>' : ''}</td>`
           + `<td>${escapeHtml(String(row.side || ''))}</td>`
@@ -5144,7 +5144,7 @@ function _renderGapCarryBacktest(data) {
       '<thead><tr><th>Night</th><th>Side</th><th>Strike</th><th>In</th><th>Out</th><th>Net</th></tr></thead><tbody>' +
       rows.map((p) => {
         const net = p.net === null || p.net === undefined ? '—' : _GC_MONEY(p.net);
-        const colour = (p.net || 0) >= 0 ? '#6ee7b7' : 'var(--danger)';
+        const colour = (p.net || 0) >= 0 ? 'var(--pf-gain)' : 'var(--danger)';
         const floored = p.exit && p.exit.priced === false ? ' *' : '';
         return `<tr><td>${p.session}</td><td>${p.side}</td><td>${p.strike}</td><td>${p.entry ? p.entry.premium : '—'}</td><td>${p.exit ? p.exit.premium : '—'}${floored}</td><td style="color:${colour};">${net}</td></tr>`;
       }).join('') +
@@ -5365,7 +5365,7 @@ function _setSupertrendFormStatus(message, tone) {
   box.textContent = message || '';
   _cascadeSetTone(box, tone || null);
   box.style.color = tone === 'error' ? 'var(--danger)'
-    : tone === 'success' ? '#6ee7b7'
+    : tone === 'success' ? 'var(--pf-gain)'
     : tone === 'busy' ? '#fde68a' : 'var(--muted)';
 }
 
@@ -5654,7 +5654,7 @@ function _renderSupertrendStatus(campaign, running) {
         const open = !!row.open;
         const net = row.net == null ? null : Number(row.net);
         const shown = open ? (mark ? Number(mark.unrealised) : null) : net;
-        const tone = shown == null ? 'var(--muted)' : (shown >= 0 ? '#6ee7b7' : 'var(--danger)');
+        const tone = shown == null ? 'var(--muted)' : (shown >= 0 ? 'var(--pf-gain)' : 'var(--danger)');
         const exit = row.exit
           ? `${_ST_MONEY(row.exit.premium)}${row.exit.priced ? '' : ' <span style="color:var(--warn);">at intrinsic</span>'}`
           : (mark ? _ST_MONEY(mark.premium) : '—');
@@ -5722,7 +5722,7 @@ function _renderSupertrendBacktest(data) {
         ? trades.map((t) => `<tr><td>${escapeHtml(String(t.entry?.timestamp || '').slice(0, 16).replace('T', ' '))}</td>`
           + `<td>${escapeHtml(String(t.strike ?? ''))}</td>`
           + `<td>${escapeHtml(String(t.exit?.reason || ''))}${t.exit && t.exit.priced === false ? ' <span style="color:var(--warn);">intrinsic</span>' : ''}</td>`
-          + `<td style="color:${Number(t.net) >= 0 ? '#6ee7b7' : 'var(--danger)'};">${_ST_MONEY(t.net)}</td></tr>`).join('')
+          + `<td style="color:${Number(t.net) >= 0 ? 'var(--pf-gain)' : 'var(--danger)'};">${_ST_MONEY(t.net)}</td></tr>`).join('')
         : '<tr><td colspan="4" class="ocp-empty">No trades in that window.</td></tr>')
       + '</tbody>';
   }
@@ -6200,7 +6200,7 @@ function _fibSetFormStatus(message, tone = 'muted') {
   if (!el) return;
   el.textContent = message || '';
   _cascadeSetTone(el, tone);
-  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: '#6ee7b7', busy: '#fde68a' }[tone] || 'var(--muted)');
+  el.style.color = ({ muted: 'var(--muted)', error: 'var(--danger)', success: 'var(--pf-gain)', busy: '#fde68a' }[tone] || 'var(--muted)');
 }
 
 function _fibxLevelTone(status) {
@@ -6208,7 +6208,7 @@ function _fibxLevelTone(status) {
     PENDING: 'var(--muted)',
     // Reached, money set aside, waiting for the fall to turn (2026-08-16).
     COLLECTED: '#38bdf8',
-    FILLED: '#6ee7b7',
+    FILLED: 'var(--pf-gain)',
     // The market jumped this price without ever trading at it. Dead for good.
     GAPPED: '#94a3b8',
     UNFUNDED: '#fbbf24',
@@ -6325,7 +6325,7 @@ function _renderFibBoundaryStatus(payload) {
     if (live.length) {
       text = live.length > 1 ? `${state} · ${live.length} ladders` : state;
       tone = 'info';
-      colour = '#6ee7b7';
+      colour = 'var(--pf-gain)';
     } else if (shown) {
       text = `ENDED · ${state}`;
       tone = 'warning';
@@ -6483,7 +6483,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
   if (pair) pair.style.display = '';
   const isRunning = !!campaign.running;
   const state = String(campaign.status || 'waiting').replaceAll('_', ' ').toUpperCase();
-  const tone = isRunning ? '#6ee7b7' : 'var(--warn)';
+  const tone = isRunning ? 'var(--pf-gain)' : 'var(--warn)';
   if (badge) {
     badge.textContent = state;
     badge.classList.toggle('is-positive', isRunning);
@@ -6562,9 +6562,9 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
     const endedWhy = String(campaign.exit_reason || campaign.status || '').replaceAll('_', ' ');
     summary.innerHTML = [
       ended
-        ? _cascadeOptionsMetric('Net P&L', Number.isFinite(net) ? _cascadeOptionsMoney(net) : (rounds.length ? '—' : 'nothing bought'), net > 0 ? '#6ee7b7' : net < 0 ? '#fca5a5' : 'var(--muted)')
+        ? _cascadeOptionsMetric('Net P&L', Number.isFinite(net) ? _cascadeOptionsMoney(net) : (rounds.length ? '—' : 'nothing bought'), net > 0 ? 'var(--pf-gain)' : net < 0 ? '#fca5a5' : 'var(--muted)')
         : flat && rounds.length
-          ? _cascadeOptionsMetric('Banked', Number.isFinite(net) ? _cascadeOptionsMoney(net) : '—', net >= 0 ? '#6ee7b7' : '#fca5a5')
+          ? _cascadeOptionsMetric('Banked', Number.isFinite(net) ? _cascadeOptionsMoney(net) : '—', net >= 0 ? 'var(--pf-gain)' : '#fca5a5')
           : campaign.trail_armed && campaign.trail_stop != null
             // The target has been reached and the trail is riding: what
             // matters now is where it would sell, and the best it has seen.
@@ -6576,7 +6576,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
           ? _cascadeOptionsMetric('Re-arms below', _cascadeNumber(campaign.rearm_below), '#fde68a')
           : _cascadeOptionsMetric('Avg entry', _cascadeNumber(campaign.average_index_entry)),
       _cascadeOptionsMetric('Avg premium', campaign.average_premium == null ? '—' : `₹${_cascadeNumber(campaign.average_premium)}`),
-      _cascadeOptionsMetric('Lots held', `${campaign.open_lots || 0} · ${campaign.open_quantity || 0} qty`, '#6ee7b7'),
+      _cascadeOptionsMetric('Lots held', `${campaign.open_lots || 0} · ${campaign.open_quantity || 0} qty`, 'var(--pf-gain)'),
       // Compact on purpose: the long form ran past the tile and ellipsised the
       // percentage, which is the part that says how much ladder is left.
       // A basket that has SOLD has nothing funded now; what it put to work is
@@ -6597,7 +6597,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
         ? _cascadeOptionsMetric(
           campaign.mark.net_pnl == null ? 'Open · unpriced leg' : 'Open P&L · if sold',
           campaign.mark.net_pnl == null ? '—' : _cascadeOptionsMoney(campaign.mark.net_pnl),
-          campaign.mark.net_pnl == null ? 'var(--muted)' : campaign.mark.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5',
+          campaign.mark.net_pnl == null ? 'var(--muted)' : campaign.mark.net_pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5',
         )
         : '',
     ].join('');
@@ -6622,7 +6622,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
     anchorEl.innerHTML = anchor
       ? `<table class="oc-fib-anchor-table">`
         + `<tr><th>Fib high</th><td><strong style="color:#fca5a5;">${escapeHtml(_cascadeNumber(anchor.high))}</strong></td><td class="oc-fib-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.high_timestamp))}</td></tr>`
-        + `<tr><th>Fib low</th><td><strong style="color:#6ee7b7;">${escapeHtml(_cascadeNumber(anchor.low))}</strong></td><td class="oc-fib-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.low_timestamp))}</td></tr>`
+        + `<tr><th>Fib low</th><td><strong style="color:var(--pf-gain);">${escapeHtml(_cascadeNumber(anchor.low))}</strong></td><td class="oc-fib-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.low_timestamp))}</td></tr>`
         + `<tr><th>Span</th><td>${escapeHtml(_cascadeNumber(anchor.span))} pts</td><td class="oc-fib-when">every level is one span apart</td></tr>`
         + `<tr><th>Confirmed</th><td colspan="2" class="oc-fib-when">${escapeHtml(_cascadeOptionsTimestamp(anchor.confirmed_at))}</td></tr>`
         + `</table>`
@@ -6649,7 +6649,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
           : null;
         const out = fill.exit_premium != null ? fill.exit_premium : (marked ? marked.mark : null);
         const pnl = out == null ? null : (Number(out) - Number(fill.premium)) * Number(fill.quantity);
-        const tone = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+        const tone = pnl == null ? 'var(--muted)' : pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5';
         return `<td style="padding:8px;text-align:right;font-weight:800;color:${tone};">${pnl == null ? '—' : escapeHtml(_cascadeOptionsMoney(pnl))}</td>`;
       })()
       + `</tr>`).join('') : '<tr><td colspan="9" style="padding:16px;text-align:center;color:var(--muted);">No buy yet.</td></tr>';
@@ -6667,7 +6667,7 @@ function _renderFibBoundaryCampaign(root, campaign, options = {}) {
     const holding = (Number(campaign.open_lots) || 0) > 0;
     const open = fills.length && holding ? `${fills.length} open buy${fills.length === 1 ? '' : 's'} · ${campaign.open_lots || 0} lots · ${_cascadeOptionsMoney(deployed)}` : '';
     fillSummary.textContent = [open, banked].filter(Boolean).join('  ·  ');
-    fillSummary.style.color = rounds.length && (Number(campaign.net_pnl) || 0) > 0 ? '#6ee7b7' : 'var(--muted)';
+    fillSummary.style.color = rounds.length && (Number(campaign.net_pnl) || 0) > 0 ? 'var(--pf-gain)' : 'var(--muted)';
   }
 
   const boundEl = fx('boundaries');
@@ -6736,7 +6736,7 @@ function _renderFibBoundaryRounds(pair, campaign) {
     const qty = fills.reduce((n, f) => n + (Number(f.quantity) || 0), 0);
     const avgEntry = qty ? fills.reduce((n, f) => n + Number(f.index_price) * (Number(f.quantity) || 0), 0) / qty : null;
     const pnl = Number(round.net_pnl || 0);
-    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    const color = pnl > 0 ? 'var(--pf-gain)' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
     return `<tr style="border-bottom:1px solid var(--border);">`
       + `<td style="padding:9px 8px;font-family:'JetBrains Mono',monospace;">#${escapeHtml(String(round.round))}</td>`
       + `<td style="${cell}">${escapeHtml(String(qty))}</td>`
@@ -6934,7 +6934,7 @@ function _fibEventSentence(event) {
   const n = (v, dp) => (v == null || !isFinite(Number(v)) ? null : Number(v).toLocaleString('en-IN', { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 }));
   const rupees = (v) => (v == null || !isFinite(Number(v)) ? null : (Number(v) >= 0 ? '+' : '\u2212') + '\u20b9' + Math.abs(Math.round(Number(v))).toLocaleString('en-IN'));
   const L = e.level != null ? `L${e.level}` : 'a level';
-  const GOOD = '#6ee7b7', BAD = '#fca5a5', WARN = '#fbbf24', PLAIN = 'var(--text)', MUTED = 'var(--muted)';
+  const GOOD = 'var(--pf-gain)', BAD = '#fca5a5', WARN = '#fbbf24', PLAIN = 'var(--text)', MUTED = 'var(--muted)';
   const say = (text, tone) => ({ text, tone: tone || PLAIN });
 
   switch (String(e.event || '')) {
@@ -7976,7 +7976,7 @@ function _renderFibBoundaryBacktest(data) {
     const priced = data.pricing === 'recorded_history';
     const gaps = (c.data_gaps || []).length;
     badge.textContent = !priced ? 'GEOMETRY ONLY' : gaps ? `PRICED · ${gaps} GAP${gaps === 1 ? '' : 'S'}` : 'REAL PREMIUMS';
-    badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : '#6ee7b7';
+    badge.style.color = !priced ? 'var(--warn)' : gaps ? '#fde68a' : 'var(--pf-gain)';
     badge.style.borderColor = badge.style.color;
   }
   const contract = document.getElementById('oc-fib-backtest-contract');
@@ -7990,8 +7990,8 @@ function _renderFibBoundaryBacktest(data) {
   if (summary) {
     const outcome = String(c.exit_reason || c.status || '—').replaceAll('_', ' ');
     summary.innerHTML = [
-      _cascadeOptionsMetric('Outcome', outcome.toUpperCase(), c.net_pnl > 0 ? '#6ee7b7' : c.net_pnl < 0 ? '#fca5a5' : 'var(--muted)'),
-      _cascadeOptionsMetric('Net P&L', c.net_pnl == null ? '—' : _cascadeOptionsMoney(c.net_pnl), c.net_pnl >= 0 ? '#6ee7b7' : '#fca5a5'),
+      _cascadeOptionsMetric('Outcome', outcome.toUpperCase(), c.net_pnl > 0 ? 'var(--pf-gain)' : c.net_pnl < 0 ? '#fca5a5' : 'var(--muted)'),
+      _cascadeOptionsMetric('Net P&L', c.net_pnl == null ? '—' : _cascadeOptionsMoney(c.net_pnl), c.net_pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5'),
       _cascadeOptionsMetric('Gross', c.gross_pnl == null ? '—' : _cascadeOptionsMoney(c.gross_pnl)),
       _cascadeOptionsMetric('Costs', c.costs_total == null ? '—' : _cascadeOptionsMoney(c.costs_total), '#fde68a'),
       _cascadeOptionsMetric(
@@ -8043,7 +8043,7 @@ function _renderFibBoundaryBacktest(data) {
       // to the campaign's exit premiums, in the order they were bought.
       const out = f.exit_premium != null ? f.exit_premium : exits[i - banked.length];
       const pnl = out == null ? null : (Number(out) - Number(f.premium)) * Number(f.quantity);
-      const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+      const color = pnl == null ? 'var(--muted)' : pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5';
       return `<tr style="border-bottom:1px solid var(--border);">`
         + `<td style="padding:7px 8px;"><strong style="color:#38bdf8;">#${escapeHtml(String(f.buy_number))}</strong> ${escapeHtml(String(f.rung_key || ('L' + f.level)))}${f.round ? `<span style="margin-left:5px;font-size:9px;color:var(--muted);">R${escapeHtml(String(f.round))}</span>` : ''}</td>`
         + `<td style="padding:7px 8px;">${escapeHtml(_cascadeOptionsTimestamp(f.timestamp))}</td>`
@@ -10378,7 +10378,7 @@ async function refreshStockTerminalQuote(force) {
       _stockTerminalLastLtp = Number(data.ltp);
       if (ltpEl) {
         ltpEl.textContent = '₹' + _stockTerminalLastLtp.toFixed(2);
-        ltpEl.style.color = '#4ade80';
+        ltpEl.style.color = 'var(--pf-gain-vivid)';
       }
       updateStockOrderValue();
       // Open Positions marks the selected scrip at this tick, so repaint it on
@@ -10438,7 +10438,7 @@ function _terminalCascadeSetStatus(message, tone = 'muted') {
   const el = _terminalCascadeEl('terminal-cascade-form-status');
   if (!el) return;
   el.textContent = message || '';
-  el.style.color = ({ muted: 'var(--muted)', busy: '#fde68a', error: 'var(--danger)', success: '#6ee7b7' }[tone] || 'var(--muted)');
+  el.style.color = ({ muted: 'var(--muted)', busy: '#fde68a', error: 'var(--danger)', success: 'var(--pf-gain)' }[tone] || 'var(--muted)');
 }
 
 function updateTerminalCascadeReference() {
@@ -10470,7 +10470,7 @@ function setTerminalCascadeScripOpen(symbol, isOpen) {
 }
 
 function _terminalCascadeStatusColor(status) {
-  return ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: '#6ee7b7', CLOSED: '#a78bfa', CANCELLED: '#fca5a5' }[String(status || '').toUpperCase()] || 'var(--muted)');
+  return ({ PENDING: 'var(--muted)', COLLECTED: '#fde68a', FILLED: 'var(--pf-gain)', CLOSED: '#a78bfa', CANCELLED: '#fca5a5' }[String(status || '').toUpperCase()] || 'var(--muted)');
 }
 
 function _renderTerminalCascadeStatus(payload) {
@@ -10516,8 +10516,8 @@ function _renderTerminalCascadeStatus(payload) {
   }
   if (badge) {
     badge.textContent = `${runningCampaigns.length} ACTIVE / ${campaigns.length}`;
-    badge.style.color = runningCampaigns.length ? '#6ee7b7' : 'var(--warn)';
-    badge.style.borderColor = runningCampaigns.length ? '#6ee7b7' : 'var(--warn)';
+    badge.style.color = runningCampaigns.length ? 'var(--pf-gain)' : 'var(--warn)';
+    badge.style.borderColor = runningCampaigns.length ? 'var(--pf-gain)' : 'var(--warn)';
   }
   if (start) start.disabled = false;
   if (stop) stop.style.display = 'none';
@@ -10737,14 +10737,14 @@ function _terminalCascadeRungsMarkup(rungs) {
 
 function _terminalCascadeFillsMarkup(fills) {
   if (!Array.isArray(fills) || !fills.length) return '<div class="terminal-cascade-empty">No open fills.</div>';
-  return fills.slice().reverse().map(fill => `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong><em>${escapeHtml(_terminalCascadeMoney(fill.spent_inr || fill.budget_inr || 0))}</em></div>`).join('');
+  return fills.slice().reverse().map(fill => `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:var(--pf-gain);">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong><em>${escapeHtml(_terminalCascadeMoney(fill.spent_inr || fill.budget_inr || 0))}</em></div>`).join('');
 }
 
 function _terminalCascadeRoundsMarkup(rounds) {
   if (!Array.isArray(rounds) || !rounds.length) return '<div class="terminal-cascade-empty">No completed round.</div>';
   return rounds.slice(-8).reverse().map(row => {
     const pnl = Number(row.net_pnl || 0);
-    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    const color = pnl > 0 ? 'var(--pf-gain)' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
     return `<div class="terminal-cascade-log-row"><span>#${escapeHtml(row.round_id)} ${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</span><strong style="color:${color};">${escapeHtml(_terminalCascadeMoney(row.net_pnl))}</strong><em>${escapeHtml(String(row.exit_quantity || 0))} qty</em></div>`;
   }).join('');
 }
@@ -10795,7 +10795,7 @@ function _renderTerminalCascadeFills(fills) {
     el.innerHTML = '<div class="terminal-cascade-empty">No open fills.</div>';
     return;
   }
-  el.innerHTML = fills.slice().reverse().map(fill => `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:#6ee7b7;">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong><em>${escapeHtml(_terminalCascadeMoney(fill.spent_inr || fill.budget_inr || 0))}</em></div>`).join('');
+  el.innerHTML = fills.slice().reverse().map(fill => `<div class="terminal-cascade-log-row"><span>${escapeHtml(_cascadeOptionsTimestamp(fill.timestamp))}</span><strong style="color:var(--pf-gain);">${escapeHtml(String(fill.quantity))} @ ${escapeHtml(_cascadeNumber(fill.trade_price))}</strong><em>${escapeHtml(_terminalCascadeMoney(fill.spent_inr || fill.budget_inr || 0))}</em></div>`).join('');
 }
 
 function _renderTerminalCascadeRounds(rounds) {
@@ -10807,7 +10807,7 @@ function _renderTerminalCascadeRounds(rounds) {
   }
   el.innerHTML = rounds.slice(-8).reverse().map(row => {
     const pnl = Number(row.net_pnl || 0);
-    const color = pnl > 0 ? '#6ee7b7' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
+    const color = pnl > 0 ? 'var(--pf-gain)' : pnl < 0 ? '#fca5a5' : 'var(--muted)';
     return `<div class="terminal-cascade-log-row"><span>#${escapeHtml(row.round_id)} ${escapeHtml(String(row.exit_reason || '').replaceAll('_', ' '))}</span><strong style="color:${color};">${escapeHtml(_terminalCascadeMoney(row.net_pnl))}</strong><em>${escapeHtml(String(row.exit_quantity || 0))} qty</em></div>`;
   }).join('');
 }
@@ -11052,13 +11052,13 @@ function _renderTerminalOpenPositions(campaigns) {
       ? Number(_stockTerminalLastLtp)
       : 0;
     const last = quoted || Number(campaign.last_trade_close) || 0;
-    const liveMark = quoted ? '<small style="color:#6ee7b7;">live</small>' : '<small>at candle close</small>';
+    const liveMark = quoted ? '<small style="color:var(--pf-gain);">live</small>' : '<small>at candle close</small>';
     const cost = Number(campaign.open_invested_inr) || avg * qty;
     const now = last ? last * qty : cost;
     totalCost += cost; totalNow += now;
     const pnl = last ? now - cost : 0;
     const pct = cost > 0 && last ? (pnl / cost) * 100 : 0;
-    const tone = pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+    const tone = pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5';
     const fills = campaign.open_fills || [];
     const opened = fills.length ? fills[0].timestamp : '';
     const tp = Number(campaign.target_price) || 0;
@@ -11080,7 +11080,7 @@ function _renderTerminalOpenPositions(campaigns) {
   body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Scrip</th><th>Opened</th><th class="num">Avg entry</th><th class="num">Last</th><th class="num">Invested</th><th class="num">Unrealised</th><th class="num">Target</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   if (meta) {
     const totalPnl = totalNow - totalCost;
-    const tone = totalPnl >= 0 ? '#6ee7b7' : '#fca5a5';
+    const tone = totalPnl >= 0 ? 'var(--pf-gain)' : '#fca5a5';
     meta.innerHTML = `${open.length} open · ${escapeHtml(_terminalCascadeMoney(totalCost))} invested · <strong style="color:${tone};">${totalPnl >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(totalPnl)))}</strong> unrealised. The selected scrip marks at its live tick; the rest mark at their last candle close. Each basket sells itself at its target.`;
   }
 }
@@ -11299,7 +11299,7 @@ function _renderTerminalRoundsLedger() {
     const round = row.round || {};
     const pnl = Number(round.net_pnl) || 0;
     const inv = _terminalRoundInvested(round);
-    const tone = pnl >= 0 ? '#6ee7b7' : '#fca5a5';
+    const tone = pnl >= 0 ? 'var(--pf-gain)' : '#fca5a5';
     const buys = (round.fills || []).length;
     const costs = Number(round?.costs?.total) || 0;
     return `<tr>
@@ -11317,7 +11317,7 @@ function _renderTerminalRoundsLedger() {
   }).join('');
   body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Closed</th><th>Scrip</th><th>Round</th><th class="num">Avg entry</th><th class="num">Exit</th><th class="num">Invested</th><th class="num">Costs</th><th class="num">Net</th><th>Held</th><th></th></tr></thead><tbody>${html}</tbody></table></div>`;
   if (meta) {
-    const tone = realised >= 0 ? '#6ee7b7' : '#fca5a5';
+    const tone = realised >= 0 ? 'var(--pf-gain)' : '#fca5a5';
     meta.innerHTML = `${rows.length} round${rows.length === 1 ? '' : 's'} closed · ${escapeHtml(_terminalCascadeMoney(invested))} deployed · <strong style="color:${tone};">${realised >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(realised)))} net</strong> after costs · ${wins}/${rows.length} in profit. Log opens the individual buys behind each average.`;
   }
   if (pager) {
@@ -11432,7 +11432,7 @@ function _renderTerminalClosedCampaigns() {
     const rounds = archive.rounds || [];
     const net = Number(archive.realised_net_inr) || 0;
     realised += net;
-    const tone = net >= 0 ? '#6ee7b7' : '#fca5a5';
+    const tone = net >= 0 ? 'var(--pf-gain)' : '#fca5a5';
     const heldQty = Number(archive.open_quantity) || 0;
     return `<tr>
       <td>${escapeHtml(_cascadeOptionsTimestamp(archive.deleted_at))}</td>
@@ -11448,7 +11448,7 @@ function _renderTerminalClosedCampaigns() {
   }).join('');
   body.innerHTML = `<div class="terminal-cascade-table-scroll"><table class="terminal-cascade-ladder-table"><thead><tr><th>Deleted</th><th>Scrip</th><th>TF</th><th class="num">Capital</th><th class="num">Mother high</th><th>Ended as</th><th class="num">Rounds</th><th class="num">Realised</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   if (meta) {
-    const tone = realised >= 0 ? '#6ee7b7' : '#fca5a5';
+    const tone = realised >= 0 ? 'var(--pf-gain)' : '#fca5a5';
     meta.innerHTML = `${_terminalClosedCampaigns.length} closed campaign${_terminalClosedCampaigns.length === 1 ? '' : 's'} · <strong style="color:${tone};">${realised >= 0 ? '+' : '−'}${escapeHtml(_terminalCascadeMoney(Math.abs(realised)))}</strong> realised net across them.`;
   }
 }
@@ -17775,7 +17775,7 @@ function renderRunningArsenal(engines) {
     const tradesToday = engine.trades_today || 0;
     const instLabel = INST_NAMES[engine.instrument] || (engine.instrument ? `Instrument ${engine.instrument}` : 'NIFTY');
     const statusLabel = engine.in_trade ? 'In Trade' : 'Waiting';
-    const statusColor = engine.in_trade ? '#4ade80' : '#f59e0b';
+    const statusColor = engine.in_trade ? 'var(--pf-gain-vivid)' : '#f59e0b';
     return `<div class="card card-compact arsenal-template-card" onclick="openLiveRunMonitor('${escapeJsSingleQuoted(runId)}','${escapeJsSingleQuoted(engine.mode || '')}')" style="border-color:rgba(16,185,129,0.18);" onmouseover="this.style.borderColor='rgba(16,185,129,0.45)';this.style.boxShadow='0 0 20px rgba(16,185,129,0.12)'" onmouseout="this.style.borderColor='rgba(16,185,129,0.18)';this.style.boxShadow='none'">
       <div style="position:absolute;top:-14px;right:-14px;width:54px;height:54px;background:radial-gradient(circle,rgba(16,185,129,0.12) 0%,transparent 70%);pointer-events:none;"></div>
       <div class="arsenal-running-card-head">
@@ -17877,7 +17877,7 @@ async function fetchStrategies() {
           <td style="padding: 10px 0; color: var(--muted); font-size: 12px; width: 20%">${escapeHtml(dateStr)}</td>
           <td style="padding: 10px 0; width: 20%;">
             <button class="btn btn-sm" onclick="viewStrategy(${s.id})" style="font-size: 11px; padding: 5px 10px; margin-right: 3px;">View</button>
-            <button class="btn btn-sm" onclick="loadStrategy(${s.id})" style="--btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 0,200,150),0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.45); --btn-color: rgb(52,211,153); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Edit</button>
+            <button class="btn btn-sm" onclick="loadStrategy(${s.id})" style="--btn-bg: linear-gradient(180deg, rgba(var(--pf-tint-primary-rgb, 0,200,150),0.25) 0%, rgba(0,150,110,0.45) 100%); --btn-border: rgba(var(--pf-tint-primary-rgb, 0,200,150),0.45); --btn-color: var(--pf-gain-bright); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Edit</button>
             <button class="btn btn-sm" onclick="moveStrategyFolder(${s.id})" style="--btn-bg: var(--card2); --btn-color: var(--muted); --btn-border: var(--border); font-size: 11px; padding: 5px 10px; margin-right: 3px;">Move</button>
             <button class="btn btn-danger btn-sm" onclick="deleteStrategy(${s.id})" style="font-size: 11px; padding: 5px 10px;">Del</button>
           </td></tr>`;
@@ -19707,7 +19707,7 @@ function renderDOW(dowData) {
     container.innerHTML += `<div class="analysis-row">
       <span style="width: 75px; font-size: 11px; color: var(--muted);">${day}</span>
       <div class="analysis-bar-wrap" style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden;">
-        <div style="width: ${hitPct}%; background: rgba(52,211,153,.18); box-shadow: inset 0 0 0 1px rgba(52,211,153,.14); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #6ee7b7;">Hit ${d.hits}</div>
+        <div style="width: ${hitPct}%; background: rgba(52,211,153,.18); box-shadow: inset 0 0 0 1px rgba(52,211,153,.14); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: var(--pf-gain);">Hit ${d.hits}</div>
         <div style="width: ${missPct}%; background: rgba(248,113,113,.16); box-shadow: inset 0 0 0 1px rgba(248,113,113,.12); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fca5a5;">Miss ${d.miss}</div>
       </div>
       <span style="font-size: 10px; color: var(--success); font-family: 'JetBrains Mono', monospace; width: 75px; text-align: right;">${fmt(d.profit)}</span>
@@ -19726,7 +19726,7 @@ function renderYearly(yearData) {
     container.innerHTML += `<div class="analysis-row">
       <span style="width: 40px; font-size: 11px; font-weight: 600;">${y.year}</span>
       <div class="analysis-bar-wrap" style="flex: 1; display: flex; height: 18px; border-radius: 999px; overflow: hidden;">
-        <div style="width: ${hitPct}%; background: rgba(52,211,153,.18); box-shadow: inset 0 0 0 1px rgba(52,211,153,.14); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #6ee7b7;">Hit ${y.hits}</div>
+        <div style="width: ${hitPct}%; background: rgba(52,211,153,.18); box-shadow: inset 0 0 0 1px rgba(52,211,153,.14); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: var(--pf-gain);">Hit ${y.hits}</div>
         <div style="width: ${missPct}%; background: rgba(248,113,113,.16); box-shadow: inset 0 0 0 1px rgba(248,113,113,.12); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fca5a5;">Miss ${y.miss}</div>
       </div>
       <span style="font-size: 10px; color: var(--success); font-family: 'JetBrains Mono', monospace; width: 75px; text-align: right;">${fmt(y.profit)}</span>
@@ -20584,7 +20584,7 @@ async function refreshBuilderPreview() {
     if (paper) {
       const badge = document.getElementById('bp-paper-badge');
       if (paper.running && paper.in_trade) {
-        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = '#4ade80';
+        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = 'var(--pf-gain-vivid)';
       } else if (paper.running) {
         badge.textContent = 'WAITING'; badge.style.background = 'rgba(245,158,11,0.15)'; badge.style.color = '#f59e0b';
       } else {
@@ -20604,7 +20604,7 @@ async function refreshBuilderPreview() {
     if (live) {
       const badge = document.getElementById('bp-auto-badge');
       if (live.running && live.in_trade) {
-        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = '#4ade80';
+        badge.textContent = 'IN TRADE'; badge.style.background = 'rgba(34,197,94,0.15)'; badge.style.color = 'var(--pf-gain-vivid)';
       } else if (live.running) {
         badge.textContent = 'WAITING'; badge.style.background = 'rgba(245,158,11,0.15)'; badge.style.color = '#f59e0b';
       } else {
@@ -20961,7 +20961,7 @@ function renderLivePanel(d, idx) {
   let badgeHtml, statusText, statusColor;
   if (running && inTrade) {
     badgeHtml = '<span class="live-state-chip is-trading">In trade</span>';
-    statusText = 'In Trade'; statusColor = '#4ade80';
+    statusText = 'In Trade'; statusColor = 'var(--pf-gain-vivid)';
   } else if (running) {
     badgeHtml = '<span class="live-state-chip is-waiting">Waiting</span>';
     statusText = 'Waiting'; statusColor = '#f59e0b';
@@ -21014,7 +21014,7 @@ function renderLivePanel(d, idx) {
 
   // Events
   const events = (d.event_log || []).slice().reverse();
-  const evtColors = {signal:'#4ade80',error:'var(--red)',warning:'var(--warn)',stop:'var(--red)',start:'#4ade80',info:'var(--muted)'};
+  const evtColors = {signal:'var(--pf-gain-vivid)',error:'var(--red)',warning:'var(--warn)',stop:'var(--red)',start:'var(--pf-gain-vivid)',info:'var(--muted)'};
   let evtHtml;
   if (!events.length) {
     evtHtml = '<div class="live-event-empty">No events yet.</div>';
@@ -25626,14 +25626,14 @@ function _renderRecoveryBacktest(run) {
     badge.textContent = priced
       ? 'Every leg priced from the record.'
       : `Not fully priced — this is not a book${failures ? ` (${failures} source failure(s))` : ''}.`;
-    badge.style.color = priced ? '#6ee7b7' : '#fcd34d';
+    badge.style.color = priced ? 'var(--pf-gain)' : '#fcd34d';
   }
 
   const tiles = _cascadeOptionsEl('oc-high-backtest-tiles');
   if (tiles) {
     const net = campaign.booked_net;
     const stops = trades.filter((t) => t.exit_reason === 'stop').length;
-    const money = net === null || net === undefined ? 'var(--text)' : (net >= 0 ? '#6ee7b7' : 'var(--danger)');
+    const money = net === null || net === undefined ? 'var(--text)' : (net >= 0 ? 'var(--pf-gain)' : 'var(--danger)');
     tiles.innerHTML = [
       _ocpTile('Status', String(campaign.status || '—')),
       _ocpTile('Ended on', String(campaign.end_reason || '—')),
@@ -25652,7 +25652,7 @@ function _renderRecoveryBacktest(run) {
   table.innerHTML =
     '<thead><tr><th>#</th><th>In</th><th>Strike</th><th>Lots</th><th>Premium</th><th>Out</th><th>Why</th><th>Net</th></tr></thead><tbody>'
     + trades.map((t) => {
-      const colour = (t.net_pnl || 0) >= 0 ? '#6ee7b7' : 'var(--danger)';
+      const colour = (t.net_pnl || 0) >= 0 ? 'var(--pf-gain)' : 'var(--danger)';
       return `<tr><td>${escapeHtml(String(t.trade_no ?? '—'))}</td>`
         + `<td>${escapeHtml(_recTime(t.entry_time))}</td>`
         + `<td style="white-space:nowrap;">${escapeHtml(String(t.strike ?? '—'))}${t.side ? ` ${escapeHtml(String(t.side))}` : ''}</td>`
@@ -25679,7 +25679,7 @@ function _recoveryTrades(rows) {
   const body = rows.map(t => {
     const net = t.net_pnl === null || t.net_pnl === undefined
       ? (t.open ? '<span style="color:#fbbf24;">OPEN</span>' : '<span style="color:var(--muted);">unpriced</span>')
-      : `<span style="color:${t.net_pnl >= 0 ? '#34d399' : '#f87171'};">${_recInr(t.net_pnl)}</span>`;
+      : `<span style="color:${t.net_pnl >= 0 ? 'var(--pf-gain-bright)' : '#f87171'};">${_recInr(t.net_pnl)}</span>`;
     return `<tr style="border-top:1px solid var(--border);">
       <td style="padding:4px 8px;">T${t.trade_no}</td>
       <td style="padding:4px 8px;white-space:nowrap;">${_recTime(t.entry_time)}</td>
@@ -25712,7 +25712,7 @@ const _RECOVERY_TERMINAL = new Set(['RECOVERED', 'ABANDONED', 'ENDED']);
 const _recoveryIsOver = (c) => _RECOVERY_TERMINAL.has(String(c && c.status || '').toUpperCase());
 
 function _recoveryCampaign(c) {
-  const statusColour = c.status === 'RECOVERED' ? '#34d399' : (c.status === 'ABANDONED' ? '#f87171' : '#93c5fd');
+  const statusColour = c.status === 'RECOVERED' ? 'var(--pf-gain-bright)' : (c.status === 'ABANDONED' ? '#f87171' : '#93c5fd');
   const zones = (c.zones || []).map(z =>
     `<span style="margin-right:12px;">zone ${z.level}-${z.level}: ${_recNum(z.lower, 1)}–${_recNum(z.upper, 1)} · ${z.lots} lot</span>`).join('');
   const need = c.required_recovery === null || c.required_recovery === undefined ? null : c.required_recovery;
@@ -25741,7 +25741,7 @@ function _recoveryCampaign(c) {
     <div style="margin-top:6px;font:11px 'JetBrains Mono',monospace;color:var(--muted);">
       ${unpriced
         ? `ledger <b style="color:#fbbf24;">${unpriced} unpriced</b> &middot; a live run prices only what fills now &mdash; use <b>Backtest</b>`
-        : `ledger <b style="color:${(c.booked_net || 0) >= 0 ? '#34d399' : '#f87171'};">${_recInr(c.booked_net)}</b>`}
+        : `ledger <b style="color:${(c.booked_net || 0) >= 0 ? 'var(--pf-gain-bright)' : '#f87171'};">${_recInr(c.booked_net)}</b>`}
       ${need !== null && !unpriced && c.open_trades ? ` · open trade must net <b>₹${_recNum(need, 0)}</b> to finish green` : ''}
       ${c.open_trades ? ` · ${c.open_trades} open` : ''}
       ${zones ? `<div style="margin-top:4px;">${zones}</div>` : ''}
@@ -25788,7 +25788,7 @@ function _recoveryRecipe(status) {
   const shape = val('oc-high-mode', 'ladder') === 'ladder' ? 're-arming after every stop' : 'fib zones 2-2 and 4-4 only';
   const mode = val('oc-high-run-mode', 'paper') === 'live' ? 'LIVE' : 'Paper';
   const audit = (tf === '5M' && side === 'CE' && itm === 4)
-    ? '<strong style="color:#6ee7b7;">audit green</strong>'
+    ? '<strong style="color:var(--pf-gain);">audit green</strong>'
     : '<strong style="color:#fbbf24;">off the measured rule</strong>';
   const state = document.getElementById('oc-high-advanced-state');
   if (state) {
@@ -25930,7 +25930,7 @@ function renderRecovery(data) {
   const kicker = document.getElementById('oc-high-monitor-kicker');
   if (kicker) kicker.textContent = running ? 'Paper campaigns · live' : 'Paper campaigns';
   badge.textContent = running ? 'RUNNING' : 'IDLE';
-  badge.style.color = running ? '#34d399' : 'var(--muted)';
+  badge.style.color = running ? 'var(--pf-gain-bright)' : 'var(--muted)';
   if (startBtn) {
     // It used to disappear while the run was on. Every other strategy keeps
     // the button and relabels it, so this one does too.
@@ -25978,7 +25978,7 @@ function renderRecovery(data) {
     // and calling it the ledger is how five stops showed as +₹0.
     unpricedLegs
       ? _ocpTile('Ledger', `${unpricedLegs} unpriced`, '#fbbf24')
-      : _ocpTile('Ledger', _recInr(book.booked_net), ledger >= 0 ? '#6ee7b7' : 'var(--danger)'),
+      : _ocpTile('Ledger', _recInr(book.booked_net), ledger >= 0 ? 'var(--pf-gain)' : 'var(--danger)'),
   ].join('');
 
   // THE CLOSED TABLE READS THE ARCHIVE, NOT THE LIVE BOOK. This book is
@@ -26428,7 +26428,7 @@ function renderCePe(data) {
   });
   if (badge) {
     badge.textContent = anyRunning ? `RUNNING · ${runs.filter(r => r.running).length}/${runs.length}` : 'IDLE';
-    badge.style.color = anyRunning ? '#34d399' : 'var(--muted)';
+    badge.style.color = anyRunning ? 'var(--pf-gain-bright)' : 'var(--muted)';
   }
   if (poll) poll.textContent = runs.length ? `${runs.length} book${runs.length === 1 ? '' : 's'} · updated ${new Date().toLocaleTimeString('en-IN', { hour12: false })}` : 'no runs';
 
