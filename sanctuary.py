@@ -2146,7 +2146,9 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
     total_debt = round(sum(d["remaining"] for d in debts), 2)
     monthly_emi = round(sum(d["emi"] for d in debts), 2)
 
-    flows = await sanctuary_db.monthly_flows(user_id, 13)
+    flows = await sanctuary_db.monthly_flows(
+        user_id, 13, sorted(c["name"] for c in await _get_categories(user_id) if c["kind"] == "saving")
+    )
     current = _month_key(_today_ist())
     complete = [f for f in flows if f["month"] != current][-12:]
     surpluses = [f["inflow"] - f["outflow"] for f in complete if f["inflow"] > 0]
@@ -4084,6 +4086,202 @@ async def notes_put(request: Request, user: dict = Depends(_unlocked_user)):
 # ── The month view (one call feeds the whole finance tab) ────────
 
 
+# Categories that are a debt being paid rather than money spent — the same
+# reading the page uses to put a line under "Debts paid".
+_DEBT_LIKE = re.compile(r"loan|credit ?card|card bill|instaloan|^EMI · ", re.IGNORECASE)
+
+
+def _median(values: list[float]) -> float:
+    import statistics
+
+    return float(statistics.median(values)) if values else 0.0
+
+
+def _regular_payments(rows: list[dict], month: str, saving: set[str]) -> list[dict]:
+    """Who he pays every month, at about the same amount.
+
+    Read over this month and the four before it. Someone paid in at least
+    three of those five months, never more than three times in a month (a
+    commitment is a bill, not a grocer he visits daily), whose monthly totals
+    sit close to their own middle. A payee seen this month and last but in
+    none of the three before, at a steady amount, is a NEW one — the thing
+    that quietly adds itself to every month after.
+    """
+    window = [month]
+    cursor = date.fromisoformat(f"{month}-01")
+    for _ in range(4):
+        cursor = sanctuary_emi._add_months(cursor, -1)
+        window.append(_month_key(cursor))
+    window.reverse()
+    seen: dict[str, dict] = {}
+    for row in rows:
+        key = str(row["entry_date"])[:7]
+        if key not in window or row["category"] in saving or _DEBT_LIKE.search(row["category"] or ""):
+            continue
+        name = sanctuary_statements.payee_name(row["note"])
+        if not name:
+            continue
+        p = seen.setdefault(name, {"months": {}, "category": row["category"], "last": ""})
+        m = p["months"].setdefault(key, [0.0, 0])
+        m[0] += row["amount"]
+        m[1] += 1
+        p["last"] = max(p["last"], str(row["entry_date"]))
+        p["category"] = row["category"]
+    out = []
+    for name, p in seen.items():
+        months = p["months"]
+        totals = [v[0] for v in months.values()]
+        if max(v[1] for v in months.values()) > 3:
+            continue
+        typical = _median(totals)
+        if typical < 100:
+            continue
+        steady = sum(1 for t in totals if 0.75 * typical <= t <= 1.33 * typical) >= max(2, round(len(totals) * 2 / 3))
+        if not steady:
+            continue
+        before = set(window[:3])
+        is_new = set(months) >= {window[-1], window[-2]} and not (set(months) & before)
+        if len(months) < 3 and not is_new:
+            continue
+        out.append(
+            {
+                "payee": name,
+                "category": p["category"],
+                "monthly": round(typical, 2),
+                "months_seen": len(months),
+                "last": p["last"],
+                "paid_this_month": month in months,
+                "new": is_new,
+            }
+        )
+    return sorted(out, key=lambda c: (not c["new"], -c["monthly"]))
+
+
+async def _month_picture(
+    user_id: int,
+    month: str,
+    today: date,
+    ledger: list[dict],
+    saving: set[str],
+    excluded: set[str],
+    loans: list[dict],
+    trend_months: list[str],
+    flows_by_month: dict,
+) -> dict:
+    """Everything the month's money panels say beyond the totals.
+
+    Last month beside this one, what each category usually costs a time,
+    who is paid every month, the limits he set, and the overdraft — where it
+    has been and where it is heading before the next pay arrives.
+    """
+    for row in ledger:
+        row["payee"] = sanctuary_statements.payee_name(row["note"])
+
+    # Last month, category by category, on the same terms as this one.
+    prev = _previous_month(month)
+    by_prev: dict[str, float] = {}
+    for row in await sanctuary_db.list_ledger(user_id, prev):
+        if row["source"] == "statement-in" or row["category"] in ("Self transfer", OD_CATEGORY):
+            continue
+        by_prev[row["category"]] = by_prev.get(row["category"], 0.0) + row["amount"]
+
+    # What one payment in each category usually comes to, over half a year,
+    # so a payment far above it can be pointed out.
+    first = date.fromisoformat(f"{month}-01")
+    lookback = sanctuary_emi._add_months(first, -6).isoformat()
+    history = await sanctuary_db.outgoing_rows_since(user_id, lookback)
+    amounts: dict[str, list[float]] = {}
+    for row in history:
+        if str(row["entry_date"])[:7] < month:
+            amounts.setdefault(row["category"], []).append(row["amount"])
+    typical = {cat: round(_median(vals), 2) for cat, vals in amounts.items() if len(vals) >= 4}
+
+    regular = _regular_payments(history, month, saving)
+    budgets = await sanctuary_db.get_json_state(user_id, "budgets", {})
+
+    return {
+        "by_category_prev": {k: round(v, 2) for k, v in by_prev.items()},
+        "prev_month": prev,
+        "typical": typical,
+        "regular": regular,
+        "budgets": {k: float(v) for k, v in (budgets or {}).items() if float(v or 0) > 0},
+        "od_track": await _od_track(user_id, today, loans, trend_months, flows_by_month),
+    }
+
+
+async def _od_track(user_id: int, today: date, loans: list[dict], months: list[str], flows_by_month: dict):
+    """The overdraft month by month, and where it is heading.
+
+    Worked BACK from today's carried figure: at the end of any month it owed
+    today's figure less everything that swept after that month ended. And
+    forward to the next salary: his usual month's outgoings — what he spends
+    and what he sends to brokers, both of which the overdraft funds — spread
+    over the days left, then the salary landing on it.
+    """
+    loan = _od_loan(loans, "")
+    owed_now = await _od_owed_now(user_id, loan)
+    if owed_now is None:
+        return None
+    rows = await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY])
+    this_month = _month_key(today)
+    points = []
+    for key in months:
+        if key > this_month:
+            continue
+        end = _month_bounds(key)[1]
+        later = [r for r in rows if str(r["entry_date"]) > end]
+        moved = sum(r["amount"] for r in later if r["source"] == "statement-in") - sum(
+            r["amount"] for r in later if r["source"] != "statement-in"
+        )
+        points.append({"month": key, "owed": round(owed_now - moved, 2)})
+
+    credits = await sanctuary_db.credits_since(user_id, (today - timedelta(days=75)).isoformat())
+    pay = [c for c in credits if c.get("category") == "Salary" and c.get("source") == "statement-in"]
+    projection = None
+    if pay:
+        last = max(pay, key=lambda c: str(c["entry_date"]))
+        next_pay = sanctuary_emi._add_months(date.fromisoformat(str(last["entry_date"])), 1)
+        while next_pay <= today:
+            next_pay = sanctuary_emi._add_months(next_pay, 1)
+        complete = [
+            f for k, f in sorted(flows_by_month.items()) if k < this_month and (f.get("outflow") or f.get("inflow"))
+        ][-3:]
+        usual = _median([float(f.get("outflow") or 0) + max(float(f.get("aside") or 0), 0.0) for f in complete])
+        days_left = (next_pay - today).days
+        before = round(owed_now + usual * days_left / 30.0, 2)
+        salary = round(float(last["amount"]), 2)
+        projection = {
+            "next_pay": next_pay.isoformat(),
+            "days_left": days_left,
+            "usual_month": round(usual, 2),
+            "before_pay": before,
+            "salary": salary,
+            "after_pay": round(before - salary, 2),
+        }
+    return {"owed_now": owed_now, "points": points, "projection": projection}
+
+
+@router.put("/api/sanctuary/finance/budget")
+async def finance_budget_put(request: Request, user: dict = Depends(_unlocked_user)):
+    """A monthly limit for one category. Nought takes it away."""
+    payload = await request.json()
+    name = str(payload.get("category") or "").strip()[:60]
+    try:
+        limit = round(float(payload.get("limit") or 0), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Bad amount") from None
+    if not name or not 0 <= limit <= 100_000_000:
+        raise HTTPException(status_code=400, detail="Bad limit")
+    user_id = int(user["id"])
+    budgets = dict(await sanctuary_db.get_json_state(user_id, "budgets", {}) or {})
+    if limit:
+        budgets[name] = limit
+    else:
+        budgets.pop(name, None)
+    await sanctuary_db.set_json_state(user_id, "budgets", budgets)
+    return {"budgets": budgets}
+
+
 @router.get("/api/sanctuary/finance")
 async def finance_month(month: str | None = None, user: dict = Depends(_unlocked_user)):
     user_id = int(user["id"])
@@ -4127,7 +4325,10 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     outgo = [r for r in ledger if r["source"] != "statement-in"]
     spent = sum(r["amount"] for r in outgo if r["category"] not in excluded)
     saved = sum(r["amount"] for r in outgo if r["category"] in saving_names)
-    inflow = sum(r["amount"] for r in ledger if r["source"] == "statement-in")
+    # What came in is what was EARNED. October said ₹6,49,340 on a ₹1,18,406
+    # salary: ₹3,62,243 of it was the overdraft lending his own account
+    # money, and more was broker money he had put aside coming back.
+    inflow = sum(r["amount"] for r in ledger if r["source"] == "statement-in" and r["category"] not in excluded)
     # The pay that arrives on the 30th is not spent that day — it is what
     # the NEXT month lives on. So each month opens with whatever the last
     # one still held, carried in as funds rather than as a second salary.
@@ -4194,11 +4395,12 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
         trend_months.append(_month_key(cursor))
         cursor = sanctuary_emi._add_months(cursor, -1)
     trend_months.reverse()
-    ledger_trend = await sanctuary_db.ledger_month_trend(user_id, trend_months)
+    saving_list = sorted(saving_names)
+    ledger_trend = await sanctuary_db.ledger_month_trend(user_id, trend_months, saving_list)
     emi_rows = await sanctuary_db.list_emis(user_id, f"{trend_months[0]}-01", _month_bounds(trend_months[-1])[1])
     # What came in beside what went out, so a month can be read as a month
     # — "eight lakh out" says nothing without "six and a half came in".
-    inflow_by_month = {f["month"]: f["inflow"] for f in await sanctuary_db.monthly_flows(user_id, 24)}
+    flows_by_month = {f["month"]: f for f in await sanctuary_db.monthly_flows(user_id, 24, saving_list)}
     trend = []
     for key in trend_months:
         emi_sum = sum(e["amount"] for e in emi_rows if e["due_date"].startswith(key))
@@ -4206,11 +4408,17 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
             {
                 "month": key,
                 "total": round(ledger_trend.get(key, 0) + emi_sum, 2),
-                "inflow": round(float(inflow_by_month.get(key) or 0), 2),
+                "inflow": round(float((flows_by_month.get(key) or {}).get("inflow") or 0), 2),
+                "aside": round(float((flows_by_month.get(key) or {}).get("aside") or 0), 2),
             }
         )
 
+    picture = await _month_picture(
+        user_id, month, today, ledger, saving_names, excluded, all_loans, trend_months, flows_by_month
+    )
+
     return {
+        **picture,
         "month": month,
         "today": today.isoformat(),
         "salary": salary,

@@ -3999,7 +3999,7 @@ class WhereItWentOpensOntoItsEntriesTests(unittest.TestCase):
         self.assertIn("S.finMonth = m.dataset.trendMonth;", self.page)
 
     def test_the_flow_says_what_came_in_beside_what_went_out(self):
-        self.assertIn("more out than in", self.page)
+        self.assertIn("more spent than earned", self.page)
         self.assertIn("p.inflow", self.page)
 
 
@@ -4050,3 +4050,200 @@ class SixMonthsOfFlowCarriesMoneyInTests(unittest.TestCase):
         f = asyncio.run(self.s.finance_month(month="2026-10", user={"id": 1}))
         sep = next(p for p in f["trend"] if p["month"] == "2026-09")
         self.assertEqual((sep["inflow"], sep["total"]), (118406.41, 500.0))
+
+
+class _ScratchDbCase(unittest.TestCase):
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.db = sanctuary_db
+        self.s = sanctuary
+        self._n = 0
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def row(self, day, category, amount, note="x", into=False, balance=None):
+        self._n += 1
+        r = {
+            "entry_date": day,
+            "category": category,
+            "amount": amount,
+            "note": note,
+            "source": "statement-in" if into else "statement",
+            "ref_id": f"stmt:1:{self._n}",
+        }
+        if balance is not None:
+            r["balance"] = balance
+        return r
+
+    def add(self, *rows):
+        asyncio.run(self.db.add_ledger_many(1, list(rows)))
+
+
+class MoneyThatOnlyMovesIsNeitherEarnedNorSpentTests(_ScratchDbCase):
+    """October said ₹6,49,340 "came in" on a ₹1,18,406 salary: ₹3,62,243 was
+    the overdraft lending his own account money, and more was broker money
+    he had put aside coming back."""
+
+    def october(self):
+        # His list marks the brokers as saving; a fresh one has to be told.
+        asyncio.run(
+            self.db.set_json_state(
+                1, "categories", [{"name": "Investments", "emoji": "📈", "kind": "saving", "quick": False}]
+            )
+        )
+        self.add(
+            self.row("2026-10-30", "Salary", 118406.41, "NEFT KYNDRYL", into=True),
+            self.row("2026-10-19", "OD loan", 131023.0, "Rev Sweep From", into=True),
+            self.row("2026-10-30", "OD loan", 96925.0, "Sweep to OD Ac"),
+            self.row("2026-10-17", "Investments", 71023.11, "NEFT RAISE SECURITIES", into=True),
+            self.row("2026-10-05", "Investments", 64000.0, "BRK/Raise Securities"),
+            self.row("2026-10-12", "Groceries", 900.0, "veg"),
+            self.row("2026-10-12", "Self transfer", 5000.0, "to kotak"),
+        )
+
+    def test_the_month_says_only_what_was_earned_came_in(self):
+        self.october()
+        f = asyncio.run(self.s.finance_month(month="2026-10", user={"id": 1}))
+        self.assertEqual(f["totals"]["inflow"], 118406.41)
+
+    def test_the_flows_leave_out_sweeps_transfers_and_broker_money_and_say_what_was_put_aside(self):
+        self.october()
+        flows = asyncio.run(self.db.monthly_flows(1, 12, ["Investments"]))
+        oct_ = next(f for f in flows if f["month"] == "2026-10")
+        self.assertEqual(round(oct_["inflow"], 2), 118406.41)
+        self.assertEqual(round(oct_["outflow"], 2), 900.0)
+        self.assertEqual(round(oct_["aside"], 2), round(64000.0 - 71023.11, 2))
+
+    def test_the_six_month_bars_count_only_spending(self):
+        self.october()
+        out = asyncio.run(self.db.ledger_month_trend(1, ["2026-10"], ["Investments"]))
+        self.assertEqual(out["2026-10"], 900.0)
+
+
+class WhoWasPaidTests(unittest.TestCase):
+    def name(self, note):
+        import sanctuary_statements
+
+        return sanctuary_statements.payee_name(note)
+
+    def test_a_upi_line_names_the_payee_not_the_rail(self):
+        self.assertEqual(self.name("UPI/Zepto/zeptoonline@yb/Paid via C/YES BANK L/657025963963"), "Zepto")
+        self.assertEqual(self.name("UPI/HEPZIBAH B/XXah08@okaxis/chicken an/Kotak Mahi/666807399"), "Hepzibah B")
+
+    def test_reference_numbers_are_never_a_name(self):
+        self.assertEqual(self.name("NEFT-DEUTH02630305211-KYNDRYL SOLUTIONS-05047902202610280544"), "Kyndryl Solutions")
+        self.assertEqual(self.name("MMT/IMPS/630187327991/2026102849f46f1/ZERODHA BR/Yes Bank"), "Zerodha Br")
+
+    def test_a_card_number_set_off_the_name_is_dropped(self):
+        self.assertEqual(self.name("BIL/INFT/FJW2239515/CC BillPay-5006/Self"), "CC BillPay")
+
+    def test_his_own_label_in_front_is_stepped_over(self):
+        self.assertEqual(self.name("Madheena chicken — UPI/MADHEENA C/vyapar.1747424/Paid via C"), "Madheena C")
+
+
+class EveryMonthTests(unittest.TestCase):
+    def regular(self, rows, month="2026-10"):
+        import sanctuary
+
+        return sanctuary._regular_payments(rows, month, {"Investments"})
+
+    def r(self, day, amount, note, category="Bills"):
+        return {"entry_date": day, "amount": amount, "note": note, "category": category}
+
+    def test_a_steady_monthly_payment_is_a_commitment(self):
+        rows = [self.r(f"2026-{m:02d}-03", 349, "UPI/BHARTI AIR/airtel/x") for m in (6, 7, 8, 9, 10)]
+        out = self.regular(rows)
+        self.assertEqual([(c["payee"], c["monthly"], c["new"]) for c in out], [("Bharti Air", 349.0, False)])
+
+    def test_one_that_began_last_month_is_new(self):
+        rows = [self.r("2026-09-09", 649, "UPI/NETFLIX/n@hdfc"), self.r("2026-10-09", 649, "UPI/NETFLIX/n@hdfc")]
+        self.assertTrue(self.regular(rows)[0]["new"])
+
+    def test_a_shop_visited_every_day_is_not_a_bill(self):
+        rows = [
+            self.r(f"2026-{m:02d}-{d:02d}", 100, "UPI/Vellaisamy/bread") for m in (7, 8, 9, 10) for d in (1, 5, 9, 13)
+        ]
+        self.assertEqual(self.regular(rows), [])
+
+    def test_loans_and_saving_are_not_counted_here(self):
+        rows = [self.r(f"2026-{m:02d}-06", 51698, "ACH HDFC BANK LIMITED", "HDFC loan") for m in (7, 8, 9, 10)]
+        rows += [self.r(f"2026-{m:02d}-05", 20000, "BRK/Raise Securities", "Investments") for m in (7, 8, 9, 10)]
+        self.assertEqual(self.regular(rows), [])
+
+
+class TheOverdraftOverTimeTests(_ScratchDbCase):
+    def test_month_ends_are_worked_back_from_todays_figure(self):
+        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"limit": 330000.0}))
+        self.add(
+            self.row("2026-09-19", "OD loan", 90000.0, "Rev Sweep From", into=True),
+            self.row("2026-09-28", "OD loan", 95000.0, "Sweep to OD Ac"),
+            self.row("2026-10-19", "OD loan", 90000.0, "Rev Sweep From", into=True),
+            self.row("2026-10-28", "OD loan", 95000.0, "Sweep to OD Ac", balance=0.5),
+        )
+        loan_id = asyncio.run(
+            self.db.create_loan(
+                1, {"name": "Sweep overdraft ··8452", "drawn_amount": 131017.91, "stated_on": "2026-10-29"}
+            )
+        )
+        asyncio.run(self.db.update_loan(1, loan_id, {"stated_after": asyncio.run(self.db.newest_ledger_row(1))}))
+        loans = asyncio.run(self.db.list_loans(1))
+        from datetime import date as d
+
+        track = asyncio.run(self.s._od_track(1, d(2026, 10, 31), loans, ["2026-09", "2026-10"], {}))
+        self.assertEqual(track["owed_now"], 131017.91)
+        self.assertEqual([p["owed"] for p in track["points"]], [136017.91, 131017.91])
+
+
+class BudgetTests(_ScratchDbCase):
+    def put(self, category, limit):
+        class Req:
+            async def json(self):
+                return {"category": category, "limit": limit}
+
+        return asyncio.run(self.s.finance_budget_put(Req(), user={"id": 1}))
+
+    def test_a_limit_is_kept_and_nought_takes_it_away(self):
+        self.assertEqual(self.put("Eating out", 3000)["budgets"], {"Eating out": 3000.0})
+        self.assertEqual(self.put("Eating out", 0)["budgets"], {})
+
+
+class TheMonthsPanelsSayMoreTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_each_line_is_set_beside_last_month(self):
+        self.assertIn("than ${shortMonth(f.prev_month)}", self.page)
+
+    def test_an_opened_line_groups_by_who_was_paid(self):
+        self.assertIn('class="wiw-who"', self.page)
+
+    def test_unusual_payments_are_named(self):
+        self.assertIn("unusual payment", self.page)
+        self.assertIn("Math.max(3 * typical[r.category], typical[r.category] + 1000)", self.page)
+
+    def test_a_limit_can_be_set_from_the_line_and_is_drawn_on_the_bar(self):
+        self.assertIn("data-wiw-limit=", self.page)
+        self.assertIn('class="wiw-limit"', self.page)
+
+    def test_every_month_card_and_the_overdrafts_course(self):
+        self.assertIn('id="regular-card"', self.page)
+        self.assertIn("function odTrackHtml(t)", self.page)

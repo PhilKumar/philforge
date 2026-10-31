@@ -365,23 +365,57 @@ async def months_with_anything(user_id: int) -> dict[str, int]:
         return {row[0]: row[1] for row in await cursor.fetchall()}
 
 
-async def monthly_flows(user_id: int, months: int = 12) -> list[dict]:
-    """Per-month money in and money out, Self transfers excluded on both
-    sides — moved money is neither income nor spending."""
+# Money that only MOVES — his own transfers and the overdraft sweeping both
+# ways — is neither income nor spending. October said ₹6,49,340 "came in"
+# on a ₹1,18,406 salary, because ₹3,62,243 of it was the overdraft lending
+# his own account money back.
+MOVED_NOT_SPENT = ("Self transfer", "OD loan")
+
+
+async def monthly_flows(user_id: int, months: int = 12, saving: tuple | list = ()) -> list[dict]:
+    """Per-month money in and money out, as money actually earned and spent.
+
+    Moved money is left out on both sides. Money put aside is left out of
+    both as well — sending it to a broker is not spending it, and drawing it
+    back is not earning it — and is said on its own, net, as `aside`.
+    """
+    moved = list(MOVED_NOT_SPENT)
+    keep = list(saving)
+    mh = ",".join("?" for _ in moved)
+    sh = ",".join("?" for _ in keep) or "''"
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            """SELECT substr(entry_date, 1, 7) AS month,
-                      SUM(CASE WHEN source = 'statement-in' THEN amount ELSE 0 END) AS inflow,
-                      SUM(CASE WHEN source != 'statement-in' THEN amount ELSE 0 END) AS outflow
+            f"""SELECT substr(entry_date, 1, 7) AS month,
+                      SUM(CASE WHEN source = 'statement-in' AND category NOT IN ({sh}) THEN amount ELSE 0 END) AS inflow,
+                      SUM(CASE WHEN source != 'statement-in' AND category NOT IN ({sh}) THEN amount ELSE 0 END) AS outflow,
+                      SUM(CASE WHEN category IN ({sh})
+                               THEN (CASE WHEN source = 'statement-in' THEN -amount ELSE amount END)
+                               ELSE 0 END) AS aside
                FROM sanctuary_ledger
-               WHERE user_id = ? AND category != 'Self transfer'
-               GROUP BY month ORDER BY month DESC LIMIT ?""",
-            (int(user_id), max(1, min(int(months), 60))),
+               WHERE user_id = ? AND category NOT IN ({mh})
+               GROUP BY month ORDER BY month DESC LIMIT ?""",  # nosec B608 - every hole is a placeholder
+            [*keep, *keep, *keep, int(user_id), *moved, max(1, min(int(months), 60))],
         )
         rows = [dict(row) for row in await cursor.fetchall()]
         rows.reverse()
         return rows
+
+
+async def outgoing_rows_since(user_id: int, since: str) -> list[dict]:
+    """Every row that went OUT on or after a day, moved money left out."""
+    moved = list(MOVED_NOT_SPENT)
+    mh = ",".join("?" for _ in moved)
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            f"""SELECT id, entry_date, category, amount, note FROM sanctuary_ledger
+                WHERE user_id = ? AND source != 'statement-in' AND entry_date >= ?
+                  AND category NOT IN ({mh})
+                ORDER BY entry_date""",  # nosec B608 - every hole is a placeholder
+            [int(user_id), since, *moved],
+        )
+        return [dict(row) for row in await cursor.fetchall()]
 
 
 async def statement_outflow_rows(user_id: int) -> list[dict]:
@@ -634,7 +668,7 @@ async def credits_since(user_id: int, since: str) -> list[dict]:
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            """SELECT id, entry_date, amount, note, source FROM sanctuary_ledger
+            """SELECT id, entry_date, amount, note, source, category FROM sanctuary_ledger
                WHERE user_id = ? AND source = 'statement-in' AND entry_date >= ?
                ORDER BY entry_date""",
             (int(user_id), str(since or "")),
@@ -736,20 +770,24 @@ async def ledger_ref_exists(user_id: int, ref_id: str) -> bool:
         return await cursor.fetchone() is not None
 
 
-async def ledger_month_trend(user_id: int, months: list[str]) -> dict[str, float]:
-    """Total OUTFLOW per requested YYYY-MM month — inflows are not spending."""
+async def ledger_month_trend(user_id: int, months: list[str], saving: tuple | list = ()) -> dict[str, float]:
+    """Total OUTFLOW per requested YYYY-MM month — inflows are not spending,
+    and neither is money that only moved or was put aside."""
     if not months:
         return {}
+    out_of_it = [*MOVED_NOT_SPENT, *saving]
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         placeholders = ",".join("?" for _ in months)
+        oh = ",".join("?" for _ in out_of_it)
         cursor = await db.execute(
             f"""SELECT substr(entry_date, 1, 7) AS month, SUM(amount) AS total
                 FROM sanctuary_ledger
                 WHERE user_id = ? AND source != 'statement-in'
                   AND substr(entry_date, 1, 7) IN ({placeholders})
+                  AND category NOT IN ({oh})
                 GROUP BY month""",  # nosec B608
-            [int(user_id), *months],
+            [int(user_id), *months, *out_of_it],
         )
         return {row["month"]: float(row["total"] or 0) for row in await cursor.fetchall()}
 

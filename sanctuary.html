@@ -841,6 +841,33 @@ th.sanct-sort{cursor:pointer;user-select:none} th.sanct-sort::after{content:"↕
 .tr-key{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 2px;vertical-align:-1px}
 .tr-key.out{background:var(--terracotta);opacity:.55}
 .tr-key.in{background:var(--moss);border-radius:50%}
+.wiw-meta .up{color:var(--danger)} .wiw-meta .down{color:var(--moss)}
+.wiw-flag{color:var(--danger);font-weight:600}
+.wiw-flag small{color:var(--soft);font-weight:500}
+.bar-track{position:relative}
+.wiw-limit{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);opacity:.55;border-radius:1px;z-index:1}
+.bar-fill.near{background:var(--gold)}
+.bar-fill.over{background:var(--danger)}
+.wiw-who{display:flex;flex-wrap:wrap;gap:5px 6px;margin-bottom:8px}
+.wiw-who .lt-chip{font-size:.75rem;color:var(--soft);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+.wiw-who .lt-chip b{color:var(--ink)}
+.wiw-entry.odd .a,.wiw-entry.odd .t{color:var(--danger)}
+.wiw-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}
+.wiw-limit-set{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--soft);font-weight:600}
+.wiw-limit-set .field{width:110px;padding:5px 8px;font-size:.85rem}
+.reg-row{display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--line-soft)}
+.reg-row:last-child{border-bottom:0}
+.reg-name small{display:block;color:var(--soft);font-size:.75rem;font-weight:600}
+.reg-new{font-size:.68rem;font-weight:800;color:#fff;background:var(--danger);border-radius:999px;padding:1px 7px;vertical-align:1px}
+.reg-amt{font-weight:700}
+.reg-state{font-size:.78rem;color:var(--soft);min-width:110px;text-align:right}
+.reg-state.paid{color:var(--moss)}
+.od-track{display:flex;gap:14px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line-soft)}
+.od-spark{width:150px;height:46px;flex:none}
+.od-track-words{display:flex;flex-direction:column;gap:5px;font-size:.84rem}
+.od-track-words small{display:block;color:var(--soft);font-size:.74rem}
+.od-track-words .up{color:var(--danger)} .od-track-words .down{color:var(--moss)}
+@media (max-width:560px){.od-track{flex-direction:column;align-items:flex-start}.reg-row{grid-template-columns:1fr auto}.reg-state{grid-column:1 / -1;text-align:left}}
 .trend-svg{width:100%;height:190px;margin-top:10px}
 .ledger table,.emi-table table{width:100%;border-collapse:collapse;font-size:.92rem}
 .ledger th,.emi-table th{text-align:left;font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);
@@ -1739,6 +1766,14 @@ html[data-theme="dark"]{color-scheme:dark}
         <div class="section-sub" id="trend-sub">Money out as bars, money in as the line.</div>
         <svg class="trend-svg" id="trend" viewBox="0 0 520 190" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
+    </div>
+
+    <!-- Who he pays every month. A subscription or a class adds itself to
+         every month after it starts; this is where a new one shows up. -->
+    <div class="card" id="regular-card" style="margin-bottom:24px" hidden>
+      <div class="section-title">Every month</div>
+      <div class="section-sub" id="regular-sub"></div>
+      <div id="regular-list"></div>
     </div>
 
     <div class="card ledger" style="margin-bottom:24px">
@@ -3050,6 +3085,32 @@ document.addEventListener("click", async (e) => {
 /* The overdraft, said as a debt rather than as a place money sits. Drawn is
    the debt growing, repaid is it shrinking, and neither is spending — which
    is why this is here among the loans and not in the month's totals. */
+/* Where the overdraft has been, month end by month end, and where it is
+   heading before the next pay — the one question that tells him whether
+   the months are winning. */
+function odTrackHtml(t){
+  if (!t || !t.points || !t.points.length) return "";
+  const pts = t.points, w = 260, h = 46;
+  const hi = Math.max(...pts.map((p) => p.owed)), lo = Math.min(...pts.map((p) => p.owed));
+  const span = Math.max(1, hi - lo);
+  const x = (i) => 6 + i * (w - 12) / Math.max(1, pts.length - 1);
+  /* Its own range, not from nought: a ₹25,000 fall on a ₹1.5 lakh debt is
+     the whole story, and from zero it drew as a flat line. */
+  const y = (v) => 6 + (1 - (v - lo) / span) * (h - 12);
+  const line = pts.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.owed).toFixed(1)).join(" ");
+  const first = pts[0], last = pts[pts.length - 1], change = last.owed - first.owed;
+  const pr = t.projection;
+  return `<div class="od-track">
+    <svg viewBox="0 0 ${w} ${h}" class="od-spark" aria-hidden="true"><path d="${line}" fill="none" stroke="var(--terracotta)" stroke-width="2"/>
+      ${pts.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.owed)}" r="2.6" fill="var(--terracotta)"><title>${shortMonth(p.month)}: ${inr(p.owed)}</title></circle>`).join("")}</svg>
+    <div class="od-track-words">
+      <span>Since ${shortMonth(first.month)} it has gone <b class="${change > 0 ? "up" : "down"}">${change > 0 ? "up" : "down"} ${inr(Math.abs(change))}</b>
+        <small>${pts.map((p) => `${shortMonth(p.month)} ${inr(p.owed)}`).join(" · ")}</small></span>
+      ${pr ? `<span>Before your pay on ${shortDay(pr.next_pay)} it will owe about <b>${inr(pr.before_pay)}</b>, then
+        <b class="${pr.after_pay > t.owed_now ? "up" : "down"}">${pr.after_pay > 0 ? `about ${inr(pr.after_pay)}` : `nothing — ${inr(-pr.after_pay)} to spare`}</b> once it lands
+        <small>your usual month costs ${inr(pr.usual_month)}; ${pr.days_left} days to go</small></span>` : ""}
+    </div></div>`;
+}
 function renderOd(od, month){
   const host = $("od-card");
   if (!host) return;
@@ -3077,6 +3138,7 @@ function renderOd(od, month){
         : `As you set it on ${esc(niceDate(od.stated_on))}.`}
       <small>It follows every sweep in the statements you import — import, and it stays right.</small>
     </div>` : ""}
+    ${odTrackHtml(S.fin && S.fin.od_track)}
     ${od.moves ? `<div class="od-flow">
       <span>${esc(niceMonth(month))}: drew <b class="num">${inr(od.drawn)}</b></span>
       <span>put back <b class="num">${inr(od.repaid)}</b></span>
@@ -3490,6 +3552,7 @@ function renderFinance(){
   $("led-acct").style.display = accts.length ? "" : "none";
   renderLedgerTable();
   renderWhereItWent(f);
+  renderRegular(f);
   renderRecurring(f.recurring);
 }
 const LED_PAGE = 10;
@@ -3652,6 +3715,17 @@ $("led-csv").onclick = () => {
    each with its own total, and every line opens onto the entries behind it
    with a way through to the ledger. */
 const DEBT_LIKE = /loan|credit ?card|card bill|instaloan|^EMI · /i;
+const shortMonth = (key) => key ? MONTHS[Number(key.slice(5, 7)) - 1].slice(0, 3) : "";
+/* A payment far above what one payment in its category usually comes to —
+   three times the usual, and a thousand rupees over it, so a ₹90 tea after a
+   run of ₹20 ones is not called out. */
+function unusualRows(f){
+  const typical = f.typical || {};
+  return (S.ledgerRows || []).filter((r) => r.dir === "out" && typical[r.category]
+      && r.amount >= 1000 && r.amount >= Math.max(3 * typical[r.category], typical[r.category] + 1000))
+    .map((r) => ({row: r, cat: r.category, typ: typical[r.category]}))
+    .sort((a, b) => b.row.amount / b.typ - a.row.amount / a.typ);
+}
 function whereItWentGroups(f){
   const saving = new Set(f.categories.filter((c) => c.kind === "saving").map((c) => c.name));
   const groups = {spent: [], aside: [], debts: []};
@@ -3670,8 +3744,11 @@ function renderWhereItWent(f){
   const notes = {spent: "day-to-day — what the month cost to live",
                  debts: "loans, EMIs and card bills", aside: "investments and saving — still yours"};
   const totalOut = Object.values(groups).flat().reduce((a, c) => a + c.v, 0);
-  $("bars-sub").textContent = totalOut
-    ? `${inr(totalOut)} went out in ${niceMonth(f.month)}. Tap a line to see what it was.`
+  const unusual = unusualRows(f);
+  $("bars-sub").innerHTML = totalOut
+    ? `${inr(totalOut)} went out in ${niceMonth(f.month)}. Tap a line to see what it was.${unusual.length
+      ? ` <span class="wiw-flag">${unusual.length} unusual: ${unusual.slice(0, 2).map((u) =>
+        `${esc(u.row.payee || u.cat)} ${inr(u.row.amount)} <small>(usually ${inr(u.typ)})</small>`).join(", ")}</span>` : ""}`
     : "Nothing went out yet this month.";
   const apart = Object.entries(f.moved_apart || {}).filter(([, v]) => v > 0);
   const pile = (key) => {
@@ -3685,21 +3762,44 @@ function renderWhereItWent(f){
       ${list.map((c) => {
         const open = S.openCat === c.name;
         const top = [...c.rows].sort((a, b) => b.amount - a.amount).slice(0, 5);
+        const prev = (f.by_category_prev || {})[c.name];
+        const delta = prev != null ? c.v - prev : null;
+        const vsPrev = prev == null ? `new vs ${shortMonth(f.prev_month)}`
+          : Math.abs(delta) < 1 ? `same as ${shortMonth(f.prev_month)}`
+          : `<span class="${delta > 0 ? "up" : "down"}">${inr(Math.abs(delta))} ${delta > 0 ? "more" : "less"} than ${shortMonth(f.prev_month)}</span>`;
+        const limit = (f.budgets || {})[c.name];
+        const over = limit ? c.v / limit : 0;
+        const typ = (f.typical || {})[c.name];
+        const odd = (r) => typ && r.amount >= 1000 && r.amount >= Math.max(3 * typ, typ + 1000);
+        const who = Object.values(c.rows.reduce((acc, r) => {
+          const k = r.payee || "—"; acc[k] = acc[k] || {name: k, n: 0, v: 0}; acc[k].n += 1; acc[k].v += r.amount; return acc;
+        }, {})).sort((a, b) => b.v - a.v);
         return `<div class="wiw-row ${open ? "open" : ""}">
           <button class="bar-row wiw-line" data-wiw="${esc(c.name)}" aria-expanded="${open}">
             <span class="n" title="${esc(c.name)}">${esc(c.name)}</span>
-            <div class="bar-track"><div class="bar-fill ${key}" style="width:${Math.max(2, c.v / max * 100)}%"></div></div>
+            <div class="bar-track">${limit ? `<i class="wiw-limit" style="left:${Math.min(100, limit / Math.max(max, limit) * 100)}%"></i>` : ""}<div class="bar-fill ${key} ${
+              over > 1 ? "over" : over >= 0.8 ? "near" : ""}" style="width:${Math.max(2, c.v / Math.max(max, limit || 0) * 100)}%"></div></div>
             <span class="v num">${inr(c.v)}</span>
-            <span class="wiw-meta">${c.rows.length ? `${c.rows.length} ${c.rows.length === 1 ? "entry" : "entries"} · ` : ""}${Math.round(c.v / sum * 100)}% of ${titles[key].toLowerCase()}</span>
+            <span class="wiw-meta">${c.rows.length ? `${c.rows.length} ${c.rows.length === 1 ? "entry" : "entries"} · ` : ""}${
+              limit ? `<span class="${over > 1 ? "up" : ""}">${Math.round(over * 100)}% of your ${inr(limit)} limit</span>`
+                    : `${Math.round(c.v / sum * 100)}% of ${titles[key].toLowerCase()}`} · ${vsPrev}${
+              c.rows.some(odd) ? ` · <span class="up">unusual payment</span>` : ""}</span>
           </button>
           ${open ? `<div class="wiw-detail">
-            ${top.length ? top.map((r) => `<div class="wiw-entry">
+            ${who.length > 1 || (who[0] && who[0].n > 1) ? `<div class="wiw-who">${who.slice(0, 6).map((w) =>
+              `<span class="lt-chip">${esc(w.name)}${w.n > 1 ? ` ×${w.n}` : ""} <b>${inr(w.v)}</b></span>`).join("")}</div>` : ""}
+            ${top.length ? top.map((r) => `<div class="wiw-entry ${odd(r) ? "odd" : ""}" ${odd(r) ? `title="Usually about ${inr(typ)} a payment"` : ""}>
                 <span class="d">${Number(r.entry_date.slice(8, 10))} ${MONTHS[Number(r.entry_date.slice(5, 7)) - 1].slice(0, 3)}</span>
                 <span class="t" title="${esc(r.note || "")}">${esc((r.note || "—").slice(0, 70))}</span>
                 <span class="a num">${inr2(r.amount)}</span></div>`).join("")
               : `<div class="wiw-entry"><span class="t">An instalment from its schedule — no statement row of its own.</span></div>`}
-            ${c.rows.length ? `<button class="btn subtle small wiw-all" data-wiw-all="${esc(c.name)}">${
-              c.rows.length > top.length ? `All ${c.rows.length} in the ledger` : "Open in the ledger"} ↓</button>` : ""}
+            <div class="wiw-foot">
+              ${c.rows.length ? `<button class="btn subtle small wiw-all" data-wiw-all="${esc(c.name)}">${
+                c.rows.length > top.length ? `All ${c.rows.length} in the ledger` : "Open in the ledger"} ↓</button>` : ""}
+              <label class="wiw-limit-set">Monthly limit ₹
+                <input class="field num" type="number" min="0" step="100" value="${limit || ""}" placeholder="none" data-wiw-limit="${esc(c.name)}">
+              </label>
+            </div>
           </div>` : ""}
         </div>`;
       }).join("")}
@@ -3712,7 +3812,18 @@ function renderWhereItWent(f){
        <span class="v num">${inr(v)}</span></div>`).join("")
       + `<div class="bar-apart-note">moved, not spent — kept out of the totals above</div></div>` : "");
 }
+document.addEventListener("change", async (e) => {
+  const box = e.target.closest("[data-wiw-limit]");
+  if (!box) return;
+  try {
+    await api("/api/sanctuary/finance/budget", {method: "PUT",
+      body: {category: box.dataset.wiwLimit, limit: Number(box.value || 0)}});
+    toast(Number(box.value || 0) ? `Limit set — ${inr(Number(box.value))} a month.` : "Limit taken off.");
+    refreshFinance();
+  } catch (err) { toast(err.message || "That did not take"); }
+});
 document.addEventListener("click", (e) => {
+  if (e.target.closest(".wiw-limit-set")) return;
   const all = e.target.closest("[data-wiw-all]");
   if (all) {
     /* Through to the ledger, filtered to exactly this, and onto it. */
@@ -3729,6 +3840,25 @@ document.addEventListener("click", (e) => {
   S.openCat = S.openCat === line.dataset.wiw ? null : line.dataset.wiw;
   renderWhereItWent(S.fin);
 });
+
+/* ═══ every month ═══ */
+function renderRegular(f){
+  const list = f.regular || [];
+  const card = $("regular-card");
+  if (!list.length) { card.hidden = true; return; }
+  card.hidden = false;
+  const total = list.reduce((a, c) => a + c.monthly, 0);
+  const fresh = list.filter((c) => c.new);
+  $("regular-sub").innerHTML = `${list.length} payments that come round every month, about <b>${inr(total)}</b> between them${
+    fresh.length ? ` — <span class="wiw-flag">${fresh.length} new: ${fresh.map((c) => esc(c.payee)).join(", ")}</span>` : ""}.`;
+  $("regular-list").innerHTML = list.map((c) => `<div class="reg-row ${c.new ? "new" : ""}">
+      <span class="reg-name"><b>${esc(c.payee)}</b>${c.new ? ` <span class="reg-new">new</span>` : ""}
+        <small>${esc(c.category)} · seen ${c.months_seen} of the last 5 months</small></span>
+      <span class="reg-amt num">~${inr(c.monthly)}</span>
+      <span class="reg-state ${c.paid_this_month ? "paid" : ""}">${c.paid_this_month ? `paid ${shortDay(c.last)}` : "not yet this month"}</span>
+    </div>`).join("");
+}
+const shortDay = (iso) => iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1].slice(0, 3)}` : "";
 
 /* ═══ six months of flow ═══
    It drew one line — what went out — and "eight lakh" meant nothing beside
@@ -3759,9 +3889,11 @@ function renderTrend(trend, current){
     ${inPts.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="3.6" fill="var(--moss)" stroke="var(--card)" stroke-width="2" pointer-events="none"/>`).join("")}`;
   const now = trend.find((p) => p.month === current) || trend[trend.length - 1];
   const gap = (now.inflow || 0) - now.total;
-  $("trend-sub").innerHTML = `<span class="tr-key out"></span>out <span class="tr-key in"></span>in · ${niceMonth(now.month)}:
-    ${inr(now.inflow || 0)} in, ${inr(now.total)} out —
-    <b style="color:${gap >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(gap))} ${gap >= 0 ? "more in than out" : "more out than in"}</b>.
+  $("trend-sub").innerHTML = `<span class="tr-key out"></span>spent <span class="tr-key in"></span>earned · ${niceMonth(now.month)}:
+    ${inr(now.inflow || 0)} earned, ${inr(now.total)} spent —
+    <b style="color:${gap >= 0 ? "var(--moss)" : "var(--danger)"}">${inr(Math.abs(gap))} ${gap >= 0 ? "more earned than spent" : "more spent than earned"}</b>${
+    now.aside ? `, and ${inr(Math.abs(now.aside))} ${now.aside > 0 ? "put aside" : "taken back from savings"}` : ""}.
+    <small>Overdraft sweeps, your own transfers and broker money are left out — they move money, they don't earn or spend it.</small>
     Tap a month to open it.`;
 }
 document.addEventListener("click", (e) => {

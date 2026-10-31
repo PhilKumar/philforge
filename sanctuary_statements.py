@@ -249,6 +249,67 @@ def od_account(note: str) -> str:
 UNCATEGORISED = "Uncategorised"
 
 
+_RAILS = {
+    "upi",
+    "bil",
+    "onl",
+    "nfs",
+    "mmt",
+    "imps",
+    "ach",
+    "mps",
+    "neft",
+    "rtgs",
+    "inft",
+    "inf",
+    "pcd",
+    "brk",
+    "collect",
+    "pay",
+    "na",
+    "paid via c",
+    "paid via cred",
+    "paid via cred p",
+    "payment fo",
+    "payment from ph",
+}
+
+
+def payee_name(note: str) -> str:
+    """Who was paid, said as a person would say it — "Zepto", "Hepzibah B",
+    "Amazon Pay" — for grouping a month's rows by payee.
+
+    The narration leads with its rails (UPI, BIL/ONL, MMT/IMPS) and buries
+    the name among reference numbers. The first piece that is mostly
+    letters is the name; a handle is cut at its @ or its dot. Where nothing
+    reads as a name the grouping token stands in.
+    """
+    text = (note or "").strip()
+    if not text:
+        return ""
+    if " — " in text:  # his own label in front: "Madheena chicken — UPI/..."
+        text = text.split(" — ", 1)[1]
+    pieces = text.split("/") if "/" in text else text.split("-")
+    for piece in pieces:
+        # "CC BillPay-5006": the card's last digits are not part of the name.
+        piece = re.sub(r"[-\s]+\d+$", "", piece.strip()).strip()
+        low = piece.lower()
+        if low in _RAILS or len(low) < 2:
+            continue
+        letters = sum(ch.isalpha() for ch in piece)
+        digits = sum(ch.isdigit() for ch in piece)
+        if letters < 3 or digits > 2:
+            continue
+        name = re.split(r"[@]", piece)[0]
+        if " " not in name:
+            name = name.split(".")[0]
+        name = name.strip()
+        if len(name) < 2:
+            continue
+        return (name.title() if name.isupper() or name.islower() else name)[:28]
+    return payee_key(note)
+
+
 def payee_key(note: str) -> str:
     """A stable token for grouping narrations by who was paid.
 
