@@ -4196,10 +4196,19 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     trend_months.reverse()
     ledger_trend = await sanctuary_db.ledger_month_trend(user_id, trend_months)
     emi_rows = await sanctuary_db.list_emis(user_id, f"{trend_months[0]}-01", _month_bounds(trend_months[-1])[1])
+    # What came in beside what went out, so a month can be read as a month
+    # — "eight lakh out" says nothing without "six and a half came in".
+    inflow_by_month = {f["month"]: f["inflow"] for f in await sanctuary_db.monthly_flows(user_id, 24)}
     trend = []
     for key in trend_months:
         emi_sum = sum(e["amount"] for e in emi_rows if e["due_date"].startswith(key))
-        trend.append({"month": key, "total": round(ledger_trend.get(key, 0) + emi_sum, 2)})
+        trend.append(
+            {
+                "month": key,
+                "total": round(ledger_trend.get(key, 0) + emi_sum, 2),
+                "inflow": round(float(inflow_by_month.get(key) or 0), 2),
+            }
+        )
 
     return {
         "month": month,

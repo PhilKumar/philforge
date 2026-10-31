@@ -3972,3 +3972,81 @@ class TheJournalSpellsAndDefines(unittest.TestCase):
         self.assertTrue(_WORD_RE.match("don't"))
         for bad in ("two words", "../etc", "", "x" * 41, "1999"):
             self.assertIsNone(_WORD_RE.match(bad), bad)
+
+
+class WhereItWentOpensOntoItsEntriesTests(unittest.TestCase):
+    """One list sorted by size put the ₹1,91,023 he put ASIDE above
+    everything he spent, and nothing on it could be opened."""
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
+            cls.page = handle.read()
+
+    def test_it_is_three_piles_with_saving_kept_apart_from_spending(self):
+        for title in ('spent: "Spent"', 'debts: "Debts paid"', 'aside: "Put aside"'):
+            self.assertIn(title, self.page)
+        self.assertIn('saving.has(name) ? "aside" : DEBT_LIKE.test(name) ? "debts" : "spent"', self.page)
+
+    def test_a_line_opens_onto_its_entries_and_through_to_the_ledger(self):
+        self.assertIn('data-wiw="${esc(c.name)}"', self.page)
+        self.assertIn('data-wiw-all="${esc(c.name)}"', self.page)
+        self.assertIn("S.led.cat = name;", self.page)
+
+    def test_a_month_on_the_flow_chart_opens_that_month(self):
+        self.assertIn('data-trend-month="${p.month}"', self.page)
+        self.assertIn("S.finMonth = m.dataset.trendMonth;", self.page)
+
+    def test_the_flow_says_what_came_in_beside_what_went_out(self):
+        self.assertIn("more out than in", self.page)
+        self.assertIn("p.inflow", self.page)
+
+
+class SixMonthsOfFlowCarriesMoneyInTests(unittest.TestCase):
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.db = sanctuary_db
+        self.s = sanctuary
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def test_each_month_says_what_came_in(self):
+        rows = [
+            {
+                "entry_date": "2026-09-30",
+                "category": "Salary",
+                "amount": 118406.41,
+                "note": "NEFT KYNDRYL",
+                "source": "statement-in",
+                "ref_id": "stmt:1:a",
+            },
+            {
+                "entry_date": "2026-09-12",
+                "category": "Groceries",
+                "amount": 500.0,
+                "note": "veg",
+                "source": "statement",
+                "ref_id": "stmt:1:b",
+            },
+        ]
+        asyncio.run(self.db.add_ledger_many(1, rows))
+        f = asyncio.run(self.s.finance_month(month="2026-10", user={"id": 1}))
+        sep = next(p for p in f["trend"] if p["month"] == "2026-09")
+        self.assertEqual((sep["inflow"], sep["total"]), (118406.41, 500.0))
