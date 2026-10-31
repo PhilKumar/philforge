@@ -26278,10 +26278,11 @@ def _chart_next_day_cpr(
         pass
     bars = [b for b in candles if datetime.fromtimestamp(int(b["t"]), IST).date() == day]
     step = max(int(tf_minutes), 1) * 60
-    # A third of a session wide: room for the levels to read as a block
-    # without shrinking the three days of candles beside it.
+    # The whole of tomorrow's session, open to close: a third of it stopped
+    # the levels at 11:20 (Phil, 2026-10-31: "make it till the trading
+    # ending window").
     session_bars = ((close_h * 60 + close_m) - (open_h * 60 + open_m)) * 60 // step
-    width = max(6, int(session_bars) // 3)
+    width = max(6, int(session_bars))
     start_t = last_t + _NEXT_DAY_CPR_GAP_BARS * step
     end_t = start_t + width * step
     overlays = _cpr_level_overlays(bars, start_t, end_t, labelled=True)

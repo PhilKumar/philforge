@@ -55,8 +55,8 @@ class NextDayCpr(unittest.TestCase):
             self.assertGreater(ov["points"][0]["t"], last_t)
             self.assertTrue(ov["label"])
             self.assertEqual(ov["group"], "cpr")
-        # A third of a 75-bar session, plus the gap.
-        self.assertEqual(out["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 25)
+        # The whole 75-bar session, plus the gap.
+        self.assertEqual(out["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 75)
 
     def test_levels_come_from_the_last_session_only(self):
         out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T18:00:00"))
@@ -106,7 +106,7 @@ class NextDayCpr(unittest.TestCase):
         # Today's set is still drawn, just unlabelled; the EMA keeps its label.
         self.assertEqual(sum(1 for ov in payload["overlays"] if ov.get("group") == "cpr"), 24)
         self.assertTrue(any(ov.get("group") == "ema" and ov["label"] for ov in payload["overlays"]))
-        self.assertEqual(payload["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 25)
+        self.assertEqual(payload["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 75)
 
     def test_the_payload_is_untouched_while_open(self):
         analytics = app._chart_session_analytics(self.candles)
