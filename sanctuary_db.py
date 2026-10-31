@@ -725,10 +725,16 @@ async def ledger_rows_in_categories(
         where += " AND entry_date > ?"
         params.append(since)
     if after_id:
-        # After a particular row rather than a particular day: the order the
-        # bank's statement printed them in is the order the money moved.
-        where += " AND id > ?"
-        params.append(int(after_id))
+        # After a particular row: later in date, or the same day and printed
+        # after it. Not "a higher id" alone — ids are the order rows were
+        # IMPORTED, and a September statement brought in on the 31st of
+        # October got ids above the row his figure was pinned to, so its
+        # sweeps were carried as though they had happened since.
+        where += (
+            " AND (entry_date > (SELECT entry_date FROM sanctuary_ledger WHERE id = ?)"
+            " OR (entry_date = (SELECT entry_date FROM sanctuary_ledger WHERE id = ?) AND id > ?))"
+        )
+        params.extend([int(after_id), int(after_id), int(after_id)])
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(

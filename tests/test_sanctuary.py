@@ -2038,6 +2038,21 @@ class TheOverdraftFollowsItsSweepsTests(unittest.TestCase):
         self.assertEqual(self.set_total(198513.81)["owed"], carried)
         self.assertEqual(self.owed_now(), carried)
 
+    def test_an_older_statement_imported_later_does_not_move_todays_figure(self):
+        """He imported September on the 31st of October, after setting the
+        figure. Its rows got higher ids than the anchor, and ₹15,968 of
+        September draws were carried as though they had happened since."""
+        self.the_29th_afternoon()
+        self.set_total(105556.40)
+        self.the_29th_night_to_the_31st()
+        before = self.owed_now()
+        self.rows(
+            self.row("s1", "2026-09-29", 1000.0, 0.0, into=True, sweep="035005008452: Rev Sweep From"),
+            self.row("s2", "2026-09-29", 14968.01, 0.0, into=True, sweep="035005008452: Rev Sweep From"),
+            self.row("s3", "2026-10-01", 33047.28, 50384.13, sweep="Sweep to OD Ac"),
+        )
+        self.assertEqual(self.owed_now(), before)
+
     def test_an_overdraft_in_credit_is_carried_as_one_not_floored_to_nothing(self):
         """On the 3rd of September his sweep account was ₹23,614 in credit."""
         self.rows(self.row("x", "2026-09-03", 10.0, 0.0))
