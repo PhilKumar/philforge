@@ -31,6 +31,23 @@
   border-color: #fb7185 !important;
 }
 
+/* Hover keeps the button's own colours. An older rule filled BUY and SELL
+   solid on hover and left the dark text on it, unreadable (Phil, 31-Oct-2026). */
+[data-theme="light"] .btn.btn-submit:hover,
+[data-theme="light"] .cascade-options-primary-btn:hover,
+[data-theme="light"] .btn[onclick*="submitScalpEntry('BUY')"]:hover,
+[data-theme="light"] .btn[onclick*="submitStockTerminalOrder('BUY')"]:hover {
+  background: linear-gradient(180deg, #a7f3d0, #6ee7b7) !important;
+  color: #064e3b !important;
+}
+
+[data-theme="light"] .btn.btn-danger:hover,
+[data-theme="light"] .btn[onclick*="submitScalpEntry('SELL')"]:hover,
+[data-theme="light"] .btn[onclick*="submitStockTerminalOrder('SELL')"]:hover {
+  background: linear-gradient(180deg, #ffe4e6, #fecdd3) !important;
+  color: #881337 !important;
+}
+
 [data-theme="light"] .btn.btn-secondary {
   --btn-bg: linear-gradient(180deg, #ede9fe, #ddd6fe) !important;
   --btn-color: #4c1d95 !important;

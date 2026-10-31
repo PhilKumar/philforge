@@ -11480,4 +11480,13 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
 [data-theme="light"] #live-page {
   --success: inherit;
   --green: inherit;
+  --accent: inherit;
+}
+/* The default look never had a light-mode accent: live prices, the clock and
+   the CE/PE toggles stayed the dark theme's bright teal on a white page. Every
+   chosen tint darkens its accent for light mode; the default takes the
+   standard green (Phil, 31-Oct-2026). */
+html[data-theme="light"]:not([data-pf-tint]),
+html[data-theme="light"][data-pf-tint="native"] {
+  --accent: var(--success);
 }
