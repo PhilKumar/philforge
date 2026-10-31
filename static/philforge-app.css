@@ -4257,7 +4257,7 @@
   [data-theme="light"] .topbar-ticker [style*="color: var(--"],
   [data-theme="light"] .topbar-ticker [style*="color:var(--"] { font-weight: 800 !important; }
   [data-theme="light"] .topbar-clock { background: rgba(248,250,252,0.8); border-color: rgba(15,23,42,0.06); color: #475569; }
-  [data-theme="light"] #clock-time { font-weight: 800 !important; }
+  [data-theme="light"] #clock-time { font-weight: 800 !important; color: var(--success) !important; }
   [data-theme="light"] .topbar-user-chip { background: rgba(248,250,252,0.86); border-color: rgba(15,23,42,0.06); color: #0f172a; }
   [data-theme="light"] .topbar-user-chip:hover { background: rgba(241,245,249,0.95); }
   [data-theme="light"] .topbar-user-role { color: #047857; }
