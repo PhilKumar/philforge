@@ -1767,10 +1767,10 @@ function _assetsEffectiveTheme() {
 // Boundary sheet. One frame, one route (?doc=), one theme contract.
 let _assetsTearsheetDoc = _storedView(
   PF_VIEW_STATE.assetsTearsheet,
-  ['options', 'fib', 'candle', 'gapcarry', 'supertrend'],
+  ['options', 'fib', 'candle', 'gapcarry', 'supertrend', 'liveexits'],
   'options'
 );
-const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet', gapcarry: 'Gap Carry Tearsheet', supertrend: 'Supertrend Tearsheet' };
+const _ASSETS_TEARSHEET_TITLES = { options: 'Five-Year Tearsheet', fib: 'Fib Boundary Tearsheet', candle: 'Candle Entry Tearsheet', gapcarry: 'Gap Carry Tearsheet', supertrend: 'Supertrend Tearsheet', liveexits: 'My Exits vs the Rule' };
 function _assetsTearsheetTitle(doc) { return _ASSETS_TEARSHEET_TITLES[doc] || 'Five-Year Tearsheet'; }
 function _assetsTearsheetUrl() {
   return `/assets/tearsheet?doc=${_assetsTearsheetDoc}&theme=${_assetsEffectiveTheme()}`;

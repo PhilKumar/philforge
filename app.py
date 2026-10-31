@@ -6478,6 +6478,9 @@ _TEARSHEET_DOCS = {
     "gapcarry": _GAPCARRY_TEARSHEET_PATH,
     "supertrend": _SUPERTREND_TEARSHEET_PATH,
 }
+# Worked out from the live books' saved trades on every open, not a file, so
+# each month adds itself (_live_exit_review_fragment).
+_LIVE_TEARSHEET_DOCS = {"liveexits"}
 
 
 @app.get("/assets/tearsheet", response_class=HTMLResponse)
@@ -6491,11 +6494,14 @@ async def serve_assets_tearsheet(request: Request, doc: str = "options"):
     user = await _get_page_user(request)
     if not user:
         return _render_login_page()
-    path = _TEARSHEET_DOCS.get(str(doc).lower(), _TEARSHEET_PATH)
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Tearsheet document not found")
-    with open(path, encoding="utf-8") as handle:
-        fragment = handle.read()
+    if str(doc).lower() in _LIVE_TEARSHEET_DOCS:
+        fragment = await _live_exit_review_fragment(user)
+    else:
+        path = _TEARSHEET_DOCS.get(str(doc).lower(), _TEARSHEET_PATH)
+        if not os.path.exists(path):
+            raise HTTPException(status_code=404, detail="Tearsheet document not found")
+        with open(path, encoding="utf-8") as handle:
+            fragment = handle.read()
     # The workspace owns the theme; the document follows it rather than deciding
     # for itself, or the embed would fight the page around it.
     theme = request.query_params.get("theme", "")
@@ -22195,6 +22201,192 @@ async def _build_trade_chart(user_id: int, run_id: str, trade: dict, engine, bro
         "overlays": analytics["overlays"],
         "live_price": 0.0,
     }
+
+
+# ── My exits against the rule's (Assets → Tearsheet → Live · my exits) ──
+# Phil, 2026-10-31: "what really happened on Live with 2 lots and 3 lots on
+# expiry every month from september comparing with my exits in detail". The
+# live CE/PE books' real trades, and for each one closed by hand, where the
+# book's own rules would have closed it (live_exit_review.py). A closed trade's
+# answer never changes, so each is worked out once and kept.
+_LIVE_EXIT_REVIEW_FROM = "2026-09-01"
+_LIVE_EXIT_REVIEW_VERSION = 1
+
+
+def _live_exit_review_key(user_id: int) -> str:
+    return f"live_exit_review:{int(user_id)}"
+
+
+def _trade_broker(trade: dict) -> str:
+    named = str(trade.get("broker") or "").strip().lower()
+    if named in {"dhan", "zerodha"}:
+        return named
+    return "zerodha" if str(trade.get("book_name") or "").endswith("_Zerodha") else "dhan"
+
+
+async def _book_rules(user_id: int, book_name: str) -> dict:
+    """The rules a live book trades: its running engine, its saved state, or
+    the saved strategy of the same name, in that order."""
+    engine = _registry_bucket(live_engines, user_id).get(book_name)
+    if engine is not None and getattr(engine, "exit_conditions", None):
+        return {
+            **dict(getattr(engine, "strategy", None) or {}),
+            "entry_conditions": list(getattr(engine, "entry_conditions", None) or []),
+            "exit_conditions": list(engine.exit_conditions),
+        }
+    state = _read_json_file(os.path.join(_engine_state_dir(int(user_id), create=False), f"live_state_{book_name}.json"))
+    if isinstance(state, dict) and state.get("exit_conditions"):
+        return {
+            **dict(state.get("strategy") or {}),
+            "entry_conditions": list(state.get("entry_conditions") or []),
+            "exit_conditions": list(state["exit_conditions"]),
+        }
+    try:
+        saved = await _db_mod.list_strategies(int(user_id))
+    except Exception:
+        saved = []
+    named = [s for s in saved or [] if str(s.get("run_name") or s.get("name") or "") == book_name]
+    return dict(named[-1]) if named else {}
+
+
+async def _live_exit_review(user: dict, broker_name: str = "dhan") -> list[dict]:
+    """The months of live CE/PE trades on one broker, with the rule's exit beside each."""
+    import live_exit_review as _ler
+
+    user_id = int(user["id"])
+    trades = [
+        t
+        for t in await _live_book_trades(user_id)
+        if str(t.get("entry_time") or "")[:10] >= _LIVE_EXIT_REVIEW_FROM and _trade_broker(t) == broker_name
+    ]
+    key = _live_exit_review_key(user_id)
+    try:
+        kept = json.loads(await _db_mod.get_app_state(key) or "{}")
+    except (TypeError, ValueError):
+        kept = {}
+    if kept.get("v") != _LIVE_EXIT_REVIEW_VERSION:
+        kept = {"v": _LIVE_EXIT_REVIEW_VERSION, "rules": {}}
+    rules: dict = kept.setdefault("rules", {})
+    held: dict = {}
+    index_days: dict[str, Any] = {}
+    changed = False
+
+    async def client():
+        if "client" not in held:
+            held["client"] = _resolve_user_broker_client(user)[0]
+        return held["client"]
+
+    async def index_for(day: date):
+        iso = day.isoformat()
+        if iso not in index_days:
+            frame = None
+            broker_client = await client()
+            if broker_client is not None:
+                try:
+                    frame = await asyncio.to_thread(
+                        broker_client.get_historical_data,
+                        security_id="13",
+                        exchange_segment="IDX_I",
+                        instrument_type="INDEX",
+                        from_date=(day - timedelta(days=7)).isoformat(),
+                        to_date=(day + timedelta(days=1)).isoformat(),
+                        candle_type="1",
+                    )
+                except Exception as exc:
+                    _logger.warning("[EXIT REVIEW] NIFTY candles for %s unavailable: %s", iso, exc)
+            index_days[iso] = frame if frame is not None and not getattr(frame, "empty", True) else None
+        return index_days[iso]
+
+    async def paper_trades() -> list[dict]:
+        """The paper copies' closed trades, latest save of each."""
+        if "paper" not in held:
+            try:
+                saved = await _db_mod.list_runs_by_mode(user_id, "paper")
+            except Exception:
+                saved = []
+            latest: dict = {}
+            for run in saved or []:
+                name = str(run.get("run_name") or "")
+                for paper_trade in run.get("trades") or []:
+                    if isinstance(paper_trade, dict) and paper_trade.get("exit_time"):
+                        latest[(name, _same_trade_key(paper_trade))] = {**paper_trade, "book_name": name}
+            held["paper"] = list(latest.values())
+        return held["paper"]
+
+    rows = []
+    for trade in trades:
+        entry_ts = _scalp_option_chart_timestamp(trade.get("entry_time"))
+        exit_ts = _scalp_option_chart_timestamp(trade.get("exit_time"))
+        trade_key = f"{trade.get('book_name')}|{trade.get('id') or ''}_{int(entry_ts or 0)}"
+        rule = None
+        by_hand = str(trade.get("exit_reason") or "").upper() in _ler.MANUAL_REASONS
+        if by_hand and not _ler.was_its_own_stop(trade):
+            rule = rules.get(trade_key)
+            if rule is None and entry_ts and _trade_chart_is_complete(exit_ts):
+                rule = _ler.twin_exit(trade, await paper_trades())
+                if rule is None:
+                    rule = await _work_out_rule_exit(user_id, trade, entry_ts, exit_ts, client, index_for)
+                if rule is not None:
+                    rules[trade_key] = rule
+                    changed = True
+        rows.append(_ler.review_row(trade, rule))
+    if changed:
+        await _db_mod.set_app_state(key, json.dumps(kept))
+    return _ler.by_month(rows)
+
+
+async def _work_out_rule_exit(user_id: int, trade: dict, entry_ts: int, exit_ts: int | None, client, index_for):
+    """One hand-closed trade, walked forward on its book's rules. None when the
+    candles cannot be had."""
+    import live_exit_review as _ler
+
+    book = str(trade.get("book_name") or "")
+    strategy = await _book_rules(user_id, book)
+    if not strategy.get("exit_conditions"):
+        return None
+    entry_day = datetime.fromtimestamp(entry_ts, IST).date()
+    end_day = datetime.fromtimestamp(exit_ts, IST).date() if exit_ts else entry_day
+    path = _trade_chart_cache_path(user_id, book, f"{trade.get('id') or ''}_{int(entry_ts)}", "5")
+    candles = _read_trade_chart_cache(path)
+    if not candles:
+        broker_client = await client()
+        if broker_client is None:
+            return None
+        try:
+            candles = await _contract_chart_candles(
+                broker_client,
+                trade,
+                underlying="NIFTY",
+                strike=int(float(trade.get("strike") or 0)),
+                expiry=str(trade.get("expiry") or ""),
+                option_type=str(trade.get("option_type") or "").upper(),
+                from_date=entry_day - timedelta(days=4),
+                to_date=end_day,
+                candle_type="5",
+                cache_path=path,
+            )
+        except Exception as exc:
+            _logger.warning("[EXIT REVIEW] %s %s: contract candles unavailable: %s", book, entry_day, exc)
+            return None
+    index_1m = await index_for(entry_day)
+    if index_1m is None:
+        return None
+    try:
+        return await asyncio.to_thread(_ler.rule_exit, trade, strategy, index_1m, _ler.option_bars(candles))
+    except Exception as exc:
+        _logger.warning("[EXIT REVIEW] %s %s: could not walk the rule: %s", book, entry_day, exc)
+        return None
+
+
+async def _live_exit_review_fragment(user: dict) -> str:
+    import live_exit_review as _ler
+
+    # A read-only login is shown the owner's trading, as on every live page.
+    if _auth_mod.is_viewer(user):
+        user = await _db_mod.get_user_by_id(await _viewer_data_owner_id()) or {"id": 0}
+    months = await _live_exit_review(user, "dhan")
+    generated = datetime.now(IST).strftime("%d %b %Y, %H:%M IST")
+    return _ler.render(months, generated=generated, broker="Dhan")
 
 
 # ── The keeper: every closed LIVE trade's chart, saved without being opened ──

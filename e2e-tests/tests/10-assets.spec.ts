@@ -328,6 +328,25 @@ function tearsheetHeadline(): string {
   return `${rest},${last3}`;
 }
 
+test('Live · my exits is worked out from the live books and opens in the tearsheet frame', async ({ page }) => {
+  // Phil, 2026-10-31: the live CE/PE trades, his exits against the rule's. It
+  // is built from the saved live runs on every open, not a file on disk.
+  await login(page);
+  const document_ = await page.request.get('/assets/tearsheet?doc=liveexits');
+  expect(document_.status()).toBe(200);
+  const body = await document_.text();
+  expect(body.startsWith('<!DOCTYPE html>')).toBe(true);
+  expect(body).toContain('My exits vs the rule');
+
+  await page.goto('/app#assets/tearsheet');
+  await expect(page.locator('#assets-tearsheet-panel')).toBeVisible();
+  await page.locator('.pf-tearsheet-doc[data-doc="liveexits"]').click();
+  await expect(page.locator('#architecture-view-title')).toHaveText('My Exits vs the Rule');
+  await expect(page.frameLocator('#assets-tearsheet-frame').locator('h1')).toHaveText('My exits vs the rule');
+  // Leave the strip on the default sheet for the tests that follow.
+  await page.locator('.pf-tearsheet-doc[data-doc="options"]').click();
+});
+
 test('the tearsheet is served whole and embedded in the workspace it belongs to', async ({ page }) => {
   const unauthenticated = await page.request.get('/assets/tearsheet', { maxRedirects: 0 });
   expect(unauthenticated.status()).toBe(401);
