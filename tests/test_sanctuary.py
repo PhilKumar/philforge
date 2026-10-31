@@ -1922,16 +1922,144 @@ class TheOverdraftIsNotMoneyHeHasTests(unittest.TestCase):
         self.assertNotIn("make that the figure", page)
         self.assertNotIn('id="od-accept"', page)
 
-    def test_the_owed_form_asks_for_the_number_his_bank_shows(self):
-        """His app prints what he can still DRAW, not what he owes. Asking
-        him for "owed" made him do the subtraction — and the one time he
-        gave the app's figure, it was read the wrong way round."""
+    def test_the_owed_form_asks_for_the_one_number_his_app_shows(self):
+        """His app shows the account and the overdraft's headroom as one
+        total. The form takes that and removes the account itself."""
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(here, "sanctuary.html"), encoding="utf-8") as handle:
             page = handle.read()
-        self.assertIn("It says you can still draw", page)
-        self.assertIn("cap - Number(avail)", page)
-        self.assertIn("So you owe", page)
+        self.assertIn("Your total balance, overdraft included", page)
+        self.assertIn("limit - Number(total) + acct", page)
+        self.assertIn("body.bank_total = Number(total)", page)
+
+
+class TheOverdraftFollowsItsSweepsTests(unittest.TestCase):
+    """His real three days, 29–31 October 2026, replayed.
+
+    Afternoon of the 29th his app said ₹1,05,556.40 with ₹6,600.31 in the
+    account. That night ₹3,101 swept across; on the 30th his salary came in
+    and ₹96,925 went across. On the 31st the account stood at −₹468.28 and
+    the app said ₹1,98,513.81. Set once on the 29th, the page must arrive
+    at the 31st's figure by itself, to the paisa — so he never has to type
+    it again after an import.
+    """
+
+    def setUp(self):
+        db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+        os.close(db_fd)
+        os.environ["PHILFORGE_DB"] = self._db_path
+        import importlib
+
+        import config
+        import db as core_db
+
+        importlib.reload(config)
+        core_db.config = config
+        core_db._initialized = False
+        core_db._init_db_sync()
+        import sanctuary
+        import sanctuary_db
+
+        sanctuary_db.config = config
+        self.db = sanctuary_db
+        self.s = sanctuary
+        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {"limit": 330000.0}))
+
+    def tearDown(self):
+        os.unlink(self._db_path)
+
+    def rows(self, *rows):
+        asyncio.run(self.db.add_ledger_many(1, list(rows)))
+
+    def row(self, ref, day, amount, balance, *, into=False, sweep=None):
+        return {
+            "entry_date": day,
+            "category": "OD loan" if sweep else "Groceries",
+            "amount": amount,
+            "note": sweep or "shop",
+            "source": "statement-in" if into else "statement",
+            "ref_id": f"stmt:503204:{ref}",
+            "balance": balance,
+        }
+
+    def set_total(self, total):
+        class Req:
+            async def json(self):
+                return {"bank_total": total, "account": "035005008452"}
+
+        return asyncio.run(self.s.od_owed_put(Req(), user={"id": 1}))
+
+    def owed_now(self):
+        loan = self.s._od_loan(asyncio.run(self.db.list_loans(1)), "")
+        return asyncio.run(self.s._od_owed_now(1, loan))
+
+    def the_29th_afternoon(self):
+        self.rows(self.row("a", "2026-10-29", 5000.0, 6600.31, into=True))
+
+    def the_29th_night_to_the_31st(self):
+        self.rows(
+            self.row("b", "2026-10-29", 1999.0, 4601.31),
+            self.row("c", "2026-10-29", 1500.0, 3101.31),
+            self.row("d", "2026-10-29", 3101.0, 0.31, sweep="Sweep to OD Ac"),
+            self.row("e", "2026-10-30", 118406.41, 118406.72, into=True),
+            self.row("f", "2026-10-30", 21481.0, 96925.72),
+            self.row("g", "2026-10-30", 96925.0, 0.72, sweep="Sweep to OD Ac"),
+            self.row("h", "2026-10-31", 469.0, -468.28),
+        )
+
+    def test_the_apps_total_less_the_account_is_what_the_overdraft_lends(self):
+        self.the_29th_afternoon()
+        out = self.set_total(105556.40)
+        # ₹1,05,556.40 was ₹6,600.31 of account and ₹98,956.09 of headroom.
+        self.assertEqual(out["owed"], 231043.91)
+
+    def test_set_once_it_reaches_the_31st_by_the_sweeps_alone_to_the_paisa(self):
+        self.the_29th_afternoon()
+        self.set_total(105556.40)
+        self.the_29th_night_to_the_31st()
+        owed = self.owed_now()
+        self.assertEqual(owed, 131017.91)
+        # And what his app showed on the 31st, rebuilt from it:
+        self.assertEqual(round(330000.0 - owed + (-468.28), 2), 198513.81)
+
+    def test_the_sweep_on_the_night_he_set_it_is_not_thrown_away(self):
+        """Going by the day, "strictly after the 29th" dropped the ₹3,101
+        that swept at 9:39 that night."""
+        self.the_29th_afternoon()
+        self.set_total(105556.40)
+        self.rows(self.row("d", "2026-10-29", 3101.0, 3499.31, sweep="Sweep to OD Ac"))
+        self.assertEqual(self.owed_now(), 227942.91)
+
+    def test_setting_it_again_today_agrees_with_what_the_sweeps_carried(self):
+        self.the_29th_afternoon()
+        self.set_total(105556.40)
+        self.the_29th_night_to_the_31st()
+        carried = self.owed_now()
+        self.assertEqual(self.set_total(198513.81)["owed"], carried)
+        self.assertEqual(self.owed_now(), carried)
+
+    def test_an_overdraft_in_credit_is_carried_as_one_not_floored_to_nothing(self):
+        """On the 3rd of September his sweep account was ₹23,614 in credit."""
+        self.rows(self.row("x", "2026-09-03", 10.0, 0.0))
+        self.assertEqual(self.set_total(353614.0)["owed"], -23614.0)
+        self.assertEqual(self.owed_now(), -23614.0)
+
+    def test_the_total_cannot_be_read_without_a_limit(self):
+        from fastapi import HTTPException
+
+        asyncio.run(self.db.set_json_state(1, self.s.OD_HELD_STATE, {}))
+        self.the_29th_afternoon()
+        with self.assertRaises(HTTPException):
+            self.set_total(105556.40)
+
+    def test_where_i_stand_counts_todays_figure_not_the_one_he_set(self):
+        self.the_29th_afternoon()
+        self.set_total(105556.40)
+        self.the_29th_night_to_the_31st()
+        st = asyncio.run(self.s.finance_standing(user={"id": 1}))
+        od = [d for d in st["debts"] if "overdraft" in d["name"].lower()]
+        self.assertEqual([d["remaining"] for d in od], [131017.91])
+        self.assertEqual(st["od_headroom"], 198982.09)
 
 
 class FromTheFileToTheTileTests(unittest.TestCase):

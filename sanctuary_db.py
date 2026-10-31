@@ -570,15 +570,15 @@ async def balance_last_known(user_id: int) -> dict:
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            """SELECT entry_date, balance FROM sanctuary_ledger
+            """SELECT id, entry_date, balance FROM sanctuary_ledger
                WHERE user_id = ? AND balance IS NOT NULL
                ORDER BY entry_date DESC, id DESC LIMIT 1""",
             (int(user_id),),
         )
         row = await cursor.fetchone()
     if not row:
-        return {"balance": None, "as_of": ""}
-    return {"balance": round(float(row["balance"]), 2), "as_of": str(row["entry_date"])}
+        return {"balance": None, "as_of": "", "row": 0}
+    return {"balance": round(float(row["balance"]), 2), "as_of": str(row["entry_date"]), "row": int(row["id"])}
 
 
 async def refs_missing_balance(user_id: int, ref_ids: list[str]) -> set[str]:
@@ -671,7 +671,9 @@ async def every_filed_row(user_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
-async def ledger_rows_in_categories(user_id: int, categories: list[str], since: str = "") -> list[dict]:
+async def ledger_rows_in_categories(
+    user_id: int, categories: list[str], since: str = "", after_id: int = 0
+) -> list[dict]:
     """Every row currently filed under one of these categories.
 
     The resort pass reads only the unsorted pile, on purpose. This is for
@@ -688,6 +690,11 @@ async def ledger_rows_in_categories(user_id: int, categories: list[str], since: 
         # has that day's sweeps inside the figure he wrote down.
         where += " AND entry_date > ?"
         params.append(since)
+    if after_id:
+        # After a particular row rather than a particular day: the order the
+        # bank's statement printed them in is the order the money moved.
+        where += " AND id > ?"
+        params.append(int(after_id))
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
@@ -811,6 +818,7 @@ async def update_loan(user_id: int, loan_id: int, fields: dict) -> bool:
         "drawn_amount",
         "stated_on",
         "on_a_card",
+        "stated_after",
         "active",
     }
     sets, params = [], []
@@ -1127,3 +1135,11 @@ async def delete_plan(user_id: int, plan_id: int) -> bool:
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+async def newest_ledger_row(user_id: int) -> int:
+    """The id of the last row the ledger holds, or 0."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        cursor = await db.execute("SELECT MAX(id) FROM sanctuary_ledger WHERE user_id = ?", (int(user_id),))
+        row = await cursor.fetchone()
+    return int(row[0] or 0) if row else 0

@@ -1842,7 +1842,7 @@ def _od_view(ledger: list[dict], loans: list[dict], since_rows: list[dict] | Non
     # carry it forward, so it is not today's — and presenting it as owed is
     # how his card sat on three lakh nineteen thousand for months while the
     # sweeps went on underneath it. The panel asks for it instead.
-    said = bool(loan and float(loan.get("drawn_amount") or 0) > 0 and view["stated_on"])
+    said = bool(loan and view["stated_on"] and (float(loan.get("drawn_amount") or 0) or loan.get("stated_after")))
     view["owed"] = round(float(loan.get("drawn_amount") or 0), 2) if said else 0.0
     view["owed_said"] = said
     view["owed_unanchored"] = bool(loan and float(loan.get("drawn_amount") or 0) > 0 and not view["stated_on"])
@@ -1852,8 +1852,47 @@ def _od_view(ledger: list[dict], loans: list[dict], since_rows: list[dict] | Non
     )
     view["moved_since"] = round(moved, 2)
     view["sweeps_since"] = len(rows)
+    # What it owes TODAY. Carried by the sweeps, and the card shows this one:
+    # asked to re-enter the figure after every statement, he asked whether
+    # he would have to do it all the time. He should not.
     view["now"] = round(view["owed"] + moved, 2) if view["owed_said"] else 0.0
     return view
+
+
+def _od_carried(stated: float, rows: list[dict]) -> float:
+    """What the overdraft owes now: the figure he set, moved by every sweep
+    after it. Money swept back to him draws on it; money swept across
+    repays it. Below zero the account is in credit, which a sweep account
+    can be — it was, by ₹23,614, on the 3rd of September."""
+    drew = sum(r["amount"] for r in rows if r.get("source") == "statement-in")
+    repaid = sum(r["amount"] for r in rows if r.get("source") != "statement-in")
+    return round(stated + drew - repaid, 2)
+
+
+async def _od_rows_since_stated(user_id: int, loan: dict | None) -> list[dict]:
+    """The sweeps that happened after his figure was true.
+
+    After the row it was true at, where the page knows it. It did not use to:
+    it went by the day, "strictly after", and so threw away the sweep his
+    bank runs at 9:39 every night on the very day he read the app — ₹3,101
+    on the 29th of October. Carried by rows instead, the figure he set that
+    afternoon reproduced his bank two days later to the paisa.
+    """
+    if not loan:
+        return []
+    after = int(loan.get("stated_after") or 0)
+    if after:
+        return await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], after_id=after)
+    on = str(loan.get("stated_on") or "")
+    return await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], since=on) if on else []
+
+
+async def _od_owed_now(user_id: int, loan: dict | None) -> float | None:
+    """The overdraft's balance today, or None where nothing anchors it."""
+    if not loan or not str(loan.get("stated_on") or ""):
+        return None
+    rows = await _od_rows_since_stated(user_id, loan)
+    return _od_carried(float(loan.get("drawn_amount") or 0), rows)
 
 
 def _od_headroom(limit, od_card: dict | None) -> float:
@@ -2075,6 +2114,10 @@ async def finance_standing(user: dict = Depends(_unlocked_user)):
             elif float(loan.get("drawn_amount") or 0) > 0:
                 unknown += 1
                 continue
+        if loan is od_card and str(loan.get("stated_on") or ""):
+            carried = await _od_owed_now(user_id, loan)
+            loan = dict(loan) | {"drawn_amount": max(carried or 0.0, 0.0), "active": 1 if (carried or 0) > 0 else 0}
+            od_card = loan
         if not loan.get("active"):
             continue
         emis = await sanctuary_db.emis_for_loan(user_id, loan["id"])
@@ -3030,6 +3073,10 @@ async def loans_list(user: dict = Depends(_unlocked_user)):
             loan["od_sweeps"] = standing["sweeps"]
             loan["od_from"] = standing["from"]
             loan["od_to"] = standing["to"]
+            carried = await _od_owed_now(int(user["id"]), loan)
+            if carried is not None:
+                loan["od_stated"] = loan.get("drawn_amount")
+                loan["drawn_amount"] = max(carried, 0.0)
         if od_rows and loan is od_card and not str(loan.get("stated_on") or ""):
             # A figure typed with no day attached cannot be carried forward,
             # so it is not today's balance however true it once was.
@@ -3081,13 +3128,34 @@ async def od_owed_put(request: Request, user: dict = Depends(_unlocked_user)):
     the bank knows that.
     """
     payload = await request.json()
+    user_id = int(user["id"])
     try:
+        bank_total = None if payload.get("bank_total") in (None, "") else round(float(payload["bank_total"]), 2)
         owed = round(float(payload.get("owed") or 0), 2)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Bad amount") from None
-    if not 0 <= owed <= 100_000_000:
+    after = 0
+    if bank_total is not None:
+        # What his app shows is ONE number: the account and what the
+        # overdraft would still lend, added together. ₹1,98,513.81 on the
+        # 31st of October was −₹468.28 in the account plus ₹1,98,982.09 on
+        # the overdraft. Taken as "what you can still draw" it is off by
+        # whatever the account holds — ₹6,600 the first time — so the
+        # account is taken back out, using the statement's own balance, and
+        # the figure is pinned to the very row that balance belongs to.
+        known = await sanctuary_db.balance_last_known(user_id)
+        limit = await _od_limit(user_id)
+        if limit is None or known["balance"] is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Needs the overdraft's limit and an imported statement before the total can be read",
+            )
+        owed = round(limit - bank_total + known["balance"], 2)
+        after = int(known["row"] or 0)
+    if not -100_000_000 <= owed <= 100_000_000:
         raise HTTPException(status_code=400, detail="Bad amount")
-    user_id = int(user["id"])
+    if bank_total is None and owed < 0:
+        raise HTTPException(status_code=400, detail="Bad amount")
     account = str(payload.get("account") or "")[:40]
     loans = await sanctuary_db.list_loans(user_id)
     loan = _od_loan(loans, account)
@@ -3104,13 +3172,13 @@ async def od_owed_put(request: Request, user: dict = Depends(_unlocked_user)):
         _today_ist().isoformat(),
         await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY]),
     )
+    # A figure typed as "owed" is taken as true after everything the ledger
+    # already holds — the rows he could see when he read it.
+    after = after or await sanctuary_db.newest_ledger_row(user_id)
+    fields = {"drawn_amount": owed, "stated_on": stated_on, "stated_after": after, "active": 1 if owed > 0 else 0}
     if loan:
-        await sanctuary_db.update_loan(
-            user_id,
-            loan["id"],
-            {"drawn_amount": owed, "stated_on": stated_on, "active": 1 if owed else 0},
-        )
-        return {"id": loan["id"], "owed": owed, "stated_on": stated_on}
+        await sanctuary_db.update_loan(user_id, loan["id"], fields)
+        return {"id": loan["id"], "owed": owed, "stated_on": stated_on, "stated_after": after}
     loan_id = await sanctuary_db.create_loan(
         user_id,
         _clean_loan_fields(
@@ -3118,13 +3186,14 @@ async def od_owed_put(request: Request, user: dict = Depends(_unlocked_user)):
                 "name": name,
                 "lender": "Sweep-linked overdraft",
                 "account_no": account,
-                "drawn_amount": owed,
+                "drawn_amount": max(owed, 0.0),
                 "note": "A revolving debt: no schedule, only a balance the bank states.",
             }
         )
         | {"stated_on": stated_on},
     )
-    return {"id": loan_id, "owed": owed, "stated_on": stated_on}
+    await sanctuary_db.update_loan(user_id, loan_id, {"drawn_amount": owed, "stated_after": after})
+    return {"id": loan_id, "owed": owed, "stated_on": stated_on, "stated_after": after}
 
 
 async def _loan_candidates(user_id: int) -> list[dict]:
@@ -4031,10 +4100,7 @@ async def finance_month(month: str | None = None, user: dict = Depends(_unlocked
     # card, because only he can know it and it has to count as debt. Every
     # sweep since the day he stated it carries that figure forward.
     all_loans = await sanctuary_db.list_loans(user_id)
-    od_anchor = str((_od_loan(all_loans, "") or {}).get("stated_on") or "")
-    od_since = (
-        await sanctuary_db.ledger_rows_in_categories(user_id, [OD_CATEGORY], since=od_anchor) if od_anchor else []
-    )
+    od_since = await _od_rows_since_stated(user_id, _od_loan(all_loans, ""))
 
     bank = await _bank_balance(user_id)
     months_state = await sanctuary_db.get_json_state(user_id, "months", {})

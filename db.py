@@ -422,6 +422,11 @@ def _init_db_sync():
         # is already a ledger row, so a schedule that also spends it counts
         # the same money twice.
         ("on_a_card", "INTEGER NOT NULL DEFAULT 0"),
+        # The ledger row his stated overdraft figure was true AFTER. A date
+        # cannot say it: his bank sweeps at 9:39 at night, so the sweep on
+        # the day he read the app came after his figure, and a "strictly after
+        # that day" rule threw it away. A row can.
+        ("stated_after", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if column not in existing_loan_columns:
             conn.execute(f"ALTER TABLE sanctuary_loans ADD COLUMN {column} {decl}")  # nosec B608

@@ -3043,17 +3043,19 @@ function renderOd(od, month){
     <div class="od-head"><span class="od-what">Sweep overdraft${
       od.account ? ` <span class="num">··${esc(od.account.slice(-4))}</span>` : ""}</span>
       ${od.owed_said
-        ? `<span class="od-owed">owed <b class="num">${inr(od.owed)}</b> <button class="od-set" id="od-set">change</button>
+        ? `<span class="od-owed">${od.now > 0 ? `owes <b class="num">${inr(od.now)}</b>` : `in credit <b class="num">${inr(-od.now)}</b>`}
+           <button class="od-set" id="od-set">change</button>
            <span class="od-limit">${S.fin && S.fin.bank_od_limit ? `of ${inr(S.fin.bank_od_limit)} limit` : "limit"}
            <button class="od-set" id="od-held-edit">${S.fin && S.fin.bank_od_limit ? "edit" : "set"}</button></span></span>`
         : `<span class="od-owed unknown">${od.owed_unanchored
             ? "the figure here has no date on it, so it cannot be today's"
             : "balance not stated"} <button class="od-set" id="od-set">set it</button></span>`}</div>
-    ${od.owed_said && od.sweeps_since ? `<div class="od-since">
-      ${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"} since you stated it on ${esc(niceDate(od.stated_on))} —
-      check the bank and <button class="od-set" id="od-recheck">change it</button>
-      <small>The sweeps cannot say what it stands at: carried forward from 19 Sep they put it at ₹2.5 lakh owed on a day
-      the bank said ₹2,24,444. Only the bank's figure counts.</small>
+    ${od.owed_said ? `<div class="od-since">
+      ${od.sweeps_since
+        ? `You set it at ${inr(od.owed)} on ${esc(niceDate(od.stated_on))}; ${od.sweeps_since} sweep${od.sweeps_since === 1 ? "" : "s"}
+           since have carried it to today's figure.`
+        : `As you set it on ${esc(niceDate(od.stated_on))}.`}
+      <small>It follows every sweep in the statements you import — import, and it stays right.</small>
     </div>` : ""}
     ${od.moves ? `<div class="od-flow">
       <span>${esc(niceMonth(month))}: drew <b class="num">${inr(od.drawn)}</b></span>
@@ -3064,8 +3066,7 @@ function renderOd(od, month){
   </div>`;
   const set = $("od-set");
   if (set) set.onclick = () => odOwedForm(od);
-  const recheck = $("od-recheck");
-  if (recheck) recheck.onclick = () => odOwedForm(od);
+
 }
 /* What is PARKED in the sweep account — his money, not what it lends him.
    The statement's running balance is the current account only, and it is the
@@ -3096,44 +3097,53 @@ function odHeldForm(){
 /* The bank's figure, which only he can supply. It is kept as a loan card so
    it counts toward the total debt rather than living where one panel can
    see it and nothing else can. */
-/* His bank does not print what he OWES on the overdraft. It prints what he
-   can still DRAW — ₹1,05,556 on a ₹3,30,000 limit — and the owed figure is
-   the subtraction he should not have to do in his head. So the form asks
-   for the number the app shows and does the arithmetic out loud. */
+/* His bank app shows ONE balance: the account and what the overdraft
+   would still lend, added together — ₹1,98,513.81 on 31 Oct was −₹468.28
+   plus ₹1,98,982.09. The form asks for exactly that number and takes the
+   account back out itself; asked only for "what you can still draw", it
+   was off by whatever the account held. */
 function odOwedForm(od){
-  const limit = (S.fin && S.fin.bank_od_limit) || "";
+  const limit = Number((S.fin && S.fin.bank_od_limit) || 0);
+  const acct = S.fin ? S.fin.bank_balance : null;
   const wrap = modal(`<h4>What the overdraft stands at</h4>
-    <div class="section-sub" style="margin-bottom:10px">Take these off the bank app${od.account ? ` — account ··${esc(od.account.slice(-4))}` : ""}.</div>
-    <label>It says you can still draw</label>
-    <input class="field num" id="odf-avail" type="number" min="0" step="0.01" placeholder="105556">
-    <label>Its limit</label>
-    <input class="field num" id="odf-limit" type="number" min="0" step="0.01" value="${limit}" placeholder="330000">
-    <div class="section-sub" id="odf-says" style="margin-top:10px;min-height:1.3em"></div>
+    <div class="section-sub" style="margin-bottom:10px">Import today's statement first, then read your bank app${
+      od.account ? ` (account ··${esc(od.account.slice(-4))})` : ""}.</div>
+    <label>Your total balance, overdraft included</label>
+    <input class="field num" id="odf-total" type="number" step="0.01" placeholder="198513.81">
+    <div class="section-sub" id="odf-says" style="margin-top:10px;min-height:2.6em"></div>
     <details style="margin-top:6px"><summary style="cursor:pointer;color:var(--soft);font-size:.85rem">or type what is owed</summary>
-      <input class="field num" id="odf-owed" type="number" min="0" step="0.01" value="${od.owed || ""}" placeholder="224444">
+      <input class="field num" id="odf-owed" type="number" min="0" step="0.01" placeholder="131018">
     </details>
     <div class="m-foot">
       <button class="btn subtle" id="odf-cancel">Leave it</button>
       <button class="btn" id="odf-save">Keep it</button></div>`);
   const q = (id) => wrap.querySelector(id);
-  const owedNow = () => {
-    const avail = q("#odf-avail").value, cap = Number(q("#odf-limit").value || 0);
-    if (avail !== "" && cap > 0) return Math.max(Math.round((cap - Number(avail)) * 100) / 100, 0);
-    return q("#odf-owed").value === "" ? null : Number(q("#odf-owed").value);
+  const owedFrom = () => {
+    const total = q("#odf-total").value;
+    if (total !== "" && limit > 0 && acct != null) return Math.round((limit - Number(total) + acct) * 100) / 100;
+    return null;
   };
-  const say = () => { const o = owedNow();
-    q("#odf-says").innerHTML = o == null ? "" : `So you owe <b class="num">${inr2(o)}</b> on it.`; };
-  ["#odf-avail", "#odf-limit", "#odf-owed"].forEach((id) => q(id).addEventListener("input", say));
+  const say = () => {
+    const o = owedFrom();
+    if (q("#odf-total").value !== "" && (!limit || acct == null)) {
+      q("#odf-says").textContent = "Set the overdraft's limit and import a statement first.";
+      return;
+    }
+    q("#odf-says").innerHTML = o == null ? "" : `${inr2(acct)} in the account, so the overdraft has
+      ${inr2(limit - o)} left to lend — it ${o >= 0 ? `owes <b class="num">${inr2(o)}</b>` : `is in credit <b class="num">${inr2(-o)}</b>`}.`;
+  };
+  q("#odf-total").addEventListener("input", say);
   q("#odf-cancel").onclick = () => wrap.remove();
   q("#odf-save").onclick = async () => {
-    const owed = owedNow();
-    if (owed == null) { toast("Put in what it says you can draw, or what is owed"); return; }
-    const cap = Number(q("#odf-limit").value || 0);
+    const total = q("#odf-total").value, typed = q("#odf-owed").value;
+    const body = {account: od.account || ""};
+    if (total !== "") body.bank_total = Number(total);
+    else if (typed !== "") body.owed = Number(typed);
+    else { toast("Put in the total your app shows, or what is owed"); return; }
     try {
-      if (cap > 0 && cap !== Number(limit || 0)) await api("/api/sanctuary/od/held", {method: "PUT", body: {limit: cap}});
-      await api("/api/sanctuary/od/owed", {method: "PUT", body: {owed, account: od.account || ""}});
+      const r = await api("/api/sanctuary/od/owed", {method: "PUT", body});
       wrap.remove(); refreshFinance(); loadLoans(); loadNotes();
-      toast(owed ? `Kept — ${inr(owed)} owed, counted with the other debts. 🏛️` : "Cleared — nothing owed.");
+      toast(r.owed > 0 ? `Kept — ${inr(r.owed)} owed. It follows the sweeps from here. 🏛️` : "Kept — nothing owed.");
     } catch (err) { toast(err.message || "That did not take"); }
   };
 }
@@ -3403,8 +3413,9 @@ function renderFinance(){
       <div class="val num ${f.bank_balance != null && f.bank_balance < 0 ? "neg" : ""}">${f.bank_balance != null ? inr(f.bank_balance) : "—"}</div>
       <div class="sub">${f.bank_balance == null ? "no statement figure yet"
         : `${niceDate(f.bank_as_of)} · <span class="edit" id="od-owed-tile" title="Change it to what the bank app shows">${
-          f.od && f.od.owed_said && f.od.owed
-            ? `overdraft owes <b class="num">${inr(f.od.owed)}</b>${f.od.stated_on ? ` as of ${esc(niceDate(f.od.stated_on))}` : ""}`
+          f.od && f.od.owed_said
+            ? (f.od.now > 0 ? `overdraft owes <b class="num">${inr(f.od.now)}</b>`
+               : `overdraft in credit <b class="num">${inr(-f.od.now)}</b>`)
             : "overdraft — set it"}</span>`}</div></div>
     <div class="tile card"><div class="lbl">Spent</div>
       <div class="val num">${inr(t.spent)}</div>
