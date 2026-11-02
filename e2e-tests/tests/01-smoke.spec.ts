@@ -736,9 +736,9 @@ test('Desktop nav stands down the left and folds to its icons', async ({ page })
 
   await page.click('#nav-rail-toggle');
   await expect(page.locator('#nav-rail-toggle')).toHaveAttribute('aria-expanded', 'false');
-  await page.waitForTimeout(300);
+  // The fold animates; a busy CI box can still be mid-way after 300ms.
+  await expect.poll(async () => (await rail()).width, { timeout: 5000 }).toBeLessThan(70);
   const folded = await rail();
-  expect(folded.width).toBeLessThan(70);
   expect(folded.labels).toBe(0);
   expect(folded.cardLeft).toBeGreaterThan(folded.navRight);
   await page.reload();

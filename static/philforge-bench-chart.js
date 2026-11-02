@@ -2205,11 +2205,14 @@ function _pfChartCanvasBindInteraction(c) {
       return;
     }
     if (!point || !v || (!point.plot && !point.rsiPlot && !point.priceAxis && !point.timeAxis)) return;
+    var rsiFrom = c.rsiRange || { lo: 0, hi: 100 };
     c.drag = {
-      // A press in the RSI pane pans time, as the price pane does; it has no
-      // price to move.
+      // A press in the RSI pane pans time as the price pane does, and moves
+      // the RSI up and down instead of the price (Phil, 2026-11-02: "I am not
+      // having this hand icon to drag my RSI up and down... the top goes off").
       kind: point.plot || point.rsiPlot ? 'pan' : (point.priceAxis ? 'price' : 'time'),
       timeOnly: !point.plot && !!point.rsiPlot,
+      rsi: !point.plot && point.rsiPlot ? { lo: rsiFrom.lo, hi: rsiFrom.hi } : null,
       x: point.x, y: point.y,
       viewport: { tMin: v.tMin, tMax: v.tMax, pMin: v.pMin, pMax: v.pMax },
       anchorTime: c.projection.tAt(point.x), anchorPrice: c.projection.pAt(point.y)
@@ -2231,7 +2234,8 @@ function _pfChartCanvasBindInteraction(c) {
       var over = point.plot && !_pfDrawArmed ? _pfChartDrawHit(c, point.x, point.y) : null;
       c.host.style.cursor = over ? (over.part === 'body' ? 'move' : 'pointer')
         : point.rsiDivider ? 'row-resize'
-        : (point.plot || point.rsiPlot ? 'crosshair' : (point.priceAxis || point.rsiAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
+        : point.rsiPlot && !point.plot ? 'grab'
+        : (point.plot ? 'crosshair' : (point.priceAxis || point.rsiAxis ? 'ns-resize' : (point.timeAxis ? 'ew-resize' : '')));
       _pfChartCanvasDrawCrosshair(c, point);
       return;
     }
@@ -2257,6 +2261,11 @@ function _pfChartCanvasBindInteraction(c) {
     if (drag.kind === 'pan') {
       var dt = -(point.x - drag.x) / p.plotW * tSpan;
       var dp = drag.timeOnly ? 0 : (point.y - drag.y) / p.plotH * pSpan;
+      if (drag.rsi && p.rsiH) {
+        // The RSI follows the hand: pulled down, the values above come in.
+        var shift = (point.y - drag.y) / p.rsiH * (drag.rsi.hi - drag.rsi.lo);
+        c.rsiRange = { lo: drag.rsi.lo + shift, hi: drag.rsi.hi + shift };
+      }
       _pfChartCanvasQueueView(c, { tMin: start.tMin + dt, tMax: start.tMax + dt, pMin: start.pMin + dp, pMax: start.pMax + dp });
     } else if (drag.kind === 'price') {
       // Pulling the price axis upward zooms in (a tighter price range); pulling
@@ -2316,7 +2325,7 @@ function _pfChartCanvasBindInteraction(c) {
   }, { passive: false });
   bind('dblclick', function (event) {
     var point = _pfChartCanvasPoint(c, event), fit = _pfChartCanvasFit(c);
-    if (point && point.rsiAxis) { c.rsiRange = null; _pfChartCanvasDraw(c); return; }
+    if (point && (point.rsiAxis || (point.rsiPlot && !point.plot))) { c.rsiRange = null; _pfChartCanvasDraw(c); return; }
     if (!point || !fit || !c.viewport) return;
     if (point.priceAxis) _pfChartCanvasSetViewport(c, { tMin: c.viewport.tMin, tMax: c.viewport.tMax, pMin: fit.pMin, pMax: fit.pMax });
     else if (point.timeAxis) _pfChartCanvasSetViewport(c, { tMin: fit.tMin, tMax: fit.tMax, pMin: c.viewport.pMin, pMax: c.viewport.pMax });

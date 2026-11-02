@@ -405,7 +405,11 @@ test('Fibs and trendlines draw, edit and delete the way TradingView does', async
   const moved = (await stored()).lines[0];
   expect(moved.a).toEqual(line.a);
   expect(moved.b.t).toBeGreaterThan(line.b.t);
-  expect(moved.b.price).toBeGreaterThan(line.b.price);
+  // The magnet holds it on the bar it was dropped on: one of that bar's
+  // prices. (Higher than before only if that bar happens to reach higher --
+  // which bar a 60px move lands on depends on the chart's width.)
+  const landed = await page.evaluate((t) => (window as any)._pfChartCanvas.data.candles.find((b: any) => b.t === t), moved.b.t);
+  expect([landed.o, landed.h, landed.l, landed.c]).toContain(moved.b.price);
   // ...and the whole line is moved by its middle, without panning the chart.
   const [ax, ay] = await endAt('line', 'a'), [ex, ey] = await endAt('line', 'b');
   const v0 = await view();
@@ -687,6 +691,36 @@ test('the RSI axis stretches like the price axis: hover shows the up-down cursor
   await expect(page.locator('#scalp-dock-chart-body [data-pane-tools]')).toHaveCount(0);
 });
 
+test('the RSI pane is taken by the hand and moved up and down, and a double-click puts it back', async ({ page }) => {
+  // Phil, 2026-11-02: "I am not having this hand icon to drag my RSI up and
+  // down or drag anywhere like the chart I do... the top goes off".
+  await page.setViewportSize({ width: 1400, height: 1400 });
+  await page.addInitScript(() => { try { localStorage.removeItem('pf_scalp_chart_rsi'); } catch (_) {} });
+  const candles = oneMinuteBars('2026-10-14', '15:29:00').map((b, i) => ({ ...b, c: 150 + 12 * Math.sin(i / 17) }));
+  await scalpChart(page, candles, 150);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const pane = () => page.evaluate(() => (window as any)._pfChartCanvas.paint.rsiPane);
+  const host = (await page.locator('#scalp-dock-chart-body .pf-bench-canvas-host').boundingBox())!;
+  const p0 = await pane();
+  const geo = await page.evaluate(() => { const p = (window as any)._pfChartCanvas.projection; return { padL: p.padL, plotW: p.plotW }; });
+  const x = host.x + geo.padL + geo.plotW / 2, y = host.y + p0.top + p0.h / 2;
+  await page.mouse.move(x, y);
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.host.style.cursor)).toBe('grab');
+  const price = await page.evaluate(() => { const v = (window as any)._pfChartCanvas.viewport; return [v.pMin, v.pMax]; });
+  // Pulled down, the RSI follows the hand: the values above the top come in.
+  await page.mouse.down();
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.host.style.cursor)).toBe('grabbing');
+  await page.mouse.move(x, y + p0.h / 4, { steps: 4 });
+  await page.mouse.up();
+  const moved = await pane();
+  expect(moved.hi).toBeGreaterThan(115);
+  expect(moved.hi - moved.lo).toBeCloseTo(100, 0);
+  // The price scale is not the RSI's to move.
+  expect(await page.evaluate(() => { const v = (window as any)._pfChartCanvas.viewport; return [v.pMin, v.pMax]; })).toEqual(price);
+  await page.mouse.dblclick(x, y);
+  await expect.poll(async () => { const q = await pane(); return [q.lo, q.hi]; }).toEqual([0, 100]);
+});
+
 test('the crosshair runs down through the RSI pane, and reads the RSI there', async ({ page }) => {
   // Phil, 2026-10-20: "Make the cross-hair flow till RSI".
   await page.setViewportSize({ width: 1400, height: 1400 });
@@ -715,7 +749,9 @@ test('the crosshair runs down through the RSI pane, and reads the RSI there', as
   const at = await page.evaluate((y) => (window as any)._pfChartCanvas.projection.rsiAt(y), onRsi.y);
   expect(Math.abs(Number(onRsi.label) - at)).toBeLessThan(0.01);
   expect(Math.abs(at - 75)).toBeLessThan(3);
-  expect(await page.evaluate(() => (window as any)._pfChartCanvas.host.style.cursor)).toBe('crosshair');
+  // The lines still cross the RSI pane; the pointer there is the hand that
+  // moves it (Phil, 2026-11-02: "I am not having this hand icon").
+  expect(await page.evaluate(() => (window as any)._pfChartCanvas.host.style.cursor)).toBe('grab');
 });
 
 test('Undo and Redo step through drawing changes, Clear included', async ({ page }) => {

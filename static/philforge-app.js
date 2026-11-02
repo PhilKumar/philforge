@@ -15457,6 +15457,9 @@ function _scalpHudPlace() {
   const c = _scalpHudCanvas();
   if (!c) { hud.hidden = true; return; }
   hud.hidden = false;
+  // The ticket's words first, its place after: filled in once placed, its
+  // strike and mode widened it into the zoom box beside it on a narrow chart.
+  _scalpSyncTicket();
   const p = c.projection;
   const box = hud.getBoundingClientRect();
   const hostBox = c.host.getBoundingClientRect();
@@ -15480,17 +15483,25 @@ function _scalpHudPlace() {
   // then the plot's top corner -- never over the tag.
   let dropped = false;
   if (ticket) {
-    ticket.classList.remove('is-compact');
-    if (ticketShown && leftEdge + ticket.offsetWidth > rightEdge) ticket.classList.add('is-compact');
-    dropped = ticketShown && leftEdge + ticket.offsetWidth > rightEdge;
     const toLeft = ticket.classList.contains('is-left');
+    // Room is measured from where the ticket can really start: on the right
+    // it never starts left of the plot, so the plot's edge, not the chart's.
+    // Measured from the chart's edge, it "fitted" and then sat over the zoom
+    // box once the left menu narrowed the chart (02-Nov-2026).
+    const minLeft = toLeft ? leftEdge : Math.max(leftEdge, ox + p.padL + 8);
+    ticket.classList.remove('is-compact');
+    if (ticketShown && minLeft + ticket.offsetWidth > rightEdge) ticket.classList.add('is-compact');
+    dropped = ticketShown && minLeft + ticket.offsetWidth > rightEdge;
     // Moved with the trade lines (see _applyScalpLines): left, after the tag,
     // or right, beside the zoom.
     const left = toLeft
       ? (dropped ? ox + p.padL + 8 : leftEdge)
       : Math.max(ox + p.padL + 8, (dropped ? ox + p.padL + p.plotW - 8 : rightEdge) - ticket.offsetWidth);
     ticket.style.left = `${Math.round(left)}px`;
-    ticket.style.top = `${Math.round(dropped ? oy + p.padT + 6 : rowTop)}px`;
+    // Dropped into the plot, it goes under the zoom box, never over it: on a
+    // narrow chart the plot's top corner IS where the zoom box sits.
+    const dropTop = Math.max(oy + p.padT + 6, zb ? zb.bottom - box.top + 6 : 0);
+    ticket.style.top = `${Math.round(dropped ? dropTop : rowTop)}px`;
     if (ticketShown && toLeft && !dropped) leftEdge = left + ticket.offsetWidth + 8;
   }
   // On the B/S line, at the chart's far left (Phil, 2026-10-28: "need it on
@@ -15532,7 +15543,6 @@ function _scalpHudPlace() {
       row.style.left = `${Math.round(ox + p.padL)}px`;
       row.style.width = `${Math.round(p.plotW)}px`;
     });
-  _scalpSyncTicket();
 }
 
 // The chart's lots ARE the form's lots: a number typed or stepped here is
