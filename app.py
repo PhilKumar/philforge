@@ -29967,18 +29967,11 @@ if os.environ.get("PHILFORGE_FIB_OFFLINE") == "1":
 if __name__ == "__main__":
     import uvicorn
 
-    # Phase 2: Install uvloop for C-level event-loop speed (~2-4x faster I/O scheduling)
-    try:
-        import uvloop
-
-        uvloop.install()
-        _loop_name = "uvloop"
-    except ImportError:
-        _loop_name = "asyncio (install uvloop for +30% speed)"
-
+    # Python's own loop, as on the server (deploy/philforge.service): uvloop
+    # segfaulted in its SSL write on 2026-11-02 while an order was going out.
     print("=" * 60)
     print("  PhilForge — Starting Backend")
-    print(f"  Event loop : {_loop_name}")
+    print("  Event loop : asyncio")
     print(f"  Open: http://{config.APP_HOST}:{config.APP_PORT}")
     print("=" * 60)
     uvicorn.run(
@@ -29987,5 +29980,5 @@ if __name__ == "__main__":
         port=config.APP_PORT,
         reload=False,
         log_level="info",
-        loop="uvloop" if _loop_name == "uvloop" else "auto",
+        loop="asyncio",
     )

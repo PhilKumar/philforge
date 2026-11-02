@@ -18,9 +18,18 @@ EnvironmentFile=/home/ec2-user/philforge/.env
 # PhilForge is reached only through local Nginx. Binding the workers to
 # loopback keeps blue/green control endpoints off the public network.
 Environment="PHILFORGE_INSTANCE_PORT=%i"
-ExecStart=/home/ec2-user/philforge/venv/bin/uvicorn app:app --host 127.0.0.1 --port %i --workers 1
+# --loop asyncio: on 2026-11-02 at 15:30 uvloop 0.22.1 segfaulted inside its
+# SSL write (sslproto.pyx _do_write, "deque index out of range") as a Scalp
+# BUY went to Zerodha. The order filled at the broker; the process died before
+# it booked the trade or rested its stop. Python's own loop is slower on paper
+# and nothing here is waiting on the loop's speed.
+ExecStart=/home/ec2-user/philforge/venv/bin/uvicorn app:app --host 127.0.0.1 --port %i --workers 1 --loop asyncio
 Restart=on-failure
 RestartSec=5
+# No core file. That same crash spent 4.5 minutes compressing a core while the
+# dead process still held the port, so the site was down for all of it instead
+# of the 5 seconds Restart= needs. The traceback reaches the journal anyway.
+LimitCORE=0
 UMask=0077
 
 # ── Memory ceiling ──────────────────────────────────────────────
