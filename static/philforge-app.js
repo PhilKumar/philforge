@@ -1970,6 +1970,7 @@ window.addEventListener('scroll', () => {
     _bannerFoldFrame = 0;
     if (_foldFrozenBanner()) _syncFrozenTops();
     _syncScalpFreeze();
+    _syncNavRailTop();
   });
 }, { passive: true });
 
@@ -2021,6 +2022,57 @@ function _syncScalpFreeze() {
   const natural = card.getBoundingClientRect().top + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
   card.classList.toggle('pf-scalp-stuck', natural < top - 0.5);
 }
+// ── The left menu (desktop, 1200px and wider) ──
+// Phil, 2026-11-02: "make these headings vertically on the left with collapse
+// arrow to hide on the left with icons left out". The menu stands under the
+// brand from the header's foot down; folded, it keeps only the icons. The
+// fold is remembered in this browser.
+const _NAV_RAIL_KEY = 'pf-nav-collapsed';
+function _applyNavRail() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem(_NAV_RAIL_KEY) === '1'; } catch (e) { /* private window */ }
+  document.documentElement.classList.toggle('pf-nav-collapsed', collapsed);
+  const btn = document.getElementById('nav-rail-toggle');
+  if (btn) {
+    const say = collapsed ? 'Expand the menu' : 'Collapse the menu';
+    btn.setAttribute('aria-expanded', String(!collapsed));
+    btn.setAttribute('aria-label', say);
+    btn.title = say;
+  }
+  // Folded, a tab is only its icon: its name rides as the tooltip.
+  document.querySelectorAll('.nav-tabs > .nav-tab').forEach(tab => {
+    if (!tab.title) tab.title = (tab.querySelector('.tab-label')?.textContent || '').trim();
+  });
+}
+function toggleNavRail() {
+  const fold = !document.documentElement.classList.contains('pf-nav-collapsed');
+  try { localStorage.setItem(_NAV_RAIL_KEY, fold ? '1' : '0'); } catch (e) { /* private window */ }
+  _applyNavRail();
+  // The page just changed width: charts redraw to the new size once it settles.
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+}
+window.toggleNavRail = toggleNavRail;
+_applyNavRail();
+document.addEventListener('DOMContentLoaded', _applyNavRail);
+function _syncNavRailTop() {
+  // The menu starts at the header's foot (and climbs to the top once a short
+  // window lets the header scroll away), stands on the header's left edge,
+  // and stops one gap short of the ticker panel -- so the pages line up with
+  // the header above them (Phil, 2026-11-02: "Make it sync").
+  const header = document.querySelector('.header-shell');
+  if (!header) return;
+  const root = document.documentElement;
+  const box = header.getBoundingClientRect();
+  root.style.setProperty('--pf-rail-top', `${Math.max(12, Math.round(box.bottom))}px`);
+  const panel = header.querySelector('.header-main');
+  const panelLeft = panel ? panel.getBoundingClientRect().left : 0;
+  const width = Math.round(panelLeft - 8 - box.left);
+  if (box.left >= 0 && width > 120) {
+    root.style.setProperty('--pf-rail-left', `${Math.round(box.left)}px`);
+    root.style.setProperty('--pf-rail-open-w', `${width}px`);
+  }
+}
+
 function _syncFrozenTops() {
   document.body.classList.add('pf-frozen-tops');
   _foldFrozenBanner();
@@ -2033,6 +2085,7 @@ function _syncFrozenTops() {
   const gap = hero ? parseFloat(window.getComputedStyle(hero).getPropertyValue('--pf-workspace-gap')) || 14 : 0;
   root.style.setProperty('--pf-freeze-viewbar-top', `${headerH + heroH + gap}px`);
   _syncScalpFreeze();
+  _syncNavRailTop();
   if (document.body.classList.contains('pf-blueprint-open')) _syncBlueprintStickyOffset();
 }
 window.addEventListener('resize', () => { _foldFrozenBanner(true); _syncFrozenTops(); });
@@ -2428,6 +2481,7 @@ function navStateFromLocation() {
 }
 
 const PF_DELEGATED_ACTIONS = new Set([
+  'toggleNavRail',
   'closeAppearanceModal',
   'emergencyStop',
   'logoutUser',

@@ -11495,3 +11495,99 @@ html[data-theme="light"]:not([data-pf-tint]),
 html[data-theme="light"][data-pf-tint="native"] {
   --accent: var(--success);
 }
+
+/* ═══ THE LEFT MENU (desktop) ═══
+   Phil, 2026-11-02: "make these headings vertically on the left with collapse
+   arrow to hide on the left with icons left out", then "not aligned
+   correctly... Make it sync". From 1200px the primary nav is a column that
+   lines up with the header: its left edge on the header's, its right edge one
+   header gap (8px) short of the ticker and expiry panels, so every page's
+   left edge falls on theirs. The edges are measured (philforge-app.js,
+   _syncNavRailTop) because the header has no fixed geometry. It wears the
+   header panels' own glass. Folded (html.pf-nav-collapsed, remembered per
+   browser) it keeps only the icons. Narrower windows keep the one scrolling
+   row; phones are untouched. No backdrop blur: it is fixed over a scrolling
+   page. */
+.nav-rail-toggle { display: none; }
+@media (min-width: 1200px) {
+  :root { --pf-rail-gap: 8px; --pf-rail-w: var(--pf-rail-open-w, 198px); }
+  html.pf-nav-collapsed { --pf-rail-w: 56px; }
+  .nav-bar,
+  [data-theme="light"] .nav-bar {
+    position: fixed;
+    top: var(--pf-rail-top, 142px);
+    bottom: 12px;
+    left: var(--pf-rail-left, 30px);
+    width: var(--pf-rail-w);
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px;
+    border-radius: 16px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    z-index: 60;
+    transition: width .18s ease;
+  }
+  html.pf-glass .nav-bar {
+    background: var(--fg-surface) !important;
+    border: 1px solid var(--fg-edge);
+    box-shadow: inset 0 1px 0 var(--fg-shine);
+  }
+  .nav-tabs {
+    flex-direction: column;
+    min-width: 0;
+    width: 100%;
+    margin: 0;
+    gap: 3px;
+  }
+  .nav-bar .nav-tab {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 10px 12px;
+    border: 1px solid transparent !important;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  /* Chosen, a tab looks like a chosen desk card: tinted, with an accent rim. */
+  .nav-bar .nav-tab.active {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .nav-bar .nav-tab::after { display: none; }
+  .nav-bar .nav-tab .tab-icon,
+  .nav-bar .nav-tab .live-dot { flex: 0 0 auto; }
+  html.pf-nav-collapsed .nav-bar .nav-tab { justify-content: center; padding: 10px 0; gap: 0; }
+  html.pf-nav-collapsed .nav-bar .nav-tab .tab-label { display: none; }
+  .nav-rail-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: auto;
+    padding: 9px 12px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: none;
+    color: var(--muted);
+    font: 600 11px 'Outfit', sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .nav-rail-toggle:hover { color: var(--text); border-color: var(--border); }
+  .nav-rail-toggle svg { flex: 0 0 auto; transition: transform .18s ease; }
+  html.pf-nav-collapsed .nav-rail-toggle { justify-content: center; padding: 9px 0; }
+  html.pf-nav-collapsed .nav-rail-toggle svg { transform: rotate(180deg); }
+  html.pf-nav-collapsed .nav-rail-toggle-label { display: none; }
+  /* The page's own left edge already sits on the header's, so it moves over
+     by exactly the menu and one gap. */
+  #main-content {
+    margin-left: calc(var(--pf-rail-w) + var(--pf-rail-gap));
+    transition: margin-left .18s ease;
+  }
+  /* The seven strategy choices fit one row only with the whole width; beside
+     the open menu at 1200-1330px they wrap rather than push the page wide. */
+  #options-cascade-page .oc-tabs { flex-wrap: wrap; }
+}

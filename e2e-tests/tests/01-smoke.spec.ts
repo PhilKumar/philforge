@@ -699,12 +699,53 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
 // empty, and every Python test still passes. So this asserts the semantic paint
 // record — real candles, real geometry, real labels — not just that a canvas
 // element exists.
-test('Desktop nav is one row that scrolls, never two', async ({ page }) => {
-  // The original workspace keeps every destination in one top row. When the
-  // window becomes narrow, that row scrolls horizontally instead of narrowing
-  // the entire page or wrapping into a second row.
+test('Desktop nav stands down the left and folds to its icons', async ({ page }) => {
+  // Phil, 2026-11-02: "make these headings vertically on the left with
+  // collapse arrow". From 1200px the menu is a column beside the workspace,
+  // and the arrow folds it to icons; the fold is remembered on reload.
   await page.setViewportSize({ width: 1600, height: 900 });
   await login(page);
+
+  const rail = () => page.evaluate(() => {
+    const nav = document.querySelector('.nav-bar') as HTMLElement;
+    const card = document.querySelector('.page-section.active-page > *') as HTMLElement;
+    const tabs = Array.from(document.querySelectorAll('.nav-tabs > .nav-tab')) as HTMLElement[];
+    return {
+      position: getComputedStyle(nav).position,
+      width: Math.round(nav.getBoundingClientRect().width),
+      navLeft: Math.round(nav.getBoundingClientRect().left),
+      headerLeft: Math.round(document.querySelector('.header-shell')!.getBoundingClientRect().left),
+      panelLeft: Math.round(document.querySelector('.app-topbar')!.getBoundingClientRect().left),
+      cardLeft: Math.round(card.getBoundingClientRect().left),
+      navRight: Math.round(nav.getBoundingClientRect().right),
+      columns: new Set(tabs.map((el) => Math.round(el.getBoundingClientRect().left))).size,
+      labels: tabs.filter((el) => (el.querySelector('.tab-label') as HTMLElement).offsetParent !== null).length,
+      wide: document.documentElement.scrollWidth > window.innerWidth,
+    };
+  });
+  const open = await rail();
+  expect(open.position).toBe('fixed');
+  expect(open.columns).toBe(1);
+  expect(open.labels).toBe(9);
+  // In line with the header (Phil: "Make it sync"): the menu on the header's
+  // left edge, the page on the ticker panel's.
+  expect(open.navLeft).toBe(open.headerLeft);
+  expect(open.cardLeft).toBe(open.panelLeft);
+  expect(open.cardLeft).toBeGreaterThan(open.navRight);
+  expect(open.wide).toBe(false);
+
+  await page.click('#nav-rail-toggle');
+  await expect(page.locator('#nav-rail-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await page.waitForTimeout(300);
+  const folded = await rail();
+  expect(folded.width).toBeLessThan(70);
+  expect(folded.labels).toBe(0);
+  expect(folded.cardLeft).toBeGreaterThan(folded.navRight);
+  await page.reload();
+  await page.waitForSelector('.nav-tab');
+  await expect(page.locator('#nav-rail-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await page.click('#nav-rail-toggle');
+  await expect(page.locator('#nav-rail-toggle')).toHaveAttribute('aria-expanded', 'true');
 
   const rowsAt = async (width: number) => {
     await page.setViewportSize({ width, height: 900 });
@@ -716,8 +757,7 @@ test('Desktop nav is one row that scrolls, never two', async ({ page }) => {
     });
   };
 
-  expect(await rowsAt(1600)).toBe(1);
-  expect(await rowsAt(1280)).toBe(1);
+  // Below 1200px it is the one top row that scrolls, never two.
   expect(await rowsAt(1024)).toBe(1);
 
   // And the row is genuinely scrollable rather than clipping tabs away.
