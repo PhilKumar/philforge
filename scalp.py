@@ -1483,15 +1483,60 @@ class ScalpEngine:
                 exit_order_id_override=exit_oid,
             )
 
-    async def _zerodha_hand_close_fill(self, trade: "ScalpTrade") -> Dict[str, Any] | None:
-        """Kite's own entry and exit fills for a scalp closed by hand there, or None."""
-        if self.zerodha is None:
-            return None
+    def _claimed_order_ids(self) -> set[str]:
+        """Broker order ids the closed scalps already account for."""
         claimed: set[str] = set()
         for other in self.closed_trades:
             claimed.update(str(other.get(k) or "") for k in ("order_id", "exit_order_id"))
             claimed.update(str(o) for o in (other.get("broker_match") or {}).get("exit_order_ids") or [])
         claimed.discard("")
+        return claimed
+
+    async def _dhan_super_leg_fill(self, trade: "ScalpTrade") -> tuple[float, str]:
+        """Dhan's own fill of the Super Order leg that closed a scalp, or (0.0, "").
+
+        The super-order list gives each leg's set price, never what it sold at.
+        Trade 339 (02-Nov-2026) was booked at its ₹499.25 stop; Dhan's trade
+        book shows the SELL filled at ₹498.70, so the P&L said −₹202 for −₹207.50.
+        The leg's SELL is an order of its own, so it is read from the trade book.
+        """
+        claimed = self._claimed_order_ids()
+        try:
+            sid = await asyncio.to_thread(
+                ScripMaster.lookup, trade.underlying, trade.strike, trade.expiry, trade.option_type
+            )
+            if not sid:
+                return 0.0, ""
+            key = f"SID:{sid}"
+            for attempt in range(2):  # the SELL can reach the trade book a moment after the leg says TRADED
+                fills = await asyncio.to_thread(self.dhan.get_trades)
+                own = [
+                    {**f, "tradingSymbol": key}
+                    for f in fills or []
+                    if str(f.get("securityId") or "") == str(sid)
+                    and _normalize_scalp_product_type(f.get("productType")) == trade.product_type
+                ]
+                try:
+                    match = match_scalp_to_broker_fills(trade.to_dict(), own, key, claimed)
+                except ValueError:
+                    if attempt == 0:
+                        await asyncio.sleep(1.0)
+                    continue
+                exit_ids = match["broker_match"]["exit_order_ids"]
+                return float(match["exit_premium"]), (exit_ids[0] if exit_ids else "")
+        except Exception as e:
+            self._log("info", f"ℹ️ Dhan fill not read for trade {trade.trade_id} ({e}); booked at the leg's price")
+            return 0.0, ""
+        self._log(
+            "info", f"ℹ️ Dhan's trade book has no exit fill yet for trade {trade.trade_id}; booked at the leg's price"
+        )
+        return 0.0, ""
+
+    async def _zerodha_hand_close_fill(self, trade: "ScalpTrade") -> Dict[str, Any] | None:
+        """Kite's own entry and exit fills for a scalp closed by hand there, or None."""
+        if self.zerodha is None:
+            return None
+        claimed = self._claimed_order_ids()
         try:
             contract = await asyncio.to_thread(
                 self.zerodha._contract, trade.underlying, trade.strike, trade.expiry, trade.option_type
@@ -1657,12 +1702,25 @@ class ScalpEngine:
                 exit_premium = float(order.get("ltp", 0) or trade.current_premium or trade.entry_premium or 0)
 
             if exit_reason:
+                exit_order_id = trade.super_order_id
+                if exit_reason in ("target_hit", "sl_hit"):
+                    filled_at, fill_order_id = await self._dhan_super_leg_fill(trade)
+                    if filled_at > 0:
+                        if abs(filled_at - exit_premium) >= 0.05:
+                            self._log(
+                                "info",
+                                f"📌 {exit_reason} filled at ₹{filled_at:.2f} (leg was set at ₹{exit_premium:.2f})",
+                            )
+                        exit_premium = filled_at
+                        exit_order_id = fill_order_id or exit_order_id
+                    if trade.trade_id not in self.open_trades:
+                        continue  # closed elsewhere while the trade book was read
                 await self._close_trade(
                     trade,
                     exit_reason,
                     skip_broker_exit=True,
                     exit_prem_override=exit_premium,
-                    exit_order_id_override=trade.super_order_id,
+                    exit_order_id_override=exit_order_id,
                 )
 
     async def _release_super_order_exit_legs(self, trade: ScalpTrade):
