@@ -21782,7 +21782,10 @@ async def _contract_chart_candles(
         if cached:
             return cached
 
-    segment = "BSE_FNO" if underlying == "SENSEX" else "NSE_FNO"
+    # Crude and gas options are MCX's, and a stock's are OPTSTK: a Scalp trade
+    # can be any of them, where the CE/PE books only ever held index options.
+    segment = option_exchange_segment(underlying)
+    instrument_type = await asyncio.to_thread(option_instrument_type, underlying)
     ids: list[str] = []
     for candidate in (trade.get("security_id"), trade.get("securityId")):
         if str(candidate or "").strip():
@@ -21799,7 +21802,7 @@ async def _contract_chart_candles(
                 broker_client.get_historical_data,
                 security_id=security_id,
                 exchange_segment=segment,
-                instrument_type="OPTIDX",
+                instrument_type=instrument_type,
                 from_date=from_date.isoformat(),
                 to_date=to_date.isoformat(),
                 candle_type=candle_type,
@@ -22044,14 +22047,17 @@ def _trade_chart_candidates(engine, run_id: str, user_id: int) -> list[dict]:
 _TRADE_CHART_DAY_DONE = dt_time(15, 50)
 
 
-def _trade_chart_is_complete(exit_ts: int | None, now: datetime | None = None) -> bool:
+def _trade_chart_is_complete(
+    exit_ts: int | None, now: datetime | None = None, day_done: dt_time = _TRADE_CHART_DAY_DONE
+) -> bool:
     """True once nothing more can be added to a closed trade's chart, so it
-    may be kept for good: its exit day is behind us, or over for the day."""
+    may be kept for good: its exit day is behind us, or over for the day.
+    `day_done` is when that day's candles are all in -- MCX trades to 23:30."""
     if not exit_ts:
         return False
     now = now or datetime.now(IST)
     end_day = datetime.fromtimestamp(exit_ts, IST).date()
-    return end_day < now.date() or (end_day == now.date() and now.time() >= _TRADE_CHART_DAY_DONE)
+    return end_day < now.date() or (end_day == now.date() and now.time() >= day_done)
 
 
 async def _build_trade_chart(user_id: int, run_id: str, trade: dict, engine, broker, timeframe: str) -> dict:
@@ -22103,7 +22109,12 @@ async def _build_trade_chart(user_id: int, run_id: str, trade: dict, engine, bro
     from_date = (entry_day - timedelta(days=4 if candle_type != "60" else 10)).isoformat()
     # A trade whose day is over is complete: its candles are kept.
     trade_key = f"{trade.get('id') or ''}_{int(entry_ts)}"
-    complete = _trade_chart_is_complete(exit_ts)
+    session = _scalp_session(underlying, end_day)
+    close_h, close_m = (int(x) for x in session["close"].split(":"))
+    # A crude trade closed at 18:54 is not complete at 15:50: MCX runs to
+    # 23:30 or 23:55, so its chart is kept from the last minute of the day.
+    day_done = dt_time(23, 59) if session["exchange"] == "MCX" else _TRADE_CHART_DAY_DONE
+    complete = _trade_chart_is_complete(exit_ts, day_done=day_done)
     cache_path = _trade_chart_cache_path(user_id, run_id, trade_key, candle_type) if complete else ""
     frozen = (_read_trade_chart_cache(cache_path) if cache_path else []) or await _contract_chart_candles(
         await broker_client_or_503(),
@@ -22125,7 +22136,7 @@ async def _build_trade_chart(user_id: int, run_id: str, trade: dict, engine, bro
     if not candles:
         raise HTTPException(status_code=404, detail="Trade-chart candles contained no usable timestamps")
 
-    analytics = _chart_session_analytics(candles)
+    analytics = _chart_session_analytics(candles, (close_h, close_m - 1) if close_m else (close_h - 1, 59))
     entry_price = float(trade.get("entry_premium") or 0)
     exit_price = float(trade.get("exit_premium") or 0)
     lines = list(analytics["lines"])
@@ -26427,6 +26438,37 @@ def _scalp_option_chart_with_live_price(payload: dict, trade: dict) -> dict:
         result["live_price"] = live_price
         result["live_timestamp"] = int(datetime.now(IST).timestamp())
     return result
+
+
+@app.get("/api/scalp/trades/{trade_id}/frozen-chart")
+async def scalp_trade_frozen_chart(trade_id: int, request: Request, timeframe: str = "5m"):
+    """A closed scalp's chart, frozen at its exit, with its entry, exit, stop and target.
+
+    Phil, 2026-11-02: "I need a frozen chart of the trade executed for each
+    scalp ... I want to track my performance". The same frozen chart the live
+    books' journal draws; kept on disk once the trade's day is over.
+    """
+    user_id = _request_user_id(request)
+    engine = _scalp_engines.get(int(user_id))
+    trade = next(
+        (t for t in getattr(engine, "closed_trades", None) or [] if int(t.get("trade_id") or 0) == int(trade_id)),
+        None,
+    )
+    if trade is None:
+        trade = next(
+            (t for t in await _db_mod.list_scalp_trades(user_id) if int(t.get("trade_id") or 0) == int(trade_id)),
+            None,
+        )
+    if trade is None or str(trade.get("status") or "closed") != "closed":
+        raise HTTPException(status_code=404, detail="No closed scalp with that id")
+
+    async def broker():
+        client = getattr(engine, "dhan", None) if engine is not None else None
+        if client is None:
+            _, client, _ = await _request_broker_context(request)
+        return client
+
+    return await _build_trade_chart(user_id, "scalp", {**trade, "id": trade_id}, None, broker, timeframe)
 
 
 @app.get("/api/scalp/trades/{trade_id}/chart")

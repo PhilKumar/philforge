@@ -14335,7 +14335,7 @@ function _renderScalpHistoryPage() {
   const page = _scalpAllClosed.slice(start, start + _SCALP_ROWS_PER_PAGE);
 
   if (!page.length) {
-    histBody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
+    histBody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:20px;color:var(--muted);">No closed trades</td></tr>';
   } else {
     histBody.innerHTML = page.map(t => {
       const pnl = t.pnl || 0;
@@ -14365,6 +14365,9 @@ function _renderScalpHistoryPage() {
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</td>
         <td style="padding:7px 6px;text-align:center;font-size:10px;color:var(--muted);">${escapeHtml((t.exit_reason||'').replace(/_/g,' '))}</td>
         <td style="padding:7px 6px;text-align:center;white-space:nowrap;">${modeBadge}</td>
+        <td style="padding:7px 6px;text-align:center;white-space:nowrap;">
+          <button type="button" class="ocp-icon-btn is-chart" onclick="openLiveTradeJournal('scalp', ${Number(t.trade_id)})" aria-label="Chart of this trade" title="The trade on its own candles, frozen at the exit">${ICO.barchart(15)}</button>
+        </td>
         <td style="padding:7px 6px;text-align:center;white-space:nowrap;">
           <button class="btn btn-danger btn-sm" onclick="deleteScalpHistoryTrade(${t.trade_id})" style="padding:2px 8px;font-size:10px;">✕</button>
         </td>
@@ -16879,8 +16882,14 @@ async function openLiveTradeJournal(runId, tradeId) {
   document.body.classList.add('terminal-cascade-chart-open');
   if (body && !body.querySelector('#live-entry-chart-canvas')) body.innerHTML = '<div class="pf-cascade-chart-empty">Loading the trade’s frozen chart...</div>';
   try {
+    // A Scalp trade (run 'scalp') has its own route: its record is the scalp
+    // book's, not a live run's history.
+    const isScalp = _liveEntryChartRunId === 'scalp';
     const qs = `run_id=${encodeURIComponent(_liveEntryChartRunId)}&trade_id=${encodeURIComponent(_liveJournalTradeId)}&timeframe=${encodeURIComponent(_liveEntryChartTf)}`;
-    const response = await fetch(`/api/live/trade-chart?${qs}`, { credentials: 'same-origin', cache: 'no-store' });
+    const url = isScalp
+      ? `/api/scalp/trades/${encodeURIComponent(_liveJournalTradeId)}/frozen-chart?timeframe=${encodeURIComponent(_liveEntryChartTf)}`
+      : `/api/live/trade-chart?${qs}`;
+    const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (requestId !== _liveEntryChartRequest) return;
     if (!response.ok || data.status !== 'ok') throw new Error(pfErrorText(data, `Journal chart failed (${response.status})`));
@@ -16889,8 +16898,12 @@ async function openLiveTradeJournal(runId, tradeId) {
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
     const title = document.getElementById('live-entry-chart-title');
     const meta = document.getElementById('live-entry-chart-meta');
-    if (title) title.textContent = `${symbol || 'Trade'} · journal`;
-    if (meta) meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · FROZEN at the exit · ${trade.transaction_type || ''} ${trade.quantity ? trade.quantity + ' qty' : ''} · CPR, R1-R4, S1-S5, 20-EMA · drag to pan, wheel to zoom`;
+    if (title) title.textContent = `${symbol || 'Trade'} · ${isScalp ? 'scalp' : 'journal'}`;
+    const pnl = Number(trade.pnl || 0);
+    const outcome = isScalp
+      ? ` · ${String(trade.exit_reason || 'closed').replaceAll('_', ' ')} · ₹${Number(trade.entry_premium || 0).toFixed(2)} → ₹${Number(trade.exit_premium || 0).toFixed(2)} · ${pnl >= 0 ? '+' : '−'}₹${Math.abs(pnl).toFixed(2)}`
+      : '';
+    if (meta) meta.textContent = `${instrument.expiry || 'Expiry unavailable'} · ${String(data.timeframe || _liveEntryChartTf).toUpperCase()} candles · FROZEN at the exit · ${trade.transaction_type || ''} ${trade.quantity ? trade.quantity + ' qty' : ''}${outcome} · CPR, R1-R4, S1-S5, 20-EMA · drag to pan, wheel to zoom`;
     if (body) {
       let host = document.getElementById('live-entry-chart-canvas');
       if (!host) { body.innerHTML = '<div class="scalp-option-chart-canvas" id="live-entry-chart-canvas"></div>'; host = document.getElementById('live-entry-chart-canvas'); }
@@ -16900,7 +16913,9 @@ async function openLiveTradeJournal(runId, tradeId) {
       if (!pfBenchDrawChart(host, data)) throw new Error('Journal chart could not be drawn.');
       _liveEntryChartDrawnKey = `${_liveEntryChartRunId}|journal|${_liveJournalTradeId}|${data.timeframe || _liveEntryChartTf}`;
     }
-    if (whyBox) { whyBox.innerHTML = _liveWhyHtml(data); whyBox.hidden = false; }
+    // A scalp is placed by hand: there are no entry conditions to quote.
+    if (whyBox && !isScalp) { whyBox.innerHTML = _liveWhyHtml(data); whyBox.hidden = false; }
+    else if (whyBox) { whyBox.hidden = true; whyBox.innerHTML = ''; }
   } catch (error) {
     if (requestId !== _liveEntryChartRequest) return;
     if (body) body.innerHTML = `<div class="pf-cascade-chart-empty" style="color:var(--danger);">${escapeHtml(error.message || 'Journal chart unavailable')}</div>`;

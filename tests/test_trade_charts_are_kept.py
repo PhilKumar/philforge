@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("PHILFORGE_SKIP_STARTUP_JOBS", "1")
 os.environ.setdefault("PHILFORGE_STARTUP_ENGINE_RESTORE", "0")
@@ -187,6 +187,65 @@ class AKeptChartNeedsNoBroker(_Kept):
         self.assertTrue(done(ts, datetime(2026, 10, 12, 15, 50, tzinfo=IST)))
         self.assertTrue(done(ts, datetime(2026, 10, 13, 9, 0, tzinfo=IST)))
         self.assertFalse(done(None, EVENING))
+
+
+class AScalpsChartOpensFromItsHistoryRow(_Kept):
+    """Phil, 2026-11-02: a frozen chart for each scalp, to track his performance."""
+
+    CRUDE_IN = datetime(2026, 11, 2, 18, 49, 53, tzinfo=IST)
+    CRUDE_OUT = datetime(2026, 11, 2, 18, 54, 35, tzinfo=IST)
+
+    def crude(self):
+        return {
+            "trade_id": 339,
+            "underlying": "CRUDEOILM",
+            "strike": 9550,
+            "option_type": "PE",
+            "expiry": "2026-11-17",
+            "transaction_type": "BUY",
+            "quantity": 10,
+            "entry_time": "2026-11-02 18:49:53.364041",
+            "exit_time": "2026-11-02 18:54:35.107096",
+            "entry_premium": 519.45,
+            "exit_premium": 498.70,
+            "sl_premium": 499.25,
+            "target_premium": 619.3,
+            "pnl": -207.5,
+            "exit_reason": "sl_hit",
+            "status": "closed",
+        }
+
+    def open_chart(self, now):
+        request = SimpleNamespace()
+        engine = SimpleNamespace(dhan=self.dhan, closed_trades=[self.crude()])
+        with (
+            patch.object(app_module, "_request_user_id", lambda _request: UID),
+            patch.dict(app_module._scalp_engines, {UID: engine}),
+            patch.object(app_module, "datetime", _Clock(now)),
+        ):
+            return asyncio.run(app_module.scalp_trade_frozen_chart(339, request))
+
+    def test_the_chart_carries_the_trade_its_stop_and_its_target(self):
+        chart = self.open_chart(datetime(2026, 11, 3, 8, 0, tzinfo=IST))
+        self.assertEqual(chart["exits"][0]["price"], 498.70)
+        self.assertEqual(chart["trade"]["exit_reason"], "sl_hit")
+        self.assertEqual({line["label"] for line in chart["lines"][:2]}, {"STOP", "TARGET"})
+
+    def test_an_mcx_trade_is_not_kept_until_mcx_has_closed(self):
+        self.open_chart(datetime(2026, 11, 2, 19, 40, tzinfo=IST))  # NSE is shut; MCX is not
+        self.assertEqual(self.files(), [])
+        self.open_chart(datetime(2026, 11, 3, 8, 0, tzinfo=IST))
+        self.assertEqual(self.files(), [f"scalp__339_{int(self.CRUDE_IN.timestamp())}__5.json"])
+
+    def test_an_unknown_scalp_is_a_404(self):
+        with patch.object(app_module._db_mod, "list_scalp_trades", AsyncMock(return_value=[])):
+            with self.assertRaises(HTTPException) as caught:
+                with (
+                    patch.object(app_module, "_request_user_id", lambda _request: UID),
+                    patch.dict(app_module._scalp_engines, {}, clear=True),
+                ):
+                    asyncio.run(app_module.scalp_trade_frozen_chart(1, SimpleNamespace()))
+        self.assertEqual(caught.exception.status_code, 404)
 
 
 class TheKeeperSavesWhatNobodyOpened(_Kept):
