@@ -23653,7 +23653,6 @@ function _getScalpEl(id) {
 
 let _scalpRafPending = false;
 let _pendingScalpData = null;
-let _pendingScalpTs = 0;
 
 function handleWSMessage(msg) {
   // msg format: { type: 'trade'|'status'|'pnl', data: {...} }
@@ -23671,9 +23670,10 @@ function handleWSMessage(msg) {
   }
   // Scalp status pushed from WS every 250ms — skip HTTP poll
   if (msg.type === 'status' && msg.scalp) {
-    _lastScalpStatus = msg.scalp;
+    // The push leaves out closed trades and the event log; keep the last
+    // refresh's copies so a repaint from this snapshot does not blank them.
+    _lastScalpStatus = Object.assign({}, _lastScalpStatus, msg.scalp);
     _pendingScalpData = msg.scalp;
-    _pendingScalpTs = msg._ts || 0;
     if (!_scalpRafPending) {
       _scalpRafPending = true;
       window.requestAnimationFrame(_flushScalpRender);
@@ -23708,11 +23708,8 @@ function handleWSMessage(msg) {
 function _flushScalpRender() {
   _scalpRafPending = false;
   if (_pendingScalpData) {
-    // LATENCY DEBUG — remove after verification
-    if (_pendingScalpTs) console.log('[WS→Paint] ' + (Date.now() - _pendingScalpTs * 1000).toFixed(0) + 'ms');
     _renderScalpStatusWS(_pendingScalpData);
     _pendingScalpData = null;
-    _pendingScalpTs = 0;
   }
 }
 

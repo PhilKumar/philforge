@@ -23450,6 +23450,19 @@ def _notify_scalp_ws():
     evt.set()
 
 
+# The page paints the four-times-a-second Scalp push from open trades and the
+# P&L figures alone. Closed trades and the event log reach it through the
+# /api/scalp/status refresh every 10 seconds, so the push carried 50 trades and
+# 100 log lines for nothing — about 3.5 MB a minute per open tab (Phil,
+# 2026-11-02: the Mac hung on Scalp).
+_SCALP_WS_DROPPED_FIELDS = ("closed_trades", "event_log")
+
+
+def _scalp_ws_snapshot(status: dict) -> dict:
+    """The Scalp status without what only the 10-second refresh paints."""
+    return {k: v for k, v in status.items() if k not in _SCALP_WS_DROPPED_FIELDS}
+
+
 def _ws_serialize(payload: dict) -> bytes:
     """Serialize WS payload using orjson (fast) with stdlib json fallback."""
     if _orjson is not None:
@@ -23508,7 +23521,7 @@ async def websocket_endpoint(ws: WebSocket):
                     scalp_data = await _with_scalp_day_pnl(int(user_id), scalp_data)
                 except Exception:
                     pass
-                payload["scalp"] = scalp_data
+                payload["scalp"] = _scalp_ws_snapshot(scalp_data)
 
             # Engine status — every ~5s (20 × 250ms) to avoid waste
             engine_tick += 1

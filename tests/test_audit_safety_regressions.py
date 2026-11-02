@@ -89,6 +89,28 @@ def test_websocket_rejects_explicit_invalid_origin_before_authentication(origins
     assert ws.closed == {"code": 4003, "reason": "Forbidden origin"}
 
 
+def test_scalp_push_carries_open_trades_and_pnl_but_not_the_history():
+    # 2026-11-02: four pushes a second, each with 50 closed trades and 100 log
+    # lines, ran to ~3.5 MB a minute per tab; the page paints neither from it.
+    snapshot = functions(
+        ROOT / "app.py", {"_scalp_ws_snapshot"}, {"_SCALP_WS_DROPPED_FIELDS": ("closed_trades", "event_log")}
+    )["_scalp_ws_snapshot"]
+    status = {
+        "running": True,
+        "open_trades": [{"trade_id": 7, "pnl": 120.0}],
+        "closed_trades": [{"trade_id": 6}] * 50,
+        "event_log": [{"message": "x"}] * 100,
+        "session_pnl": 340.0,
+        "day_closed_pnl": 220.0,
+        "open_pnl": 120.0,
+    }
+    sent = snapshot(status)
+    assert "closed_trades" not in sent and "event_log" not in sent
+    assert sent["open_trades"] == status["open_trades"]
+    assert (sent["running"], sent["session_pnl"], sent["open_pnl"]) == (True, 340.0, 120.0)
+    assert len(status["closed_trades"]) == 50  # the engine's own copy is untouched
+
+
 @pytest.fixture
 def analytics():
     return functions(
