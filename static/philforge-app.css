@@ -10334,6 +10334,11 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(6) { grid-column: span 7; }
   #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(7) { grid-column: span 10; }
   #scalp-page .scalp-positions-card .scalp-active-table :is(th, td):nth-child(-n+4) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* A pending entry's two price boxes need twice Entry's four columns: the
+     symbol gives up four, so the boxes still end under ENTRY and LTP and P&L
+     keep their places (Phil, 2026-11-02: "Alignment completely missing"). */
+  #scalp-page .scalp-positions-card .scalp-active-table tr[data-status="pending"] > td:nth-child(1) { grid-column: span 7; }
+  #scalp-page .scalp-positions-card .scalp-active-table tr[data-status="pending"] > td:nth-child(2) { grid-column: span 8; }
   #scalp-page .scalp-positions-card .scalp-active-table .scalp-sym-extra { display: none; }
   #scalp-page .scalp-positions-card .scalp-active-table tr[data-pair] > td:first-child { box-shadow: inset 3px 0 0 rgba(251,191,36,.85); }
   /* Room for the broker's tag on that one line. */
