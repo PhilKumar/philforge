@@ -566,7 +566,12 @@ function _pfChartCanvasFit(c, initial) {
   var barsWanted = Number((initial && d.initial_bars) || d.fit_bars) || 0;
   if (barsWanted > 0) {
     var keepBars = entries.length && isFinite(entryIdx) ? iMin : Infinity;
-    iMin = Math.max(-0.5, Math.min(rightEdge - barsWanted, keepBars));
+    // N CANDLES, counted back from the last real one; tomorrow's empty CPR
+    // block rides on after them. Counted from the right edge instead, a span
+    // narrower than that block (77 bars on 5m once the day has closed) began
+    // past the last candle and the fit below read a bar that does not exist:
+    // "Cannot read properties of undefined (reading 'l')" (Phil, 2026-11-02).
+    iMin = Math.max(-0.5, Math.min(last + 0.5 - barsWanted, keepBars));
     iMax = rightEdge;
   }
   // fit_sessions: N frames the last N trading days (IST dates) up to the
@@ -586,7 +591,8 @@ function _pfChartCanvasFit(c, initial) {
     iMin = Math.max(-0.5, Math.min(startIdx - 0.5, keepEntry));
     iMax = rightEdge;
   }
-  var from = Math.max(Math.ceil(iMin), 0), to = Math.min(Math.floor(iMax), last);
+  // Never past the data: at least the last candle is measured.
+  var from = Math.min(Math.max(Math.ceil(iMin), 0), last), to = Math.max(Math.min(Math.floor(iMax), last), from);
   var lo = Number(candles[from].l), hi = Number(candles[from].h);
   for (var i = from; i <= to; i++) {
     lo = Math.min(lo, Number(candles[i].l));
