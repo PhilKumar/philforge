@@ -10,7 +10,10 @@
 .ob-root .is-warn { color: var(--warn); }
 
 /* top bar: index chips, spot, facts */
-.ob-topbar { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 18px; position: relative; z-index: 40; }
+/* z-index 29: over the page (its Commodity and Stocks menus open across the
+   chain) but UNDER the pinned Trading banner (30), which it slid over on the
+   way up (Phil, 2026-11-03: "Why this is blocking the heading?"). */
+.ob-topbar { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 18px; position: relative; z-index: 29; }
 .ob-und, .ob-views { display: flex; flex-wrap: wrap; gap: 6px; }
 .ob-chip {
   padding: 6px 11px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,.03);
