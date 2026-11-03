@@ -381,3 +381,69 @@ test('Scalp: chart beside positions over launchpad, 70/30, tops level, every lau
   });
   expect(tick).toEqual({ size: 16, sameLine: true, besideWords: true, leftEdge: true });
 });
+
+test('Scalp: the chart keeps its timeframe and zoom across a page change and a reload', async ({ page }) => {
+  // Phil, 2026-11-03: "whatever I set on Chart, no matter whatever I click or
+  // change a page or refresh the page, the chart has to be on the previous set".
+  test.setTimeout(90_000);
+  await page.addInitScript(() => { try { if (!sessionStorage.getItem('pf-e2e-kept')) { localStorage.removeItem('pf-scalp-chart-view-v1'); sessionStorage.setItem('pf-e2e-kept', '1'); } } catch (_) {} });
+  const days = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15'];
+  const bars = (tfMin: number) => days.flatMap((day) => {
+    const open = Math.floor(new Date(`${day}T09:15:00+05:30`).getTime() / 1000);
+    return Array.from({ length: Math.ceil(375 / tfMin) }, (_, i) => ({ t: open + i * tfMin * 60, o: 100 + i, h: 104 + i, l: 98 + i, c: 102 + i }));
+  });
+  const asked: string[] = [];
+  await page.route('**/api/scalp/contract-chart**', (route) => {
+    const tf = new URL(route.request().url()).searchParams.get('timeframe') || '5m';
+    asked.push(tf);
+    const tfMin = { '1m': 1, '3m': 3, '5m': 5, '15m': 15, '1h': 60 }[tf] || 5;
+    return route.fulfill({ json: {
+      status: 'ok', timeframe: tf, candles: bars(tfMin), entries: [], overlays: [], lines: [], live_price: 0,
+      instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+    } });
+  });
+  const openScalp = async () => {
+    await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+    await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+    await page.evaluate(() => {
+      const sel = document.getElementById('scalp-expiry') as HTMLSelectElement;
+      if (!sel.value) { sel.innerHTML = '<option value="2026-10-19">19 Oct</option>'; sel.value = '2026-10-19'; }
+      (document.getElementById('scalp-strike') as HTMLInputElement).value = '22700';
+      (window as unknown as { _syncScalpContractChartLabel: () => void })._syncScalpContractChartLabel();
+    });
+    await expect(page.locator('#scalp-dock-chart-body canvas').first()).toBeVisible();
+  };
+  type V = { tMin: number; tMax: number; pMin: number; pMax: number };
+  const span = () => page.evaluate(() => { const v = (window as unknown as { _pfChartCanvas: { viewport: V } })._pfChartCanvas.viewport; return Math.round(v.tMax - v.tMin); });
+  const strip = page.locator('#scalp-dock-chart-actions');
+
+  await login(page);
+  await openScalp();
+  const drawnTf = () => page.evaluate(() => (window as unknown as { _pfChartCanvas: { data: { timeframe: string } } })._pfChartCanvas.data.timeframe);
+  await strip.getByRole('radio', { name: /^15m$/i }).click();
+  // Zoomed once the 15m chart is up: a zoom on the 5m chart still showing
+  // would carry over as its minutes (100 of them, 7 bars of 15m).
+  await expect.poll(drawnTf).toBe('15m');
+  // Zoomed to 20 bars of 15m: five hours.
+  await page.evaluate(() => {
+    const w = window as unknown as { _pfChartCanvas: { viewport: V }; _pfChartCanvasSetViewport: (c: unknown, v: V) => void };
+    const v = w._pfChartCanvas.viewport;
+    w._pfChartCanvasSetViewport(w._pfChartCanvas, { tMin: v.tMax - 20, tMax: v.tMax, pMin: v.pMin, pMax: v.pMax });
+  });
+  await expect.poll(span).toBe(20);
+
+  // Another page and back: unchanged.
+  await page.locator('#nav-dashboard').click();
+  await openScalp();
+  await expect(strip.getByRole('radio', { name: /^15m$/i })).toHaveAttribute('aria-checked', 'true');
+
+  // A reload: the chart asks for 15m again and opens at the same five hours.
+  asked.length = 0;
+  await page.reload();
+  await page.waitForSelector('.nav-tab', { timeout: 15_000 });
+  await openScalp();
+  await expect.poll(() => asked[0]).toBe('15m');
+  await expect.poll(drawnTf).toBe('15m');
+  await expect(strip.getByRole('radio', { name: /^15m$/i })).toHaveAttribute('aria-checked', 'true');
+  await expect.poll(span).toBe(20);
+});

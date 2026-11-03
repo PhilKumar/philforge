@@ -14672,9 +14672,41 @@ function _buildScalpActiveRow(t, open = []) {
   </tr>`;
 }
 
+// The chart's own settings, kept across clicks, pages and reloads (Phil,
+// 2026-11-03: "whatever I set on Chart, no matter whatever I click or change
+// a page or refresh the page, the chart has to be on the previous set"): the
+// timeframe, the zoom (as minutes, so it carries across timeframes) and a
+// trade chart opened from its row. The
+// contract itself is the form's, which keeps its own state; the layout and
+// studies keep theirs.
+const _SCALP_CHART_VIEW_KEY = 'pf-scalp-chart-view-v1';
+const _SCALP_CHART_TFS = ['1m', '3m', '5m', '15m', '1h'];
+function _scalpChartViewLoad() {
+  try {
+    const v = JSON.parse(localStorage.getItem(_SCALP_CHART_VIEW_KEY) || 'null');
+    return v && typeof v === 'object' ? v : {};
+  } catch (_) { return {}; }
+}
+const _scalpChartViewSaved = _scalpChartViewLoad();
+function _scalpChartViewSave() {
+  // The zoom, not the window: a reload opens on the newest bars at the span
+  // last chosen (a window panned back in time may have no bars by then).
+  try {
+    localStorage.setItem(_SCALP_CHART_VIEW_KEY, JSON.stringify({
+      tf: _scalpOptionChartTf, spanMin: _scalpChartSpanMin || 0, pin: _scalpDockPin || null,
+    }));
+  } catch (_) { /* private window */ }
+}
+// Saved as the viewer zooms, a moment after the wheel or drag stops.
+let _scalpChartViewTimer = 0;
+function _scalpChartViewSoon() {
+  clearTimeout(_scalpChartViewTimer);
+  _scalpChartViewTimer = setTimeout(() => _scalpChartViewKeep(), 400);
+}
+
 let _scalpOptionChartRequest = 0;
 let _scalpOptionChartTradeId = null;
-let _scalpOptionChartTf = '5m';
+let _scalpOptionChartTf = _SCALP_CHART_TFS.includes(_scalpChartViewSaved.tf) ? _scalpChartViewSaved.tf : '5m';
 let _scalpOptionChartDrawnKey = '';
 let _scalpOptionChartPollTimer = null;
 let _scalpOptionChartPollInFlight = false;
@@ -14739,7 +14771,7 @@ function _scalpDockShow() {
     pfChartStrip(actions, {
       timeframes: ['1m', '3m', '5m', '15m', '1h'],
       active: _scalpOptionChartTf,
-      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
+      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpChartViewSave(); _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
       onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
     });
     // The studies and drawing tools fold into a drawer beside the heading.
@@ -14872,7 +14904,7 @@ function _scalpDockDraw(target) {
 // changed. An open trade the dock merely FOUND for the form's contract never
 // pinned it: that held the CE trade on screen while the form went to PE
 // (Phil, 2026-10-16: "not changing while toggling from PE to CE").
-let _scalpDockPin = null; // {tradeId, form}
+let _scalpDockPin = _scalpChartViewSaved.pin && Number(_scalpChartViewSaved.pin.tradeId) > 0 ? _scalpChartViewSaved.pin : null; // {tradeId, form}
 
 function _scalpFormKey() {
   const c = _scalpFormContract();
@@ -14891,7 +14923,7 @@ function _scalpDockFollow(openTrades) {
     _scalpDockDraw({ tradeId: pin.tradeId });
     return;
   }
-  _scalpDockPin = null;
+  if (_scalpDockPin) { _scalpDockPin = null; _scalpChartViewSave(); }
   const same = form && open
     .filter(t => t.status !== 'pending' && t.underlying === form.underlying && Number(t.strike) === form.strike
       && t.expiry === form.expiry && t.option_type === form.option_type)
@@ -15768,7 +15800,7 @@ const _SCALP_TF_SEC = { '1m': 60, '3m': 180, '5m': 300, '15m': 900, '1h': 3600 }
 // (timeframe, contract, refresh button) until the page is reloaded; the 100%
 // button returns to the three days.
 const _SCALP_CHART_DAYS = 3;
-let _scalpChartSpanMin = 0;
+let _scalpChartSpanMin = Number(_scalpChartViewSaved.spanMin) > 0 ? Number(_scalpChartViewSaved.spanMin) : 0;
 
 // Remember the span on screen while the Scalp chart owns the canvas.
 function _scalpRememberChartSpan(tfSec) {
@@ -15776,7 +15808,15 @@ function _scalpRememberChartSpan(tfSec) {
   if (!c || !c.viewport || !_scalpChartShown || c.data !== _scalpChartShown.data) return;
   const bars = c.viewport.tMax - c.viewport.tMin;
   if (bars > 0 && isFinite(bars)) _scalpChartSpanMin = bars * tfSec / 60;
+  _scalpChartViewSave();
 }
+// What is on screen as the page goes: a reload, a closed tab, another app.
+function _scalpChartViewKeep() {
+  const shown = _scalpChartShown && _scalpChartShown.data;
+  if (shown) _scalpRememberChartSpan(_SCALP_TF_SEC[shown.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300);
+}
+window.addEventListener('pagehide', _scalpChartViewKeep);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _scalpChartViewKeep(); });
 let _scalpLiveBar = null;   // {key, tf, t, o, h, l}: survives the 20s refreshes
 let _scalpChartShown = null; // {key, data}: the payload on screen
 let _scalpChartWindow = null; // {from, to, followRight}: the time on screen, kept until reload
@@ -16404,7 +16444,7 @@ function _ensureScalpOptionChartOverlay() {
     pfChartStrip(overlay.querySelector('#scalp-option-chart-actions'), {
       timeframes: ['1m', '3m', '5m', '15m', '1h'],
       active: _scalpOptionChartTf,
-      onTimeframe: (tf) => { _scalpOptionChartTf = tf; refreshScalpOptionChart(); },
+      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpChartViewSave(); refreshScalpOptionChart(); },
       onRefresh: () => refreshScalpOptionChart(),
       onClose: () => hideScalpOptionChart(),
     });
@@ -16419,7 +16459,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
   const id = contract ? null : Number(tradeId);
   if (!contract && (!Number.isInteger(id) || id <= 0)) return;
   const liveRefresh = !!options.liveRefresh;
-  if (options.pin && id) _scalpDockPin = { tradeId: id, form: _scalpFormKey() };
+  if (options.pin && id) { _scalpDockPin = { tradeId: id, form: _scalpFormKey() }; _scalpChartViewSave(); }
   if (options.popup) _scalpChartPopped = true;
   _scalpOptionChartTradeId = id;
   _scalpOptionChartContract = contract;
@@ -16465,6 +16505,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
     // The price tag with the time to bar close, and the forming bar grown
     // from the live premium before it is drawn.
     data.countdown = true;
+    data.onViewport = _scalpChartViewSoon;
     _scalpApplyLiveBar(data, targetKey);
     _scalpDecorate(data);
     _scalpChartShown = { key: targetKey, data };

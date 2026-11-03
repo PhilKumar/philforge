@@ -1580,6 +1580,10 @@ function _pfChartCanvasSetViewport(c, next) {
       .forEach(function (node) { node.textContent = pct; });
   }
   _pfChartCanvasDraw(c);
+  // The page may keep what the viewer zoomed to (payload.onViewport).
+  if (c.data && typeof c.data.onViewport === 'function') {
+    try { c.data.onViewport(c.viewport); } catch (err) {}
+  }
 }
 
 function _pfChartCanvasZoom(factor, reset, anchor) {
