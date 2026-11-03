@@ -26281,7 +26281,12 @@ _NEXT_DAY_CPR_GAP_BARS = 2
 
 
 def _chart_next_day_cpr(
-    candles: list[dict], underlying: str, tf_minutes: int, expiry: str = "", now: datetime | None = None
+    candles: list[dict],
+    underlying: str,
+    tf_minutes: int,
+    expiry: str = "",
+    now: datetime | None = None,
+    options: bool = True,
 ) -> dict:
     """{"overlays", "future_bars"}: tomorrow's CPR past the last bar, or nothing."""
     none = {"overlays": [], "future_bars": 0}
@@ -26290,7 +26295,7 @@ def _chart_next_day_cpr(
     now = now or datetime.now(IST)
     last_t = int(candles[-1]["t"])
     day = datetime.fromtimestamp(last_t, IST).date()
-    session = _scalp_session(underlying, day)
+    session = _scalp_session(underlying, day, options)
     open_h, open_m = (int(x) for x in session["open"].split(":"))
     close_h, close_m = (int(x) for x in session["close"].split(":"))
     if now < datetime.combine(day, dt_time(close_h, close_m), tzinfo=IST):
@@ -26327,10 +26332,16 @@ def _chart_next_day_cpr(
 
 
 def _with_next_day_cpr(
-    payload: dict, candles: list[dict], underlying: str, tf_minutes: int, expiry: str = "", now: datetime | None = None
+    payload: dict,
+    candles: list[dict],
+    underlying: str,
+    tf_minutes: int,
+    expiry: str = "",
+    now: datetime | None = None,
+    options: bool = True,
 ) -> dict:
     """Lay tomorrow's CPR on a chart payload once the session has closed."""
-    nxt = _chart_next_day_cpr(candles, underlying, tf_minutes, expiry, now)
+    nxt = _chart_next_day_cpr(candles, underlying, tf_minutes, expiry, now, options)
     if not nxt["overlays"]:
         return payload
     overlays = [
@@ -26380,16 +26391,22 @@ def _scalp_chart_timeframe(timeframe: str) -> tuple[str, str, int]:
     return tf, candle_type, minutes
 
 
-def _scalp_session(underlying: str, day: date | None = None) -> dict:
-    """The session an underlying's options trade in: NSE/BSE 09:15-15:30, MCX
+def _scalp_session(underlying: str, day: date | None = None, options: bool = True) -> dict:
+    """The session an underlying's options trade in: NSE/BSE 09:15-15:40, MCX
     09:00 to 23:30 (23:55 while the US is off daylight time). The chart's
-    forming bar, its countdown and its one-day view are laid on this."""
+    forming bar, its countdown and its one-day view are laid on this.
+
+    NSE F&O has traded to 15:40 since 3-Aug-2026, and Dhan serves the option
+    bars from 15:30 to 15:39 (Phil, 2026-11-03: "There is a 10m window from
+    3:30 till 3:40.. why it is not visible in chart"). The index and the share
+    themselves still stop at 15:30, so their own chart (`options=False`) does."""
     if is_mcx_underlying(underlying):
         import scalp as _scalp_hours
 
         close = _scalp_hours.mcx_session_close(day or datetime.now(IST).date())
         return {"open": "09:00", "close": f"{close[0]:02d}:{close[1]:02d}", "exchange": "MCX"}
-    return {"open": "09:15", "close": "15:30", "exchange": "BSE" if str(underlying).upper() == "SENSEX" else "NSE"}
+    exchange = "BSE" if str(underlying).upper() == "SENSEX" else "NSE"
+    return {"open": "09:15", "close": "15:40" if options else "15:30", "exchange": exchange}
 
 
 def _regroup_chart_candles(candles: list[dict], minutes: int, session_open_hm: tuple[int, int] = (9, 15)) -> list[dict]:
@@ -26901,7 +26918,7 @@ async def scalp_underlying_chart(request: Request, underlying: str = "", expiry:
     candles = _frame_to_chart_candles(frame) if frame is not None and not frame.empty else []
     if not candles:
         raise HTTPException(status_code=404, detail=f"No {tf} candles for {spec.get('label') or name} yet.")
-    session = _scalp_session(name, today)
+    session = _scalp_session(name, today, options=False)
     open_hm = tuple(int(x) for x in session["open"].split(":"))
     close_hm = tuple(int(x) for x in session["close"].split(":"))
     if str(tf_minutes) != candle_type:
@@ -26923,7 +26940,7 @@ async def scalp_underlying_chart(request: Request, underlying: str = "", expiry:
         "live_price": float(candles[-1]["c"]),
         "fit_sessions": 3,
     }
-    _with_next_day_cpr(payload, candles, name, tf_minutes, str(expiry or "") if mcx else "")
+    _with_next_day_cpr(payload, candles, name, tf_minutes, str(expiry or "") if mcx else "", options=False)
     if len(_SCALP_UNDERLYING_CHART_CACHE) > 64:
         _SCALP_UNDERLYING_CHART_CACHE.clear()
     _SCALP_UNDERLYING_CHART_CACHE[cache_key] = (time.monotonic(), payload)

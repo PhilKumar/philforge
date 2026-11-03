@@ -38,25 +38,50 @@ def _at(text: str) -> datetime:
     return datetime.fromisoformat(text).replace(tzinfo=IST)
 
 
+class TheOptionsSessionRunsTo1540(unittest.TestCase):
+    """Phil, 2026-11-03: "There is a 10m window from 3:30 till 3:40.. why it is
+    not visible in chart". NSE F&O trades to 15:40; the index does not."""
+
+    def test_nse_and_bse_options_close_at_1540(self):
+        for name in ("NIFTY", "SENSEX", "RELIANCE"):
+            self.assertEqual(app._scalp_session(name)["close"], "15:40", name)
+
+    def test_the_underlyings_own_chart_closes_at_1530(self):
+        self.assertEqual(app._scalp_session("NIFTY", options=False)["close"], "15:30")
+
+    def test_mcx_is_unchanged(self):
+        day = datetime(2026, 10, 28).date()
+        self.assertEqual(
+            app._scalp_session("CRUDEOIL", day)["close"], app._scalp_session("CRUDEOIL", day, options=False)["close"]
+        )
+
+
 class NextDayCpr(unittest.TestCase):
     def setUp(self):
         # Tue 27 and Wed 28 Oct 2026, 5-minute bars to 15:25.
         self.candles = _candles("2026-10-27", 2)
 
     def test_nothing_while_the_session_is_open(self):
-        out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T15:29:00"))
+        # NSE options trade to 15:40, so 15:39 is still the session.
+        out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T15:39:00"))
         self.assertEqual(out, {"overlays": [], "future_bars": 0})
 
+    def test_the_index_chart_still_closes_at_1530(self):
+        # The index itself stops at 15:30; only its options run on.
+        early = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T15:30:00"), options=False)
+        self.assertEqual(len(early["overlays"]), 12)
+        self.assertEqual(early["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 75)
+
     def test_drawn_past_the_last_bar_after_the_close(self):
-        out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T15:30:00"))
+        out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T15:40:00"))
         self.assertEqual(len(out["overlays"]), 12)
         last_t = self.candles[-1]["t"]
         for ov in out["overlays"]:
             self.assertGreater(ov["points"][0]["t"], last_t)
             self.assertTrue(ov["label"])
             self.assertEqual(ov["group"], "cpr")
-        # The whole 75-bar session, plus the gap.
-        self.assertEqual(out["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 75)
+        # The whole 77-bar session (09:15-15:40), plus the gap.
+        self.assertEqual(out["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 77)
 
     def test_levels_come_from_the_last_session_only(self):
         out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, now=_at("2026-10-28T18:00:00"))
@@ -106,7 +131,7 @@ class NextDayCpr(unittest.TestCase):
         # Today's set is still drawn, just unlabelled; the EMA keeps its label.
         self.assertEqual(sum(1 for ov in payload["overlays"] if ov.get("group") == "cpr"), 24)
         self.assertTrue(any(ov.get("group") == "ema" and ov["label"] for ov in payload["overlays"]))
-        self.assertEqual(payload["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 75)
+        self.assertEqual(payload["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + 77)
 
     def test_the_payload_is_untouched_while_open(self):
         analytics = app._chart_session_analytics(self.candles)
