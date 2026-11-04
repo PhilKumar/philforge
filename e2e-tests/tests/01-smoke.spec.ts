@@ -180,6 +180,8 @@ async function installOfflineE2E(page: Page) {
     // THE PAPER LEDGER. Every strategy tab asks for its finished campaigns on
     // each refresh; an empty archive is the normal answer offline.
     else if (path.startsWith('/api/paper-campaigns/')) await route.fulfill({ json: { status: 'ok', campaigns: [], count: 0, net_total: null } });
+    // The Scalp chart's price alarms, synced on every page load (04-Nov-2026).
+    else if (path === '/api/scalp/alarms') await route.fulfill({ json: { status: 'ok', alarms: [], fired: [] } });
     else throw new Error(`Offline E2E has no mock for ${request.method()} ${path}`);
   });
 }
