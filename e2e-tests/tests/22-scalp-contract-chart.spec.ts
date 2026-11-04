@@ -548,3 +548,28 @@ test('Scalp: right-click sets a price alarm that rings when the price reaches it
   await page.waitForTimeout(4500);
   await expect(page.locator('.scalp-alarm')).toHaveCount(0);
 });
+
+test('Scalp: a removed alarm stays gone, and a dismiss quiets every page', async ({ page }) => {
+  // Phil, 2026-11-04: "Every now and then I am hearing this alarm sound even
+  // after I remove them".
+  await login(page);
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+  const out = await page.evaluate(async () => {
+    const w = window as any;
+    // The page's own `let`s are not on window: read them in its global scope.
+    const pageVar = (name: string) => (0, eval)(name);
+    const now = Math.floor(Date.now() / 1000);
+    const alarm = { id: 'agone1', underlying: 'NIFTY', strike: 23750, expiry: '2099-11-09', option_type: 'CE', price: 270, dir: 'up', at: now };
+    // A sync sent before the remove answers after it, alarm and ring and all.
+    await w._scalpAlertRemove(['agone1']);
+    w._scalpAlarmsTake({ alarms: [alarm], fired: [{ ...alarm, hit: 270.4, fired_at: now }] });
+    const removedStaysGone = { listed: pageVar('_scalpAlarms').length, banners: document.querySelectorAll('#scalp-alarm-stack .scalp-alarm').length };
+    // Rung here; dismissed on another page, so the next sync no longer lists it.
+    w._scalpAlarmsTake({ alarms: [], fired: [{ ...alarm, id: 'aring2', hit: 270.4, fired_at: now }] });
+    const ringing = !!document.querySelector('#scalp-alarm-stack .scalp-alarm.is-ringing[data-alarm-id="aring2"]');
+    w._scalpAlarmsTake({ alarms: [], fired: [] });
+    return { removedStaysGone, ringing, quietAfter: document.querySelectorAll('#scalp-alarm-stack .scalp-alarm').length, sound: pageVar('_scalpAlarmRinging') };
+  });
+  expect(out).toEqual({ removedStaysGone: { listed: 0, banners: 0 }, ringing: true, quietAfter: 0, sound: null });
+});

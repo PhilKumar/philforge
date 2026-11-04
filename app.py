@@ -27740,13 +27740,22 @@ async def scalp_alarm_add(req: ScalpAlarmReq, request: Request):
 
 @app.delete("/api/scalp/alarms/{alarm_id}")
 async def scalp_alarm_remove(alarm_id: str, request: Request):
+    """Remove an alarm, or silence one that has rung (Dismiss on any page).
+
+    Off the rung list too (Phil, 2026-11-04: "Every now and then I am hearing
+    this alarm sound even after I remove them"): every open page rang a rung
+    alarm the first time it saw it, so a background tab or another device rang
+    it minutes later, and an alarm removed just as it rang still rang there.
+    """
     async with _scalp_alarms_lock:
         book = (await _scalp_alarms_load()).get(str(_request_user_id(request))) or {}
-        before = len(book.get("alarms", []))
+        before = len(book.get("alarms", [])) + len(book.get("fired", []))
         book["alarms"] = [a for a in book.get("alarms", []) if a.get("id") != alarm_id]
-        if len(book["alarms"]) != before:
+        book["fired"] = [f for f in book.get("fired", []) if f.get("id") != alarm_id]
+        removed = before - len(book["alarms"]) - len(book["fired"])
+        if removed:
             await _scalp_alarms_save()
-    return {"status": "ok", "removed": before - len(book["alarms"])}
+    return {"status": "ok", "removed": removed}
 
 
 class ScalpAlarmFireReq(BaseModel):

@@ -16249,6 +16249,15 @@ const _SCALP_ALARM_RUNG_STORE = 'pf_scalp_alarms_rung_v1';
 const _scalpAlertPrice = (p) => Number(p).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 let _scalpAlarms = [];
 const _scalpAlarmFiring = new Set();
+// Removed or dismissed here: never back on the chart, never rung. A sync sent
+// before the remove could answer after it with the alarm still listed (Phil,
+// 2026-11-04: "Every now and then I am hearing this alarm sound even after I
+// remove them").
+const _scalpAlarmGone = new Set();
+// Rung by the server more than this long ago: shown, not sounded. A
+// background tab or another device found a rung alarm only at its next sync
+// -- minutes later in a throttled tab -- and rang it then.
+const _SCALP_ALARM_FRESH_S = 30;
 // A page rings only what rings while it is open: opened later, or on another
 // device, it does not replay the last ten minutes' alarms.
 const _scalpAlarmPageFrom = Math.floor(Date.now() / 1000) - 5;
@@ -16271,12 +16280,16 @@ function _scalpAlarmMarkRung(id) {
 // bell lines if the list changed.
 function _scalpAlarmsTake(d) {
   const before = JSON.stringify(_scalpAlarms.map(a => a.id));
-  _scalpAlarms = Array.isArray(d.alarms) ? d.alarms : [];
+  _scalpAlarms = (Array.isArray(d.alarms) ? d.alarms : []).filter(a => a && !_scalpAlarmGone.has(a.id));
+  const fired = (d.fired || []).filter(f => f && !_scalpAlarmGone.has(f.id));
+  // Dismissed or removed on another page or device: quiet here too.
+  _scalpAlarmQuiet((id) => !fired.some(f => f.id === id));
   const rung = new Set(_scalpAlarmRung());
-  (d.fired || []).forEach((f) => {
-    if (!f || rung.has(f.id) || Number(f.fired_at || 0) < _scalpAlarmPageFrom) return;
+  const now = Date.now() / 1000;
+  fired.forEach((f) => {
+    if (rung.has(f.id) || Number(f.fired_at || 0) < _scalpAlarmPageFrom) return;
     _scalpAlarmMarkRung(f.id);
-    _scalpAlarm(f, Number(f.hit) || Number(f.price));
+    _scalpAlarm(f, Number(f.hit) || Number(f.price), { silent: now - Number(f.fired_at || 0) > _SCALP_ALARM_FRESH_S });
   });
   if (JSON.stringify(_scalpAlarms.map(a => a.id)) !== before) _scalpRedecorate();
 }
@@ -16339,7 +16352,15 @@ document.addEventListener('pointerdown', (event) => {
   if (menu && !menu.contains(event.target)) _scalpAlertMenuClose();
 }, true);
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape') _scalpAlertMenuClose(); });
-window.addEventListener('scroll', _scalpAlertMenuClose, { passive: true });
+// Closed by the user's own scrolling, not by the page's: a scroll the page
+// made itself (the pinned column re-measuring) took the menu away under the
+// pointer (2026-11-04). Its price was fixed at the right-click.
+window.addEventListener('wheel', _scalpAlertMenuClose, { passive: true });
+window.addEventListener('touchmove', _scalpAlertMenuClose, { passive: true });
+document.addEventListener('keydown', (event) => {
+  if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' '].includes(event.key)
+      && !document.getElementById('scalp-alert-menu')?.contains(event.target)) _scalpAlertMenuClose();
+});
 
 async function _scalpAlertAdd(data, price) {
   const i = data.instrument || {};
@@ -16362,6 +16383,8 @@ async function _scalpAlertAdd(data, price) {
 }
 
 async function _scalpAlertRemove(ids) {
+  ids.forEach(id => _scalpAlarmGone.add(id));
+  _scalpAlarmQuiet((id) => ids.includes(id));
   _scalpAlarms = _scalpAlarms.filter(a => !ids.includes(a.id));
   _scalpRedecorate();
   await Promise.all(ids.map(id => fetch(`/api/scalp/alarms/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => null)));
@@ -16391,7 +16414,7 @@ function _scalpCheckPriceAlerts(data) {
         body: JSON.stringify({ price: price > 0 ? price : a.price }),
       });
       const d = await r.json().catch(() => ({}));
-      if (d.fired && !_scalpAlarmRung().includes(d.fired.id)) {
+      if (d.fired && !_scalpAlarmGone.has(d.fired.id) && !_scalpAlarmRung().includes(d.fired.id)) {
         _scalpAlarmMarkRung(d.fired.id);
         _scalpAlarm(d.fired, Number(d.fired.hit) || a.price);
       }
@@ -16422,6 +16445,9 @@ function _scalpAlarmSoundReady() {
 function _scalpAlarmBeeps() {
   const ctx = _scalpAlarmCtx;
   if (!ctx) return;
+  // Only into a running context: beeps scheduled on a suspended one wait
+  // there, and all play at once whenever it next resumes.
+  if (ctx.state !== 'running') { try { ctx.resume(); } catch (_) {} return; }
   [0, 0.18, 0.36].forEach((offset) => {
     const osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.type = 'square';
@@ -16437,8 +16463,16 @@ function _scalpAlarmBeeps() {
 function _scalpAlarmSilence() {
   if (_scalpAlarmRinging) { clearInterval(_scalpAlarmRinging); _scalpAlarmRinging = null; }
 }
+// Take down the banners of the alarms `gone(id)` names, and the sound with
+// the last of them.
+function _scalpAlarmQuiet(gone) {
+  const stack = document.getElementById('scalp-alarm-stack');
+  if (!stack) return;
+  stack.querySelectorAll('.scalp-alarm[data-alarm-id]').forEach((card) => { if (gone(card.dataset.alarmId)) card.remove(); });
+  if (!stack.querySelector('.scalp-alarm.is-ringing')) _scalpAlarmSilence();
+}
 
-function _scalpAlarm(alert, price) {
+function _scalpAlarm(alert, price, opts = {}) {
   const crossed = alert.dir === 'down' ? 'fell to' : 'rose to';
   const text = `${alert.underlying} ${Number(alert.strike)}${alert.option_type} ${crossed} ₹${_scalpAlertPrice(alert.price)}`;
   let stack = document.getElementById('scalp-alarm-stack');
@@ -16450,8 +16484,9 @@ function _scalpAlarm(alert, price) {
     document.body.appendChild(stack);
   }
   const card = document.createElement('div');
-  card.className = 'scalp-alarm';
-  const at = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
+  card.className = opts.silent ? 'scalp-alarm' : 'scalp-alarm is-ringing';
+  card.dataset.alarmId = alert.id || '';
+  const at = new Date(Number(alert.fired_at) ? Number(alert.fired_at) * 1000 : Date.now()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
   card.innerHTML = `<span class="scalp-alarm-bell" aria-hidden="true">\u{1F514}</span>
     <div class="scalp-alarm-text"><strong></strong><span></span></div>
     <button type="button" class="scalp-alarm-dismiss">Dismiss</button>`;
@@ -16459,15 +16494,26 @@ function _scalpAlarm(alert, price) {
   card.querySelector('.scalp-alarm-text span').textContent = `Now ₹${_scalpAlertPrice(price)} · ${at} IST`;
   card.querySelector('.scalp-alarm-dismiss').addEventListener('click', () => {
     card.remove();
-    if (!stack.children.length) _scalpAlarmSilence();
+    if (!stack.querySelector('.scalp-alarm.is-ringing')) _scalpAlarmSilence();
+    // Dismissed here is dismissed on every page and device.
+    if (alert.id) {
+      _scalpAlarmGone.add(alert.id);
+      fetch(`/api/scalp/alarms/${encodeURIComponent(alert.id)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => null);
+    }
   });
   stack.appendChild(card);
+  if (opts.silent) return;
   _scalpAlarmSilence();
+  stack.querySelectorAll('.scalp-alarm.is-ringing').forEach((other) => { if (other !== card) other.classList.remove('is-ringing'); });
   _scalpAlarmSoundReady();
   _scalpAlarmBeeps();
+  // Ten rings over ten seconds of the clock: a background tab's timer can be
+  // slowed to once a minute, and counted rings then went on for minutes.
+  const started = Date.now();
   let rings = 1;
   _scalpAlarmRinging = setInterval(() => {
-    if (++rings > 10 || !stack.children.length) { _scalpAlarmSilence(); return; }
+    card.classList.toggle('is-ringing', ++rings <= 10 && Date.now() - started < 11000 && card.isConnected);
+    if (!card.classList.contains('is-ringing')) { _scalpAlarmSilence(); return; }
     _scalpAlarmBeeps();
   }, 1000);
   try {

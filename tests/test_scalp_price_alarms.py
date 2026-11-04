@@ -111,6 +111,17 @@ class PriceAlarms(unittest.IsolatedAsyncioTestCase):
         await app.scalp_alarm_remove(alarm_id, _Request(1))
         self.assertEqual((await app.scalp_alarms_list(_Request(1)))["alarms"], [])
 
+    async def test_removing_a_rung_alarm_takes_it_off_the_rung_list_too(self):
+        # Phil, 2026-11-04: "Every now and then I am hearing this alarm sound
+        # even after I remove them". Every open page rings a rung alarm when it
+        # first sees it; removed (or dismissed), no page may see it again.
+        await app.scalp_alarm_add(_req(270.0, 265.85), _Request())
+        alarm_id = (await app.scalp_alarms_list(_Request()))["alarms"][0]["id"]
+        await app._scalp_fire_alarm("1", alarm_id, 270.4)
+        self.assertEqual([f["id"] for f in (await app.scalp_alarms_list(_Request()))["fired"]], [alarm_id])
+        self.assertEqual((await app.scalp_alarm_remove(alarm_id, _Request()))["removed"], 1)
+        self.assertEqual((await app.scalp_alarms_list(_Request()))["fired"], [])
+
     async def test_an_expired_contracts_alarm_is_dropped(self):
         old = app.ScalpAlarmReq(
             underlying="NIFTY", strike=23750, expiry="2020-01-02", option_type="CE", price=270, now=265
