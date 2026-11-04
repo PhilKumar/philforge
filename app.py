@@ -26971,25 +26971,7 @@ def _get_scalp_engine(user_id: int | None = None, broker_client: DhanClient | No
                 asyncio.create_task(_persist_closed_trade_async(owner_id, trade_dict))
             else:
                 print("[SCALP] Skipping closed-trade persistence — no owner user_id available")
-            # Telegram alert for every LIVE scalp exit (manual, target, SL, sqoff)
-            if str(trade_dict.get("mode") or "") != "live":
-                return
-            pnl = trade_dict.get("pnl", 0)
-            sym = (
-                f"{trade_dict.get('underlying', '?')} {trade_dict.get('strike', '')}{trade_dict.get('option_type', '')}"
-            )
-            reason = trade_dict.get("exit_reason", "unknown")
-            entry_p = trade_dict.get("entry_premium", 0)
-            exit_p = trade_dict.get("exit_premium", 0)
-            pnl_sign = "+" if pnl >= 0 else ""
-            level = "info" if pnl >= 0 else "error"
-            alerter.alert(
-                f"Scalp Exit [{reason}]",
-                f"Symbol: {sym}\n"
-                f"Entry: \u20b9{entry_p:.2f} \u2192 Exit: \u20b9{exit_p:.2f}\n"
-                f"P&L: {pnl_sign}\u20b9{pnl:.2f}",
-                level=level,
-            )
+            # No Telegram for a scalp's exit: see _alert_scalp_entry.
 
         eng = _ScalpEngineClass(broker_client or dhan, _market_feed, on_trade_close=_persist_closed_trade)
         eng._user_id = owner_id
@@ -27424,34 +27406,21 @@ async def _enter_scalp_on_both_brokers(eng, req: ScalpEntryReq, entry: dict) -> 
 
 
 def _alert_scalp_entry(req: ScalpEntryReq, result: dict, broker: str) -> None:
-    if req.mode != "live":
-        return  # no Telegram for paper
-    broker_line = (
-        f"\nBroker: {broker.title()}" if (broker == "zerodha" or req.both_brokers) and req.mode == "live" else ""
-    )
-    if result.get("status") == "error":
-        alerter.alert(
-            "Scalp Entry Failed",
-            f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}{broker_line}\nError: {result.get('message', 'unknown')}",
-        )
+    """Telegram for a scalp only when its entry FAILED.
+
+    Phil, 2026-11-04: "remove telegram alert for scalp trades.... It is useless
+    as scalp are done in seconds ... alert me only for automation". He is at the
+    screen for every scalp; a message per entry and exit buried the ones the
+    automated books send, and he took an automated trade for a scalp. A refused
+    entry or exit still alerts: that is money not doing what was asked.
+    """
+    if req.mode != "live" or result.get("status") != "error":
         return
-    trade_info = result.get("trade", {})
-    if trade_info.get("status") == "pending":
-        alerter.alert(
-            "Scalp Stop-Limit Pending",
-            f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
-            f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-            f"Trigger: ₹{req.entry_limit_price:.2f}–₹{req.entry_limit_max:.2f} | Product: {req.product_type} | Mode: {req.mode}{broker_line}",
-            level="info",
-        )
-    else:
-        alerter.alert(
-            "Scalp Entry",
-            f"Symbol: {req.underlying} {req.strike}{req.option_type}\n"
-            f"Side: {req.transaction_type} | Lots: {req.lots}\n"
-            f"Entry: \u20b9{trade_info.get('entry_premium', 0):.2f} | Product: {req.product_type} | Mode: {req.mode}{broker_line}",
-            level="info",
-        )
+    broker_line = f"\nBroker: {broker.title()}" if broker == "zerodha" or req.both_brokers else ""
+    alerter.alert(
+        "Scalp Entry Failed",
+        f"Symbol: {req.underlying} {req.strike}{req.option_type}\nMode: {req.mode}{broker_line}\nError: {result.get('message', 'unknown')}",
+    )
 
 
 @app.post("/api/scalp/exit/{trade_id}")

@@ -42,8 +42,16 @@ class TheScalpAlerts(unittest.TestCase):
     def test_a_paper_entry_sends_nothing(self):
         self.assertEqual(self._sent("paper"), [])
 
-    def test_a_live_entry_still_sends(self):
-        self.assertEqual(self._sent("live"), ["Scalp Entry"])
+    def test_a_live_entry_is_quiet(self):
+        # Phil, 2026-11-04: Telegram for the automated books only.
+        self.assertEqual(self._sent("live"), [])
+
+    def test_a_refused_live_entry_still_alerts(self):
+        sent = []
+        with mock.patch.object(app.alerter, "alert", lambda *a, **k: sent.append(a[0])):
+            app._alert_scalp_entry(_req("live"), {"status": "error", "message": "no margin"}, "dhan")
+            app._alert_scalp_entry(_req("paper"), {"status": "error", "message": "no margin"}, "dhan")
+        self.assertEqual(sent, ["Scalp Entry Failed"])
 
     def test_a_paper_scalp_is_not_live(self):
         class Eng:
@@ -53,9 +61,9 @@ class TheScalpAlerts(unittest.TestCase):
         Eng.open_trades = {1: _trade("live")}
         self.assertTrue(app._scalp_trade_is_live(Eng(), 1))
 
-    def test_a_paper_scalp_exit_is_not_announced(self):
-        body = SRC.split("Telegram alert for every LIVE scalp exit")[1][:200]
-        self.assertIn('!= "live"', body)
+    def test_no_scalp_exit_is_announced(self):
+        self.assertNotIn('f"Scalp Exit [{reason}]"', SRC)
+        self.assertNotIn('"Scalp Stop-Limit Pending"', SRC)
 
 
 class ThePaperBooksAndBaskets(unittest.TestCase):
