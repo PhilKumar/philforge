@@ -382,6 +382,51 @@ test('Scalp: chart beside positions over launchpad, 70/30, tops level, every lau
   expect(tick).toEqual({ size: 16, sameLine: true, besideWords: true, leftEdge: true });
 });
 
+test('Scalp: on a short window the launchpad never slides under the pinned positions', async ({ page }) => {
+  // Phil, 2026-11-04, from a Windows laptop (~730px of page): "These windows
+  // are not proper and goe one below the other". The launchpad scrolled up
+  // behind the pinned Active Positions; it now pins under them in one box with
+  // the log, and scrolls inside itself down to BUY.
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await login(page);
+  await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
+  await expect(page.locator('#scalp-page')).toHaveClass(/active-page/);
+  const steps = await page.evaluate(async () => {
+    const r = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+    const out: { y: number; railTop: number; posBottom: number; railBottom: number; histTop: number; pinned: boolean }[] = [];
+    for (let y = 0; y <= document.documentElement.scrollHeight; y += 120) {
+      window.scrollTo(0, y);
+      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      out.push({ y: window.scrollY, railTop: r('#scalp-page .scalp-rail').top, posBottom: r('#scalp-page .scalp-positions-card').bottom,
+        railBottom: r('#scalp-page .scalp-rail').bottom, histTop: r('#scalp-page .scalp-history-card').top,
+        pinned: Math.abs(r('#scalp-page .scalp-rail').top - parseFloat(getComputedStyle(document.querySelector('#scalp-page .scalp-rail')!).top)) < 1 });
+    }
+    return out;
+  });
+  // Until the history reaches it, the box starts below the positions, and
+  // it ends above the history: it shortens as the history comes up.
+  expect(steps.some((s) => s.pinned)).toBe(true);
+  for (const s of steps.filter((s) => s.railTop < s.histTop)) {
+    expect(s.railTop, `scrolled ${s.y}px`).toBeGreaterThanOrEqual(s.posBottom - 1);
+    expect(s.railBottom, `scrolled ${s.y}px`).toBeLessThanOrEqual(s.histTop + 1);
+    // Pinned, it ends inside the window, so its own scroll reaches BUY.
+    if (s.pinned) expect(s.railBottom, `scrolled ${s.y}px`).toBeLessThanOrEqual(730 + 1);
+  }
+  // BUY is reached inside the box.
+  await page.evaluate(async () => {
+    window.scrollTo(0, 400);
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  });
+  await page.evaluate(() => { const rail = document.querySelector('#scalp-page .scalp-rail')!; rail.scrollTop = rail.scrollHeight; });
+  const buy = await page.evaluate(() => {
+    const rail = document.querySelector('#scalp-page .scalp-rail')!.getBoundingClientRect();
+    const btn = document.querySelector('#scalp-page .scalp-entry-actions > .btn')!.getBoundingClientRect();
+    const pos = document.querySelector('#scalp-page .scalp-positions-card')!.getBoundingClientRect();
+    return { inBox: btn.top >= rail.top - 1 && btn.bottom <= rail.bottom + 1, belowPositions: btn.top >= pos.bottom };
+  });
+  expect(buy).toEqual({ inBox: true, belowPositions: true });
+});
+
 test('Scalp: the chart keeps its timeframe and zoom across a page change and a reload', async ({ page }) => {
   // Phil, 2026-11-03: "whatever I set on Chart, no matter whatever I click or
   // change a page or refresh the page, the chart has to be on the previous set".

@@ -4292,6 +4292,13 @@
       </div>
       </div>
     <div class="ocp-panes">
+      <!-- THE RIGHT COLUMN, launchpad and log (Phil, 2026-11-04, from a
+           Windows screen: "These windows are not proper and goe one below
+           the other"). Under the pinned positions the launchpad slid up
+           behind them; on a desktop this box pins under them instead and
+           scrolls inside itself. A phone shows the two one after the other,
+           as before. -->
+      <div class="scalp-rail">
       <div class="ocp-pane ocp-pane-form ocp-monitor scalp-entry-card">
         <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 16px; color: var(--scalp-info-secondary);" id="scalp-form-title">⚡ Tactical Launchpad</h3>
         <div class="scalp-entry-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
@@ -4459,7 +4466,6 @@
         <div class="scalp-live-note" id="scalp-live-note">Live mode uses Dhan Super Order. Keep both <strong>SL Premium</strong> and <strong>Target Premium</strong> filled to place a broker-linked scalp order.</div>
         <div id="scalp-entry-status" style="min-height: 18px; margin-top: 8px; font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace;"></div>
       </div>
-      <div class="ocp-pane ocp-pane-live">
       <!-- The log as a flow-down section, the same one the strategies use. -->
       <details class="ocp-monitor ocp-monitor-fold scalp-event-card">
         <summary class="ocp-monitor-head">
@@ -4471,6 +4477,8 @@
           </div>
         </div>
       </details>
+      </div><!-- /scalp-rail -->
+      <div class="ocp-pane ocp-pane-live">
       <!-- Phil, 2026-10-15: "put the options chart on the right side blank
            area so that I'll check that trade easily side by side". On a
            two-column window the option chart lives here, following the

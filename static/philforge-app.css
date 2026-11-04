@@ -10146,6 +10146,31 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     max-height: max(140px, calc(100vh - var(--pf-freeze-scalp-pos, 0px) - 320px));
     overflow-y: auto;
   }
+  /* The launchpad and log pin right under the positions and scroll inside
+     themselves (Phil, 2026-11-04, a Windows laptop: "These windows are not
+     proper and goe one below the other"). They used to scroll up behind the
+     pinned positions, which on a ~730px window hid the top of the form
+     whenever BUY was in view. Never shorter than 220px, so a long positions
+     list still leaves a usable launchpad. */
+  body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-panes > .scalp-rail {
+    position: sticky;
+    top: var(--pf-freeze-scalp-rail, 0px);
+    z-index: 20;
+    /* Shortened from the bottom as the history comes up (_fitScalpRail). */
+    max-height: var(--pf-scalp-rail-vis, max(220px, calc(100vh - var(--pf-freeze-scalp-rail, 0px) - 12px)));
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, .28) transparent;
+    border-radius: 12px;
+  }
+  body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-panes > .scalp-rail.is-squeezed { visibility: hidden; }
+  /* The room the box gives up, kept in the layout under it so the history
+     does not rise to fill it. Not on the box itself: a pinned box's margin
+     counts toward the card's end, and the end pushed it up under the
+     positions. */
+  body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-panes::after {
+    content: ''; grid-column: 2; grid-row: 4; height: var(--pf-scalp-rail-give, 0px); pointer-events: none;
+  }
   body.pf-frozen-tops #scalp-page.active-page > .card.pf-scalp-stuck > .ocp-head {
     background: var(--bg);
     /* Up to the banner: the card's top padding and the gap above it. */
@@ -10239,7 +10264,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page .ocp-pane-form { order: 2; margin-top: 0 !important; }
   #scalp-page .ocp-pane-live { order: 1; display: flex; flex-direction: column; gap: 12px; }
   #scalp-page .ocp-pane-live > .scalp-dock-chart { order: 1; margin-top: 0; }
-  #scalp-page .ocp-pane-live > .scalp-event-card { order: 2; margin-top: 0; align-self: stretch; width: 100%; box-sizing: border-box; }
+  #scalp-page .scalp-rail > .scalp-event-card { margin-top: 14px; width: 100%; box-sizing: border-box; }
 
   /* ONE HEIGHT FOR EVERY CONTROL ON THE LAUNCHPAD (Phil, 2026-10-20: "check
      all the fields whether they are properly aligned"). Measured before: the
@@ -10308,12 +10333,13 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page > .card > .ocp-head { grid-column: 1 / -1; grid-row: 1; }
   #scalp-page > .card > .scalp-positions-card { grid-column: 2; grid-row: 2; margin: 0 0 14px !important; min-width: 0; }
   #scalp-page > .card > .ocp-panes { display: contents; }
-  /* Not sticky here, as it is in the consoles: under the pinned positions it
-     slid up behind them and hid its own Advanced. It scrolls beneath. */
-  #scalp-page > .card > .ocp-panes > .ocp-pane-form { grid-column: 2; grid-row: 3; align-self: start; position: static; }
+  /* The launchpad and the log are one box, the right column under the
+     positions (see .scalp-rail in strategy.html). The form is not sticky
+     itself, as it is in the consoles; the box pins, in the frozen tops. */
+  #scalp-page > .card > .ocp-panes > .scalp-rail { grid-column: 2; grid-row: 3; align-self: start; min-width: 0; }
+  #scalp-page .scalp-rail > .ocp-pane-form { position: static; }
   #scalp-page > .card > .ocp-panes > .ocp-pane-live { display: contents; }
   #scalp-page > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart { grid-column: 1; grid-row: 2 / 6; align-self: stretch; min-width: 0; margin-top: 0; }
-  #scalp-page > .card > .ocp-panes > .ocp-pane-live > .scalp-event-card { grid-column: 2; grid-row: 4; align-self: start; margin-top: 14px; width: auto; }
   #scalp-page > .card > .scalp-history-card { grid-column: 1 / -1; grid-row: 6; margin-top: 14px; }
   /* The chart takes the column's height, never less than its 600px. */
   #scalp-page .ocp-pane-live > .scalp-dock-chart:not([hidden]) { flex: 1 1 auto; display: flex; flex-direction: column; }
@@ -10409,8 +10435,7 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
      the form is still read on every order (its Both tick counts only while
      it is laid out), so it must not become display: none. */
   #scalp-page.scalp-rail-hidden > .card > .scalp-positions-card,
-  #scalp-page.scalp-rail-hidden > .card > .ocp-panes > .ocp-pane-form,
-  #scalp-page.scalp-rail-hidden > .card > .ocp-panes > .ocp-pane-live > .scalp-event-card {
+  #scalp-page.scalp-rail-hidden > .card > .ocp-panes > .scalp-rail {
     position: absolute !important; left: -10000px !important; top: 0 !important;
     width: 440px !important; height: 1px !important; overflow: hidden !important;
     visibility: hidden !important; margin: 0 !important;
@@ -10693,8 +10718,9 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   }
   body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-head { grid-column: 2; grid-row: 1; min-width: 0; }
   body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .scalp-positions-card { grid-row: 2; }
-  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-form { grid-row: 3; }
-  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-event-card { grid-row: 4; }
+  body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .scalp-rail {
+    grid-row: 3; position: static !important; max-height: none !important; overflow: visible !important;
+  }
   /* Out of the grid's flow, held to the left: spanning the rows at the
      screen's height, it squeezed the column's rows to nothing. */
   body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart {

@@ -1993,25 +1993,38 @@ let _scalpFreezeTops = '';
 if (window.ResizeObserver) {
   const _scalpFreezeRO = new ResizeObserver(() => requestAnimationFrame(_syncScalpFreeze));
   document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.header-shell, #scalp-page > .trading-workspace-head').forEach((el) => _scalpFreezeRO.observe(el));
+    document.querySelectorAll('.header-shell, #scalp-page > .trading-workspace-head, #scalp-page > .card > .scalp-positions-card, #scalp-page .scalp-rail, #scalp-page .scalp-rail > *').forEach((el) => _scalpFreezeRO.observe(el));
   });
 }
 function _syncScalpFreeze() {
   const head = document.querySelector(_SCALP_FREEZE_HEAD);
   if (!head) return;
   const card = head.parentElement;
-  if (!_scalpFreezeActive()) { card.classList.remove('pf-scalp-stuck'); return; }
+  const rail = card.querySelector(':scope > .ocp-panes > .scalp-rail');
+  if (!_scalpFreezeActive()) {
+    card.classList.remove('pf-scalp-stuck');
+    _unfitScalpRail(rail);
+    return;
+  }
   const header = document.querySelector('.header-shell');
   const hero = document.querySelector(_FROZEN_BANNER);
   const top = (header ? Math.ceil(header.getBoundingClientRect().height) : 0)
     + (hero ? Math.ceil(hero.getBoundingClientRect().height) : 0);
-  const tops = `${top}|${top + Math.ceil(head.getBoundingClientRect().height)}`;
+  const posTop = top + Math.ceil(head.getBoundingClientRect().height);
+  // The launchpad and log pin under the positions, which grow and shrink
+  // with the open trades (Phil, 2026-11-04: on Windows the launchpad slid
+  // up behind them). 14px is the gap between them.
+  const pos = card.querySelector(':scope > .scalp-positions-card');
+  const railTop = pos ? posTop + Math.ceil(pos.getBoundingClientRect().height) + 14 : posTop;
+  const tops = `${top}|${posTop}|${railTop}`;
   if (tops !== _scalpFreezeTops) {
     _scalpFreezeTops = tops;
-    const [h, p] = tops.split('|');
+    const [h, p, r] = tops.split('|');
     document.documentElement.style.setProperty('--pf-freeze-scalp-head', `${h}px`);
     document.documentElement.style.setProperty('--pf-freeze-scalp-pos', `${p}px`);
+    document.documentElement.style.setProperty('--pf-freeze-scalp-rail', `${r}px`);
   }
+  _fitScalpRail(card, rail, railTop);
   // Solid only while pinned: the card is glass, and at rest it should look
   // exactly as it did; pinned, the page must not show through.
   // Judged by where the line WOULD sit unpinned (the card's own top and
@@ -2021,6 +2034,40 @@ function _syncScalpFreeze() {
   const cs = window.getComputedStyle(card);
   const natural = card.getBoundingClientRect().top + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
   card.classList.toggle('pf-scalp-stuck', natural < top - 0.5);
+}
+// The pinned launchpad box ends 14px above the history. Both live in the one
+// card, so the box would stay pinned while the history came up under it (or,
+// drawn over, the history hid BUY). As the history rises the box shortens from
+// the bottom and still scrolls inside itself; the room it gives up stays in
+// the layout as a spacer under it, so the history does not move up to fill it.
+function _unfitScalpRail(rail) {
+  if (!rail || !rail.dataset.fit) return;
+  delete rail.dataset.fit;
+  rail.style.removeProperty('--pf-scalp-rail-vis');
+  rail.parentElement.style.removeProperty('--pf-scalp-rail-give');
+  rail.classList.remove('is-squeezed');
+}
+function _fitScalpRail(card, rail, railTop) {
+  const hist = card.querySelector(':scope > .scalp-history-card');
+  if (!rail || !hist) return;
+  // Full screen (no history) and the hidden right column lay it out apart.
+  if (document.body.classList.contains('scalp-chart-full') || card.parentElement.classList.contains('scalp-rail-hidden')
+      || !hist.getClientRects().length) {
+    _unfitScalpRail(rail);
+    return;
+  }
+  const full = rail.scrollHeight;
+  const norm = Math.min(full, Math.max(220, window.innerHeight - railTop - 12));
+  const room = Math.floor(hist.getBoundingClientRect().top - 14 - rail.getBoundingClientRect().top);
+  const vis = Math.max(0, Math.min(norm, room));
+  const fit = `${full}|${vis}`;
+  if (rail.dataset.fit === fit) return;
+  rail.dataset.fit = fit;
+  rail.style.setProperty('--pf-scalp-rail-vis', `${vis}px`);
+  // The spacer after it keeps the launchpad's whole height in the layout, so
+  // the history stands where it did before the box scrolled (2026-11-04).
+  rail.parentElement.style.setProperty('--pf-scalp-rail-give', `${full - vis}px`);
+  rail.classList.toggle('is-squeezed', vis < 48);
 }
 // ── The left menu (desktop, 1200px and wider) ──
 // Phil, 2026-11-02: "make these headings vertically on the left with collapse

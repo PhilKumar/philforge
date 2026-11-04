@@ -118,7 +118,8 @@ test('Scalp panels size to content and Advanced preserves every execution field'
     const pos = positionsEl.getBoundingClientRect();
     return {
       columns: getComputedStyle(desk).gridTemplateColumns,
-      alignItems: getComputedStyle(entryEl).alignSelf,
+      // The launchpad's box is the grid item since 2026-11-04.
+      alignItems: getComputedStyle(entryEl.closest('.scalp-rail') || entryEl).alignSelf,
       positionsOverTheForm: Math.abs(pos.left - entry.left) < 2 && pos.bottom <= entry.top,
       positionsLeadTheDesk: !!(positionsEl.compareDocumentPosition(panes) & Node.DOCUMENT_POSITION_FOLLOWING)
         && !positionsEl.closest('.ocp-panes'),
@@ -126,7 +127,9 @@ test('Scalp panels size to content and Advanced preserves every execution field'
       // and the chart runs down the whole left column.
       logUnderTheForm: Math.abs(logBox.left - entry.left) < 2 && logBox.top >= entry.bottom,
       logIsItsOwnSection: log.tagName === 'DETAILS',
-      logInLiveColumn: !!log.closest('.ocp-pane-live'),
+      // Since 2026-11-04 the launchpad and the log are one box, pinned
+      // under the positions on a desktop (see .scalp-rail).
+      logInTheRightBox: !!log.closest('.scalp-rail') && !!entryEl.closest('.scalp-rail'),
       advancedHeight: advancedBox.height,
     };
   });
@@ -136,7 +139,7 @@ test('Scalp panels size to content and Advanced preserves every execution field'
   expect(geometry.positionsOverTheForm).toBe(true);
   expect(geometry.logUnderTheForm).toBe(true);
   expect(geometry.logIsItsOwnSection).toBe(true);
-  expect(geometry.logInLiveColumn).toBe(true);
+  expect(geometry.logInTheRightBox).toBe(true);
   expect(geometry.advancedHeight).toBeLessThan(50);
 
   await advanced.locator('summary').click();

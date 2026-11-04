@@ -854,6 +854,14 @@ test('the Scalp desk freezes down to Active Positions; the rest scrolls beneath'
   // Phil, 2026-10-20: "Let the page freeze starts from the Active positions".
   await page.setViewportSize({ width: 1400, height: 1000 });
   await scalpChart(page, oneMinuteBars('2026-10-14', '15:29:00'), 150);
+  // A real desk's history runs long; this one is empty, and since 2026-11-04
+  // the right column scrolls in its own box, so the page alone is too short
+  // to scroll 900px. The filler stands in for the history's rows.
+  await page.evaluate(() => {
+    const rows = document.createElement('div');
+    rows.style.height = '1200px';
+    document.querySelector('#scalp-page > .card > .scalp-history-card')!.appendChild(rows);
+  });
   const at = (y: number) => page.evaluate(async (v) => {
     window.scrollTo(0, v);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
