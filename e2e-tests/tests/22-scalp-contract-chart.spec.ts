@@ -450,20 +450,22 @@ test('Scalp: the chart keeps its timeframe and zoom across a page change and a r
 
 test('Scalp: right-click sets a price alarm that rings when the price reaches it', async ({ page }) => {
   // Phil, 2026-11-04: "I need alarm to set on the chart when it crosses or
-  // touches a price line I set.. like right clicking on the chart".
+  // touches a price line I set.. like right clicking on the chart", kept and
+  // rung by the server ("yes do server side with telegram").
   test.setTimeout(90_000);
-  await page.addInitScript(() => { try { localStorage.removeItem('pf_scalp_price_alerts_v1'); } catch (_) {} });
   const open = Math.floor(new Date('2026-10-15T09:15:00+05:30').getTime() / 1000);
   const candles = Array.from({ length: 75 }, (_, i) => ({ t: open + i * 300, o: 100 + i, h: 104 + i, l: 98 + i, c: 102 + i }));
   await page.route('**/api/scalp/contract-chart**', (route) => route.fulfill({ json: {
     status: 'ok', timeframe: '5m', candles, entries: [], overlays: [], lines: [], live_price: 0,
-    instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2026-10-19', security_id: '1' },
+    instrument: { underlying: 'NIFTY', strike: 22700, option_type: 'PE', expiry: '2099-10-19', security_id: '1' },
   } }));
   await login(page);
+  const alarms = () => page.evaluate(async () => (await (await fetch('/api/scalp/alarms')).json()).alarms as { id: string; price: number }[]);
+  for (const a of await alarms()) await page.evaluate((id) => fetch(`/api/scalp/alarms/${id}`, { method: 'DELETE' }), a.id);
   await page.locator('[data-pf-trading-page="scalp-page"]').first().evaluate((el) => (el as HTMLElement).click());
   await page.evaluate(() => {
     const sel = document.getElementById('scalp-expiry') as HTMLSelectElement;
-    if (!sel.value) { sel.innerHTML = '<option value="2026-10-19">19 Oct</option>'; sel.value = '2026-10-19'; }
+    if (!sel.value) { sel.innerHTML = '<option value="2099-10-19">19 Oct</option>'; sel.value = '2099-10-19'; }
     (document.getElementById('scalp-strike') as HTMLInputElement).value = '22700';
     (window as unknown as { _syncScalpContractChartLabel: () => void })._syncScalpContractChartLabel();
   });
@@ -485,17 +487,19 @@ test('Scalp: right-click sets a price alarm that rings when the price reaches it
   await add.click();
   await expect(page.locator('#scalp-alert-menu')).toHaveCount(0);
 
-  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('pf_scalp_price_alerts_v1') || '{}'));
-  expect(Object.values(await stored()).flat()).toHaveLength(1);
-  // Drawn on the chart as a bell line at that price.
+  // Kept on the server, and drawn on the chart as a bell line at that price.
+  await expect.poll(async () => (await alarms()).map(a => a.price)).toEqual([level]);
   await expect.poll(() => page.evaluate('(_scalpChartShown.data.lines || []).filter(l => String(l.label).includes("ALARM")).map(l => l.price)')).toEqual([level]);
 
   // A candle that opens after the alarm and reaches the level rings it once,
   // arriving as the chart's own poll brings it in.
   candles.push({ t: Math.floor(Date.now() / 1000) + 60, o: level, h: level + 5, l: level - 5, c: level });
   await expect(page.locator('.scalp-alarm')).toHaveCount(1, { timeout: 15_000 });
-  await expect(page.locator('.scalp-alarm strong')).toContainText(`NIFTY 22700PE`);
-  expect(Object.values(await stored()).flat()).toHaveLength(0);
+  await expect(page.locator('.scalp-alarm strong')).toContainText('NIFTY 22700PE');
+  await expect.poll(alarms).toEqual([]);
   await page.locator('.scalp-alarm-dismiss').click();
+  await expect(page.locator('.scalp-alarm')).toHaveCount(0);
+  // Rung once: the next syncs do not ring it again.
+  await page.waitForTimeout(4500);
   await expect(page.locator('.scalp-alarm')).toHaveCount(0);
 });

@@ -55,6 +55,8 @@ EXPECTED_LOOPS = [
     "live-watchdog",
     "pre-open-check",
     "sanctuary-plans",
+    # The Scalp chart's price alarms, rung with the page closed (04-Nov-2026).
+    "scalp-alarms",
     "supertrend",
     # Saves every closed live trade's chart outside the trading day (13-Oct-2026).
     "trade-chart-keeper",

@@ -3944,6 +3944,8 @@ def _ensure_auto_loops_running() -> list[str]:
         "pre-open-check": _run_pre_open_check_loop,
         # Saves every closed live trade's chart, outside the trading day.
         "trade-chart-keeper": _run_trade_chart_keeper_loop,
+        # Rings the price alarms set on the Scalp charts, page open or not.
+        "scalp-alarms": _run_scalp_alarm_loop,
     }
     started: list[str] = []
     for name, factory in loops.items():
@@ -27540,6 +27542,223 @@ def _option_ltp_last_close(underlying: str, strike, expiry: str, option_type: st
         if candles and int(candles[-1]["t"]) > best_t:
             best_t, best_c = int(candles[-1]["t"]), float(candles[-1]["c"] or 0)
     return best_c
+
+
+# ── PRICE ALARMS on the Scalp charts ─────────────────────────────
+# Phil, 2026-11-04: "I need alarm to set on the chart when it crosses or
+# touches a price line I set.. like right clicking on the chart", then "yes do
+# server side with telegram": the page alone stopped pricing while its tab was
+# hidden, so an alarm could not ring on another screen. Set from the chart's
+# right-click menu, kept here, watched here on Dhan's WebSocket tick by tick
+# (Kite's quote, then Dhan's, when the feed has no fresh tick), and rung once:
+# a Telegram message, and the page's beep and banner when it is open.
+_SCALP_ALARMS_KEY = "scalp_price_alarms"
+_SCALP_ALARM_FIRED_KEEP = 20
+_SCALP_ALARM_QUOTE_EVERY_SEC = 5.0
+_scalp_alarms: dict | None = None  # {str(user_id): {"alarms": [...], "fired": [...]}}
+_scalp_alarms_lock = asyncio.Lock()
+_scalp_alarm_quoted: dict[tuple, float] = {}  # contract -> when a REST quote was last asked
+
+
+class ScalpAlarmReq(BaseModel):
+    underlying: str
+    strike: float
+    expiry: str
+    option_type: str
+    price: float
+    now: float = 0.0
+
+
+async def _scalp_alarms_load() -> dict:
+    global _scalp_alarms
+    if _scalp_alarms is None:
+        try:
+            raw = await _db_mod.get_app_state(_SCALP_ALARMS_KEY)
+            _scalp_alarms = json.loads(raw) if raw else {}
+        except Exception:
+            _scalp_alarms = {}
+    return _scalp_alarms
+
+
+async def _scalp_alarms_save() -> None:
+    await _db_mod.set_app_state(_SCALP_ALARMS_KEY, json.dumps(_scalp_alarms or {}))
+
+
+def _scalp_alarm_label(alarm: dict) -> str:
+    return f"{alarm['underlying']} {_scalp_strike(alarm['strike'])}{alarm['option_type']}"
+
+
+def _scalp_alarm_hit(alarm: dict, price: float) -> bool:
+    """Crossed or touched: at the level, or past it the way it had to go."""
+    if price <= 0:
+        return False
+    return price <= float(alarm["price"]) if alarm.get("dir") == "down" else price >= float(alarm["price"])
+
+
+async def _scalp_fire_alarm(user_key: str, alarm_id: str, price: float) -> dict | None:
+    """Ring one alarm once: off the list, onto `fired`, and to Telegram."""
+    async with _scalp_alarms_lock:
+        book = (await _scalp_alarms_load()).get(user_key) or {}
+        alarm = next((a for a in book.get("alarms", []) if a.get("id") == alarm_id), None)
+        if alarm is None:
+            return None
+        book["alarms"] = [a for a in book["alarms"] if a.get("id") != alarm_id]
+        rung = {**alarm, "hit": round(float(price), 2), "fired_at": int(time.time())}
+        book["fired"] = (book.get("fired", []) + [rung])[-_SCALP_ALARM_FIRED_KEEP:]
+        await _scalp_alarms_save()
+    moved = "fell to" if alarm.get("dir") == "down" else "rose to"
+    expiry = str(alarm.get("expiry") or "")
+    try:
+        exp_txt = f" ({datetime.fromisoformat(expiry).strftime('%d %b')})" if expiry else ""
+    except ValueError:
+        exp_txt = ""
+    alerter.alert(
+        f"\U0001f514 Price alarm · {_scalp_alarm_label(alarm)}{exp_txt}",
+        f"{moved} \u20b9{float(alarm['price']):.2f}\nNow \u20b9{float(price):.2f} at "
+        f"{datetime.now(IST).strftime('%H:%M:%S')} IST",
+        level="info",
+    )
+    _logger.info("[ALARM] %s %s %.2f rung at %.2f", user_key, _scalp_alarm_label(alarm), alarm["price"], price)
+    return rung
+
+
+async def _scalp_alarm_price(alarm: dict, now_mono: float) -> float:
+    """The contract's price now: the WebSocket's tick, else at most one REST
+    quote every few seconds while its session is open -- Kite's, then Dhan's."""
+    underlying, strike = str(alarm["underlying"]), _scalp_strike(alarm["strike"])
+    expiry, option_type = str(alarm["expiry"]), str(alarm["option_type"])
+    try:
+        if _market_feed is not None:
+            ltp = float(_market_feed.live_option_ltp(underlying, strike, expiry, option_type) or 0)
+            if ltp > 0:
+                return ltp
+    except Exception:
+        pass
+    contract = (underlying, strike, expiry, option_type)
+    if now_mono - _scalp_alarm_quoted.get(contract, 0.0) < _SCALP_ALARM_QUOTE_EVERY_SEC:
+        return 0.0
+    session = _scalp_session(underlying)
+    now = datetime.now(IST)
+    open_hm, close_hm = (tuple(int(x) for x in session[k].split(":")) for k in ("open", "close"))
+    if now.weekday() >= 5 or not (dt_time(*open_hm) <= now.time() < dt_time(*close_hm)):
+        return 0.0
+    _scalp_alarm_quoted[contract] = now_mono
+    clients = []
+    try:
+        user = await _db_mod.get_user_by_id(int(alarm.get("user_id") or 0)) if alarm.get("user_id") else None
+        zerodha, _ = _user_zerodha_client(user, require_today=True) if user else (None, None)
+        if zerodha is not None:
+            clients.append(zerodha)
+    except Exception:
+        pass
+    engine = next(iter(_scalp_engines.values()), None)
+    if getattr(engine, "dhan", None) is not None:
+        clients.append(engine.dhan)
+    for client in clients:
+        try:
+            ltp = float(await asyncio.to_thread(client.get_option_ltp, underlying, strike, expiry, option_type) or 0)
+        except Exception as exc:
+            _logger.debug("[ALARM] %s quote failed: %s", type(client).__name__, exc)
+            ltp = 0.0
+        if ltp > 0:
+            return ltp
+    return 0.0
+
+
+async def _scalp_alarms_drop_expired() -> None:
+    """An alarm on a contract that has expired can never ring: it goes."""
+    today = datetime.now(IST).date().isoformat()
+    async with _scalp_alarms_lock:
+        book = await _scalp_alarms_load()
+        changed = False
+        for entry in book.values():
+            kept = [a for a in entry.get("alarms", []) if str(a.get("expiry") or "") >= today]
+            if len(kept) != len(entry.get("alarms", [])):
+                entry["alarms"], changed = kept, True
+        if changed:
+            await _scalp_alarms_save()
+
+
+async def _run_scalp_alarm_loop() -> None:
+    last_sweep = ""
+    while True:
+        try:
+            if last_sweep != datetime.now(IST).date().isoformat():
+                await _scalp_alarms_drop_expired()
+                last_sweep = datetime.now(IST).date().isoformat()
+            book = await _scalp_alarms_load()
+            pending = [(uk, dict(a)) for uk, b in list(book.items()) for a in (b.get("alarms") or [])]
+            now_mono = time.monotonic()
+            for user_key, alarm in pending:
+                price = await _scalp_alarm_price({**alarm, "user_id": user_key}, now_mono)
+                if _scalp_alarm_hit(alarm, price):
+                    await _scalp_fire_alarm(user_key, alarm["id"], price)
+        except Exception:
+            _logger.exception("[ALARM] check failed")
+        await asyncio.sleep(1.0)
+
+
+@app.get("/api/scalp/alarms")
+async def scalp_alarms_list(request: Request):
+    """This user's alarms, and the ones rung in the last ten minutes."""
+    book = (await _scalp_alarms_load()).get(str(_request_user_id(request))) or {}
+    recent = int(time.time()) - 600
+    return {
+        "status": "ok",
+        "alarms": book.get("alarms", []),
+        "fired": [f for f in book.get("fired", []) if int(f.get("fired_at") or 0) >= recent],
+    }
+
+
+@app.post("/api/scalp/alarms")
+async def scalp_alarm_add(req: ScalpAlarmReq, request: Request):
+    underlying = str(req.underlying or "").strip().upper()
+    option_type = str(req.option_type or "").strip().upper()
+    if not _is_scalp_underlying(underlying) or option_type not in {"CE", "PE"} or not req.expiry:
+        raise HTTPException(status_code=422, detail="Pick an option contract first")
+    price = round(round(float(req.price) * 20) / 20, 2)
+    if price <= 0:
+        raise HTTPException(status_code=422, detail="An alarm needs a price above zero")
+    now = float(req.now or 0)
+    # Which way it has to go: down to a level under the price, else up to it.
+    alarm = {
+        "id": f"a{int(time.time() * 1000):x}",
+        "underlying": underlying,
+        "strike": _scalp_strike(req.strike),
+        "expiry": str(req.expiry)[:10],
+        "option_type": option_type,
+        "price": price,
+        "dir": "down" if now > 0 and price < now else "up",
+        "at": int(time.time()),
+    }
+    async with _scalp_alarms_lock:
+        book = (await _scalp_alarms_load()).setdefault(str(_request_user_id(request)), {"alarms": [], "fired": []})
+        book.setdefault("alarms", []).append(alarm)
+        await _scalp_alarms_save()
+    return {"status": "ok", "alarm": alarm}
+
+
+@app.delete("/api/scalp/alarms/{alarm_id}")
+async def scalp_alarm_remove(alarm_id: str, request: Request):
+    async with _scalp_alarms_lock:
+        book = (await _scalp_alarms_load()).get(str(_request_user_id(request))) or {}
+        before = len(book.get("alarms", []))
+        book["alarms"] = [a for a in book.get("alarms", []) if a.get("id") != alarm_id]
+        if len(book["alarms"]) != before:
+            await _scalp_alarms_save()
+    return {"status": "ok", "removed": before - len(book["alarms"])}
+
+
+class ScalpAlarmFireReq(BaseModel):
+    price: float
+
+
+@app.post("/api/scalp/alarms/{alarm_id}/fire")
+async def scalp_alarm_fire(alarm_id: str, req: ScalpAlarmFireReq, request: Request):
+    """The page saw the level reached first (a candle's high or low between two
+    ticks): rung here, so Telegram hears of it once and the list forgets it."""
+    rung = await _scalp_fire_alarm(str(_request_user_id(request)), alarm_id, float(req.price or 0))
+    return {"status": "ok", "fired": rung}
 
 
 @app.get("/api/option-ltp")
