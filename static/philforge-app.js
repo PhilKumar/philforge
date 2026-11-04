@@ -16160,6 +16160,9 @@ function _scalpDecorate(data) {
   data.onRsiResize = (h) => { try { localStorage.setItem('pf_scalp_rsi_pane_h', String(h)); } catch (_) {} };
   data.magnet = _scalpChartMagnetOn;
   data.onCrosshair = (idx) => { _scalpOhlcHover = idx; _scalpOhlcShow(); };
+  data.onContextMenu = (at) => _scalpAlertMenu(data, at);
+  _scalpAlertsFor(key).forEach(a => lines.push({ price: a.price, label: '\u{1F514} ALARM',
+    color: '#f59e0b', dash: [2, 3], width: 1.3, opacity: 0.95 }));
   data.overlays = overlays;
   data.lines = lines;
   // The room past the last candle is the next-day CPR's, so it goes with it.
@@ -16183,6 +16186,206 @@ function _scalpRedecorate() {
   const state = _pfChartCanvasRefreshState();
   _scalpDecorate(shown.data);
   _pfChartCanvasRefresh(shown.data, state);
+}
+
+// ── PRICE ALARMS on the Scalp charts ──────────────────────────────
+// Phil, 2026-11-04: "I need alarm to set on the chart when it crosses or
+// touches a price line I set.. like right clicking on the chart I need to set
+// alarm on that particular price". Right-click the chart: an alarm at the
+// price under the pointer, drawn as an amber bell line. It rings once -- a
+// sound, a banner on the page, and a desktop notification when the tab is in
+// the background -- and is gone, as TradingView's do. Kept per contract in this
+// browser, and watched while this page is open with that contract on a chart.
+const _SCALP_ALERT_KEY = 'pf_scalp_price_alerts_v1';
+const _scalpAlertPrice = (p) => Number(p).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function _scalpAlertsAll() {
+  try { return JSON.parse(localStorage.getItem(_SCALP_ALERT_KEY) || '{}') || {}; } catch (_) { return {}; }
+}
+function _scalpAlertsFor(key) {
+  const list = _scalpAlertsAll()[key];
+  return Array.isArray(list) ? list.filter(a => a && Number(a.price) > 0) : [];
+}
+function _scalpAlertsSave(key, list) {
+  const all = _scalpAlertsAll();
+  if (list.length) all[key] = list; else delete all[key];
+  try { localStorage.setItem(_SCALP_ALERT_KEY, JSON.stringify(all)); } catch (_) { /* private mode */ }
+  _scalpAlertWatch();
+}
+
+// The price a chart is trading at now: the live tick, else its last candle.
+function _scalpAlertNow(data) {
+  const shown = _scalpChartShown;
+  let price = 0;
+  if (shown && shown.data === data) price = _scalpChartLivePrice(shown.key);
+  else if (_scalpAlt.data === data && _scalpAlt.priceKey === _scalpAlt.key) price = Number(_scalpAlt.price) || 0;
+  const candles = (data && data.candles) || [];
+  return price > 0 ? price : (candles.length ? Number(candles[candles.length - 1].c) || 0 : 0);
+}
+
+function _scalpAlertMenuClose() {
+  document.getElementById('scalp-alert-menu')?.remove();
+}
+
+function _scalpAlertMenu(data, at) {
+  _scalpAlertMenuClose();
+  const key = _scalpDrawKey(data);
+  const price = Math.round(Number(at.price) * 20) / 20; // the option's 0.05 tick
+  if (!(price > 0)) return;
+  const menu = document.createElement('div');
+  menu.id = 'scalp-alert-menu';
+  menu.className = 'scalp-alert-menu';
+  menu.setAttribute('role', 'menu');
+  const item = (text, fn, cls) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `scalp-alert-menu-item${cls ? ` ${cls}` : ''}`;
+    b.setAttribute('role', 'menuitem');
+    b.textContent = text;
+    b.addEventListener('click', () => { _scalpAlertMenuClose(); fn(); });
+    menu.appendChild(b);
+  };
+  item(`\u{1F514}  Alarm at ₹${_scalpAlertPrice(price)}`, () => _scalpAlertAdd(data, price), 'is-add');
+  const existing = _scalpAlertsFor(key);
+  existing.forEach(a => item(`✕  Remove alarm ₹${_scalpAlertPrice(a.price)}`, () => _scalpAlertRemove(key, a.id)));
+  if (existing.length > 1) item('✕  Remove all alarms', () => { _scalpAlertsSave(key, []); _scalpRedecorate(); });
+  document.body.appendChild(menu);
+  const box = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(at.clientX, window.innerWidth - box.width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(at.clientY, window.innerHeight - box.height - 8))}px`;
+  menu.querySelector('button')?.focus();
+}
+document.addEventListener('pointerdown', (event) => {
+  const menu = document.getElementById('scalp-alert-menu');
+  if (menu && !menu.contains(event.target)) _scalpAlertMenuClose();
+}, true);
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') _scalpAlertMenuClose(); });
+window.addEventListener('scroll', _scalpAlertMenuClose, { passive: true });
+
+function _scalpAlertAdd(data, price) {
+  const key = _scalpDrawKey(data);
+  const now = _scalpAlertNow(data);
+  // Which way it has to go: up to a level above the price, down to one below.
+  const alert = { id: `a${Date.now().toString(36)}`, price, dir: now > 0 && price < now ? 'down' : 'up', at: Math.floor(Date.now() / 1000) };
+  _scalpAlertsSave(key, _scalpAlertsFor(key).concat([alert]));
+  _scalpAlarmSoundReady();
+  try { if (window.Notification && Notification.permission === 'default') Notification.requestPermission(); } catch (_) {}
+  _scalpRedecorate();
+  if (typeof showToast === 'function') showToast(`Alarm set at ₹${_scalpAlertPrice(price)}`, 'success');
+}
+
+function _scalpAlertRemove(key, id) {
+  _scalpAlertsSave(key, _scalpAlertsFor(key).filter(a => a.id !== id));
+  _scalpRedecorate();
+}
+
+// Crossed or touched: the price is at or past the level, or a candle that
+// opened after the alarm was set reached it between two ticks.
+function _scalpAlertHit(alert, price, candles) {
+  const up = alert.dir !== 'down';
+  if (price > 0 && (up ? price >= alert.price : price <= alert.price)) return true;
+  return (candles || []).some(b => Number(b.t) >= Number(alert.at || 0)
+    && (up ? Number(b.h) >= alert.price : Number(b.l) <= alert.price));
+}
+
+function _scalpCheckPriceAlerts(data) {
+  if (!data || !data.instrument) return;
+  const key = _scalpDrawKey(data);
+  const list = _scalpAlertsFor(key);
+  if (!list.length) return;
+  const price = _scalpAlertNow(data);
+  const candles = (data.candles || []).slice(-3);
+  const hit = list.filter(a => _scalpAlertHit(a, price, candles));
+  if (!hit.length) return;
+  _scalpAlertsSave(key, list.filter(a => !hit.includes(a)));
+  _scalpRedecorate();
+  const i = data.instrument;
+  hit.forEach(a => _scalpAlarm(`${i.underlying} ${i.strike}${i.option_type}`, a, price));
+}
+
+let _scalpAlertTimer = null;
+function _scalpAlertWatch() {
+  const any = Object.keys(_scalpAlertsAll()).length > 0;
+  if (any && !_scalpAlertTimer) {
+    _scalpAlertTimer = setInterval(() => {
+      if (_scalpChartShown) _scalpCheckPriceAlerts(_scalpChartShown.data);
+      if (_scalpAlt.data) _scalpCheckPriceAlerts(_scalpAlt.data);
+    }, 1000);
+  } else if (!any && _scalpAlertTimer) {
+    clearInterval(_scalpAlertTimer);
+    _scalpAlertTimer = null;
+  }
+}
+_scalpAlertWatch();
+
+// The sound: three short beeps a second for ten seconds, or until dismissed.
+// A browser plays sound only after a click on the page, so the context is
+// opened by the click that sets the alarm.
+let _scalpAlarmCtx = null;
+let _scalpAlarmRinging = null;
+function _scalpAlarmSoundReady() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!_scalpAlarmCtx && Ctx) _scalpAlarmCtx = new Ctx();
+    if (_scalpAlarmCtx && _scalpAlarmCtx.state === 'suspended') _scalpAlarmCtx.resume();
+  } catch (_) { _scalpAlarmCtx = null; }
+}
+function _scalpAlarmBeeps() {
+  const ctx = _scalpAlarmCtx;
+  if (!ctx) return;
+  [0, 0.18, 0.36].forEach((offset) => {
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 1046;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
+    gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + offset + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.12);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(ctx.currentTime + offset);
+    osc.stop(ctx.currentTime + offset + 0.13);
+  });
+}
+function _scalpAlarmSilence() {
+  if (_scalpAlarmRinging) { clearInterval(_scalpAlarmRinging); _scalpAlarmRinging = null; }
+}
+
+function _scalpAlarm(symbol, alert, price) {
+  const crossed = alert.dir === 'down' ? 'fell to' : 'rose to';
+  const text = `${symbol} ${crossed} ₹${_scalpAlertPrice(alert.price)}`;
+  let stack = document.getElementById('scalp-alarm-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'scalp-alarm-stack';
+    stack.className = 'scalp-alarm-stack';
+    stack.setAttribute('role', 'alert');
+    document.body.appendChild(stack);
+  }
+  const card = document.createElement('div');
+  card.className = 'scalp-alarm';
+  const at = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
+  card.innerHTML = `<span class="scalp-alarm-bell" aria-hidden="true">\u{1F514}</span>
+    <div class="scalp-alarm-text"><strong></strong><span></span></div>
+    <button type="button" class="scalp-alarm-dismiss">Dismiss</button>`;
+  card.querySelector('strong').textContent = text;
+  card.querySelector('.scalp-alarm-text span').textContent = `Now ₹${_scalpAlertPrice(price)} · ${at} IST`;
+  card.querySelector('.scalp-alarm-dismiss').addEventListener('click', () => {
+    card.remove();
+    if (!stack.children.length) _scalpAlarmSilence();
+  });
+  stack.appendChild(card);
+  _scalpAlarmSilence();
+  _scalpAlarmSoundReady();
+  _scalpAlarmBeeps();
+  let rings = 1;
+  _scalpAlarmRinging = setInterval(() => {
+    if (++rings > 10 || !stack.children.length) { _scalpAlarmSilence(); return; }
+    _scalpAlarmBeeps();
+  }, 1000);
+  try {
+    if (document.hidden && window.Notification && Notification.permission === 'granted') {
+      new Notification('PhilForge alarm', { body: text, tag: `scalp-alarm-${alert.id}` });
+    }
+  } catch (_) { /* notifications unavailable here */ }
 }
 
 function _scalpPaintTools() {

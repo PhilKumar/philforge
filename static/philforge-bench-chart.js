@@ -2171,7 +2171,20 @@ function _pfChartCanvasBindInteraction(c) {
       if (b.at > a.at) _pfChartCanvasCoast(c, (b.x - a.x) / (b.at - a.at));
     }
   }
+  // RIGHT-CLICK IS THE PAGE'S MENU, at the price under the pointer (Phil,
+  // 2026-11-04: "right clicking on the chart I need to set alarm on that
+  // particular price"). A chart whose page offers none keeps the browser's.
+  bind('contextmenu', function (event) {
+    var handler = c.data && c.data.onContextMenu;
+    var point = _pfChartCanvasPoint(c, event), p = c.projection;
+    if (typeof handler !== 'function' || !point || !p || !(point.plot || point.priceAxis)) return;
+    event.preventDefault();
+    _pfChartCanvasClearCrosshair(c);
+    handler({ price: p.pAt(point.y), clientX: event.clientX, clientY: event.clientY }, c.host);
+  });
   bind('pointerdown', function (event) {
+    // The right button opens the menu above; it never pans or draws.
+    if (event.button === 2) return;
     _pfChartCanvasStopMotion(c);
     var point = _pfChartCanvasPoint(c, event), v = c.viewport;
     // A drawing tool waiting for a point takes the click instead of a pan:

@@ -6393,6 +6393,22 @@ body.terminal-cascade-chart-open { overflow: hidden; }
 .scalp-fib-menu[hidden] { display: none; }
 .scalp-fib-item { text-align: left; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: 600 11px var(--font-mono, monospace); cursor: pointer; }
 .scalp-fib-item:hover { background: rgba(148,163,184,.14); }
+/* Price alarms (Phil, 2026-11-04): the right-click menu on a Scalp chart, and
+   the banner that rings when the price reaches one. */
+.scalp-alert-menu { position: fixed; z-index: 1200; display: grid; gap: 2px; padding: 4px; min-width: 200px; background: #0d1526; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.scalp-alert-menu-item { text-align: left; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: 600 11.5px var(--font-mono, monospace); cursor: pointer; white-space: nowrap; }
+.scalp-alert-menu-item:hover, .scalp-alert-menu-item:focus-visible { background: rgba(148,163,184,.14); outline: none; }
+.scalp-alert-menu-item.is-add { color: #f59e0b; }
+.scalp-alarm-stack { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 1300; display: grid; gap: 8px; width: min(420px, calc(100vw - 32px)); }
+.scalp-alarm { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #1a1408; border: 1px solid rgba(245,158,11,.7); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.45); color: var(--text); }
+.scalp-alarm-bell { font-size: 22px; line-height: 1; }
+.scalp-alarm-text { display: grid; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.scalp-alarm-text strong { font: 700 13px var(--font-sans, inherit); }
+.scalp-alarm-text span { font: 600 11px var(--font-mono, monospace); color: var(--muted); }
+.scalp-alarm-dismiss { flex: 0 0 auto; padding: 6px 12px; border: 1px solid rgba(245,158,11,.6); border-radius: 7px; background: rgba(245,158,11,.14); color: #f59e0b; font: 700 11px var(--font-mono, monospace); cursor: pointer; }
+.scalp-alarm-dismiss:hover { background: rgba(245,158,11,.24); }
+[data-theme="light"] .scalp-alert-menu { background: #ffffff; box-shadow: 0 14px 36px rgba(15,23,42,.18); }
+[data-theme="light"] .scalp-alarm { background: #fffbeb; box-shadow: 0 14px 36px rgba(15,23,42,.18); }
 .scalp-dock-chart-canvas,
 .scalp-dock-chart-canvas .pf-bench-canvas-host { min-height: 600px; aspect-ratio: auto; }
 @media (max-width: 1079px) { .scalp-dock-chart { display: none !important; } }
