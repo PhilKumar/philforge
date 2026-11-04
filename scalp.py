@@ -1452,6 +1452,11 @@ class ScalpEngine:
         for trade in list(live_trades):
             if trade.trade_id not in self.open_trades:
                 continue
+            # Our own exit flattens the position before its fill is confirmed:
+            # read in that gap, the empty book booked trade 379 (04-Nov-2026) a
+            # second time as "closed by hand", +Rs 458 that never happened.
+            if trade.trade_id in self._exits_in_flight:
+                continue
             if (now - trade.entry_time).total_seconds() < 15:
                 continue
             sec_id = ScripMaster.lookup(trade.underlying, trade.strike, trade.expiry, trade.option_type)
@@ -1697,7 +1702,8 @@ class ScalpEngine:
             elif self._super_leg_triggered(sl_leg):
                 exit_reason = "sl_hit"
                 exit_premium = float(sl_leg.get("price", 0) or trade.sl_premium or 0)
-            elif trade.super_order_status == "CLOSED":
+            elif trade.super_order_status == "CLOSED" and trade.trade_id not in self._exits_in_flight:
+                # CLOSED mid-exit is our own SELL, which the exit books itself.
                 exit_reason = "broker_closed"
                 exit_premium = float(order.get("ltp", 0) or trade.current_premium or trade.entry_premium or 0)
 
@@ -2235,8 +2241,8 @@ class ScalpEngine:
 
         return result
 
-    def _get_ltp(self, trade: ScalpTrade, trade_id: int) -> float:
-        """Synchronous LTP helper — used only for exit price snapshots."""
+    def _known_ltp(self, trade: ScalpTrade, trade_id: int) -> float:
+        """The live feed's price, or a REST price under 5s old; never a network call."""
         segment = self._segment_for_underlying(trade.underlying)
         ws_sec_id = self._ws_subs.get(trade_id)
         if ws_sec_id and self.feed:
@@ -2255,6 +2261,15 @@ class ScalpEngine:
             cached_ltp = self._cached_ltp(segment, int(sec_id), SCALP_REST_LTP_SNAPSHOT_SEC)
             if cached_ltp > 0:
                 return cached_ltp
+        return 0.0
+
+    def _get_ltp(self, trade: ScalpTrade, trade_id: int) -> float:
+        """Synchronous LTP helper — used only for exit price snapshots."""
+        known = self._known_ltp(trade, trade_id)
+        if known > 0:
+            return known
+        segment = self._segment_for_underlying(trade.underlying)
+        sec_id = ScripMaster.lookup(trade.underlying, trade.strike, trade.expiry, trade.option_type)
         if self._ltp_backoff_active():
             return 0.0
         try:
@@ -2266,6 +2281,31 @@ class ScalpEngine:
             if self._is_marketfeed_rate_limited(e):
                 self._enter_ltp_backoff(e)
             return 0.0
+
+    async def _exit_ltp(self, trade: ScalpTrade) -> float:
+        """The price a Dhan exit is sent against, without holding the event loop.
+
+        Phil, 2026-11-04: "Dhan exit is seems slow compared to zerodha.. When I
+        click exit it exit 2-3 sec later". The exit read its price with
+        _get_ltp ON the event loop, and with no live tick that is Dhan's REST
+        LTP -- the endpoint that answers 429 all morning, sleeping a second per
+        retry while every screen and engine waited. The feed first, then Kite
+        (as the entry has priced since 23-Oct), and Dhan's REST last, off the loop.
+        """
+        known = self._known_ltp(trade, trade.trade_id)
+        if known > 0:
+            return known
+        if getattr(self, "zerodha", None) is not None:
+            try:
+                quote = await asyncio.to_thread(
+                    self.zerodha.get_option_quote, trade.underlying, trade.strike, trade.expiry, trade.option_type
+                )
+                ltp = float((quote or {}).get("ltp") or 0.0)
+                if ltp > 0:
+                    return ltp
+            except Exception:
+                pass
+        return float(await asyncio.to_thread(self._get_ltp, trade, trade.trade_id) or 0.0)
 
     async def _stop_fill_price(self, trade: ScalpTrade, order_id: str) -> float:
         """The price a broker stop filled at, or 0.0 if it has not filled."""
@@ -2550,6 +2590,7 @@ class ScalpEngine:
         exit_order_id_override: str = "",
     ):
         """Place exit order (or simulate in paper mode) and move trade to closed_trades."""
+        began = _time.monotonic()
         # Guard against double-close (race between manual exit and auto-exit monitor)
         if trade.trade_id not in self.open_trades or trade.status == "closed":
             self._log("info", f"⚠️ Trade {trade.trade_id} already closed, skipping duplicate exit")
@@ -2599,7 +2640,7 @@ class ScalpEngine:
                 if self._closed_meanwhile(trade):
                     return
                 try:
-                    ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                    ltp = await self._exit_ltp(trade) or trade.current_premium
                     if exit_txn == "SELL":
                         exit_price = round(max(0.05, ltp * 0.95), 2)
                     else:
@@ -2624,14 +2665,20 @@ class ScalpEngine:
                 if refused:
                     return await self._dhan_exit_refused(trade, refused)
                 exit_order_id = result.get("orderId", "")
+                sent = _time.monotonic()
                 fill = await self._dhan_exit_fill(exit_order_id)
                 fill_status = str(fill.get("status") or "").upper()
+                self._log(
+                    "info",
+                    f"⏱ Dhan exit: SELL sent {(sent - began) * 1000:.0f} ms after the click, "
+                    f"{fill_status or 'no answer'} {(_time.monotonic() - sent) * 1000:.0f} ms later",
+                )
                 if fill_status in ("REJECTED", "CANCELLED") and int(fill.get("filled_qty") or 0) == 0:
                     return await self._dhan_exit_refused(trade, fill.get("message") or fill_status)
                 exit_prem = (
                     float(fill.get("avg_price") or 0.0)
                     or exit_prem_override
-                    or self._get_ltp(trade, trade.trade_id)
+                    or self._known_ltp(trade, trade.trade_id)
                     or trade.current_premium
                 )
                 if fill_status != "FILLED":
@@ -2686,7 +2733,7 @@ class ScalpEngine:
                     # Use LIMIT order with aggressive fill price — Dhan converts
                     # F&O MARKET orders to LIMIT with a bad price buffer for SELLs,
                     # causing exit orders to hang as pending instead of filling.
-                    ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium
+                    ltp = await self._exit_ltp(trade) or trade.current_premium
                     if exit_txn == "SELL":
                         # Sell at 5% below LTP to guarantee immediate fill
                         exit_price = round(max(0.05, ltp * 0.95), 2)
@@ -2713,14 +2760,20 @@ class ScalpEngine:
                 if refused:
                     return await self._dhan_exit_refused(trade, refused)
                 exit_order_id = result.get("orderId", "")
+                sent = _time.monotonic()
                 fill = await self._dhan_exit_fill(exit_order_id)
                 fill_status = str(fill.get("status") or "").upper()
+                self._log(
+                    "info",
+                    f"⏱ Dhan exit: SELL sent {(sent - began) * 1000:.0f} ms after the click, "
+                    f"{fill_status or 'no answer'} {(_time.monotonic() - sent) * 1000:.0f} ms later",
+                )
                 if fill_status in ("REJECTED", "CANCELLED") and int(fill.get("filled_qty") or 0) == 0:
                     return await self._dhan_exit_refused(trade, fill.get("message") or fill_status)
                 exit_prem = (
                     float(fill.get("avg_price") or 0.0)
                     or exit_prem_override
-                    or self._get_ltp(trade, trade.trade_id)
+                    or self._known_ltp(trade, trade.trade_id)
                     or trade.current_premium
                 )
                 if fill_status != "FILLED":
