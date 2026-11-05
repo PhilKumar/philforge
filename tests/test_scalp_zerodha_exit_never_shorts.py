@@ -120,6 +120,26 @@ class ExitNeverShorts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.sells(kite), [])
 
 
+class ExitIsTight(unittest.IsolatedAsyncioTestCase):
+    """Phil, 2026-11-05: "yes make it tighter and add the timing"."""
+
+    async def test_the_holding_is_read_while_the_stop_is_cancelled_and_the_timing_logged(self):
+        calls, lines = [], []
+        kite = _Book(stop_settles_after=3)
+        read_positions, read_status = kite.get_positions, kite.get_order_status
+        kite.get_positions = lambda: (calls.append("positions"), read_positions())[1]
+        kite.get_order_status = lambda oid: (calls.append(oid), read_status(oid))[1]
+        engine = ScalpEngine(Dhan(), zerodha_client=kite)
+        engine._log = lambda level, msg: lines.append(msg)
+        engine.open_trades[1] = _trade(broker_sl_order_id="S1", sl_premium=450.0)
+        with patch("scalp.ScripMaster.lookup", return_value="1134431"):
+            result = await engine.exit_trade(1)
+        self.assertEqual(result["status"], "ok")
+        last_stop_read = max(i for i, c in enumerate(calls) if c == "S1")
+        self.assertLess(calls.index("positions"), last_stop_read)  # not after the stop came off
+        self.assertTrue(any(m.startswith("⏱ Zerodha exit: stop off ") and "SELL sent" in m for m in lines))
+
+
 class RestoreOnce(unittest.IsolatedAsyncioTestCase):
     async def test_a_closed_trade_is_never_restored_from_the_saved_copy(self):
         import app

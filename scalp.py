@@ -2334,7 +2334,7 @@ class ScalpEngine:
     async def _settle_zerodha_stop(self, trade: ScalpTrade, order_id: str) -> tuple[str, float]:
         """Wait for a cancelled Zerodha stop to leave the book: ("GONE", 0.0),
         ("FILLED", price) if it filled first, or ("WORKING", 0.0) if it is
-        still resting after about two seconds.
+        still resting after about two seconds (read every 0.1 s).
 
         Kite's cancel answers before the order is off the book. On 05-Nov-2026
         the exit SELL went 40 ms after it, Kite still counted the stop's SELL,
@@ -2344,7 +2344,7 @@ class ScalpEngine:
         """
         client = self._orders_for(trade)
         row: dict = {}
-        for attempt in range(14):
+        for attempt in range(21):
             try:
                 row = await asyncio.to_thread(client.get_order_status, order_id)
             except Exception as e:
@@ -2354,8 +2354,8 @@ class ScalpEngine:
                 return "FILLED", float(row.get("averageTradedPrice") or 0.0) or float(trade.sl_premium or 0.0)
             if status in ("CANCELLED", "REJECTED"):
                 return "GONE", 0.0
-            if attempt < 13:
-                await asyncio.sleep(0.15)
+            if attempt < 20:
+                await asyncio.sleep(0.1)
         return "WORKING", 0.0
 
     async def _stop_fill_price(self, trade: ScalpTrade, order_id: str) -> float:
@@ -2405,7 +2405,30 @@ class ScalpEngine:
                 )
                 trade.broker_sl_order_id = ""
 
-    async def _zerodha_exit(self, trade: ScalpTrade, reason: str, exit_txn: str) -> Dict[str, Any]:
+    def _zerodha_exit_reads(self, trade: ScalpTrade, exit_txn: str) -> dict:
+        """The price, Zerodha's holding and the entry's state, read at once."""
+        client = self._orders_for(trade)
+        return {
+            "ltp": asyncio.create_task(self._exit_ltp(trade)),
+            "held": asyncio.create_task(self._zerodha_held(trade, exit_txn)),
+            "entry": asyncio.create_task(asyncio.to_thread(client.get_order_status, trade.order_id)),
+        }
+
+    @staticmethod
+    def _drop_exit_reads(pre: dict | None) -> None:
+        for task in (pre or {}).values():
+            task.cancel()
+
+    async def _zerodha_exit(
+        self,
+        trade: ScalpTrade,
+        reason: str,
+        exit_txn: str,
+        *,
+        pre: dict | None = None,
+        began: float | None = None,
+        stop_off: float | None = None,
+    ) -> Dict[str, Any]:
         """Close a Zerodha scalp at Zerodha, and say what really happened.
 
         14-Oct-2026: Exit was pressed 8 seconds after a SENSEX entry. Kite turns
@@ -2425,6 +2448,8 @@ class ScalpEngine:
         Returns {"status": "ok", "price", "order_id", "reason"} or {"status": "error", "message"}.
         """
         client = self._orders_for(trade)
+        began = began or _time.monotonic()
+        pre = pre or self._zerodha_exit_reads(trade, exit_txn)
         if trade.pending_exit_order_id:
             row = await asyncio.to_thread(client.get_order_status, trade.pending_exit_order_id)
             status = str(row.get("orderStatus") or "UNKNOWN").upper()
@@ -2441,8 +2466,12 @@ class ScalpEngine:
             trade.pending_exit_order_id = ""
 
         # 1. The entry.
-        row = await asyncio.to_thread(client.get_order_status, trade.order_id)
+        try:
+            row = await pre["entry"]
+        except Exception as e:
+            row = {"orderStatus": "UNKNOWN", "message": str(e)}
         status = str(row.get("orderStatus") or "UNKNOWN").upper()
+        entry_was_working = status not in ("TRADED", "REJECTED", "CANCELLED")
         if status == "UNKNOWN":
             message = (
                 f"Zerodha did not say whether the entry {trade.order_id} filled ({row.get('message') or 'no answer'}); "
@@ -2487,7 +2516,11 @@ class ScalpEngine:
         # 2. What Zerodha holds. Never sell more than that: a SELL with
         # nothing behind it is a fresh short (05-Nov-2026: four went out for a
         # position already flat, refused only for want of margin).
-        price_now, held = await asyncio.gather(self._exit_ltp(trade), self._zerodha_held(trade, exit_txn))
+        if entry_was_working:
+            # Read before the entry settled: what is held now is what counts.
+            pre["held"].cancel()
+            pre["held"] = asyncio.create_task(self._zerodha_held(trade, exit_txn))
+        price_now, held = await asyncio.gather(pre["ltp"], pre["held"])
         if held is not None and held <= 0:
             message = (
                 f"Zerodha shows no open {trade.underlying} {trade.strike}{trade.option_type} position, so no exit "
@@ -2533,8 +2566,16 @@ class ScalpEngine:
             message = f"Zerodha gave no order id for the exit ({(result or {}).get('message') or 'no answer'}). The trade is still open."
             self._log("error", f"❌ {message}")
             return {"status": "error", "message": message}
-        fill = await asyncio.to_thread(client.verify_order_fill, order_id, 8, 0.5)
+        sent = _time.monotonic()
+        fill = await asyncio.to_thread(client.verify_order_fill, order_id, 8, 0.25)
         state = str(fill.get("status") or "").upper()
+        self._log(
+            "info",
+            "⏱ Zerodha exit: "
+            + (f"stop off {(stop_off - began) * 1000:.0f} ms, " if stop_off else "")
+            + f"SELL sent {(sent - began) * 1000:.0f} ms after the click, "
+            f"{state or 'no answer'} {(_time.monotonic() - sent) * 1000:.0f} ms later",
+        )
         if state == "FILLED":
             return {"status": "ok", "price": float(fill.get("avg_price") or 0.0) or ltp, "order_id": order_id}
         if state in ("REJECTED", "CANCELLED"):
@@ -2763,6 +2804,10 @@ class ScalpEngine:
         else:
             stop_fill = 0.0
             stop_oid = trade.broker_sl_order_id
+            stop_off = None
+            # A Zerodha exit's three reads start at the click and run while the
+            # stop is cancelled (Phil, 2026-11-05: "make it tighter").
+            pre = self._zerodha_exit_reads(trade, exit_txn) if self._is_zerodha_trade(trade) else None
             if self._is_super_order_trade(trade):
                 await self._cancel_super_order(trade)
             if trade.broker_sl_order_id or trade.broker_tp_order_id:
@@ -2770,6 +2815,7 @@ class ScalpEngine:
                 await self._cancel_broker_orders(trade)
                 if self._is_zerodha_trade(trade) and stop_oid:
                     stop_state, stop_fill = await self._settle_zerodha_stop(trade, stop_oid)
+                    stop_off = _time.monotonic()
                     if stop_state == "WORKING":
                         # Still resting at Zerodha: a SELL now is a second sell
                         # on top of it, which Kite takes as a fresh short.
@@ -2779,12 +2825,19 @@ class ScalpEngine:
                             "The stop still protects it; press Exit again in a moment."
                         )
                         self._log("error", f"❌ Exit NOT sent for trade {trade.trade_id}: {message}")
+                        self._drop_exit_reads(pre)
                         return {"status": "error", "message": message}
             if self._closed_meanwhile(trade):
+                self._drop_exit_reads(pre)
                 return
             zerodha_exit = None
+            if stop_fill > 0:
+                self._drop_exit_reads(pre)
             if stop_fill <= 0 and self._is_zerodha_trade(trade):
-                zerodha_exit = await self._zerodha_exit(trade, reason, exit_txn)
+                zerodha_exit = await self._zerodha_exit(
+                    trade, reason, exit_txn, pre=pre, began=began, stop_off=stop_off
+                )
+                self._drop_exit_reads(pre)  # any read an early answer left unused
                 if zerodha_exit.get("status") == "error":
                     if zerodha_exit.get("flat"):
                         # Nothing held at Zerodha: a stop rested now would be a
