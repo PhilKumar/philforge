@@ -2045,7 +2045,16 @@ function _unfitScalpRail(rail) {
   delete rail.dataset.fit;
   rail.style.removeProperty('--pf-scalp-rail-vis');
   rail.parentElement.style.removeProperty('--pf-scalp-rail-give');
-  rail.classList.remove('is-squeezed');
+  rail.classList.remove('is-squeezed', 'has-more');
+}
+// The box has no scrollbar (see the CSS): its foot fades while there is more
+// of the launchpad or log below.
+function _scalpRailMore(rail) {
+  if (!rail.dataset.moreBound) {
+    rail.dataset.moreBound = '1';
+    rail.addEventListener('scroll', () => _scalpRailMore(rail), { passive: true });
+  }
+  rail.classList.toggle('has-more', rail.scrollTop + rail.clientHeight < rail.scrollHeight - 2);
 }
 function _fitScalpRail(card, rail, railTop) {
   const hist = card.querySelector(':scope > .scalp-history-card');
@@ -2065,6 +2074,7 @@ function _fitScalpRail(card, rail, railTop) {
   const norm = Math.min(full, Math.max(220, window.innerHeight - railTop - 12));
   const room = Math.floor(hist.getBoundingClientRect().top - 14 - rail.getBoundingClientRect().top);
   const vis = Math.max(0, Math.min(norm, room));
+  _scalpRailMore(rail);
   const fit = `${full}|${vis}`;
   if (rail.dataset.fit === fit) return;
   rail.dataset.fit = fit;

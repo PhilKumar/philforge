@@ -10159,9 +10159,20 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     /* Shortened from the bottom as the history comes up (_fitScalpRail). */
     max-height: var(--pf-scalp-rail-vis, max(220px, calc(100vh - var(--pf-freeze-scalp-rail, 0px) - 12px)));
     overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, .28) transparent;
+    /* No scrollbar of its own (Phil, 2026-11-05: "This panel is shaking left
+       to right like a rice mill machine cup ... why the scroll bar comes there
+       if the screen is correctly displaying?"). With the launchpad right at
+       the box's height, a bar came and went, and each time it took the form's
+       width and gave it back. Without one the width never changes; the box
+       still scrolls by wheel and trackpad, and fades at the foot while there
+       is more below (.has-more, from _fitScalpRail). */
+    scrollbar-width: none;
     border-radius: 12px;
+  }
+  body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-panes > .scalp-rail::-webkit-scrollbar { display: none; }
+  body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-panes > .scalp-rail.has-more {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
   }
   body.pf-frozen-tops #scalp-page.active-page > .card > .ocp-panes > .scalp-rail.is-squeezed { visibility: hidden; }
   /* The room the box gives up, kept in the layout under it so the history
