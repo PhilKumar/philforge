@@ -3869,8 +3869,22 @@ def _restore_scalp_trade_from_payload(payload: dict):
 
 
 async def _restore_scalp_open_state(user_id: int, eng) -> bool:
-    if not eng or getattr(eng, "open_trades", None):
+    """Bring back the open scalps saved before a restart -- once per engine.
+
+    Once only (Phil, 2026-11-05: "zerodha scalp not exiting properly"). Every
+    scalp request ran this, and it refilled any engine with no open trade from
+    the saved copy. Exit pressed six times on trade 408: the first press closed
+    it, the next arrived before the copy was saved again, found the engine
+    empty and restored 408 from it. That ghost sent four more SELLs for a
+    position already flat (refused only for want of Rs 5.75 lakh margin; they
+    were naked shorts) and was booked closed a second time.
+    """
+    if not eng:
         return False
+    if getattr(eng, "_open_state_restored", False) or getattr(eng, "open_trades", None):
+        eng._open_state_restored = True
+        return False
+    eng._open_state_restored = True
     raw = await _db_mod.get_app_state(_scalp_open_state_key(user_id))
     if not raw:
         return False
@@ -3883,9 +3897,12 @@ async def _restore_scalp_open_state(user_id: int, eng) -> bool:
         return False
 
     restored = 0
+    closed_ids = {
+        int(t.get("trade_id") or 0) for t in (getattr(eng, "closed_trades", None) or []) if isinstance(t, dict)
+    }
     for row in rows:
         trade = _restore_scalp_trade_from_payload(row)
-        if not trade or trade.trade_id <= 0:
+        if not trade or trade.trade_id <= 0 or trade.trade_id in closed_ids:
             continue
         eng.open_trades[trade.trade_id] = trade
         eng._trade_counter = max(eng._trade_counter, trade.trade_id)

@@ -61,7 +61,10 @@ class Zerodha:
         if order_id == "Z1":
             # The entry of `_open_zerodha_trade`: filled, as an open trade's is.
             return {"orderId": order_id, "orderStatus": "TRADED", "filledQty": 65, "averageTradedPrice": 200.0}
-        return {"orderId": order_id, "orderStatus": self.stop_status, "averageTradedPrice": self.stop_avg}
+        status = self.stop_status
+        if order_id in self.cancelled and status != "TRADED":
+            status = "CANCELLED"  # Kite takes a cancelled stop off the book; a filled one stays filled
+        return {"orderId": order_id, "orderStatus": status, "averageTradedPrice": self.stop_avg}
 
     def cancel_order(self, order_id):
         self.cancelled.append(order_id)

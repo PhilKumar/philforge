@@ -82,6 +82,9 @@ class Kite:
                 "orderStatus": "TRADED" if state == "FILLED" else "PENDING",
                 "averageTradedPrice": self.exit_avg,
             }
+        if order_id in self.cancelled:
+            # Kite takes a cancelled stop off the book; the exit waits for that.
+            return {"orderId": order_id, "orderStatus": "CANCELLED"}
         return {"orderId": order_id, "orderStatus": "PENDING"}
 
     def cancel_order(self, order_id):

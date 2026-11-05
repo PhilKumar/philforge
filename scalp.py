@@ -2307,6 +2307,57 @@ class ScalpEngine:
                 pass
         return float(await asyncio.to_thread(self._get_ltp, trade, trade.trade_id) or 0.0)
 
+    async def _zerodha_held(self, trade: ScalpTrade, exit_txn: str) -> int | None:
+        """How much of this contract Zerodha holds that the exit may close, or
+        None when the book cannot be read (the exit then goes as before)."""
+        sec_id = ScripMaster.lookup(trade.underlying, trade.strike, trade.expiry, trade.option_type)
+        if not sec_id:
+            return None
+        try:
+            positions = await asyncio.to_thread(self._orders_for(trade).get_positions)
+        except Exception as e:
+            self._log("error", f"Could not read Zerodha positions before the exit: {e}")
+            return None
+        # Its own product only: the CE/PE books hold MIS at Zerodha, a scalp
+        # NRML, and Kite treats each as a separate position.
+        product = {"MARGIN": "NRML", "NRML": "NRML", "INTRADAY": "MIS", "MIS": "MIS"}.get(
+            str(trade.product_type or "").upper(), ""
+        )
+        net = sum(
+            self._position_net_qty(pos)
+            for pos in self._flatten_positions(positions)
+            if str(self._position_security_id(pos)) == str(sec_id)
+            and (not product or not pos.get("productType") or str(pos.get("productType")).upper() == product)
+        )
+        return max(0, net) if exit_txn == "SELL" else max(0, -net)
+
+    async def _settle_zerodha_stop(self, trade: ScalpTrade, order_id: str) -> tuple[str, float]:
+        """Wait for a cancelled Zerodha stop to leave the book: ("GONE", 0.0),
+        ("FILLED", price) if it filled first, or ("WORKING", 0.0) if it is
+        still resting after about two seconds.
+
+        Kite's cancel answers before the order is off the book. On 05-Nov-2026
+        the exit SELL went 40 ms after it, Kite still counted the stop's SELL,
+        took the two together as more than was held and refused the exit for
+        Rs 6 lakh of short-selling margin -- twice, before a third press got
+        through.
+        """
+        client = self._orders_for(trade)
+        row: dict = {}
+        for attempt in range(14):
+            try:
+                row = await asyncio.to_thread(client.get_order_status, order_id)
+            except Exception as e:
+                row = {"orderStatus": "UNKNOWN", "message": str(e)}
+            status = str((row or {}).get("orderStatus", "")).upper()
+            if status == "TRADED":
+                return "FILLED", float(row.get("averageTradedPrice") or 0.0) or float(trade.sl_premium or 0.0)
+            if status in ("CANCELLED", "REJECTED"):
+                return "GONE", 0.0
+            if attempt < 13:
+                await asyncio.sleep(0.15)
+        return "WORKING", 0.0
+
     async def _stop_fill_price(self, trade: ScalpTrade, order_id: str) -> float:
         """The price a broker stop filled at, or 0.0 if it has not filled."""
         try:
@@ -2433,8 +2484,26 @@ class ScalpEngine:
             trade.lots = max(1, filled // trade.lot_size)
             trade.quantity = filled
 
-        # 2. The exit.
-        ltp = self._get_ltp(trade, trade.trade_id) or trade.current_premium or trade.entry_premium
+        # 2. What Zerodha holds. Never sell more than that: a SELL with
+        # nothing behind it is a fresh short (05-Nov-2026: four went out for a
+        # position already flat, refused only for want of margin).
+        price_now, held = await asyncio.gather(self._exit_ltp(trade), self._zerodha_held(trade, exit_txn))
+        if held is not None and held <= 0:
+            message = (
+                f"Zerodha shows no open {trade.underlying} {trade.strike}{trade.option_type} position, so no exit "
+                "was sent. If it was closed in Kite, it is booked from Kite's fill in a few seconds."
+            )
+            self._log("error", f"❌ Exit NOT sent for trade {trade.trade_id}: {message}")
+            return {"status": "error", "message": message, "flat": True}
+        if held is not None and held < min(filled, trade.quantity):
+            self._log(
+                "info",
+                f"Zerodha holds {held} of {min(filled, trade.quantity)} for trade {trade.trade_id}; selling {held}",
+            )
+            filled = held
+
+        # 3. The exit.
+        ltp = price_now or trade.current_premium or trade.entry_premium
         exit_price = round(max(0.05, ltp * 0.95), 2) if exit_txn == "SELL" else round(ltp * 1.05, 2)
         self._log("info", f"Exit {exit_txn} LIMIT @ ₹{exit_price} (LTP=₹{ltp}) at Zerodha")
         try:
@@ -2700,13 +2769,27 @@ class ScalpEngine:
                 # A super order trade carries one too after a refused exit put its stop back.
                 await self._cancel_broker_orders(trade)
                 if self._is_zerodha_trade(trade) and stop_oid:
-                    stop_fill = await self._stop_fill_price(trade, stop_oid)
+                    stop_state, stop_fill = await self._settle_zerodha_stop(trade, stop_oid)
+                    if stop_state == "WORKING":
+                        # Still resting at Zerodha: a SELL now is a second sell
+                        # on top of it, which Kite takes as a fresh short.
+                        trade.broker_sl_order_id = stop_oid
+                        message = (
+                            "Zerodha has not finished cancelling this trade's stop, so no exit was sent. "
+                            "The stop still protects it; press Exit again in a moment."
+                        )
+                        self._log("error", f"❌ Exit NOT sent for trade {trade.trade_id}: {message}")
+                        return {"status": "error", "message": message}
             if self._closed_meanwhile(trade):
                 return
             zerodha_exit = None
             if stop_fill <= 0 and self._is_zerodha_trade(trade):
                 zerodha_exit = await self._zerodha_exit(trade, reason, exit_txn)
                 if zerodha_exit.get("status") == "error":
+                    if zerodha_exit.get("flat"):
+                        # Nothing held at Zerodha: a stop rested now would be a
+                        # naked short waiting to trigger.
+                        return zerodha_exit
                     if stop_oid and trade.sl_premium > 0 and not trade.pending_exit_order_id:
                         # Its stop came off for the exit; the exit did not
                         # happen, so the position goes back under its net.
