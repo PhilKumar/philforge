@@ -846,7 +846,20 @@ def _trade_history_refresh_start(
             stale_dates.append(parsed_date)
 
     if not stale_dates:
-        return refresh_floor.isoformat()
+        # Nothing stored needs redoing: fetch only the last week before the
+        # newest day held, so days with no row yet are still picked up. It
+        # used to return the floor, and every restart paged Dhan's whole
+        # history (4,880 trades, 249 pages, 09:05-09:17 on 2026-11-05) to
+        # refresh nothing, spending the rate budget the open's prices needed.
+        held = []
+        for trade_date in history or {}:
+            try:
+                held.append(date.fromisoformat(str(trade_date)[:10]))
+            except ValueError:
+                continue
+        if not held:
+            return refresh_floor.isoformat()
+        return max(refresh_floor, min(max(held), today_date) - timedelta(days=7)).isoformat()
 
     recent_cutoff = today_date - timedelta(days=max(int(recent_window_days or 0), 0))
     recent_stale_dates = [value for value in stale_dates if value >= recent_cutoff]

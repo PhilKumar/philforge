@@ -389,6 +389,17 @@ class PortfolioHistoryRegressionTests(unittest.TestCase):
 
         self.assertEqual(refresh_from, "2026-03-01")
 
+    def test_trade_history_refresh_start_with_nothing_stale_fetches_one_week(self):
+        # 2026-11-05: with every stored day current it returned the floor, and
+        # each restart paged Dhan's whole history (249 pages) to refresh nothing.
+        fresh = {"schema_version": _TRADE_HISTORY_SCHEMA_VERSION, "source": "historical_fifo"}
+        history = {"2024-06-21": dict(fresh), "2026-11-03": dict(fresh), "2026-11-04": dict(fresh)}
+
+        refresh_from = _trade_history_refresh_start(history, "2024-01-01", today_str="2026-11-05")
+
+        self.assertEqual(refresh_from, "2026-10-28")
+        self.assertEqual(_trade_history_refresh_start({}, "2024-01-01", today_str="2026-11-05"), "2024-01-01")
+
 
 class PortfolioHistoryRouteRepairTests(unittest.IsolatedAsyncioTestCase):
     async def test_get_portfolio_history_repairs_legacy_rows_before_aggregation(self):
