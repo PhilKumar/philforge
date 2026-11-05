@@ -2056,7 +2056,12 @@ function _fitScalpRail(card, rail, railTop) {
     _unfitScalpRail(rail);
     return;
   }
-  const full = rail.scrollHeight;
+  // A pixel over its content (Phil, 2026-11-05: "This panel is shaking left
+  // to right like a rice mill machine cup"). scrollHeight is whole pixels; on
+  // a Retina Mac the form runs a fraction over, so a box sized to it scrolled
+  // that fraction. The bar narrowed the form, the note under BUY wrapped, the
+  // box grew, the bar went, the note unwrapped -- round and round.
+  const full = rail.scrollHeight + 1;
   const norm = Math.min(full, Math.max(220, window.innerHeight - railTop - 12));
   const room = Math.floor(hist.getBoundingClientRect().top - 14 - rail.getBoundingClientRect().top);
   const vis = Math.max(0, Math.min(norm, room));
