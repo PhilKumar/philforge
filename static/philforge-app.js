@@ -15374,7 +15374,7 @@ async function _scalpAltFetchChart(contract, key) {
 // session: one look a minute.
 function _scalpAltRefresh(force) {
   if (!_scalpAltLive()) return;
-  if (!_scalpAltTimer) _scalpAltTimer = setInterval(() => _scalpAltRefresh(false), 1000);
+  if (!_scalpAltTimer) _scalpAltTimer = setInterval(() => _scalpAltRefresh(false), 500);
   const contract = _scalpAltContract();
   _scalpAltPaintTags();
   if (!contract) return;
@@ -15388,7 +15388,8 @@ function _scalpAltRefresh(force) {
   const tf = _scalpOptionChartTf;
   const open = !!(_scalpAlt.data && typeof pfChartBarWindow === 'function'
     && pfChartBarWindow(now / 1000, _SCALP_TF_SEC[tf] || 300, _scalpAlt.data.session));
-  if (open && (force || now - _scalpAlt.priceAt >= 2000)) { _scalpAlt.priceAt = now; _scalpAltFetchPrice(contract, key); }
+  // The feed's price only (no Dhan request), so twice a second costs nothing.
+  if (open && (force || now - _scalpAlt.priceAt >= 450)) { _scalpAlt.priceAt = now; _scalpAltFetchPrice(contract, key); }
   const stale = !_scalpAlt.data || (_scalpAlt.data.timeframe || tf) !== tf || !String(_scalpAlt.drawnKey).startsWith(`${key}|`);
   const failedRecently = _scalpAlt.failedKey === key && now - _scalpAlt.failedAt < _SCALP_DOCK_RETRY_MS;
   if (!failedRecently && (force || stale || now - _scalpAlt.at >= (open ? 20000 : 60000))) { _scalpAltFetchChart(contract, key); return; }
@@ -16914,7 +16915,10 @@ async function openScalpOptionChart(tradeId, options = {}) {
     _scalpDecorate(data);
     _scalpChartShown = { key: targetKey, data };
     _scalpPaintUndo();
-    if (!_scalpLiveTimer) _scalpLiveTimer = setInterval(_scalpLiveTick, 1000);
+    // Four times a second (Phil, 2026-11-06: "how about the chart polling
+    // time?"): the price it grows from now arrives every 0.25-0.5 s, and a
+    // tick that changes nothing draws nothing.
+    if (!_scalpLiveTimer) _scalpLiveTimer = setInterval(_scalpLiveTick, 250);
     const instrument = data.instrument || {};
     const symbol = `${instrument.underlying || ''} ${instrument.strike || ''}${instrument.option_type || ''}`.trim();
     const title = els.title;
