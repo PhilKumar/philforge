@@ -253,7 +253,11 @@ class TheTwoBooksAreToldApart(unittest.TestCase):
         body = APP_JS.split("async function cepeExit(")[1].split("\n}")[0]
         self.assertIn("position_index", body)
         self.assertNotIn("leg_num", body)
-        self.assertIn("customConfirm(", body, "selling at market must be confirmed, in the house dialog")
+        # One press, as Scalp's and the Live page's (Phil, 2026-11-06: "the exit
+        # button in live page, same as scalp"; 2026-10-30: the pop-up "creates
+        # delays not helping to exit at the right price immediately").
+        self.assertNotIn("customConfirm(", body)
+        self.assertIn("el.disabled", body, "a second press while it is in flight sends nothing")
 
     def test_the_chart_button_calls_the_journal_the_way_the_live_page_does(self):
         body = APP_JS.split("function renderCePe(data)")[1].split("\nasync function refreshCePeStatus")[0]

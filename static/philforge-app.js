@@ -21532,7 +21532,8 @@ function renderLivePanel(d, idx) {
     posHtml = positions.map((p, idx) => {
       const pnl = round2(p.unrealized_pnl || 0);
       const exitApi = mode === 'auto' ? '/api/live/exit-position' : '/api/paper/exit-position';
-      return `<tr><td>${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td>₹${round2(p.entry_premium||0).toFixed(2)}</td><td>₹${round2(p.current_premium||0).toFixed(2)}</td><td style="color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td><button type="button" class="cascade-options-control is-danger" onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx},this)">Exit</button></td></tr>`;
+      const legKey = p.status === 'closed' ? '' : `${mode === 'auto' ? 'live' : 'paper'}|${d.run_id}|${p.leg_num ?? ''}`;
+      return `<tr${legKey ? ` data-leg-key="${escapeHtml(legKey)}"` : ''}><td>${escapeHtml(p.symbol||p.trading_symbol||'—')}</td><td style="color:${p.transaction_type==='BUY'?'var(--success)':'var(--danger)'};">${escapeHtml(p.transaction_type || '')}</td><td>₹${round2(p.entry_premium||0).toFixed(2)}</td><td data-leg-ltp="rupee">₹${round2(p.current_premium||0).toFixed(2)}</td><td data-leg-pnl="rupee" style="color:${pnl>=0?'var(--success)':'var(--danger)'};">₹${pnl.toFixed(2)}</td><td><button type="button" class="btn btn-danger btn-sm read-only-lock" style="padding:3px 10px;font-size:11px;" onclick="_forceExitPosition('${escapeJsSingleQuoted(exitApi)}','${safeRunIdJs}',${idx},this)">Exit</button></td></tr>`;
     }).join('');
   }
 
@@ -24178,6 +24179,64 @@ function _getScalpEl(id) {
 let _scalpRafPending = false;
 let _pendingScalpData = null;
 
+// THE CE/PE BOOKS' OPEN LEGS, AS LIVE AS SCALP'S (Phil, 2026-11-06: "during
+// live CE PE trades, the live open positions is not showing the live prices
+// and it is delayed.. make it to show like the scalp open positions"). The
+// server pushes each open leg's feed price and P&L every 250 ms; only the two
+// cells change, on the Live page and the CE/PE desk alike, so nothing is
+// redrawn and an Exit button under the pointer stays put.
+const _engineLegsSeenOpen = new Set();  // legs a push has listed open
+const _engineLegsClosedSeen = new Set();
+function _paintEngineLegs(books) {
+  const open = new Map();
+  for (const book of Array.isArray(books) ? books : []) {
+    for (const leg of book.legs || []) open.set(`${book.mode}|${book.run_id}|${leg.leg ?? ''}`, leg);
+  }
+  let closedNow = false;
+  document.querySelectorAll('tr[data-leg-key]').forEach((row) => {
+    const key = row.dataset.legKey;
+    const leg = open.get(key);
+    if (!leg) {
+      // Closed at the engine: the row goes now, as a closed scalp's does, and
+      // the page is fetched once for the booked fill. Only a leg a push has
+      // listed open before: a row the server never named (another instance
+      // mid-deploy) is not taken for closed.
+      if (_engineLegsSeenOpen.has(key) && !row.classList.contains('is-leg-closed')) {
+        row.classList.add('is-leg-closed');
+        row.style.opacity = '0.45';
+        const btn = row.querySelector('button');
+        if (btn) { btn.disabled = true; btn.textContent = 'Closed'; }
+        if (!_engineLegsClosedSeen.has(key)) { _engineLegsClosedSeen.add(key); closedNow = true; }
+      }
+      return;
+    }
+    _engineLegsSeenOpen.add(key);
+    _engineLegsClosedSeen.delete(key);
+    const ltp = row.querySelector('[data-leg-ltp]');
+    const pnlCell = row.querySelector('[data-leg-pnl]');
+    const price = Number(leg.current_premium);
+    const pnl = Number(leg.unrealized_pnl);
+    if (ltp && price > 0) {
+      const text = ltp.dataset.legLtp === 'rupee' ? '₹' + price.toFixed(2) : price.toFixed(2);
+      if (ltp.textContent !== text) ltp.textContent = text;
+    }
+    if (pnlCell && leg.unrealized_pnl != null && Number.isFinite(pnl)) {
+      if (pnlCell.dataset.legPnl === 'cepe') {
+        pnlCell.textContent = _cepeMoney(pnl);
+        pnlCell.style.color = _cepeTone(pnl);
+      } else {
+        pnlCell.textContent = '₹' + round2(pnl).toFixed(2);
+        pnlCell.style.color = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+      }
+    }
+  });
+  for (const key of open.keys()) _engineLegsSeenOpen.add(key);
+  if (closedNow) {
+    if (typeof _isPageActive === 'function' && _isPageActive('live-page')) loadLiveMonitor();
+    if (typeof refreshCePeStatus === 'function' && document.querySelector('.oc-cepe-book')) refreshCePeStatus();
+  }
+}
+
 function handleWSMessage(msg) {
   // msg format: { type: 'trade'|'status'|'pnl', data: {...} }
   if (msg.type === 'trade' || msg.event === 'trade') {
@@ -24192,6 +24251,8 @@ function handleWSMessage(msg) {
   if (msg.event === 'engine_status') {
     updateKillSwitchVisibility();
   }
+  // The CE/PE books' open legs, priced every 250 ms (see _paintEngineLegs).
+  if (msg.type === 'status') _paintEngineLegs(msg.engine_legs || []);
   // Scalp status pushed from WS every 250ms — skip HTTP poll
   if (msg.type === 'status' && msg.scalp) {
     // The push leaves out closed trades and the event log; keep the last
@@ -26779,16 +26840,17 @@ function _cepeBookCard(run, earlier) {
   // strategy builder, and a Start that only explained itself in a toast was a
   // button that did nothing (Phil, 2026-09-09).
   const legs = (run.open_legs || []).map((l, i) => `
-    <tr>
+    <tr data-leg-key="${escapeHtml(`${run.registry || (run.real_orders ? 'live' : 'paper')}|${run.run_id}|${l.leg ?? ''}`)}">
       <td>${escapeHtml(String(l.symbol || '—'))}</td>
       <td class="n">${escapeHtml(String(l.quantity ?? '—'))}</td>
       <td class="n">${l.entry_premium == null ? '—' : Number(l.entry_premium).toFixed(2)}</td>
-      <td class="n">${l.current_premium == null ? '—' : Number(l.current_premium).toFixed(2)}</td>
-      <td class="n" style="color:${_cepeTone(l.unrealized_pnl)};">${_cepeMoney(l.unrealized_pnl)}</td>
+      <td class="n" data-leg-ltp="plain">${l.current_premium == null ? '—' : Number(l.current_premium).toFixed(2)}</td>
+      <td class="n" data-leg-pnl="cepe" style="color:${_cepeTone(l.unrealized_pnl)};">${_cepeMoney(l.unrealized_pnl)}</td>
       <td>${l.sl_order_id ? '<span title="A stop is resting at the broker">🛡</span>'
                           : '<span style="color:var(--warn);" title="No broker stop for this leg">no stop</span>'}</td>
-      <td><button type="button" class="cascade-options-control" data-pf-action="cepeExit"
+      <td><button type="button" class="btn btn-danger btn-sm read-only-lock" style="padding:3px 10px;font-size:11px;" data-pf-action="cepeExit"
             data-cepe-run="${escapeHtml(String(run.run_id))}" data-cepe-leg="${escapeHtml(String(l.leg))}"
+            data-cepe-registry="${escapeHtml(String(run.registry || (run.real_orders ? 'live' : 'paper')))}"
             data-cepe-index="${i}" title="Sell this leg now at market">Exit</button></td>
     </tr>`).join('');
 
@@ -27135,22 +27197,30 @@ async function cepeStop(event, el) {
 }
 
 async function cepeExit(event, el) {
+  // ONE PRESS, AS SCALP'S (Phil, 2026-11-06: "the exit button in live page,
+  // same as scalp"; 2026-10-30: the pop-up "creates delays not helping to
+  // exit at the right price immediately"). A second press while it is in
+  // flight sends nothing; the row closes when the 250 ms push stops listing
+  // the leg (_paintEngineLegs).
   const runId = el?.dataset?.cepeRun || '';
-  const leg = el?.dataset?.cepeLeg || '';
-  if (!runId) return;
-  if (!await customConfirm(`Sell leg <b>${escapeHtml(String(leg))}</b> of <b>${escapeHtml(String(runId))}</b> now, at market?`,
-      { title: 'Exit this leg', okText: 'Sell now', danger: true })) return;
+  if (!runId || el.disabled) return;
+  const paper = el?.dataset?.cepeRegistry === 'paper';
+  el.disabled = true;
+  el.textContent = 'Exiting…';
   try {
-    const res = await fetch('/api/live/exit-position', {
+    const res = await fetch(paper ? '/api/paper/exit-position' : '/api/live/exit-position', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ run_id: runId, position_index: Number(el?.dataset?.cepeIndex || 0) }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(pfErrorText(data, `Exit failed (${res.status})`));
-    toast('Exit sent', 'success');
+    if (!res.ok || (data.status && !['ok', 'partial', 'pending'].includes(data.status))) {
+      throw new Error(pfErrorText(data, `Exit failed (${res.status})`));
+    }
+    toast(data.message || 'Exited', data.status === 'ok' ? 'success' : 'warning');
   } catch (err) {
     toast(String(err.message || err), 'error');
+    if (el.isConnected) { el.disabled = false; el.textContent = 'Exit'; }
   }
   refreshCePeStatus();
 }

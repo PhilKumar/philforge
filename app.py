@@ -21271,6 +21271,8 @@ async def live_runs(request: Request):
                     "name": strategy.get("run_name") or run_id,
                     "running": bool(engine.running),
                     "mode": getattr(engine, "mode", ""),
+                    # Which registry it runs in: the 250 ms leg prices are keyed by it.
+                    "registry": "live" if is_live_registry else "paper",
                     "real_orders": bool(
                         is_live_registry
                         and str((getattr(engine, "deploy_config", None) or {}).get("order_type", "")).lower() == "auto"
@@ -23513,6 +23515,50 @@ def _ws_serialize(payload: dict) -> bytes:
     return json.dumps(payload).encode("utf-8")
 
 
+def _engine_legs_snapshot(user_id: int) -> list[dict]:
+    """Every open leg of the user's running CE/PE books, priced from the feed now.
+
+    Phil, 2026-11-06: "during live CE PE trades, the live open positions is not
+    showing the live prices and it is delayed.. make it to show like the scalp
+    open positions". The books' price reached the page only in the 5 s engine
+    status (and the desk's own 8 s poll). This is the feed's last tick for each
+    leg -- a memory read, no broker call -- sent with every 250 ms push.
+    """
+    out: list[dict] = []
+    for mode, registry in (("live", live_engines), ("paper", paper_engines)):
+        for run_id, eng in list(_registry_bucket(registry, int(user_id)).items()):
+            if not getattr(eng, "running", False) or not getattr(eng, "in_trade", False):
+                continue
+            legs = []
+            for pos in list(getattr(eng, "positions", None) or []):
+                if pos.get("status") == "closed":
+                    continue
+                try:
+                    price = float(eng._get_premium_from_feed(pos) or 0)
+                except Exception:
+                    price = 0.0
+                if price <= 0:
+                    price = float(pos.get("current_premium") or 0)
+                # Listed even unpriced: the page reads a leg's absence as "closed".
+                try:
+                    qty = int(eng._position_quantity(pos))
+                except Exception:
+                    qty = int(pos.get("quantity") or 0)
+                direction = 1 if str(pos.get("transaction_type") or "BUY").upper() == "BUY" else -1
+                entry = float(pos.get("entry_premium") or 0)
+                legs.append(
+                    {
+                        "leg": pos.get("leg_num"),
+                        "symbol": pos.get("trading_symbol") or pos.get("display_symbol") or pos.get("symbol"),
+                        "current_premium": round(price, 2),
+                        "unrealized_pnl": round((price - entry) * direction * qty, 2) if price > 0 else None,
+                    }
+                )
+            if legs:
+                out.append({"run_id": str(run_id), "mode": mode, "legs": legs})
+    return out
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     raw_origin = ws.headers.get("origin")
@@ -23565,6 +23611,11 @@ async def websocket_endpoint(ws: WebSocket):
                 except Exception:
                     pass
                 payload["scalp"] = _scalp_ws_snapshot(scalp_data)
+
+            # The CE/PE books' open legs, priced every cycle as Scalp's are.
+            legs = _engine_legs_snapshot(int(user_id))
+            if legs:
+                payload["engine_legs"] = legs
 
             # Engine status — every ~5s (20 × 250ms) to avoid waste
             engine_tick += 1
