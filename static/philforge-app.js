@@ -13473,6 +13473,10 @@ async function fetchScalpLTP() {
   if (_scalpLTPFromWS && (Date.now() - _scalpLTPFromWS < 5000) && _scalpCurrentLTP > 0 && _scalpLTPKey === formKey) {
     return;
   }
+  // The feed is pricing it (see _scalpFeedLTPTick): no quote request.
+  if (_scalpLTPFromFeed && (Date.now() - _scalpLTPFromFeed < 3000) && _scalpCurrentLTP > 0 && _scalpLTPKey === formKey) {
+    return;
+  }
 
   // Strategy 1: Try to pull LTP from an open trade matching this contract
   // (zero-cost — already fetched by the 3s status poll via WS/batch feed)
@@ -13540,6 +13544,53 @@ async function fetchScalpLTP() {
   }
   updateScalpMargin();
 }
+
+// THE FORM'S PREMIUM FROM THE FEED, TWICE A SECOND (Phil, 2026-11-06: "Is
+// there any way to improve this polling time? without ... getting [refused]
+// from Dhan"). The server holds every subscribed contract's last WebSocket
+// tick, and `feed_only` reads only that: no Dhan request, so no 429 however
+// often it is asked. The 5 s poll above is the fallback, and it now asks for a
+// quote only when the feed has had no tick for 3 s.
+var _scalpLTPFromFeed = 0;  // when the feed last priced the form's contract (ms)
+let _scalpFeedLTPBusy = false;
+async function _scalpFeedLTPTick() {
+  if (_scalpFeedLTPBusy || !_isPageVisible() || !_isPageActive('scalp-page')) return;
+  const strike = parseFloat(document.getElementById('scalp-strike')?.value) || 0;
+  const underlying = document.getElementById('scalp-underlying')?.value;
+  const optType = document.getElementById('scalp-option-type')?.value;
+  const expiry = document.getElementById('scalp-expiry')?.value;
+  if (!strike || !expiry || !underlying || !optType) return;
+  const formKey = _scalpContractKey(underlying, strike, expiry, optType);
+  // An open trade on it is already pushed four times a second.
+  if (_scalpLTPFromWS && Date.now() - _scalpLTPFromWS < 1000 && _scalpLTPKey === formKey) return;
+  _scalpFeedLTPBusy = true;
+  try {
+    const q = new URLSearchParams({ underlying, strike: String(strike), expiry, option_type: optType, feed_only: '1' });
+    const r = await fetch(`/api/option-ltp?${q}`, { cache: 'no-store' });
+    const d = await r.json().catch(() => ({}));
+    const now = _scalpContractKey(
+      document.getElementById('scalp-underlying')?.value, parseFloat(document.getElementById('scalp-strike')?.value) || 0,
+      document.getElementById('scalp-expiry')?.value, document.getElementById('scalp-option-type')?.value);
+    if (now !== formKey || !(d.status === 'ok' && d.ltp > 0)) return;  // changed meanwhile, or no fresh tick
+    const el = document.getElementById('scalp-live-ltp');
+    if (el) {
+      el.textContent = '₹' + Number(d.ltp).toFixed(2);
+      el.title = 'Live from the Dhan feed';
+      el.dataset.source = 'dhan_feed';
+      el.style.color = 'var(--scalp-info)';
+    }
+    const moved = _scalpCurrentLTP !== Number(d.ltp) || _scalpLTPKey !== formKey;
+    _scalpCurrentLTP = Number(d.ltp);
+    _scalpLTPKey = formKey;
+    _scalpLTPFromFeed = Date.now();
+    if (moved) updateScalpMargin();
+  } catch (_) {
+    /* the next tick asks again; the 5 s poll covers a quiet feed */
+  } finally {
+    _scalpFeedLTPBusy = false;
+  }
+}
+setInterval(_scalpFeedLTPTick, 500);
 
 // ── Margin caching ──
 // Margin follows both the selected contract inputs and the displayed premium.
