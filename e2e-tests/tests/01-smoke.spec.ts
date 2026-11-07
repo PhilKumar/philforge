@@ -473,6 +473,7 @@ test('Trading defaults to Cascade and remembers its last desk and page views', a
   await expect(page.locator('#options-cascade-page .trading-section-tab strong')).toHaveText([
     'Options',
     'Scalp',
+    'Practice',
     'Option Builder',
     'Equity',
   ]);
@@ -692,11 +693,12 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
   await page.locator('#scalp-uly-chart-btn').evaluate((element) => {
     (element as HTMLElement).style.display = 'none';
   });
-  // The same for the Practice switch (2026-11-07): a command-bar feature too.
-  await expect(page.locator('#scalp-practice-toggle')).toBeVisible();
-  await page.locator('#scalp-practice').evaluate((element) => {
-    (element as HTMLElement).style.display = 'none';
-  });
+  // Practice is its own tab since 2026-11-07: the live desk shows none of it.
+  await expect(page.locator('#scalp-practice')).toBeHidden();
+  // Its desk tab is a feature of the selector, not of the launchpad this
+  // baseline is for: a fifth tab adds a row on a phone.
+  await expect(page.locator('#scalp-page [data-pf-trading-page="scalp-practice"]')).toBeVisible();
+  await page.locator('#scalp-page [data-pf-trading-page="scalp-practice"]').evaluate((element) => element.remove());
   await expect(page.locator('#scalp-page')).toHaveScreenshot('scalp-launchpad.png', {
     animations: 'disabled',
     maxDiffPixelRatio: 0.04,

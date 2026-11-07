@@ -27912,6 +27912,110 @@ async def practice_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: R
         )
 
 
+def _practice_forget_trades(session, ids: set[int]) -> int:
+    """Drop closed practice trades from the day's history (and its summary)."""
+    before = len(session.closed_trades)
+    session.closed_trades[:] = [t for t in session.closed_trades if int(t.get("trade_id") or 0) not in ids]
+    session.engine.closed_trades = [t for t in session.engine.closed_trades if int(t.get("trade_id") or 0) not in ids]
+    return before - len(session.closed_trades)
+
+
+# The history's delete buttons: in practice they delete practice trades. On
+# 07-Nov-2026 they went to routes that did not exist and answered 404.
+@app.delete("/api/practice/scalp/trades/{tid}")
+async def practice_scalp_delete_trade(tid: int, request: Request):
+    session = _practice_session_or_409(request)
+    _practice_forget_trades(session, {int(tid)})
+    return {"deleted": tid}
+
+
+@app.post("/api/practice/scalp/trades/bulk-delete")
+async def practice_scalp_bulk_delete(request: Request):
+    session = _practice_session_or_409(request)
+    body = await request.json()
+    ids = body.get("ids", []) if isinstance(body, dict) else []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="ids must be a non-empty list")
+    return {"deleted": _practice_forget_trades(session, {int(tid) for tid in ids})}
+
+
+@app.get("/api/practice/scalp/trades/{trade_id}/frozen-chart")
+async def practice_scalp_frozen_chart(trade_id: int, request: Request, timeframe: str = "5m"):
+    """The history's chart button: a closed practice trade on its own candles,
+    frozen at the exit, in the live journal's shape (see _build_trade_chart)."""
+    session = _practice_session_or_409(request)
+    trade = next((t for t in session.closed_trades if int(t.get("trade_id") or 0) == int(trade_id)), None)
+    if trade is None:
+        raise HTTPException(status_code=404, detail="No closed practice trade with that id")
+    tf, _candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
+    expiry, strike, option_type = str(trade["expiry"]), _scalp_strike(trade["strike"]), str(trade["option_type"])
+    payload = _practice_chart_payload(
+        session,
+        session.option_rows(expiry, strike, option_type),
+        tf,
+        tf_minutes,
+        True,
+        {"underlying": session.underlying, "strike": strike, "option_type": option_type, "expiry": expiry},
+        expiry,
+    )
+    entry_ts = _scalp_option_chart_timestamp(trade.get("entry_time"))
+    exit_ts = _scalp_option_chart_timestamp(trade.get("exit_time"))
+    runway = 6 * tf_minutes * 60
+    candles = [c for c in payload["candles"] if not exit_ts or c["t"] <= exit_ts + runway]
+    entry_price, exit_price = float(trade.get("entry_premium") or 0), float(trade.get("exit_premium") or 0)
+    lines = list(payload["lines"])
+    for label, key, color in (("STOP", "sl_premium", "#ef4444"), ("TARGET", "target_premium", "#10b981")):
+        level = float(trade.get(key) or 0)
+        if level > 0:
+            lines.insert(
+                0, {"label": label, "price": level, "color": color, "dash": [6, 3], "width": 1.2, "opacity": 0.95}
+            )
+    return {
+        "status": "ok",
+        "timeframe": tf,
+        "is_open": False,
+        "supertrend": None,
+        "frozen_at": exit_ts,
+        "practice": True,
+        "trade": {
+            "id": trade_id,
+            "run_id": "scalp",
+            "symbol": trade.get("symbol"),
+            "transaction_type": trade.get("transaction_type"),
+            "quantity": trade.get("quantity"),
+            "lots": trade.get("lots"),
+            "entry_time": entry_ts,
+            "exit_time": exit_ts,
+            "entry_premium": entry_price,
+            "exit_premium": exit_price,
+            "pnl": float(trade.get("pnl") or 0),
+            "exit_reason": trade.get("exit_reason"),
+        },
+        "why": {"entry": None, "exit": None},
+        "instrument": {**payload["instrument"], "security_id": ""},
+        "session": payload.get("session"),
+        "candles": candles,
+        "entries": [{"t": entry_ts, "price": entry_price}] if entry_ts and entry_price > 0 else [],
+        "exits": [{"t": exit_ts, "price": exit_price, "pnl": float(trade.get("pnl") or 0)}]
+        if exit_ts and exit_price > 0
+        else [],
+        "lines": lines,
+        "overlays": payload["overlays"],
+        "live_price": 0.0,
+    }
+
+
+@app.post("/api/practice/scalp/trades/match-dhan")
+async def practice_scalp_match_dhan(request: Request):
+    raise HTTPException(status_code=409, detail="Practice trades have no Dhan fills to match.")
+
+
+@app.delete("/api/practice/scalp/alarms/{alarm_id}")
+@app.post("/api/practice/scalp/alarms/{alarm_id}/fire")
+async def practice_scalp_alarm_other(alarm_id: str, request: Request):
+    raise HTTPException(status_code=409, detail="Price alarms ring on live prices only, not in practice.")
+
+
 @app.get("/api/practice/scalp/alarms")
 async def practice_scalp_alarms(request: Request):
     _request_user_id(request)
@@ -28035,9 +28139,14 @@ async def practice_underlying_chart(request: Request, underlying: str = "", expi
 async def practice_trade_chart(trade_id: int, request: Request, timeframe: str = "5m"):
     session = _practice_session_or_409(request)
     trade_obj = session.engine.open_trades.get(int(trade_id))
-    if trade_obj is None:
-        raise HTTPException(status_code=404, detail="Active scalp trade not found")
-    trade = trade_obj.to_dict()
+    if trade_obj is not None:
+        trade = trade_obj.to_dict()
+    else:
+        # A closed practice trade still has its chart (the history's chart
+        # button; 404 "Active scalp trade not found" on 07-Nov-2026).
+        trade = next((t for t in session.closed_trades if int(t.get("trade_id") or 0) == int(trade_id)), None)
+        if trade is None:
+            raise HTTPException(status_code=404, detail="Practice trade not found")
     tf, _candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
     expiry, strike, option_type = str(trade["expiry"]), _scalp_strike(trade["strike"]), str(trade["option_type"])
     payload = _practice_chart_payload(

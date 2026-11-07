@@ -226,5 +226,30 @@ class NeverABroker(_Archive):
             hook.assert_not_called()
 
 
+class ASundaySession(_Archive):
+    """01-Feb-2026, Budget day, was a Sunday session. The engine's market-hours
+    gate read the replay's weekday and paused all monitoring: the position's
+    price froze at its entry (Phil, 07-Nov-2026)."""
+
+    def test_the_monitor_watches_a_replayed_weekend_day(self):
+        sunday = datetime(2026, 2, 1, 9, 20)
+        with practice.replay_clock(type("S", (), {"now": lambda self: sunday})()):
+            self.assertTrue(scalp._scalp_market_watch_open())
+        self.assertFalse(scalp._scalp_market_watch_open(now=sunday.replace(tzinfo=scalp.IST)))  # live keeps its weekend
+
+
+class TheHistoryButtons(_Archive):
+    def test_delete_and_chart_a_closed_practice_trade(self):
+        import app as app_module
+
+        s = self.session()
+        s.closed_trades.extend([{"trade_id": 1, "pnl": 10.0}, {"trade_id": 2, "pnl": -5.0}])
+        s.engine.closed_trades = list(s.closed_trades)
+        self.assertEqual(app_module._practice_forget_trades(s, {1}), 1)
+        self.assertEqual([t["trade_id"] for t in s.closed_trades], [2])
+        self.assertEqual([t["trade_id"] for t in s.engine.closed_trades], [2])
+        self.assertEqual(s.summary()["trades"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

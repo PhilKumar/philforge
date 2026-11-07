@@ -57,7 +57,9 @@ def _scalp_market_watch_open(now: datetime | None = None, mcx: bool = False) -> 
     """
     replay = REPLAY_CLOCK.get()
     moment = now or (replay().replace(tzinfo=IST) if replay is not None else datetime.now(IST))
-    if moment.weekday() >= 5:  # Saturday/Sunday
+    # A replayed day traded by definition: the Budget day of 01-Feb-2026 was a
+    # Sunday session, and practice on it froze every price.
+    if replay is None and moment.weekday() >= 5:  # Saturday/Sunday
         return False
     minutes = moment.hour * 60 + moment.minute
     end = mcx_session_close(moment.date()) if mcx else SCALP_WATCH_END

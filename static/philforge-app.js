@@ -1734,6 +1734,19 @@ const TRADING_PAGE_BY_SECTION = Object.fromEntries(
   Object.entries(TRADING_SECTION_BY_PAGE).map(([page, section]) => [section, page])
 );
 
+// The Scalp desk has two pages (Phil, 2026-11-07: "put this as a separate page
+// for practice in scalp"): live, and Practice, a real past day replayed on the
+// same desk. One #scalp-page serves both; the mode says which, the tab and the
+// address (#trading/practice) show it. var: read before this line can run.
+var PF_SCALP_MODE_KEY = 'philforge_scalp_mode_v1';
+var _pfScalpMode = (() => {
+  try { return localStorage.getItem(PF_SCALP_MODE_KEY) === 'practice' ? 'practice' : 'live'; } catch (_) { return 'live'; }
+})();
+function _pfSetScalpMode(mode) {
+  _pfScalpMode = mode === 'practice' ? 'practice' : 'live';
+  try { localStorage.setItem(PF_SCALP_MODE_KEY, _pfScalpMode); } catch (_) { /* private window */ }
+}
+
 // UI-only view memory. Cascade is the first Trading desk; after the user
 // chooses another desk or a page subview, that exact choice wins on return and
 // after refresh. These keys never contain order, broker, or engine state.
@@ -2322,7 +2335,12 @@ function syncTradingSectionControls(page) {
   const section = TRADING_SECTION_BY_PAGE[page] || '';
   if (section) _setLocalState(PF_VIEW_STATE.tradingPage, page);
   document.querySelectorAll('[data-pf-trading-page]').forEach((button) => {
-    const selected = button.getAttribute('data-pf-trading-page') === page;
+    // The Practice tab (data-pf-trading-page="scalp-practice") is #scalp-page
+    // in practice mode; the Scalp tab is the same page live.
+    const target = button.getAttribute('data-pf-trading-page');
+    const selected = page === 'scalp-page'
+      ? target === (_pfScalpMode === 'practice' ? 'scalp-practice' : 'scalp-page')
+      : target === page;
     button.classList.toggle('is-active', selected);
     button.setAttribute('aria-selected', selected ? 'true' : 'false');
     button.tabIndex = selected ? 0 : -1;
@@ -2510,6 +2528,7 @@ function buildNavState(page, extra = {}) {
 
 function navHashForState(state) {
   const page = state?.page || 'dashboard-page';
+  if (page === 'scalp-page' && (state?.scalpMode || _pfScalpMode) === 'practice') return '#trading/practice';
   if (TRADING_SECTION_BY_PAGE[page]) return `#trading/${TRADING_SECTION_BY_PAGE[page]}`;
   if (page === 'assets-page') {
     const view = ARCHITECTURE_VIEWS.has(state?.architectureView) ? state.architectureView : 'overview';
@@ -2528,8 +2547,11 @@ function navStateFromLocation() {
   const raw = String(location.hash || '').replace(/^#/, '').trim();
   if (!raw) return null;
   const [page, runIdRaw] = raw.split('/');
+  if (page === 'trading' && runIdRaw === 'practice') return { page: 'scalp-page', scalpMode: 'practice' };
   if (page === 'trading' && TRADING_PAGE_BY_SECTION[runIdRaw]) {
-    return { page: TRADING_PAGE_BY_SECTION[runIdRaw] };
+    const state = { page: TRADING_PAGE_BY_SECTION[runIdRaw] };
+    if (state.page === 'scalp-page') state.scalpMode = 'live';
+    return state;
   }
   if ((page === 'assets' || page === 'architecture') && ARCHITECTURE_VIEWS.has(runIdRaw || 'overview')) {
     return { page: 'assets-page', architectureView: runIdRaw || 'overview' };
@@ -2708,8 +2730,14 @@ document.addEventListener('click', (event) => {
   const tradingEl = event.target.closest('[data-pf-trading-page]');
   if (tradingEl) {
     event.preventDefault();
-    const page = tradingEl.getAttribute('data-pf-trading-page');
-    showPage(page, document.getElementById('nav-trading'), { scrollToTop: true });
+    let page = tradingEl.getAttribute('data-pf-trading-page');
+    const navOpts = { scrollToTop: true };
+    if (page === 'scalp-page' || page === 'scalp-practice') {
+      _pfSetScalpMode(page === 'scalp-practice' ? 'practice' : 'live');
+      page = 'scalp-page';
+      navOpts.historyState = { scalpMode: _pfScalpMode };
+    }
+    showPage(page, document.getElementById('nav-trading'), navOpts);
     const after = tradingEl.getAttribute('data-pf-after-nav');
     if (after && typeof window[after] === 'function') window[after]();
     return;
@@ -2770,6 +2798,7 @@ document.addEventListener('click', (event) => {
 
 async function applyNavState(state) {
   const page = (state && state.page && document.getElementById(state.page)) ? state.page : 'dashboard-page';
+  if (page === 'scalp-page' && state?.scalpMode) _pfSetScalpMode(state.scalpMode);
   const btn = document.getElementById(NAV_BUTTON_MAP[page] || '');
   showPage(page, btn, { pushHistory: false, historyState: state });
   if (page === 'live-page') startLiveMonitor();
@@ -13284,7 +13313,7 @@ async function initScalpPage() {
   await _restoreScalpFormState();
   _updateScalpExitRulesNote();
   _scalpFormInitialized = true;
-  await _pfPracticeResume();
+  await _pfScalpApplyMode();
   refreshScalpStatus();
   // HTTP poll as fallback — wider interval since WS pushes every 3s
   if (!_scalpPollTimer) {
@@ -18285,6 +18314,7 @@ async function openDashboardLeaderboardCard(el) {
     return;
   }
   if (kind === 'scalp') {
+    _pfSetScalpMode('live');  // a live engine's desk, never the practice page
     showPage('scalp-page', document.getElementById('nav-scalp'));
     initScalpPage();
   }
@@ -23748,6 +23778,7 @@ async function loadDashboardSummary() {
       if (scalpFlow.active && !paperStrategyFlow.active && !liveStrategyFlow.active) {
         activeOpenBtn.textContent = 'Open Scalp →';
         activeOpenBtn.onclick = () => {
+          _pfSetScalpMode('live');
           showPage('scalp-page', document.getElementById('nav-scalp'));
           initScalpPage();
         };
@@ -27350,7 +27381,7 @@ function _pfPracticePaint() {
   document.body.classList.toggle('scalp-practicing', _pfPractice.on);
   if (els.toggle) els.toggle.setAttribute('aria-pressed', _pfPractice.on || (els.setup && !els.setup.hidden) ? 'true' : 'false');
   if (els.run) els.run.hidden = !_pfPractice.on;
-  if (els.note) els.note.hidden = !_pfPractice.on;
+  if (els.note) els.note.hidden = !(_pfPractice.on || _pfScalpMode === 'practice');
   if (!_pfPractice.on || !st) return;
   if (els.dayLabel) {
     const day = st.day ? new Date(`${st.day}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : 'Hidden day';
@@ -27430,6 +27461,16 @@ async function _pfPracticeResetDesk() {
   _scalpDockOpenTrades = [];
   _scalpDockPin = null;
   _lastScalpStatus = null;
+  // The chart keeps the stretch of TIME on screen across redraws. Live's
+  // November window over a February replay framed no candle at all: a blank
+  // chart with only the price lines (Phil, 07-Nov-2026). Each side starts on
+  // its own newest bars.
+  _scalpChartWindow = null;
+  _scalpChartShown = null;
+  _scalpLiveBar = null;
+  _scalpOptionChartDrawnKey = '';
+  if (typeof _scalpAltReset === 'function') _scalpAltReset();
+  Object.keys(_scalpOpenSeen).forEach(k => { delete _scalpOpenSeen[k]; });
   _renderScalpStatus({ running: false, open_trades: [], closed_trades: [], event_log: [], file_trades: [], session_pnl: 0, total_pnl: 0 });
   const ltp = document.getElementById('scalp-live-ltp');
   if (ltp) ltp.textContent = '—';
@@ -27443,6 +27484,12 @@ function _pfPracticeEnterView(state) {
   _pfPractice.on = true;
   _pfPractice.ticks = 0;
   _pfPracticeApply(state);
+  _pfPracticeIdle(false);
+  // Practice trades are paper. The form shows it, and live's choice comes back
+  // on leaving (not saved over: the live form keeps its own).
+  const mode = document.getElementById('scalp-mode');
+  if (mode && _pfPractice.formMode == null) _pfPractice.formMode = mode.value;
+  if (mode) { mode.value = 'paper'; _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode'); _updateScalpExitRulesNote(); }
   const els = _pfPracticeEls();
   if (els.setup) els.setup.hidden = true;
   if (els.summary) els.summary.hidden = true;
@@ -27459,20 +27506,69 @@ function _pfPracticeOff() {
   _pfPractice.state = null;
   window.pfChartHideDates = false;
   if (_pfPractice.timer) { clearInterval(_pfPractice.timer); _pfPractice.timer = null; }
+  const mode = document.getElementById('scalp-mode');
+  if (mode && _pfPractice.formMode != null) {
+    mode.value = _pfPractice.formMode;
+    _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
+    _updateScalpExitRulesNote();
+  }
+  _pfPractice.formMode = null;
+  if (_pfScalpMode === 'practice') _pfPracticeIdle(true);
   _pfPracticePaint();
   _pfPracticeResetDesk();
 }
 
-// A practice day already running (a reload, another tab) is picked up, paused.
-async function _pfPracticeResume() {
+// The Practice page with no day running: the day picker, and none of the
+// desk (whose positions and prices would be live ones).
+function _pfPracticeIdle(on) {
+  const page = document.getElementById('scalp-page');
+  if (page) page.classList.toggle('scalp-practice-idle', !!on);
+  if (!on) return;
+  const els = _pfPracticeEls();
+  if (els.setup) els.setup.hidden = false;
+  if (els.underlying && document.getElementById('scalp-underlying')?.value === 'SENSEX') els.underlying.value = 'SENSEX';
+  _pfPracticePaintDays();
+  _pfPracticePaint();
+}
+
+// The desk's title says which page this is.
+function _pfPracticeTitle(practice) {
+  const page = document.getElementById('scalp-page');
+  const h3 = page?.querySelector('.ocp-title-row h3');
+  const eyebrow = page?.querySelector('.ocp-title-row .ocp-eyebrow');
+  const name = page?.querySelector('.scalp-engine-name');
+  if (h3) h3.textContent = practice ? 'Scalp Practice' : 'Scalp Engine';
+  if (eyebrow) eyebrow.textContent = practice ? 'A REAL PAST DAY · THE REAL ENGINE · NO ORDERS' : 'FAST OPTION DESK · ONE STRIKE AT A TIME';
+  if (name) name.textContent = practice ? 'Practice Engine' : 'Scalp Engine';
+}
+
+// Live or Practice, as the tab chose. Leaving Practice pauses the day and
+// keeps it; coming back picks it up where it stopped.
+async function _pfScalpApplyMode() {
+  const practice = _pfScalpMode === 'practice';
+  document.body.classList.toggle('scalp-mode-practice', practice);
+  if (typeof syncTradingSectionControls === 'function') syncTradingSectionControls('scalp-page');
+  _pfPracticeTitle(practice);
+  if (!practice) {
+    _pfPracticeIdle(false);
+    if (_pfPractice.on) {
+      if (_pfPractice.state && !_pfPractice.state.paused) await _pfPracticeControl({ action: 'pause' });
+      _pfPracticeOff();
+    }
+    return;
+  }
+  if (_pfPractice.on) { _pfPracticeIdle(false); return; }
   try {
     const r = await fetch('/api/practice/state', { cache: 'no-store', credentials: 'same-origin' });
     const st = await r.json().catch(() => ({}));
+    if (_pfScalpMode !== 'practice') return;
     if (st.status === 'ok' && !st.ended) {
       if (!st.paused) await _pfPracticeControl({ action: 'pause' });
       _pfPracticeEnterView(_pfPractice.state || st);
+      return;
     }
-  } catch (_) { /* live as usual */ }
+  } catch (_) { /* the picker, as for a first visit */ }
+  _pfPracticeIdle(true);
 }
 
 async function _pfPracticeLoadDays() {
@@ -27498,21 +27594,12 @@ async function _pfPracticePaintDays() {
     : `No ${els.underlying?.value || ''} days on the server yet.`, days.length ? '' : 'warn');
 }
 
-window.toggleScalpPractice = async function toggleScalpPractice() {
+// The summary's "New day": the picker again.
+window.toggleScalpPractice = function toggleScalpPractice() {
   const els = _pfPracticeEls();
-  if (_pfPractice.on) {
-    if (!confirm('End this practice day? Open practice trades close at the replay price, and you get the day\'s summary.')) return;
-    return endScalpPractice();
-  }
-  if (els.setup) els.setup.hidden = !els.setup.hidden;
+  if (_pfPractice.on) return;
   if (els.summary) els.summary.hidden = true;
-  _pfPracticePaint();
-  if (els.setup && !els.setup.hidden) {
-    if (els.underlying && document.getElementById('scalp-underlying')?.value === 'SENSEX') els.underlying.value = 'SENSEX';
-    await _pfPracticePaintDays();
-  } else {
-    _pfPracticeSay('');
-  }
+  _pfPracticeIdle(true);
 };
 
 async function _pfPracticeStart(underlying, day, start) {
@@ -27587,6 +27674,8 @@ function _pfPracticeShowSummary(sm) {
 }
 
 window.endScalpPractice = async function endScalpPractice() {
+  if ((_pfPractice.state?.open_trades || _lastScalpStatus?.open_trades || []).length
+    && !confirm('End this practice day? Open practice trades close at the replay price.')) return;
   const r = await fetch('/api/practice/end', { method: 'POST', credentials: 'same-origin' });
   const data = await r.json().catch(() => ({}));
   _pfPracticeOff();

@@ -1610,6 +1610,10 @@
         <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
         <span><strong>Scalp</strong><small>Fast option desk</small></span>
       </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-practice" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-practice" aria-hidden="true">◎</span>
+        <span><strong>Practice</strong><small>Replay a real past day</small></span>
+      </button>
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
         <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>
         <span><strong>Option Builder</strong><small>Strategy payoff · live chain</small></span>
@@ -2517,6 +2521,10 @@
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-page" data-pf-after-nav="initScalpPage">
         <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
         <span><strong>Scalp</strong><small>Fast option desk</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-practice" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-practice" aria-hidden="true">◎</span>
+        <span><strong>Practice</strong><small>Replay a real past day</small></span>
       </button>
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
         <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>
@@ -4202,6 +4210,10 @@
         <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
         <span><strong>Scalp</strong><small>Fast option desk</small></span>
       </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-practice" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-practice" aria-hidden="true">◎</span>
+        <span><strong>Practice</strong><small>Replay a real past day</small></span>
+      </button>
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
         <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>
         <span><strong>Option Builder</strong><small>Strategy payoff · live chain</small></span>
@@ -4246,11 +4258,12 @@
       </div>
       </div>
     <!-- PRACTICE: a real past day, replayed on this same desk (Phil,
-         2026-11-07: "I want to feel like the same live experience").
+         2026-11-07: "I want to feel like the same live experience"), shown
+         only on the Practice tab ("put this as a separate page for practice
+         in scalp").
          See the SCALP PRACTICE section of philforge-app.js. -->
     <div class="scalp-practice" id="scalp-practice" data-state="off">
       <div class="scalp-practice-row">
-        <button type="button" class="btn btn-sm scalp-practice-toggle" id="scalp-practice-toggle" data-pf-action="toggleScalpPractice" aria-pressed="false" aria-controls="scalp-practice-setup" title="Replay a real past day on this desk: same form, engine, stops and charts; no real orders">🎯 Practice</button>
         <div class="scalp-practice-setup" id="scalp-practice-setup" hidden>
           <select id="scalp-practice-underlying" aria-label="Index to replay"><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select>
           <select id="scalp-practice-day" aria-label="Which day"><option value="random">Random day, hidden</option><option value="pick">Pick a date</option></select>
@@ -4660,6 +4673,10 @@
       <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-page" data-pf-after-nav="initScalpPage">
         <span class="trading-section-icon trading-section-icon-scalp" aria-hidden="true">⚡</span>
         <span><strong>Scalp</strong><small>Fast option desk</small></span>
+      </button>
+      <button class="trading-section-tab" type="button" role="tab" aria-selected="false" data-pf-trading-page="scalp-practice" data-pf-after-nav="initScalpPage">
+        <span class="trading-section-icon trading-section-icon-practice" aria-hidden="true">◎</span>
+        <span><strong>Practice</strong><small>Replay a real past day</small></span>
       </button>
       <button id="nav-option-builder" class="trading-section-tab is-active" type="button" role="tab" aria-selected="true" data-pf-trading-page="option-builder-page" data-pf-after-nav="initOptionBuilderPage">
         <span class="trading-section-icon trading-section-icon-builder" aria-hidden="true">◇</span>

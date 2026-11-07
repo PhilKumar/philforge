@@ -11654,7 +11654,6 @@ html[data-theme="light"][data-pf-tint="native"] {
 #scalp-page .ocp-head:has(> .scalp-practice) { flex-wrap: wrap; }
 .scalp-practice { flex: 1 0 100%; margin: 8px 0 0; }
 .scalp-practice-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.scalp-practice-toggle[aria-pressed="true"] { --btn-bg: rgba(250, 204, 21, 0.16); --btn-border: rgba(250, 204, 21, 0.55); --btn-color: #fde68a; }
 .scalp-practice-setup, .scalp-practice-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .scalp-practice-setup[hidden], .scalp-practice-run[hidden] { display: none; }
 .scalp-practice-setup select, .scalp-practice-setup input { font-size: 12px; padding: 5px 8px; width: auto !important; min-width: 0; flex: 0 0 auto; }
@@ -11670,8 +11669,6 @@ html[data-theme="light"][data-pf-tint="native"] {
 .scalp-practice-msg[data-tone="warn"] { color: var(--warn); }
 .scalp-practice-note { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.45; }
 .scalp-practice-note[hidden], .scalp-practice-summary[hidden] { display: none; }
-/* While practising, the desk says so at a glance: the card wears a yellow edge. */
-body.scalp-practicing #scalp-page .card { border-color: rgba(250, 204, 21, 0.45) !important; }
 .scalp-practice-summary { margin-top: 10px; padding: 12px 14px; border: 1px solid rgba(250, 204, 21, 0.35); border-radius: 10px; background: rgba(250, 204, 21, 0.05); }
 .scalp-practice-sum-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .scalp-practice-kicker { font: 800 10px 'JetBrains Mono', monospace; letter-spacing: .7px; color: #facc15; text-transform: uppercase; }
@@ -11685,6 +11682,24 @@ body.scalp-practicing #scalp-page .card { border-color: rgba(250, 204, 21, 0.45)
 .scalp-practice-sum-table th, .scalp-practice-sum-table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .scalp-practice-sum-table th { color: var(--muted); font-weight: 600; }
 .scalp-practice-sum-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-/* Off, it is one button at the end of the engine line, not a line of its own. */
-.scalp-practice[data-state="off"] { flex: 0 0 auto; margin: 0; }
-.scalp-practice[data-state="off"] .scalp-practice-msg:empty { display: none; }
+/* THE PRACTICE PAGE (Phil, 2026-11-07: "put this as a separate page for
+   practice in scalp"). Its own desk tab; the live Scalp page never shows the
+   practice line, and the practice page never shows what only live has. */
+body:not(.scalp-mode-practice) #scalp-practice { display: none !important; }
+body.scalp-mode-practice #scalp-page :is(#scalp-start-btn, #scalp-stop-btn, #scalp-match-dhan-btn),
+body.scalp-mode-practice #scalp-page [data-tone="live"][onclick*="setScalpMode"],
+body.scalp-mode-practice #scalp-page .scalp-engine-bar span:has(> #ws-status-dot) { display: none !important; }
+body.scalp-mode-practice #scalp-page .card { border-color: rgba(250, 204, 21, 0.45) !important; }
+body.scalp-mode-practice #scalp-page .ocp-title-row .ocp-eyebrow { color: #facc15 !important; }
+/* No day running: the picker, and none of the desk. */
+#scalp-page.scalp-practice-idle > .card > :is(.ocp-recipe, .scalp-positions-card, .ocp-panes, .scalp-history-card),
+#scalp-page.scalp-practice-idle .scalp-engine-bar { display: none !important; }
+#scalp-page.scalp-practice-idle .scalp-practice { padding: 14px 0 4px; }
+#scalp-page.scalp-practice-idle .scalp-practice-setup select,
+#scalp-page.scalp-practice-idle .scalp-practice-setup input { font-size: 13px; padding: 7px 10px; }
+#scalp-page.scalp-practice-idle .scalp-practice-go { --btn-bg: linear-gradient(180deg, rgba(250, 204, 21, 0.30), rgba(161, 98, 7, 0.45)); --btn-color: #fef3c7; --btn-border: rgba(250, 204, 21, 0.6); padding: 7px 16px; }
+.scalp-practice-msg:empty { display: none; }
+.trading-section-icon-practice { color: #facc15; }
+@media (min-width: 621px) {
+  .trading-section-tabs:has(> .trading-section-tab:nth-child(5)) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
