@@ -1918,6 +1918,12 @@ function _pfChartSegDist(px, py, ax, ay, bx, by) {
 function _pfChartDrawHit(c, x, y) {
   var p = c.projection, list = ((c.data || {}).drawings) || [];
   if (!p) return null;
+  // THE SELECTED DRAWING IS ASKED FIRST. Two drawings can end on the same
+  // candle's price (the magnet puts both there); pressing that point took
+  // whichever was drawn last, so dragging the selected line's end moved a
+  // Fib instead (CI, 2026-11-07). As on TradingView, the selected one wins.
+  var sel = c.drawSel ? _pfChartDrawFind(c, c.drawSel) : null;
+  if (sel) list = list.filter(function (dr) { return dr !== sel; }).concat([sel]);
   for (var i = list.length - 1; i >= 0; i--) {
     var dr = list[i];
     if (!dr || !dr.a || !dr.b) continue;
