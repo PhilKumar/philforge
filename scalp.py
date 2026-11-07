@@ -22,7 +22,6 @@ from broker.dhan import (
     is_mcx_underlying,
     option_exchange_segment,
     option_instrument_type,
-    option_tick_size,
 )
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -1602,7 +1601,7 @@ class ScalpEngine:
         return bars
 
     async def _st_trail_check(self):
-        """Move each Supertrend-trailed trade's stop to the line; exit on a close through it."""
+        """Exit a Supertrend-trailed trade on a 5m close through the line (never on a touch)."""
         now = _now_ist().replace(tzinfo=IST).timestamp()
         for trade in list(self.open_trades.values()):
             if not trade.st_trail or trade.status != "open" or trade.trade_id not in self.open_trades:
@@ -1630,25 +1629,19 @@ class ScalpEngine:
                     )
                     await self._close_trade(trade, "st_close")
                 continue
+            # The line is NOT a stop. Phil, 2026-11-07: "it hits the SL when it
+            # touches the SL.. but it has to close below". Moving the stop onto
+            # the line made every wick that touched it an sl_hit (the engine
+            # and the broker's stop leg both fire on a touch), so the trade
+            # only ever leaves on the 5m CLOSE above. His own stop stays where
+            # he set it, as the net.
+            if not trade.st_trail_armed:
+                self._log(
+                    "info",
+                    f"📈 Supertrend armed at ₹{last['value']:.2f}: trade {trade.trade_id} exits on a 5m close "
+                    f"{'below' if long else 'above'} the line",
+                )
             trade.st_trail_armed = True
-            tick = option_tick_size(trade.underlying)
-            steps = last["value"] / tick
-            stop = round((int(steps) if long else -int(-steps)) * tick, 2)  # floor for a long, ceil for a short
-            price = trade.current_premium or trade.entry_premium
-            better = (
-                (stop > trade.sl_premium + tick / 2)
-                if long
-                else (trade.sl_premium <= 0 or stop < trade.sl_premium - tick / 2)
-            )
-            beyond_price = (stop >= price) if long else (stop <= price)
-            if not better or beyond_price:
-                continue
-            old = trade.sl_premium
-            result = await self.update_trade_targets(trade.trade_id, sl_premium=stop)
-            if isinstance(result, dict) and result.get("status") == "ok":
-                self._log("info", f"📈 Supertrend trail: stop ₹{old:.2f} → ₹{stop:.2f} (trade {trade.trade_id})")
-            else:
-                self._log("error", f"Supertrend trail could not move the stop: {(result or {}).get('message')}")
 
     async def _sync_super_orders(self):
         trades = [t for t in self.open_trades.values() if t.status == "open" and self._is_super_order_trade(t)]

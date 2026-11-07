@@ -1,8 +1,9 @@
 """The Supertrend trailing stop on a Scalp trade.
 
 Phil, 2026-10-21: "Can you make the supertrend as the trailing stoploss and
-exit if it closes below supertrend?" -- on the option's 5-minute candles, the
-broker stop moved up to the line AND an exit on a 5m close below it.
+exit if it closes below supertrend?" -- on the option's 5-minute candles.
+Phil, 2026-11-07: "it hits the SL when it touches the SL.. but it has to close
+below" -- so the line is NOT a stop: only a 5m close through it exits.
 """
 
 import asyncio
@@ -58,17 +59,41 @@ def _engine(closes, *, side="BUY", sl=90.0, price=None, armed=False):
 
 
 class TheTrail(unittest.TestCase):
-    def test_the_stop_moves_up_to_the_line_and_never_down(self):
+    def test_the_stop_is_never_moved_onto_the_line(self):
+        # A touch of the line must not exit, so the touch stop stays his own.
         engine, trade = _engine([100 + i for i in range(30)], sl=90.0, price=131.0)
+        calls = []
+
+        async def spy(*a, **kw):
+            calls.append(kw)
+
+        engine.update_trade_targets = spy
         asyncio.run(engine._st_trail_check())
-        line = scalp_supertrend(_bars([100 + i for i in range(30)]))[-1]["value"]
-        self.assertGreater(trade.sl_premium, 90.0)
-        self.assertLessEqual(trade.sl_premium, line)
+        self.assertEqual(trade.sl_premium, 90.0)
+        self.assertEqual(calls, [])
         self.assertTrue(trade.st_trail_armed)
-        # A stop already above the line is left alone.
-        trade.sl_premium, trade.st_last_bar = 130.0, 0
+
+    def test_a_wick_through_the_line_that_closes_above_does_not_exit(self):
+        closes = [100 + i for i in range(30)]
+        engine, trade = _engine(closes, armed=True, price=100.0)
+        line = scalp_supertrend(_bars(closes))[-1]["value"]
+        bars = _bars(closes)
+        bars[-1]["l"] = line - 5  # the last bar dipped under the line, closed above
+        trade.current_premium = line - 5
+
+        async def fake_bars(_trade):
+            return bars
+
+        engine._st_trail_bars = fake_bars
+        closed = []
+
+        async def close(t, reason, **kw):
+            closed.append(reason)
+
+        engine._close_trade = close
         asyncio.run(engine._st_trail_check())
-        self.assertEqual(trade.sl_premium, 130.0)
+        self.assertEqual(closed, [])
+        self.assertIsNone(trade.check_exit(trade.current_premium))
 
     def test_a_close_below_the_line_exits_an_armed_trade(self):
         engine, trade = _engine([100 + i for i in range(30)] + [100], armed=True)
@@ -94,18 +119,16 @@ class TheTrail(unittest.TestCase):
         self.assertEqual(closed, [])
 
     def test_a_bar_is_acted_on_once(self):
-        engine, trade = _engine([100 + i for i in range(30)], sl=90.0, price=131.0)
-        calls = []
-        real = engine.update_trade_targets
+        engine, trade = _engine([100 + i for i in range(30)] + [100], armed=True)
+        closed = []
 
-        async def spy(*a, **kw):
-            calls.append(kw)
-            return await real(*a, **kw)
+        async def close(t, reason, **kw):
+            closed.append(reason)
 
-        engine.update_trade_targets = spy
+        engine._close_trade = close
         asyncio.run(engine._st_trail_check())
         asyncio.run(engine._st_trail_check())
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(closed, ["st_close"])
 
     def test_it_survives_a_restart(self):
         trade = ScalpTrade(
