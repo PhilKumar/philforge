@@ -14772,6 +14772,25 @@ function toggleScalpRow(tradeId) {
   if (btn) { btn.setAttribute('aria-expanded', String(open)); btn.textContent = open ? '▾' : '▸'; }
 }
 
+// The Supertrend SL under the row's own stop (Phil, 2026-11-07: "now the ST
+// is not at all moving on the SL"): it moves with every bar and exits on a
+// close through it; the box above stays the touch stop he set.
+function _scalpStStopText(t) {
+  const v = Number(t && t.st_stop) || 0;
+  return t && t.st_trail && v > 0 ? `ST ₹${v.toFixed(2)} · ${Number(t.st_tf) || 5}m close` : '';
+}
+function _scalpStStopTag(t) {
+  const text = _scalpStStopText(t);
+  return `<div class="scalp-st-stop" id="scalp-st-stop-${t.trade_id}" title="Supertrend SL: exits only when a candle closes through it, not on a touch"${text ? '' : ' hidden'}>${escapeHtml(text)}</div>`;
+}
+function _scalpPaintStStop(t) {
+  const el = document.getElementById('scalp-st-stop-' + t.trade_id);
+  if (!el) return;
+  const text = _scalpStStopText(t);
+  el.hidden = !text;
+  if (el.textContent !== text) el.textContent = text;
+}
+
 function _buildScalpActiveRow(t, open = []) {
   const isPending = t.status === 'pending';
   const pnl = t.pnl || 0;
@@ -14826,7 +14845,7 @@ function _buildScalpActiveRow(t, open = []) {
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;"><span id="scalp-ltp-${t.trade_id}">₹${(t.current_premium||0).toFixed(2)}</span></td>
     <td style="padding:8px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-weight:700;color:${pnlColor};"><span id="scalp-pnl-${t.trade_id}">${pnl>=0?'+':''}₹${pnl.toFixed(2)}</span></td>
     <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-tgt-' + t.trade_id, tgtVal, 'var(--green)')}</td>
-    <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}</td>
+    <td style="padding:6px 4px;text-align:center;">${_buildScalpPremiumEditor('scalp-sl-' + t.trade_id, slVal, 'var(--red)')}${_scalpStStopTag(t)}</td>
     <td style="padding:6px 10px;text-align:center;white-space:nowrap;"><div class="scalp-action-wrap${partner ? ' is-pair' : ''}">
       <button class="btn btn-sm" id="scalp-set-btn-${t.trade_id}" onclick="modifyScalpTrade(${t.trade_id})" style="padding:3px 8px;font-size:10px;--btn-bg:linear-gradient(180deg,rgba(96,165,250,0.28),rgba(30,64,175,0.46));--btn-color:#dbeafe;--btn-border:rgba(147,197,253,0.48);">Set</button>
       <button class="ocp-icon-btn is-chart scalp-option-chart-btn" onclick="openScalpOptionChart(${t.trade_id}, {pin: true})" aria-label="Chart this option" title="Chart this option">${ICO.barchart(14)}</button>
@@ -17646,6 +17665,7 @@ function _renderScalpStatus(data) {
         const entryMaxInput = document.getElementById('scalp-entry-max-' + t.trade_id);
         if (tgtInput && document.activeElement !== tgtInput && !_isScalpInputDirty('scalp-tgt-' + t.trade_id)) tgtInput.value = t.target_premium || 0;
         if (slInput && document.activeElement !== slInput && !_isScalpInputDirty('scalp-sl-' + t.trade_id)) slInput.value = t.sl_premium || 0;
+        _scalpPaintStStop(t);
         if (entryMinInput && document.activeElement !== entryMinInput && !_isScalpInputDirty('scalp-entry-min-' + t.trade_id)) entryMinInput.value = (t.entry_limit_price || 0).toFixed(2);
         if (entryMaxInput && document.activeElement !== entryMaxInput && !_isScalpInputDirty('scalp-entry-max-' + t.trade_id)) entryMaxInput.value = (t.entry_limit_max || 0).toFixed(2);
       });
@@ -24475,6 +24495,7 @@ function _renderScalpStatusWS(data) {
       const entryMaxInput = _getScalpEl('scalp-entry-max-' + t.trade_id);
       if (tgtInput && document.activeElement !== tgtInput && !_isScalpInputDirty('scalp-tgt-' + t.trade_id)) tgtInput.value = t.target_premium || 0;
       if (slInput && document.activeElement !== slInput && !_isScalpInputDirty('scalp-sl-' + t.trade_id)) slInput.value = t.sl_premium || 0;
+      _scalpPaintStStop(t);
       if (entryMinInput && document.activeElement !== entryMinInput && !_isScalpInputDirty('scalp-entry-min-' + t.trade_id)) entryMinInput.value = (t.entry_limit_price || 0).toFixed(2);
       if (entryMaxInput && document.activeElement !== entryMaxInput && !_isScalpInputDirty('scalp-entry-max-' + t.trade_id)) entryMaxInput.value = (t.entry_limit_max || 0).toFixed(2);
     });

@@ -71,8 +71,29 @@ class TheTrail(unittest.TestCase):
         engine.update_trade_targets = spy
         asyncio.run(engine._st_trail_check())
         self.assertEqual(trade.sl_premium, 90.0)
-        self.assertEqual(calls, [])
+        self.assertEqual(calls, [])  # nothing goes to the broker
         self.assertTrue(trade.st_trail_armed)
+
+    def test_the_st_sl_rides_the_line_up_with_each_bar(self):
+        # "now the ST is not at all moving on the SL": st_stop follows it.
+        closes = [100 + i for i in range(30)]
+        engine, trade = _engine(closes, sl=90.0, price=131.0)
+        asyncio.run(engine._st_trail_check())
+        first = trade.st_stop
+        line = scalp_supertrend(_bars(closes))[-1]["value"]
+        self.assertGreater(first, 90.0)
+        self.assertLessEqual(first, line)
+        self.assertGreater(line - first, -0.06)
+        bars = _bars(closes + [131, 133, 135])
+
+        async def fake_bars(_trade):
+            return bars
+
+        engine._st_trail_bars = fake_bars
+        trade.st_last_bar = 0
+        asyncio.run(engine._st_trail_check())
+        self.assertGreater(trade.st_stop, first)
+        self.assertEqual(trade.sl_premium, 90.0)
 
     def test_a_wick_through_the_line_that_closes_above_does_not_exit(self):
         closes = [100 + i for i in range(30)]
@@ -139,8 +160,9 @@ class TheTrail(unittest.TestCase):
         trade.st_trail_armed, trade.st_last_bar = True, 1792000000
         import app
 
-        trade.st_tf, trade.st_tf_since = 3, 1792000100.0
+        trade.st_tf, trade.st_tf_since, trade.st_stop = 3, 1792000100.0, 151.25
         back = app._restore_scalp_trade_from_payload(trade.to_dict())
+        self.assertEqual(back.st_stop, 151.25)
         self.assertEqual((back.st_trail, back.st_trail_armed, back.st_last_bar), (True, True, 1792000000))
         self.assertEqual((back.st_tf, back.st_tf_since), (3, 1792000100.0))
 
@@ -213,6 +235,23 @@ class TheChartsTimeframe(unittest.TestCase):
         engine._close_trade = close
         asyncio.run(engine._st_trail_check())
         self.assertEqual(closed, [])
+
+
+class TheChartDrawsIt(unittest.TestCase):
+    def test_the_st_sl_line_is_drawn_and_read_fresh_off_a_cached_chart(self):
+        import app
+
+        cached = {
+            "lines": [{"label": "STOP", "price": 90.0}, {"label": "ST SL", "price": 120.0}, {"label": "PP", "price": 1}]
+        }
+        trade = {"st_trail": True, "st_stop": 125.5, "sl_premium": 92.0, "target_premium": 0, "current_premium": 0}
+        lines = app._scalp_option_chart_with_live_price(cached, trade)["lines"]
+        self.assertEqual([(ln["label"], ln["price"]) for ln in lines], [("ST SL", 125.5), ("STOP", 92.0), ("PP", 1)])
+        self.assertEqual(app._scalp_st_stop_lines({"st_trail": False, "st_stop": 125.5}), [])
+        # A price alone (the practice chart's call) leaves the built lines be.
+        built = {"lines": [{"label": "STOP", "price": 90.0}, {"label": "ST SL", "price": 120.0}]}
+        kept = app._scalp_option_chart_with_live_price(built, {"current_premium": 0})["lines"]
+        self.assertEqual([(ln["label"], ln["price"]) for ln in kept], [("STOP", 90.0), ("ST SL", 120.0)])
 
 
 if __name__ == "__main__":

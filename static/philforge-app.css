@@ -11679,6 +11679,8 @@ html[data-theme="light"][data-pf-tint="native"] {
 .scalp-practice-badge { font: 800 10px 'JetBrains Mono', monospace; letter-spacing: .8px; color: #1a1400; background: #facc15; border-radius: 4px; padding: 3px 7px; }
 .scalp-practice-day-label { font-size: 12px; color: var(--text); font-weight: 600; }
 .scalp-practice-clock { font: 700 15px 'JetBrains Mono', monospace; color: #fde68a; min-width: 76px; font-variant-numeric: tabular-nums; }
+.scalp-st-stop { margin-top: 3px; font: 700 10px 'JetBrains Mono', monospace; color: #fb923c; white-space: nowrap; }
+.scalp-st-stop[hidden] { display: none; }
 .scalp-practice-speeds { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .scalp-practice-speeds button { background: transparent; border: 0; color: var(--muted); font: 700 11px 'JetBrains Mono', monospace; padding: 5px 9px; cursor: pointer; }
 .scalp-practice-speeds button + button { border-left: 1px solid var(--border); }

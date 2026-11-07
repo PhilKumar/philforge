@@ -3848,6 +3848,7 @@ def _restore_scalp_trade_from_payload(payload: dict):
         trade.st_trail_armed = bool(payload.get("st_trail_armed"))
         trade.st_last_bar = int(float(payload.get("st_last_bar") or 0))
         trade.st_tf_since = float(payload.get("st_tf_since") or 0)
+        trade.st_stop = float(payload.get("st_stop") or 0)
         trade.current_premium = float(payload.get("current_premium") or trade.entry_premium or 0)
         trade.status = "pending" if status == "pending" else "open"
         for attr in (
@@ -26516,6 +26517,19 @@ def _regroup_chart_candles(candles: list[dict], minutes: int, session_open_hm: t
     return [grouped[slot] for slot in sorted(grouped)]
 
 
+def _scalp_st_stop_lines(trade: dict) -> list[dict]:
+    """The Supertrend SL a trade rides (Phil, 2026-11-07: "now the ST is not at
+    all moving on the SL"): drawn where the line is, solid, apart from the
+    dashed STOP he set -- it exits on a close through it, never on a touch."""
+    try:
+        level = float(trade.get("st_stop") or 0)
+    except (TypeError, ValueError):
+        level = 0.0
+    if level <= 0 or not trade.get("st_trail"):
+        return []
+    return [{"label": "ST SL", "price": level, "color": "#f97316", "width": 1.4, "opacity": 0.95}]
+
+
 def _scalp_option_chart_with_live_price(payload: dict, trade: dict) -> dict:
     """Layer the monitored premium onto cached OHLC without inventing a candle."""
     try:
@@ -26523,6 +26537,20 @@ def _scalp_option_chart_with_live_price(payload: dict, trade: dict) -> dict:
     except (TypeError, ValueError):
         live_price = 0.0
     result = {**payload, "lines": list(payload.get("lines") or [])}
+    # The trade's own levels are read fresh, not from the cached candles: the
+    # Supertrend SL moves at every bar close, and a hand edit at any moment.
+    # (Only from a trade: a caller passing just a price leaves them as built.)
+    if "sl_premium" in trade and any(line.get("label") in ("STOP", "TARGET", "ST SL") for line in result["lines"]):
+        levels = {"TARGET": "target_premium", "STOP": "sl_premium"}
+        kept = []
+        for line in result["lines"]:
+            label = line.get("label")
+            if label == "ST SL":
+                continue
+            if label in levels:
+                line = {**line, "price": float(trade.get(levels[label]) or 0)}
+            kept.append(line)
+        result["lines"] = _scalp_st_stop_lines(trade) + kept
     if live_price > 0:
         # Dotted, deliberately: the live premium is a moving reading, and the
         # solid lines are levels that stay put (Phil, 2026-08-13).
@@ -26684,6 +26712,7 @@ async def get_scalp_option_chart(trade_id: int, request: Request, timeframe: str
                 "width": 1.2,
                 "opacity": 0.95,
             },
+            *_scalp_st_stop_lines(trade),
             *analytics["lines"],
         ],
         "overlays": analytics["overlays"],
@@ -28215,6 +28244,7 @@ async def practice_trade_chart(trade_id: int, request: Request, timeframe: str =
             "width": 1.2,
             "opacity": 0.95,
         },
+        *_scalp_st_stop_lines(trade),
         *payload["lines"],
     ]
     payload["trade_id"] = int(trade_id)
