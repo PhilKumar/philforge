@@ -10359,7 +10359,13 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     /* Rows 2-4 only: spanning the flexible fifth row, its height was shared
        into that row, which then grew and shrank with the launchpad box and
        moved the history under it (the short-window spec, 1536x730). */
-    grid-row: 2 / 5; align-self: start; height: max(700px, calc(100vh - var(--pf-freeze-scalp-pos, 240px) - 24px));
+    /* A floor, not a fixed height: a toolbar that wraps (narrower window,
+       other fonts) grows the box rather than pushing the canvas out under the
+       history below, where a press never reached the chart (CI, 07-Nov). */
+    grid-row: 2 / 5; align-self: start; min-height: max(700px, calc(100vh - var(--pf-freeze-scalp-pos, 240px) - 24px));
+  }
+  body:not(.scalp-chart-full) #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart:not([hidden]) > .scalp-dock-chart-body {
+    flex-shrink: 0;
   }
   #scalp-page > .card > .scalp-history-card { grid-column: 1 / -1; grid-row: 6; margin-top: 14px; }
   /* The chart fills that height, never less than its 600px. */
