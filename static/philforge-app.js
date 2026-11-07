@@ -27434,6 +27434,14 @@ async function _pfPracticeTick() {
     _pfPracticeApply(data.practice);
     _lastScalpStatus = Object.assign({}, _lastScalpStatus, data);
     _renderScalpStatusWS(data);
+    // At 10x the form's twice-a-second premium is a step every five replay
+    // seconds (Phil, 07-Nov: "the speed is not working properly"): practice
+    // prices the form and grows the live candle on every tick, four a second.
+    if (data.practice && !data.practice.paused) {
+      // The open trades' prices the trade chart grows its candle from.
+      if (Array.isArray(data.open_trades) && data.open_trades.length === _scalpDockOpenTrades.length) _scalpDockOpenTrades = data.open_trades;
+      _scalpFeedLTPTick().then(() => { if (typeof _scalpLiveTick === 'function') _scalpLiveTick(); });
+    }
     if (++_pfPractice.ticks % 6 === 0) {
       refreshScalpStatus();
       _fetchScalpSpotPrices().then(() => { if (typeof _scalpPaintCmp === 'function') _scalpPaintCmp(); });
@@ -27503,6 +27511,11 @@ function _pfPracticeEnterView(state) {
   if (sel && state.underlying) sel.value = state.underlying;
   _pfPracticeResetDesk();
   if (!_pfPractice.timer) _pfPractice.timer = setInterval(_pfPracticeTick, 250);
+  // The clock alone, ten times a second: at 10x a 250 ms paint skips 2.5 s.
+  if (!_pfPractice.clockTimer) _pfPractice.clockTimer = setInterval(() => {
+    const st = _pfPractice.state, el = document.getElementById('scalp-practice-clock');
+    if (_pfPractice.on && st && !st.paused && el) el.textContent = _pfPracticeClockText() + (st.at_close ? ' · closed' : '');
+  }, 100);
   _pfPracticePaint();
 }
 
@@ -27512,6 +27525,7 @@ function _pfPracticeOff() {
   _pfPractice.state = null;
   window.pfChartHideDates = false;
   if (_pfPractice.timer) { clearInterval(_pfPractice.timer); _pfPractice.timer = null; }
+  if (_pfPractice.clockTimer) { clearInterval(_pfPractice.clockTimer); _pfPractice.clockTimer = null; }
   const mode = document.getElementById('scalp-mode');
   if (mode && _pfPractice.formMode != null) {
     mode.value = _pfPractice.formMode;
