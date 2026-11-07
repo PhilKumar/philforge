@@ -384,6 +384,11 @@ function _pfChartCanvasTeardown(only) {
   var list = only ? [only] : _pfChartCanvases.slice();
   if (!only && _pfChartCanvas && list.indexOf(_pfChartCanvas) < 0) list.push(_pfChartCanvas);
   list.forEach(function (c) {
+    // A page that wants its chart back as it was (the Scalp desk, after the
+    // NIFTY pop-up closed it) is handed the view the chart had at the end.
+    if (c.live && typeof c.onTeardown === 'function') {
+      try { c.onTeardown(_pfChartCanvasStateOf(c)); } catch (err) { /* the page refits */ }
+    }
     c.live = false;
     var at = _pfChartCanvases.indexOf(c);
     if (at >= 0) _pfChartCanvases.splice(at, 1);
@@ -661,7 +666,11 @@ function _pfChartCanvasSameViewport(a, b) {
 // view is following the latest bar; a panned-back research view is never
 // allowed to jump just because a poll returned a newer payload.
 function _pfChartCanvasRefreshState() {
-  var c = _pfChartCanvas, fit = c && _pfChartCanvasFit(c);
+  return _pfChartCanvasStateOf(_pfChartCanvas);
+}
+
+function _pfChartCanvasStateOf(c) {
+  var fit = c && _pfChartCanvasFit(c);
   if (!c || !c.viewport || !fit) return null;
   var tolerance = Math.max(0.5, (c.viewport.tMax - c.viewport.tMin) * 0.001);
   return {

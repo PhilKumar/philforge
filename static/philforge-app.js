@@ -15377,6 +15377,8 @@ function _scalpAltDraw(data) {
   _scalpAltDecorate(data);
   pfBenchDrawChart(el, data, { multi: true, background: true });
   _scalpAlt.drawnKey = drawnKey;
+  const recalled = !!pfChartWith(el, () => { _scalpRememberOnClose(drawnKey); return _scalpRecallView(drawnKey, data); });
+  if (recalled) return;
   // The same stretch of time as the active chart beside it.
   const win = typeof pfChartCurrentWindow === 'function' && !_scalpChartFresh ? pfChartCurrentWindow() : null;
   if (win) pfChartWith(el, () => pfChartApplyWindow(win));
@@ -16003,6 +16005,22 @@ let _scalpChartWindow = null; // {from, to, followRight}: the time on screen, ke
 // next) to the first chart drawn after it: that chart must not take its time
 // window from the one still on screen, which is the other side's.
 let _scalpChartFresh = false;
+// THE VIEW, KEPT THROUGH A CLOSE (Phil, 2026-11-07: "When I am seeing the
+// nifty chart and come back the options chart again resets"). The NIFTY
+// pop-up, like every single chart, closes the charts already up; each Scalp
+// chart hands its view (zoom, scroll, price scale) here as it closes, keyed by
+// contract and timeframe, and gets it back exactly when it is drawn again.
+const _scalpViewMemo = new Map();
+function _scalpRememberOnClose(key) {
+  if (typeof _pfChartCanvas === 'undefined' || !_pfChartCanvas) return;
+  _pfChartCanvas.onTeardown = (state) => { if (state && state.viewport) _scalpViewMemo.set(key, state); };
+}
+function _scalpRecallView(key, data) {
+  const state = !_scalpChartFresh ? _scalpViewMemo.get(key) : null;
+  if (!state || typeof _pfChartCanvasRefresh !== 'function') return false;
+  _scalpViewMemo.delete(key);
+  return !!_pfChartCanvasRefresh(data, state);
+}
 let _scalpLiveTimer = null;
 
 function _scalpChartLivePrice(key) {
@@ -17046,8 +17064,10 @@ async function openScalpOptionChart(tradeId, options = {}) {
         // Split, the chart beside it stays up.
         if (!pfBenchDrawChart(host, data, docked && _scalpSplitOn() ? { multi: true } : undefined)) throw new Error('Option chart could not be drawn.');
       }
-      if (!view && _scalpChartWindow && typeof pfChartApplyWindow === 'function') pfChartApplyWindow(_scalpChartWindow);
-      if (keepPrice && _pfChartCanvas?.viewport && isFinite(keepPrice.pMin) && isFinite(keepPrice.pMax) && typeof _pfChartCanvasDraw === 'function') {
+      const recalled = !refreshed && _scalpRecallView(drawnKey, data);
+      _scalpRememberOnClose(drawnKey);
+      if (!view && !recalled && _scalpChartWindow && typeof pfChartApplyWindow === 'function') pfChartApplyWindow(_scalpChartWindow);
+      if (keepPrice && !recalled && _pfChartCanvas?.viewport && isFinite(keepPrice.pMin) && isFinite(keepPrice.pMax) && typeof _pfChartCanvasDraw === 'function') {
         _pfChartCanvas.viewport.pMin = keepPrice.pMin;
         _pfChartCanvas.viewport.pMax = keepPrice.pMax;
         _pfChartCanvasDraw(_pfChartCanvas);
@@ -27504,6 +27524,7 @@ async function _pfPracticeControl(body) {
 // not a price, not a position, not the chart of a trade that is not there.
 async function _pfPracticeResetDesk() {
   _scalpSpotCache = {};
+  _scalpViewMemo.clear(); // another day's views
   _scalpCurrentLTP = 0;
   _scalpLTPKey = '';
   _scalpLTPFromFeed = 0;
