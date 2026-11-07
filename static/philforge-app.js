@@ -15367,6 +15367,7 @@ function _scalpAltDecorate(data) {
   _scalpDecorate(data);
   data.onDraw = null;
   data.onCrosshair = null;
+  data.onViewport = _scalpChartViewSoon; // its view is kept through a reload too
   if (_scalpAlt.contract) data.lines = data.lines.concat(_scalpAltTradeLines(_scalpAlt.contract));
 }
 
@@ -15396,7 +15397,7 @@ function _scalpAltDraw(data) {
   _scalpAltDecorate(data);
   pfBenchDrawChart(el, data, { multi: true, background: true });
   _scalpAlt.drawnKey = drawnKey;
-  const recalled = !!pfChartWith(el, () => { _scalpRememberOnClose(drawnKey); return _scalpRecallView(drawnKey, data); });
+  const recalled = !!pfChartWith(el, () => { _scalpRememberOnClose(drawnKey); return _scalpRecallView(drawnKey, data) || _scalpViewRestore(drawnKey); });
   if (recalled) return;
   // The same stretch of time as the active chart beside it.
   const win = typeof pfChartCurrentWindow === 'function' && !_scalpChartFresh ? pfChartCurrentWindow() : null;
@@ -16014,6 +16015,59 @@ function _scalpRememberChartSpan(tfSec) {
 function _scalpChartViewKeep() {
   const shown = _scalpChartShown && _scalpChartShown.data;
   if (shown) _scalpRememberChartSpan(_SCALP_TF_SEC[shown.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300);
+  _scalpViewsStoreAll();
+}
+
+// EACH CHART'S VIEW, KEPT THROUGH A RELOAD (Phil, 2026-11-07: "If I refreshed
+// the page I am getting this... I told not to reset any view"). The zoom alone
+// came back, laid on the newest bars with the price refitted. Now every Scalp
+// chart's view -- the stretch of time as clock times, riding the live edge or
+// not, and the price scale -- is kept in this browser by contract and
+// timeframe, and a chart drawn fresh opens exactly there.
+const _SCALP_VIEWS_KEY = 'pf-scalp-chart-views-v1';
+const _SCALP_VIEWS_MAX = 40;
+function _scalpViewsLoad() {
+  try {
+    const v = JSON.parse(localStorage.getItem(_SCALP_VIEWS_KEY) || '{}');
+    return v && typeof v === 'object' ? v : {};
+  } catch (_) { return {}; }
+}
+// The chart in `el` (or the one addressed now), under `key`.
+function _scalpViewStore(key, el) {
+  if (!key || typeof pfChartCurrentWindow !== 'function') return;
+  const read = () => {
+    const c = _pfChartCanvas;
+    const win = c && c.viewport ? pfChartCurrentWindow() : null;
+    return win && isFinite(c.viewport.pMin) && isFinite(c.viewport.pMax)
+      ? { ...win, pMin: c.viewport.pMin, pMax: c.viewport.pMax, at: Date.now() } : null;
+  };
+  const view = el ? (typeof pfChartWith === 'function' ? pfChartWith(el, read) : null) : read();
+  if (!view) return;
+  const all = _scalpViewsLoad();
+  all[key] = view;
+  const keys = Object.keys(all).sort((a, b) => (all[b].at || 0) - (all[a].at || 0));
+  keys.slice(_SCALP_VIEWS_MAX).forEach(k => { delete all[k]; });
+  try { localStorage.setItem(_SCALP_VIEWS_KEY, JSON.stringify(all)); } catch (_) { /* private window */ }
+}
+function _scalpViewsStoreAll() {
+  const main = document.getElementById('scalp-dock-chart-canvas');
+  if (main && _scalpOptionChartDrawnKey && !_scalpChartFresh) _scalpViewStore(_scalpOptionChartDrawnKey, main);
+  const alt = typeof _scalpAltEl === 'function' ? _scalpAltEl() : null;
+  if (alt && typeof _scalpAlt !== 'undefined' && _scalpAlt.drawnKey) _scalpViewStore(_scalpAlt.drawnKey, alt);
+}
+// Put the chart now addressed back on the view kept for `key`; false if none.
+function _scalpViewRestore(key) {
+  // Keyed by the contract (expiry included), so a live chart never takes a
+  // practice day's view or the other way round: no "fresh" gate here.
+  const v = key ? _scalpViewsLoad()[key] : null;
+  if (!v || typeof pfChartApplyWindow !== 'function' || !pfChartApplyWindow(v)) return false;
+  const c = _pfChartCanvas;
+  if (c && c.viewport && isFinite(v.pMin) && isFinite(v.pMax) && v.pMax > v.pMin && typeof _pfChartCanvasDraw === 'function') {
+    c.viewport.pMin = v.pMin;
+    c.viewport.pMax = v.pMax;
+    _pfChartCanvasDraw(c);
+  }
+  return true;
 }
 window.addEventListener('pagehide', _scalpChartViewKeep);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') _scalpChartViewKeep(); });
@@ -17083,7 +17137,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
         // Split, the chart beside it stays up.
         if (!pfBenchDrawChart(host, data, docked && _scalpSplitOn() ? { multi: true } : undefined)) throw new Error('Option chart could not be drawn.');
       }
-      const recalled = !refreshed && _scalpRecallView(drawnKey, data);
+      const recalled = !refreshed && (_scalpRecallView(drawnKey, data) || _scalpViewRestore(drawnKey));
       _scalpRememberOnClose(drawnKey);
       if (!view && !recalled && _scalpChartWindow && typeof pfChartApplyWindow === 'function') pfChartApplyWindow(_scalpChartWindow);
       if (keepPrice && !recalled && _pfChartCanvas?.viewport && isFinite(keepPrice.pMin) && isFinite(keepPrice.pMax) && typeof _pfChartCanvasDraw === 'function') {
