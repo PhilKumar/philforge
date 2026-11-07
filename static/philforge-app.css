@@ -11671,6 +11671,16 @@ html[data-theme="light"][data-pf-tint="native"] {
    the replay's clock and controls stay in view while the chart scrolls. */
 #scalp-page .ocp-head:has(> .scalp-practice) { flex-wrap: wrap; }
 .scalp-practice { flex: 1 0 100%; margin: 8px 0 0; }
+/* ONE ROW while a day runs (Phil, 2026-11-07: "Put everything in a single
+   row... too much space occupied"): title, the replay's controls, then the
+   status, P&L and NIFTY chart -- the explanation lives on the badge's hover.
+   The day's summary, when it shows, takes the whole width again. */
+body.scalp-mode-practice #scalp-page:not(.scalp-practice-idle) .ocp-head:has(> .scalp-practice:not(:has(.scalp-practice-summary:not([hidden])))) { flex-wrap: wrap; align-items: center; }
+body.scalp-mode-practice #scalp-page:not(.scalp-practice-idle) .ocp-head > .scalp-practice:not(:has(.scalp-practice-summary:not([hidden]))) { order: 1; flex: 1 1 auto; min-width: 0; margin: 0; }
+body.scalp-mode-practice #scalp-page:not(.scalp-practice-idle) .ocp-head > .scalp-engine-bar { order: 2; flex: 0 0 auto; }
+body.scalp-mode-practice #scalp-page:not(.scalp-practice-idle) .ocp-head > .scalp-engine-bar > div:first-child { flex: 0 0 auto !important; }
+body.scalp-mode-practice #scalp-page:not(.scalp-practice-idle) .scalp-practice-note,
+body.scalp-mode-practice #scalp-page:not(.scalp-practice-idle) .scalp-practice-run:not([hidden]) ~ .scalp-practice-msg:not([data-tone="warn"]) { display: none !important; }
 .scalp-practice-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .scalp-practice-setup, .scalp-practice-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .scalp-practice-setup[hidden], .scalp-practice-run[hidden] { display: none; }
