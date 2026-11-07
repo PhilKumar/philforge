@@ -10725,7 +10725,10 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
     overflow-y: auto; overscroll-behavior: contain; align-content: start;
     --scalp-full-rail: max(440px, calc((100vw - 48px) * .3));
     grid-template-columns: minmax(0, 1fr) var(--scalp-full-rail);
-    grid-template-rows: auto auto auto auto;
+    /* max-content, not auto: auto rows shrink to fit the screen, and the
+       positions box (a scroller) was squeezed to its header. The column
+       scrolls instead. */
+    grid-template-rows: repeat(4, max-content);
   }
   body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-head { grid-column: 2; grid-row: 1; min-width: 0; }
   body.scalp-chart-full #scalp-page:not(.scalp-rail-hidden) > .card > .scalp-positions-card { grid-row: 2; }
