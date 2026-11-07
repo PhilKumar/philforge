@@ -129,6 +129,18 @@ class TheClock(_Archive):
         self.assertEqual(s.now(), s.end_at)
         self.assertTrue(s.paused)
 
+    def test_15x_and_20x_run_at_their_speed(self):
+        # Phil, 07-Nov-2026: "can you add 15x and 20x?"
+        s = self.session(start="10:00", speed=15)
+        s.play()
+        self.wind(4)
+        self.assertEqual(s.now().strftime("%H:%M:%S"), "10:01:00")  # 4 real s at 15x
+        s.set_speed(20)
+        self.wind(3)
+        self.assertEqual(s.now().strftime("%H:%M:%S"), "10:02:00")  # 3 real s at 20x
+        with self.assertRaises(ValueError):
+            s.set_speed(25)
+
     def test_a_hidden_day_is_not_named_until_it_ends(self):
         s = self.session(hidden=True)
         self.assertIsNone(s.state()["day"])

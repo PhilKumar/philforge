@@ -27659,7 +27659,7 @@ async def practice_days(request: Request):
 class PracticeStartReq(BaseModel):
     underlying: str = Field(default="NIFTY", max_length=10)
     day: str = Field(default="random", max_length=10)
-    speed: int = Field(default=1, ge=1, le=10)
+    speed: int = Field(default=1, ge=1, le=20)
     start: str = Field(default="09:15", max_length=5)
 
 
@@ -27700,7 +27700,7 @@ async def practice_state(request: Request):
 
 class PracticeControlReq(BaseModel):
     action: str = Field(max_length=10)
-    speed: int = Field(default=1, ge=1, le=10)
+    speed: int = Field(default=1, ge=1, le=20)
 
 
 @app.post("/api/practice/control")
