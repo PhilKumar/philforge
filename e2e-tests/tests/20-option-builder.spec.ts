@@ -58,9 +58,9 @@ test('Option Builder: an iron condor shows the right numbers and a drawn payoff'
   await mockBuilder(page, calls);
   await openBuilder(page);
 
-  // Trading has four desks, in Phil's order.
+  // Trading has five desks, in Phil's order (Practice since 2026-11-07).
   const tabs = page.locator('#option-builder-page .trading-section-tab strong');
-  await expect(tabs).toHaveText(['Options', 'Scalp', 'Option Builder', 'Equity']);
+  await expect(tabs).toHaveText(['Options', 'Scalp', 'Practice', 'Option Builder', 'Equity']);
   expect(new URL(page.url()).hash).toBe('#trading/builder');
 
   await page.click('[data-ob-view="neutral"]');

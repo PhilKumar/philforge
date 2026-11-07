@@ -97,12 +97,12 @@ test('Scrolled, the pinned banner folds to a strip without moving the page', asy
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect.poll(async () => (await banner(page)).folded, { message: id }).toBe(false);
   }
-  // The Trading strip keeps all four desks.
+  // The Trading strip keeps all five desks (Practice since 2026-11-07).
   await open(page, 'stock-terminal-page');
   await expect.poll(async () => {
     await page.evaluate(() => window.scrollTo(0, 300));
     return page.locator('#stock-terminal-page > .pf-hero-folded .trading-section-tab').count();
-  }).toBe(4);
+  }).toBe(5);
   await expect(page.locator('#stock-terminal-page > .pf-hero-folded .trading-section-tab').nth(2)).toBeVisible();
 });
 

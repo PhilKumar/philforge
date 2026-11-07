@@ -11700,6 +11700,9 @@ body.scalp-mode-practice #scalp-page .ocp-title-row .ocp-eyebrow { color: #facc1
 #scalp-page.scalp-practice-idle .scalp-practice-go { --btn-bg: linear-gradient(180deg, rgba(250, 204, 21, 0.30), rgba(161, 98, 7, 0.45)); --btn-color: #fef3c7; --btn-border: rgba(250, 204, 21, 0.6); padding: 7px 16px; }
 .scalp-practice-msg:empty { display: none; }
 .trading-section-icon-practice { color: #facc15; }
+/* Five desks: each as wide as its own name and subtitle, the long "Strategy
+   payoff · live chain" too; five equal fifths cut it at 1440px. */
 @media (min-width: 621px) {
-  .trading-section-tabs:has(> .trading-section-tab:nth-child(5)) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .trading-section-tabs:has(> .trading-section-tab:nth-child(5)) { grid-template-columns: repeat(5, auto); }
+  .trading-section-tabs:has(> .trading-section-tab:nth-child(5)) > .trading-section-tab { flex: 1 1 auto; min-width: max-content; }
 }
