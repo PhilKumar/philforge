@@ -132,6 +132,8 @@ async function installMocks(page: Page, backtestBody: object, paperStatus?: obje
     else if (path === '/api/option-ltp') await route.fulfill({ json: { status: 'ok', ltp: 110.5 } });
     else if (path === '/api/paper/status') await route.fulfill({ json: { running: false, in_trade: false, total_pnl: 0, trades_today: 0, positions: [], closed_trades: [], event_log: [] } });
     else if (path === '/api/live/status') await route.fulfill({ json: { running: false, in_trade: false, total_pnl: 0, trades_today: 0, positions: [], closed_trades: [], event_log: [] } });
+    // The Scalp page asks whether a practice day is running (2026-11-07).
+    else if (path === '/api/practice/state') await route.fulfill({ json: { status: 'none' } });
     else if (path === '/api/scalp/status') await route.fulfill({ json: { running: false, open_trades: [], closed_trades: [], events: [], session_pnl: 0 } });
     else if (path === '/api/engine-control/status') await route.fulfill({ json: { status: 'ok', any_running: false, users: [] } });
     else if (path === '/api/terminal/cascade/scan') await route.fulfill({ json: { status: 'empty', cached: false, scan_date: '2026-07-29' } });

@@ -120,4 +120,7 @@ data/dhan_options/
 data/dhan_options_e2/
 data/dhan_options_m1/
 data/dhan_options_m2/
+# Scalp practice replay: one file per trading day, built by tools/practice/build_days.py
+data/practice/
+data/practice_raw/
 cache/nifty_index_from_dhan.parquet

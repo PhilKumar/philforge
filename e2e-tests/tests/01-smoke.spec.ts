@@ -114,6 +114,8 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/option-ltp') await route.fulfill({ json: { status: 'ok', ltp: 110.5 } });
     else if (path === '/api/paper/status') await route.fulfill({ json: paperStatusMock });
     else if (path === '/api/live/status') await route.fulfill({ json: liveStatusMock });
+    // The Scalp page asks whether a practice day is running (2026-11-07).
+    else if (path === '/api/practice/state') await route.fulfill({ json: { status: 'none' } });
     else if (path === '/api/scalp/status') await route.fulfill({ json: scalpStatusMock });
     else if (path === '/api/engine-control/status') await route.fulfill({ json: { status: 'ok', any_running: false, users: [] } });
     else if (path === '/api/terminal/nifty200') await route.fulfill({ json: { status: 'ok', symbols: [] } });
@@ -688,6 +690,11 @@ test('Appearance, mobile nav, and scalp launchpad match screenshots', async ({ p
   // snapshot's job is the ticket below, not the command-bar feature count.
   await expect(page.getByRole('button', { name: /NIFTY 5m/ })).toBeVisible();
   await page.locator('#scalp-uly-chart-btn').evaluate((element) => {
+    (element as HTMLElement).style.display = 'none';
+  });
+  // The same for the Practice switch (2026-11-07): a command-bar feature too.
+  await expect(page.locator('#scalp-practice-toggle')).toBeVisible();
+  await page.locator('#scalp-practice').evaluate((element) => {
     (element as HTMLElement).style.display = 'none';
   });
   await expect(page.locator('#scalp-page')).toHaveScreenshot('scalp-launchpad.png', {

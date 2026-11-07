@@ -27600,6 +27600,554 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
     return result
 
 
+# ══════════════════════════════════════════════════════════════
+#  SCALP PRACTICE -- a real past day, replayed on the Scalp page
+# ══════════════════════════════════════════════════════════════
+# Phil, 2026-11-07: "Is it possible to create a same scalp page and simulate
+# trades and charts and prices to practice without a live price or data?" ...
+# "I don't want any excuses later" ... "go ahead with NIFTY and sensex. Also
+# add that 'at real speed or faster (2x, 5x, 10x), with Pause.'"
+#
+# The page is the Scalp page itself; while practice is on, it sends what it
+# would send to /api/scalp/..., /api/option-ltp, /api/ticker and the expiry
+# routes to the mirrors below instead. Each mirror answers in the live route's
+# own shape, from practice.py's replayed day: the same engine (paper, on the
+# replay's clock), the same chart helpers, never a broker.
+import practice as _practice
+
+_PRACTICE_HISTORY_KEY = "scalp_practice_history_{uid}"
+_PRACTICE_HISTORY_KEEP = 60
+_practice_entry_locks: Dict[int, asyncio.Lock] = {}
+_practice_last_entry_ts: Dict[int, float] = {}
+
+
+def _practice_session_or_409(request: Request):
+    session = _practice.session_for(_request_user_id(request))
+    if session is None or session.ended:
+        raise HTTPException(status_code=409, detail="No practice day is running. Start one first.")
+    return session
+
+
+async def _practice_close_open(session, reason: str = "kill") -> None:
+    """Close every open practice trade at the replay's price (the day's end, End, a new day)."""
+    eng = session.engine
+    if not eng.open_trades:
+        return
+    with _practice.replay_clock(session):
+        await eng.kill_all_trades()
+
+
+async def _practice_save_summary(user_id: int, summary: dict) -> None:
+    key = _PRACTICE_HISTORY_KEY.format(uid=int(user_id))
+    try:
+        rows = json.loads(await _db_mod.get_app_state(key) or "[]")
+    except (TypeError, ValueError):
+        rows = []
+    record = {k: v for k, v in summary.items() if k != "closed_trades"}
+    rows = ([record] + [r for r in rows if isinstance(r, dict)])[:_PRACTICE_HISTORY_KEEP]
+    await _db_mod.set_app_state(key, json.dumps(rows))
+
+
+@app.get("/api/practice/days")
+async def practice_days(request: Request):
+    """The replayable days for each underlying, newest last, and the speeds."""
+    _request_user_id(request)
+    days = {u: [row["day"] for row in _practice.available_days(u)] for u in _practice.UNDERLYINGS}
+    return {"status": "ok", "days": days, "speeds": list(_practice.SPEEDS)}
+
+
+class PracticeStartReq(BaseModel):
+    underlying: str = Field(default="NIFTY", max_length=10)
+    day: str = Field(default="random", max_length=10)
+    speed: int = Field(default=1, ge=1, le=10)
+    start: str = Field(default="09:15", max_length=5)
+
+
+@app.post("/api/practice/start")
+async def practice_start(req: PracticeStartReq, request: Request):
+    user_id = _request_user_id(request)
+    try:
+        underlying, day, hidden = _practice.pick_day(req.underlying, req.day)
+        _practice.start_minute(req.start)
+        await asyncio.to_thread(_practice.load_day, underlying, day)  # a few MB of parquet: off the loop
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    old = _practice.session_for(user_id)
+    if old is not None and not old.ended:
+        await _practice_close_open(old)
+        summary = _practice.end_session(user_id)
+        if summary and summary.get("trades"):
+            await _practice_save_summary(user_id, summary)
+    try:
+        session = _practice.start_session(user_id, underlying, day, hidden=hidden, speed=req.speed, start=req.start)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return session.state()
+
+
+@app.get("/api/practice/state")
+async def practice_state(request: Request):
+    session = _practice.session_for(_request_user_id(request))
+    if session is None:
+        return {"status": "none"}
+    state = session.state()
+    if state["at_close"] and session.engine.open_trades:
+        # The day is over: what is still open closes at the last price, as a
+        # square-off would (the options' session ends at 15:40).
+        await _practice_close_open(session)
+    return state
+
+
+class PracticeControlReq(BaseModel):
+    action: str = Field(max_length=10)
+    speed: int = Field(default=1, ge=1, le=10)
+
+
+@app.post("/api/practice/control")
+async def practice_control(req: PracticeControlReq, request: Request):
+    session = _practice_session_or_409(request)
+    action = str(req.action or "").strip().lower()
+    if action == "play":
+        session.play()
+    elif action == "pause":
+        session.pause()
+    elif action == "speed":
+        try:
+            session.set_speed(req.speed)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    else:
+        raise HTTPException(status_code=422, detail="action must be play, pause or speed")
+    return session.state()
+
+
+@app.post("/api/practice/end")
+async def practice_end(request: Request):
+    """End the day: open trades close at the replay's price, and the day's summary comes back."""
+    user_id = _request_user_id(request)
+    session = _practice.session_for(user_id)
+    if session is None:
+        return {"status": "none"}
+    await _practice_close_open(session)
+    summary = _practice.end_session(user_id) or {}
+    if summary.get("trades"):
+        await _practice_save_summary(user_id, summary)
+    return {"status": "ok", "summary": summary}
+
+
+@app.get("/api/practice/history")
+async def practice_history(request: Request):
+    user_id = _request_user_id(request)
+    try:
+        rows = json.loads(await _db_mod.get_app_state(_PRACTICE_HISTORY_KEY.format(uid=user_id)) or "[]")
+    except (TypeError, ValueError):
+        rows = []
+    return {"status": "ok", "days": rows}
+
+
+# ── The Scalp routes, replayed ───────────────────────────────────
+
+
+@app.get("/api/practice/scalp/status")
+async def practice_scalp_status(request: Request):
+    session = _practice.session_for(_request_user_id(request))
+    if session is None:
+        return {
+            "running": False,
+            "open_trades": [],
+            "closed_trades": [],
+            "event_log": [],
+            "total_pnl": 0.0,
+            "closed_pnl": 0.0,
+            "open_pnl": 0.0,
+            "session_pnl": 0.0,
+            "day_closed_pnl": 0.0,
+            "file_trades": [],
+            "practice": {"status": "none"},
+        }
+    if session.engine.open_trades and session.now() >= session.end_at:
+        await _practice_close_open(session)  # the day is over: square off at its last price
+    with _practice.replay_clock(session):
+        status = session.engine.get_status()
+    status["file_trades"] = list(reversed(session.closed_trades))
+    status["day_closed_pnl"] = status["closed_pnl"]
+    status["practice"] = session.state()
+    return status
+
+
+@app.get("/api/practice/scalp/trades")
+async def practice_scalp_trades(request: Request):
+    session = _practice.session_for(_request_user_id(request))
+    return list(session.closed_trades) if session else []
+
+
+@app.post("/api/practice/scalp/start")
+async def practice_scalp_start(request: Request):
+    session = _practice_session_or_409(request)
+    session.engine.start()
+    return {"status": "started"}
+
+
+@app.post("/api/practice/scalp/stop")
+async def practice_scalp_stop(request: Request):
+    session = _practice_session_or_409(request)
+    await _practice_close_open(session)
+    session.engine.stop()
+    with _practice.replay_clock(session):
+        status = session.engine.get_status()
+    return {"status": "stopped", "engine_status": status}
+
+
+@app.post("/api/practice/scalp/entry")
+async def practice_scalp_entry(req: ScalpEntryReq, request: Request):
+    """The Scalp form's entry, on the replayed day: the real engine, in paper.
+
+    Filled as Phil's own entries fill (practice.fill_slippage.json, by broker).
+    "Both" places a Dhan leg and a Zerodha leg, linked as live ones are.
+    """
+    session = _practice_session_or_409(request)
+    user_id = session.user_id
+    req.underlying = str(req.underlying or "").strip().upper()
+    req.option_type = str(req.option_type or "").strip().upper()
+    req.transaction_type = str(req.transaction_type or "").strip().upper()
+    req.product_type = "MARGIN" if str(req.product_type or "").upper() in {"NORMAL", "NRML", "MARGIN"} else "INTRADAY"
+    req.broker = "zerodha" if str(req.broker or "").strip().lower() == "zerodha" else "dhan"
+    if req.underlying != session.underlying:
+        return {"status": "error", "message": f"This practice day replays {session.underlying} only."}
+    if req.expiry not in session.data.expiries:
+        return {"status": "error", "message": "That expiry was not trading on the replayed day."}
+    if req.option_type not in {"CE", "PE"} or req.transaction_type not in {"BUY", "SELL"}:
+        return {"status": "error", "message": "Pick CE or PE, BUY or SELL."}
+    req.strike = _scalp_strike(req.strike)
+    if session.option_price(req.expiry, req.strike, req.option_type) <= 0:
+        return {
+            "status": "error",
+            "message": f"No {req.strike:g}{req.option_type} prices on the replayed day (the archive keeps ATM +/-10 strikes).",
+        }
+    if session.paused:
+        return {"status": "error", "message": "The replay is paused. Press Play to trade."}
+    if session.state()["at_close"]:
+        return {"status": "error", "message": "The replayed day has closed."}
+    lock = _practice_entry_locks.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        now = asyncio.get_event_loop().time()
+        if now - _practice_last_entry_ts.get(user_id, 0.0) < 2.0:
+            return {"status": "error", "message": "Duplicate entry blocked — please wait 2 seconds between entries"}
+        _practice_last_entry_ts[user_id] = now
+        eng = session.engine
+        entry = dict(
+            underlying=req.underlying,
+            strike=req.strike,
+            option_type=req.option_type,
+            expiry=req.expiry,
+            product_type=req.product_type,
+            transaction_type=req.transaction_type,
+            lots=req.lots,
+            lot_size=req.lot_size,
+            target_premium=req.target_premium,
+            sl_premium=req.sl_premium,
+            target_pct=req.target_pct,
+            sl_pct=req.sl_pct,
+            target_rupees=req.target_rupees,
+            sl_rupees=req.sl_rupees,
+            sqoff_time=req.sqoff_time,
+            mode="paper",
+            entry_limit_price=req.entry_limit_price,
+            entry_limit_max=req.entry_limit_max,
+            target_points=req.target_points,
+            sl_points=req.sl_points,
+            st_trail=req.st_trail,
+        )
+        with _practice.replay_clock(session):
+            if not req.both_brokers:
+                session.next_entry_broker = req.broker
+                return await eng.enter_trade(**entry, broker=req.broker)
+            legs = {}
+            for broker in ("dhan", "zerodha"):
+                session.next_entry_broker = broker
+                legs[broker] = await eng.enter_trade(**entry, broker=broker)
+        placed = [b for b in legs if legs[b].get("status") != "error"]
+        pair_id = f"P{int(time.time() * 1000)}" if len(placed) == 2 else ""
+        trades = []
+        for broker in placed:
+            trade = eng.open_trades.get(legs[broker].get("trade_id"))
+            if trade is not None:
+                trade.pair_id = pair_id
+                legs[broker]["trade"] = trade.to_dict()
+                trades.append(legs[broker]["trade"])
+        if len(placed) == 2:
+            status, message = "ok", ""
+        elif placed:
+            refused = next(b for b in legs if b not in placed)
+            status = "partial"
+            message = f"{refused.title()} refused: {legs[refused].get('message', 'unknown')}. {placed[0].title()} went through."
+        else:
+            status = "error"
+            message = "; ".join(f"{b.title()}: {legs[b].get('message', 'unknown')}" for b in legs)
+        return {"status": status, "message": message, "pair_id": pair_id, "legs": legs, "trades": trades}
+
+
+@app.post("/api/practice/scalp/exit/{trade_id}")
+async def practice_scalp_exit(trade_id: int, request: Request, pair: bool = False):
+    session = _practice_session_or_409(request)
+    with _practice.replay_clock(session):
+        if pair:
+            return await _exit_scalp_pair(session.engine, trade_id)
+        return await session.engine.exit_trade(trade_id, reason="manual")
+
+
+@app.post("/api/practice/scalp/kill-all")
+async def practice_scalp_kill_all(request: Request):
+    session = _practice_session_or_409(request)
+    with _practice.replay_clock(session):
+        return await session.engine.kill_all_trades()
+
+
+@app.put("/api/practice/scalp/trades/{trade_id}/targets")
+async def practice_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Request):
+    session = _practice_session_or_409(request)
+    with _practice.replay_clock(session):
+        return await session.engine.update_trade_targets(
+            trade_id, **{k: v for k, v in req.dict().items() if v is not None}
+        )
+
+
+@app.get("/api/practice/scalp/alarms")
+async def practice_scalp_alarms(request: Request):
+    _request_user_id(request)
+    return {"status": "ok", "alarms": [], "fired": []}
+
+
+@app.post("/api/practice/scalp/alarms")
+async def practice_scalp_alarm_set(request: Request):
+    raise HTTPException(status_code=409, detail="Price alarms ring on live prices only, not in practice.")
+
+
+@app.get("/api/practice/scalp/underlyings")
+async def practice_scalp_underlyings(request: Request):
+    _request_user_id(request)
+    return {"status": "ok", "stocks": []}  # practice replays NIFTY and SENSEX only
+
+
+def _practice_chart_payload(
+    session, rows: list[tuple], tf: str, tf_minutes: int, options: bool, instrument: dict, expiry: str = ""
+) -> dict:
+    """A replayed series in the live chart's shape: the same regrouping, CPR, EMA and next-day block."""
+    candles = [
+        {
+            "t": int(ts.replace(tzinfo=IST).timestamp()),
+            "o": round(float(o), 4),
+            "h": round(float(h), 4),
+            "l": round(float(lo), 4),
+            "c": round(float(c), 4),
+        }
+        for ts, o, h, lo, c in rows
+    ]
+    if not candles:
+        raise HTTPException(status_code=404, detail="No candles for this contract on the replayed day")
+    hours = _scalp_session(session.underlying, session.day, options=options)
+    open_hm = tuple(int(x) for x in hours["open"].split(":"))
+    close_hm = tuple(int(x) for x in hours["close"].split(":"))
+    if tf_minutes != 1:
+        candles = _regroup_chart_candles(candles, tf_minutes, open_hm)
+    candles = _scalp_chart_last_sessions(candles)
+    analytics = _chart_session_analytics(
+        candles, (close_hm[0], close_hm[1] - 1) if close_hm[1] else (close_hm[0] - 1, 59)
+    )
+    payload = {
+        "status": "ok",
+        "timeframe": tf,
+        "session": hours,
+        "instrument": instrument,
+        "candles": candles,
+        "candle_source": "practice",
+        "entries": [],
+        "lines": list(analytics["lines"]),
+        "overlays": analytics["overlays"],
+        "practice": True,
+    }
+    _with_next_day_cpr(
+        payload, candles, session.underlying, tf_minutes, expiry, now=session.now().replace(tzinfo=IST), options=options
+    )
+    return payload
+
+
+def _practice_live_line(session, payload: dict, price: float) -> dict:
+    result = _scalp_option_chart_with_live_price(payload, {"current_premium": price})
+    if price > 0:
+        result["live_timestamp"] = int(session.now().replace(tzinfo=IST).timestamp())
+    return result
+
+
+@app.get("/api/practice/scalp/contract-chart")
+async def practice_contract_chart(
+    request: Request,
+    underlying: str = "NIFTY",
+    strike: float = 0,
+    expiry: str = "",
+    option_type: str = "CE",
+    timeframe: str = "5m",
+    live_price: float = 0.0,
+):
+    session = _practice_session_or_409(request)
+    option_type = str(option_type or "").strip().upper()
+    if float(strike or 0) <= 0 or option_type not in {"CE", "PE"} or not expiry:
+        raise HTTPException(status_code=422, detail="Pick a strike, CE or PE, and an expiry first")
+    strike = _scalp_strike(strike)
+    tf, _candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
+    rows = session.option_rows(expiry, strike, option_type)
+    payload = _practice_chart_payload(
+        session,
+        rows,
+        tf,
+        tf_minutes,
+        True,
+        {
+            "underlying": session.underlying,
+            "strike": strike,
+            "option_type": option_type,
+            "expiry": expiry,
+            "security_id": "",
+        },
+        expiry,
+    )
+    return _practice_live_line(session, payload, session.option_price(expiry, strike, option_type))
+
+
+@app.get("/api/practice/scalp/underlying-chart")
+async def practice_underlying_chart(request: Request, underlying: str = "", expiry: str = "", timeframe: str = "5m"):
+    session = _practice_session_or_409(request)
+    tf, _candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
+    payload = _practice_chart_payload(
+        session,
+        session.index_rows(),
+        tf,
+        tf_minutes,
+        False,
+        {"underlying": session.underlying, "label": session.underlying, "kind": "index"},
+    )
+    payload["live_price"] = session.index_price()
+    payload["fit_sessions"] = 3
+    return payload
+
+
+@app.get("/api/practice/scalp/trades/{trade_id}/chart")
+async def practice_trade_chart(trade_id: int, request: Request, timeframe: str = "5m"):
+    session = _practice_session_or_409(request)
+    trade_obj = session.engine.open_trades.get(int(trade_id))
+    if trade_obj is None:
+        raise HTTPException(status_code=404, detail="Active scalp trade not found")
+    trade = trade_obj.to_dict()
+    tf, _candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
+    expiry, strike, option_type = str(trade["expiry"]), _scalp_strike(trade["strike"]), str(trade["option_type"])
+    payload = _practice_chart_payload(
+        session,
+        session.option_rows(expiry, strike, option_type),
+        tf,
+        tf_minutes,
+        True,
+        {
+            "underlying": session.underlying,
+            "strike": strike,
+            "option_type": option_type,
+            "expiry": expiry,
+            "security_id": "",
+        },
+        expiry,
+    )
+    entry_time = _scalp_option_chart_timestamp(trade.get("entry_time"))
+    entry_price = float(trade.get("entry_premium") or 0)
+    payload["entries"] = [{"t": entry_time, "price": entry_price}] if entry_time and entry_price > 0 else []
+    payload["lines"] = [
+        {
+            "label": "TARGET",
+            "price": float(trade.get("target_premium") or 0),
+            "color": "#10b981",
+            "dash": [6, 3],
+            "width": 1.2,
+            "opacity": 0.95,
+        },
+        {
+            "label": "STOP",
+            "price": float(trade.get("sl_premium") or 0),
+            "color": "#ef4444",
+            "dash": [6, 3],
+            "width": 1.2,
+            "opacity": 0.95,
+        },
+        *payload["lines"],
+    ]
+    payload["trade_id"] = int(trade_id)
+    return _practice_live_line(session, payload, session.option_price(expiry, strike, option_type))
+
+
+# ── The shared price routes, replayed ────────────────────────────
+
+
+@app.get("/api/practice/option-ltp")
+async def practice_option_ltp(
+    request: Request,
+    underlying: str,
+    strike: float,
+    expiry: str,
+    option_type: str,
+    broker: str = "",
+    feed_only: bool = False,
+):
+    session = _practice_session_or_409(request)
+    if str(underlying or "").upper() != session.underlying:
+        return {"status": "none", "ltp": 0}
+    ltp = session.option_price(expiry, _scalp_strike(strike), str(option_type or "").upper())
+    return (
+        {"status": "ok", "ltp": ltp, "source": "dhan_feed" if feed_only else "dhan"}
+        if ltp > 0
+        else {"status": "none", "ltp": 0}
+    )
+
+
+@app.get("/api/practice/ticker")
+async def practice_ticker(request: Request):
+    """The ticker's shape, with the replayed index in its own slot (the other slot stays empty)."""
+    session = _practice_session_or_409(request)
+    price = session.index_price()
+    prev = session.previous_close()
+    change = round(price - prev, 2) if prev > 0 else 0.0
+    pct = round(change / prev * 100, 2) if prev > 0 else 0.0
+    quote = {"price": round(price, 2), "change": change, "pct": pct}
+    empty = {"price": 0, "change": 0, "pct": 0}
+    return {
+        "status": "ok",
+        "source": "practice",
+        "nifty": quote if session.underlying == "NIFTY" else empty,
+        "sensex": quote if session.underlying == "SENSEX" else empty,
+        "banknifty": empty,
+        "market_closed": False,
+    }
+
+
+@app.get("/api/practice/expiry-dates")
+async def practice_expiry_dates(request: Request):
+    session = _practice_session_or_409(request)
+    nearest = session.data.expiries[0] if session.data.expiries else ""
+    return {
+        "status": "ok",
+        "nifty": nearest if session.underlying == "NIFTY" else "",
+        "banknifty": "",
+        "sensex": nearest if session.underlying == "SENSEX" else "",
+    }
+
+
+@app.get("/api/practice/expiry-list/{symbol}")
+async def practice_expiry_list(symbol: str, request: Request):
+    session = _practice_session_or_409(request)
+    symbol = str(symbol or "").upper()
+    return {
+        "status": "ok",
+        "symbol": symbol,
+        "expiries": list(session.data.expiries) if symbol == session.underlying else [],
+    }
+
+
 # One contract's premium, shared for a moment by every screen asking for it.
 # Dhan allows about one price request a second; two devices polling the Scalp
 # form drew a stream of 429s on 20-Oct-2026 and the form showed N/A.

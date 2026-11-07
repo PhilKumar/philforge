@@ -95,6 +95,9 @@ function _promptForActionAuthorization(challenge) {
 }
 
 window.fetch = async function philForgeProtectedFetch(input, init) {
+  // Practice: the Scalp page's own calls go to the replayed day instead.
+  const practiceUrl = _pfPracticeUrl(typeof input === 'string' ? input : (input && input.url) || '');
+  if (practiceUrl) input = typeof input === 'string' ? practiceUrl : new Request(practiceUrl, input);
   const request = new Request(input, init);
   const response = await _philForgeNativeFetch(request.clone());
   if (response.status !== 428 || request.method === 'GET') return response;
@@ -2650,6 +2653,13 @@ const PF_DELEGATED_ACTIONS = new Set([
   'cepeExit',
   'openCePeIndexChart',
   'openScalpUnderlyingChart',
+  'toggleScalpPractice',
+  'startScalpPractice',
+  'toggleScalpPracticePlay',
+  'setScalpPracticeSpeed',
+  'endScalpPractice',
+  'replayScalpPracticeDay',
+  'closeScalpPracticeSummary',
   'copyCePePrevClose',
   'setCePeFilter',
   'setCePeMode',
@@ -13274,6 +13284,7 @@ async function initScalpPage() {
   await _restoreScalpFormState();
   _updateScalpExitRulesNote();
   _scalpFormInitialized = true;
+  await _pfPracticeResume();
   refreshScalpStatus();
   // HTTP poll as fallback — wider interval since WS pushes every 3s
   if (!_scalpPollTimer) {
@@ -13815,7 +13826,8 @@ async function _fetchScalpSpotPrices() {
     return;
   }
   try {
-    const r = await fetch(`/api/ticker?_=${Date.now()}`, { cache: 'no-store' });
+    // desk=scalp: in practice this one read (not the header's) is the replay's.
+    const r = await fetch(`/api/ticker?desk=scalp&_=${Date.now()}`, { cache: 'no-store' });
     const d = await r.json();
     if (d.status === 'ok') {
       if (d.nifty) _scalpSpotCache['NIFTY'] = d.nifty.price;
@@ -14080,7 +14092,7 @@ async function loadScalpExpiries(options = {}) {
       const dt = new Date(d + 'T00:00:00');
       const dayName = dt.toLocaleDateString('en-IN', { weekday: 'short' });
       const label = dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
-      opt.textContent = `${dayName} ${label}`;
+      opt.textContent = _pfPracticeHidden() ? _pfPracticeExpiryLabel(d, dayName) : `${dayName} ${label}`;
       sel.appendChild(opt);
     });
     const preferredExpiry = preserve?.expiry || '';
@@ -14522,7 +14534,7 @@ function _renderScalpHistoryPage() {
       const chk = _selectedScalpHistIds.has(t.trade_id) ? ' checked' : '';
       return `<tr style="border-bottom:1px solid rgba(255,255,255,0.025);">
         <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="tbl-chk scalp-hist-chk" data-id="${t.trade_id}" aria-label="Select scalp history trade ${escapeAttr(t.trade_id)}" onchange="toggleScalpHistCheck(this)"${chk}></td>
-        <td style="padding:7px 10px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;white-space:nowrap;">${(() => { const ts = t.entry_time; if (!ts) return '—'; const d = new Date(ts); if (isNaN(d)) return '—'; const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0'), yyyy = d.getFullYear(); return dd+'-'+mm+'-'+yyyy; })()}</td>
+        <td style="padding:7px 10px;color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;white-space:nowrap;">${(() => { const ts = t.entry_time; if (!ts) return '—'; if (_pfPracticeHidden()) return 'hidden'; const d = new Date(ts); if (isNaN(d)) return '—'; const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0'), yyyy = d.getFullYear(); return dd+'-'+mm+'-'+yyyy; })()}</td>
         <td style="padding:7px 10px;font-size:12px;">${escapeHtml(t.underlying||'')} ${escapeHtml(t.strike||'')}${escapeHtml(t.option_type||'')}</td>
         <td style="padding:7px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:${t.transaction_type==='BUY'?'var(--green)':'var(--red)'};">${escapeHtml(t.transaction_type||'')}</span></td>
         <td style="padding:7px 10px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;">₹${(t.entry_premium||0).toFixed(2)}</td>
@@ -14659,9 +14671,12 @@ async function matchScalpTradesWithDhan() {
 
 async function refreshScalpStatus() {
   try {
+    // A reply asked for on one side of a practice switch is never drawn on the other.
+    const practice = _pfPracticeOn();
     const res = await fetch('/api/scalp/status');
-    if (!res.ok) return;
+    if (!res.ok || practice !== _pfPracticeOn()) return;
     const data = await res.json();
+    if (practice !== _pfPracticeOn()) return;
     _lastScalpStatus = data;
     _renderScalpStatus(data);
     _wsSetLiveIndicator(_ws && _ws.readyState === 1, _wsStale);
@@ -15387,7 +15402,7 @@ function _scalpAltRefresh(force) {
   const now = Date.now();
   const tf = _scalpOptionChartTf;
   const open = !!(_scalpAlt.data && typeof pfChartBarWindow === 'function'
-    && pfChartBarWindow(now / 1000, _SCALP_TF_SEC[tf] || 300, _scalpAlt.data.session));
+    && pfChartBarWindow(pfMarketNowSec(), _SCALP_TF_SEC[tf] || 300, _scalpAlt.data.session));
   // The feed's price only (no Dhan request), so twice a second costs nothing.
   if (open && (force || now - _scalpAlt.priceAt >= 450)) { _scalpAlt.priceAt = now; _scalpAltFetchPrice(contract, key); }
   const stale = !_scalpAlt.data || (_scalpAlt.data.timeframe || tf) !== tf || !String(_scalpAlt.drawnKey).startsWith(`${key}|`);
@@ -15971,7 +15986,7 @@ function _scalpApplyLiveBar(data, key, alt) {
   const price = alt ? (alt.priceKey === key ? Number(alt.price) || 0 : 0) : _scalpChartLivePrice(key);
   if (!(price > 0) || !Array.isArray(candles) || !candles.length || typeof pfChartBarWindow !== 'function') return false;
   const tf = _SCALP_TF_SEC[data.timeframe] || _SCALP_TF_SEC[_scalpOptionChartTf] || 300;
-  const now = Date.now() / 1000;
+  const now = pfMarketNowSec();
   const win = pfChartBarWindow(now, tf, data.session);
   const last = candles[candles.length - 1];
   const lastT = Number(last.t);
@@ -16928,8 +16943,10 @@ async function openScalpOptionChart(tradeId, options = {}) {
       // Just what to read the chart by (Phil, 2026-10-15: "remove the
       // unnecessary text explanations"); the live price is on the axis tag.
       const exp = instrument.expiry ? new Date(`${instrument.expiry}T00:00:00`) : null;
-      const expTxt = exp && !isNaN(exp) ? exp.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '';
-      meta.textContent = `${expTxt ? `Exp ${expTxt} · ` : ''}${String(data.timeframe || _scalpOptionChartTf).toUpperCase()}`;
+      const expTxt = exp && !isNaN(exp)
+        ? (_pfPracticeHidden() ? _pfPracticeExpiryLabel(instrument.expiry, '').replace(/^ · /, '') : exp.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }))
+        : '';
+      meta.textContent = `${expTxt ? `${_pfPracticeHidden() ? '' : 'Exp '}${expTxt} · ` : ''}${String(data.timeframe || _scalpOptionChartTf).toUpperCase()}`;
     }
     if (body) {
       // An already-mounted canvas is UPDATED in place, never torn down and
@@ -24258,7 +24275,7 @@ function handleWSMessage(msg) {
   // The CE/PE books' open legs, priced every 250 ms (see _paintEngineLegs).
   if (msg.type === 'status') _paintEngineLegs(msg.engine_legs || []);
   // Scalp status pushed from WS every 250ms — skip HTTP poll
-  if (msg.type === 'status' && msg.scalp) {
+  if (msg.type === 'status' && msg.scalp && !_pfPracticeOn()) {
     // The push leaves out closed trades and the event log; keep the last
     // refresh's copies so a repaint from this snapshot does not blank them.
     _lastScalpStatus = Object.assign({}, _lastScalpStatus, msg.scalp);
@@ -27244,3 +27261,356 @@ window.setCePeFilter = setCePeFilter;
 window.setCePeMode = setCePeMode;
 window.setCePeClosedPage = setCePeClosedPage;
 window.openCePeTearsheet = openCePeTearsheet;
+
+// ══════════════════════════════════════════════════════════════
+//  SCALP PRACTICE — a real past day, replayed on this same page
+// ══════════════════════════════════════════════════════════════
+// Phil, 2026-11-07: "Is it possible to create a same scalp page and simulate
+// trades and charts and prices to practice" ... "I want to feel like the same
+// live experience" ... "go ahead with NIFTY and sensex. Also add that 'at real
+// speed or faster (2x, 5x, 10x), with Pause.'"
+// Nothing on the page is rebuilt for practice: while it is on, the page's own
+// calls are sent to /api/practice/... (see _pfPracticeUrl), which answers in
+// the live routes' shapes from the replayed day, and the page's market clock
+// (pfMarketNowSec) is the replay's. The server runs the real Scalp engine, in
+// paper, on the replay's prices and clock; no request reaches a broker.
+// var, not const: the fetch wrapper at the top of this file can run before
+// this line has, and must then find practice off rather than throw.
+var _pfPractice = { on: false, state: null, at: 0, timer: null, busy: false, ticks: 0, autoPaused: false, days: null };
+window._pfPractice = _pfPractice;
+const _PF_PRACTICE_PREFIX = [['/api/scalp/', '/api/practice/scalp/'], ['/api/expiry-list/', '/api/practice/expiry-list/']];
+const _PF_PRACTICE_EXACT = { '/api/option-ltp': '/api/practice/option-ltp', '/api/expiry-dates': '/api/practice/expiry-dates' };
+
+function _pfPracticeOn() { return !!(_pfPractice && _pfPractice.on); }
+function _pfPracticeHidden() { return !!(_pfPracticeOn() && _pfPractice.state && _pfPractice.state.hidden); }
+
+// The URL a Scalp-page call goes to in practice, or null to leave it alone.
+function _pfPracticeUrl(raw) {
+  if (!_pfPracticeOn() || !raw || !_isPageActive('scalp-page')) return null;
+  let u;
+  try { u = new URL(raw, location.origin); } catch (_) { return null; }
+  if (u.origin !== location.origin || u.pathname.startsWith('/api/practice/')) return null;
+  let path = null;
+  for (const [from, to] of _PF_PRACTICE_PREFIX) if (u.pathname.startsWith(from)) path = to + u.pathname.slice(from.length);
+  if (!path && _PF_PRACTICE_EXACT[u.pathname]) path = _PF_PRACTICE_EXACT[u.pathname];
+  // Only the desk's own index read; the header's ticker stays live.
+  if (!path && u.pathname === '/api/ticker' && u.searchParams.get('desk') === 'scalp') path = '/api/practice/ticker';
+  return path ? path + u.search : null;
+}
+
+// The page's market clock, epoch seconds: the replay's moment in practice.
+function pfMarketNowSec() {
+  const st = _pfPracticeOn() ? _pfPractice.state : null;
+  if (!st || !st.replay_epoch) return Date.now() / 1000;
+  let sec = Number(st.replay_epoch);
+  if (!st.paused && !st.ended) sec += (performance.now() - _pfPractice.at) / 1000 * (Number(st.speed) || 1);
+  return sec;
+}
+window.pfMarketNowSec = pfMarketNowSec;
+
+function _pfPracticeExpiryLabel(expiry, dayName) {
+  const st = _pfPractice.state;
+  const today = st && st.replay_epoch ? Math.floor((Number(st.replay_epoch) + 19800) / 86400) : 0;
+  const exp = Math.floor((Date.parse(`${expiry}T00:00:00Z`) / 1000) / 86400);
+  const days = today ? exp - today : NaN;
+  if (!Number.isFinite(days)) return `${dayName} expiry`;
+  return `${dayName} · ${days <= 0 ? 'expires today' : `expires in ${days} day${days === 1 ? '' : 's'}`}`;
+}
+
+function _pfPracticeEls() {
+  const $ = (id) => document.getElementById(id);
+  return {
+    box: $('scalp-practice'), toggle: $('scalp-practice-toggle'), setup: $('scalp-practice-setup'), run: $('scalp-practice-run'),
+    underlying: $('scalp-practice-underlying'), dayMode: $('scalp-practice-day'), date: $('scalp-practice-date'), start: $('scalp-practice-start'),
+    dayLabel: $('scalp-practice-day-label'), clock: $('scalp-practice-clock'), play: $('scalp-practice-play'),
+    speeds: $('scalp-practice-speeds'), note: $('scalp-practice-note'), summary: $('scalp-practice-summary'), msg: $('scalp-practice-msg'),
+  };
+}
+
+function _pfPracticeSay(text, tone) {
+  const els = _pfPracticeEls();
+  if (!els.msg) return;
+  els.msg.textContent = text || '';
+  els.msg.dataset.tone = tone || '';
+}
+
+function _pfPracticeClockText() {
+  const st = _pfPractice.state;
+  if (!st) return '--:--:--';
+  const sec = Math.floor(pfMarketNowSec()) + 19800;
+  const d = new Date(sec * 1000);
+  return d.toISOString().slice(11, 19);
+}
+
+function _pfPracticePaint() {
+  const els = _pfPracticeEls();
+  const st = _pfPractice.state;
+  if (!els.box) return;
+  els.box.dataset.state = _pfPractice.on ? 'on' : (els.setup && !els.setup.hidden ? 'setup' : 'off');
+  document.body.classList.toggle('scalp-practicing', _pfPractice.on);
+  if (els.toggle) els.toggle.setAttribute('aria-pressed', _pfPractice.on || (els.setup && !els.setup.hidden) ? 'true' : 'false');
+  if (els.run) els.run.hidden = !_pfPractice.on;
+  if (els.note) els.note.hidden = !_pfPractice.on;
+  if (!_pfPractice.on || !st) return;
+  if (els.dayLabel) {
+    const day = st.day ? new Date(`${st.day}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : 'Hidden day';
+    els.dayLabel.textContent = `${st.underlying} · ${day}`;
+  }
+  if (els.clock) els.clock.textContent = _pfPracticeClockText() + (st.at_close ? ' · closed' : '');
+  if (els.play) {
+    els.play.textContent = st.paused ? '▶ Play' : '❚❚ Pause';
+    els.play.disabled = !!st.at_close;
+  }
+  if (els.speeds) els.speeds.querySelectorAll('[data-speed]').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.speed) === Number(st.speed));
+  });
+}
+
+function _pfPracticeApply(st) {
+  if (!st || st.status !== 'ok') return;
+  _pfPractice.state = st;
+  _pfPractice.at = performance.now();
+  window.pfChartHideDates = !!st.hidden;
+  _pfPracticePaint();
+}
+
+// Four times a second: the replay's clock and positions, as the live page's
+// WebSocket push would bring them; the full status (history, log) and the
+// index every second and a half.
+async function _pfPracticeTick() {
+  if (!_pfPractice.on) return;
+  _pfPracticePaint();
+  if (!_isPageActive('scalp-page') || !_isPageVisible()) {
+    // Not watched, not running: a practice day waits for its trader.
+    if (_pfPractice.state && !_pfPractice.state.paused && !_pfPractice.busy) {
+      _pfPractice.autoPaused = true;
+      _pfPracticeControl({ action: 'pause' });
+    }
+    return;
+  }
+  if (_pfPractice.busy) return;
+  _pfPractice.busy = true;
+  try {
+    const r = await fetch('/api/practice/scalp/status', { cache: 'no-store', credentials: 'same-origin' });
+    const data = await r.json().catch(() => ({}));
+    if (!_pfPractice.on) return;
+    if (data.practice && data.practice.status === 'none') { _pfPracticeOff(); return; }
+    _pfPracticeApply(data.practice);
+    _lastScalpStatus = Object.assign({}, _lastScalpStatus, data);
+    _renderScalpStatusWS(data);
+    if (++_pfPractice.ticks % 6 === 0) {
+      refreshScalpStatus();
+      _fetchScalpSpotPrices().then(() => { if (typeof _scalpPaintCmp === 'function') _scalpPaintCmp(); });
+    }
+  } catch (_) {
+    /* the next tick asks again */
+  } finally {
+    _pfPractice.busy = false;
+  }
+}
+
+async function _pfPracticeControl(body) {
+  const r = await fetch('/api/practice/control', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { _pfPracticeSay(pfErrorText(data, 'The replay did not answer.'), 'warn'); return null; }
+  _pfPracticeApply(data);
+  return data;
+}
+
+// Between live and practice nothing of the other side may stay on the desk:
+// not a price, not a position, not the chart of a trade that is not there.
+async function _pfPracticeResetDesk() {
+  _scalpSpotCache = {};
+  _scalpCurrentLTP = 0;
+  _scalpLTPKey = '';
+  _scalpLTPFromFeed = 0;
+  _scalpLTPFromWS = 0;
+  _scalpDockOpenTrades = [];
+  _scalpDockPin = null;
+  _lastScalpStatus = null;
+  _renderScalpStatus({ running: false, open_trades: [], closed_trades: [], event_log: [], file_trades: [], session_pnl: 0, total_pnl: 0 });
+  const ltp = document.getElementById('scalp-live-ltp');
+  if (ltp) ltp.textContent = '—';
+  try { await loadScalpExpiries(); } catch (_) { /* the form keeps what it had */ }
+  if (typeof _scalpDockFollow === 'function') _scalpDockFollow([]);
+  refreshScalpStatus();
+}
+
+// The page leaves live for the replayed day: its prices, expiries and charts.
+function _pfPracticeEnterView(state) {
+  _pfPractice.on = true;
+  _pfPractice.ticks = 0;
+  _pfPracticeApply(state);
+  const els = _pfPracticeEls();
+  if (els.setup) els.setup.hidden = true;
+  if (els.summary) els.summary.hidden = true;
+  const sel = document.getElementById('scalp-underlying');
+  if (sel && state.underlying) sel.value = state.underlying;
+  _pfPracticeResetDesk();
+  if (!_pfPractice.timer) _pfPractice.timer = setInterval(_pfPracticeTick, 250);
+  _pfPracticePaint();
+}
+
+// Back to live: the live expiries, prices and positions come back.
+function _pfPracticeOff() {
+  _pfPractice.on = false;
+  _pfPractice.state = null;
+  window.pfChartHideDates = false;
+  if (_pfPractice.timer) { clearInterval(_pfPractice.timer); _pfPractice.timer = null; }
+  _pfPracticePaint();
+  _pfPracticeResetDesk();
+}
+
+// A practice day already running (a reload, another tab) is picked up, paused.
+async function _pfPracticeResume() {
+  try {
+    const r = await fetch('/api/practice/state', { cache: 'no-store', credentials: 'same-origin' });
+    const st = await r.json().catch(() => ({}));
+    if (st.status === 'ok' && !st.ended) {
+      if (!st.paused) await _pfPracticeControl({ action: 'pause' });
+      _pfPracticeEnterView(_pfPractice.state || st);
+    }
+  } catch (_) { /* live as usual */ }
+}
+
+async function _pfPracticeLoadDays() {
+  if (_pfPractice.days) return _pfPractice.days;
+  try {
+    const r = await fetch('/api/practice/days', { cache: 'no-store', credentials: 'same-origin' });
+    const data = await r.json().catch(() => ({}));
+    if (data.status === 'ok') _pfPractice.days = data.days || {};
+  } catch (_) { /* shown as none */ }
+  return _pfPractice.days || {};
+}
+
+async function _pfPracticePaintDays() {
+  const els = _pfPracticeEls();
+  const days = (await _pfPracticeLoadDays())[els.underlying?.value || 'NIFTY'] || [];
+  if (els.date) {
+    els.date.min = days[0] || '';
+    els.date.max = days[days.length - 1] || '';
+    if (!els.date.value && days.length) els.date.value = days[days.length - 1];
+  }
+  _pfPracticeSay(days.length
+    ? `${days.length.toLocaleString('en-IN')} real ${els.underlying.value} days, ${days[0]} to ${days[days.length - 1]}`
+    : `No ${els.underlying?.value || ''} days on the server yet.`, days.length ? '' : 'warn');
+}
+
+window.toggleScalpPractice = async function toggleScalpPractice() {
+  const els = _pfPracticeEls();
+  if (_pfPractice.on) {
+    if (!confirm('End this practice day? Open practice trades close at the replay price, and you get the day\'s summary.')) return;
+    return endScalpPractice();
+  }
+  if (els.setup) els.setup.hidden = !els.setup.hidden;
+  if (els.summary) els.summary.hidden = true;
+  _pfPracticePaint();
+  if (els.setup && !els.setup.hidden) {
+    if (els.underlying && document.getElementById('scalp-underlying')?.value === 'SENSEX') els.underlying.value = 'SENSEX';
+    await _pfPracticePaintDays();
+  } else {
+    _pfPracticeSay('');
+  }
+};
+
+async function _pfPracticeStart(underlying, day, start) {
+  _pfPracticeSay('Loading the day…');
+  const speed = Number(_pfPractice.state?.speed) || 1;
+  const r = await fetch('/api/practice/start', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+    body: JSON.stringify({ underlying, day, start, speed }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.status !== 'ok') { _pfPracticeSay(pfErrorText(data, 'The day did not load.'), 'warn'); return; }
+  _pfPracticeSay('');
+  _pfPracticeEnterView(data);
+}
+
+window.startScalpPractice = function startScalpPractice() {
+  const els = _pfPracticeEls();
+  const pick = els.dayMode?.value === 'pick';
+  if (pick && !els.date?.value) { _pfPracticeSay('Pick a date first.', 'warn'); return; }
+  return _pfPracticeStart(els.underlying?.value || 'NIFTY', pick ? els.date.value : 'random', els.start?.value || '09:15');
+};
+
+window.toggleScalpPracticePlay = function toggleScalpPracticePlay() {
+  const st = _pfPractice.state;
+  if (!st) return;
+  _pfPractice.autoPaused = false;
+  return _pfPracticeControl({ action: st.paused ? 'play' : 'pause' });
+};
+
+window.setScalpPracticeSpeed = function setScalpPracticeSpeed(event, el) {
+  const speed = Number(el?.dataset?.speed || 1);
+  return _pfPracticeControl({ action: 'speed', speed });
+};
+
+function _pfPracticeMoney(n) {
+  const v = Number(n) || 0;
+  return (v > 0 ? '+' : v < 0 ? '−' : '') + '₹' + Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+function _pfPracticeShowSummary(sm) {
+  const els = _pfPracticeEls();
+  if (!els.summary || !sm || !sm.day) return;
+  const day = new Date(`${sm.day}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
+  const tone = sm.net > 0 ? 'up' : sm.net < 0 ? 'down' : '';
+  const rows = (sm.closed_trades || []).map(t => `<tr>
+      <td>${escapeHtml(_fmtScalpTime(t.entry_time))}</td>
+      <td>${escapeHtml(`${t.transaction_type || ''} ${t.strike || ''}${t.option_type || ''}`)}</td>
+      <td>${escapeHtml(String(t.broker || 'dhan'))}</td>
+      <td>${Number(t.entry_premium || 0).toFixed(2)} → ${Number(t.exit_premium || 0).toFixed(2)}</td>
+      <td>${escapeHtml(String(t.exit_reason || ''))}</td>
+      <td class="${Number(t.pnl) > 0 ? 'up' : Number(t.pnl) < 0 ? 'down' : ''}">${_pfPracticeMoney(t.pnl)}</td></tr>`).join('');
+  els.summary.dataset.day = sm.day;
+  els.summary.dataset.underlying = sm.underlying;
+  els.summary.innerHTML = `
+    <div class="scalp-practice-sum-head">
+      <div><div class="scalp-practice-kicker">Practice day closed</div><strong>${escapeHtml(sm.underlying)} · ${escapeHtml(day)}</strong></div>
+      <div class="scalp-practice-net ${tone}">${_pfPracticeMoney(sm.net)}</div>
+    </div>
+    <div class="scalp-practice-sum-grid">
+      <span><b>${sm.trades}</b> trades</span><span><b>${sm.wins}</b> won · <b>${sm.losses}</b> lost</span>
+      <span>best <b>${_pfPracticeMoney(sm.best)}</b></span><span>worst <b>${_pfPracticeMoney(sm.worst)}</b></span>
+      <span>avg win <b>${_pfPracticeMoney(sm.avg_win)}</b></span><span>avg loss <b>${_pfPracticeMoney(sm.avg_loss)}</b></span>
+      <span>replayed to <b>${escapeHtml(sm.replayed_to || '')}</b></span>
+    </div>
+    ${rows ? `<div class="scalp-practice-sum-table"><table><thead><tr><th>In</th><th>Trade</th><th>Broker</th><th>Premium</th><th>Exit</th><th>P&amp;L</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+    <div class="scalp-practice-sum-actions">
+      <button type="button" class="btn btn-sm" data-pf-action="replayScalpPracticeDay">↻ Replay this day</button>
+      <button type="button" class="btn btn-sm" data-pf-action="toggleScalpPractice">New day</button>
+      <button type="button" class="btn btn-sm" data-pf-action="closeScalpPracticeSummary">Close</button>
+    </div>`;
+  els.summary.hidden = false;
+}
+
+window.endScalpPractice = async function endScalpPractice() {
+  const r = await fetch('/api/practice/end', { method: 'POST', credentials: 'same-origin' });
+  const data = await r.json().catch(() => ({}));
+  _pfPracticeOff();
+  if (data.summary) _pfPracticeShowSummary(data.summary);
+};
+
+window.replayScalpPracticeDay = function replayScalpPracticeDay() {
+  const els = _pfPracticeEls();
+  const day = els.summary?.dataset.day;
+  if (!day) return;
+  return _pfPracticeStart(els.summary.dataset.underlying || 'NIFTY', day, '09:15');
+};
+
+window.closeScalpPracticeSummary = function closeScalpPracticeSummary() {
+  const els = _pfPracticeEls();
+  if (els.summary) els.summary.hidden = true;
+};
+
+document.addEventListener('change', (event) => {
+  const id = event.target && event.target.id;
+  if (id === 'scalp-practice-day') {
+    const els = _pfPracticeEls();
+    if (els.date) els.date.hidden = els.dayMode.value !== 'pick';
+  } else if (id === 'scalp-practice-underlying') {
+    _pfPracticePaintDays();
+  }
+});

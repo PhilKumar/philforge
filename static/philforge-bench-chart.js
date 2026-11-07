@@ -34,6 +34,8 @@ function _pfChartIst(ts) {
   if (!ts) return '--';
   var d = new Date((Number(ts) + 19800) * 1000);
   if (isNaN(d.getTime())) return '--';
+  // A practice day replayed blind: times only, so the axis never names it.
+  if (window.pfChartHideDates) return d.toISOString().slice(11, 16);
   return d.toISOString().slice(5, 16).replace('T', ' ');
 }
 
@@ -1468,7 +1470,8 @@ function _pfChartCanvasLastPriceTag(c, p, PAL) {
   if (!d.countdown || !candles.length) return { price: null, countdown: '' };
   var bar = candles[candles.length - 1], price = Number(bar.c);
   if (!isFinite(price)) return { price: null, countdown: '' };
-  var now = Date.now() / 1000;
+  // The page's market clock: the replay's moment in practice, else now.
+  var now = typeof window.pfMarketNowSec === 'function' ? window.pfMarketNowSec() : Date.now() / 1000;
   var tfSec = _pfChartCanvasTimeframeSeconds(d), win = _pfChartBarWindow(now, tfSec, d.session);
   // A bar off the 09:15 grid (a broker's own hourly bars, say) would make the
   // grid's clock wrong for it, so it gets no countdown.

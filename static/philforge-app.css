@@ -11644,3 +11644,44 @@ html[data-theme="light"][data-pf-tint="native"] {
      the open menu at 1200-1330px they wrap rather than push the page wide. */
   #options-cascade-page .oc-tabs { flex-wrap: wrap; }
 }
+
+/* ── Scalp practice: a real past day replayed on the desk ───────────── */
+/* Inside the desk's head, its own full-width line: pinned with the head, so
+   the replay's clock and controls stay in view while the chart scrolls. */
+#scalp-page .ocp-head:has(> .scalp-practice) { flex-wrap: wrap; }
+.scalp-practice { flex: 1 0 100%; margin: 8px 0 0; }
+.scalp-practice-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.scalp-practice-toggle[aria-pressed="true"] { --btn-bg: rgba(250, 204, 21, 0.16); --btn-border: rgba(250, 204, 21, 0.55); --btn-color: #fde68a; }
+.scalp-practice-setup, .scalp-practice-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.scalp-practice-setup[hidden], .scalp-practice-run[hidden] { display: none; }
+.scalp-practice-setup select, .scalp-practice-setup input { font-size: 12px; padding: 5px 8px; width: auto !important; min-width: 0; flex: 0 0 auto; }
+.scalp-practice-from { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.scalp-practice-badge { font: 800 10px 'JetBrains Mono', monospace; letter-spacing: .8px; color: #1a1400; background: #facc15; border-radius: 4px; padding: 3px 7px; }
+.scalp-practice-day-label { font-size: 12px; color: var(--text); font-weight: 600; }
+.scalp-practice-clock { font: 700 15px 'JetBrains Mono', monospace; color: #fde68a; min-width: 76px; font-variant-numeric: tabular-nums; }
+.scalp-practice-speeds { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.scalp-practice-speeds button { background: transparent; border: 0; color: var(--muted); font: 700 11px 'JetBrains Mono', monospace; padding: 5px 9px; cursor: pointer; }
+.scalp-practice-speeds button + button { border-left: 1px solid var(--border); }
+.scalp-practice-speeds button.active { background: rgba(250, 204, 21, 0.18); color: #fde68a; }
+.scalp-practice-msg { font-size: 11px; color: var(--muted); }
+.scalp-practice-msg[data-tone="warn"] { color: var(--warn); }
+.scalp-practice-note { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.45; }
+.scalp-practice-note[hidden], .scalp-practice-summary[hidden] { display: none; }
+/* While practising, the desk says so at a glance: the card wears a yellow edge. */
+body.scalp-practicing #scalp-page .card { border-color: rgba(250, 204, 21, 0.45) !important; }
+.scalp-practice-summary { margin-top: 10px; padding: 12px 14px; border: 1px solid rgba(250, 204, 21, 0.35); border-radius: 10px; background: rgba(250, 204, 21, 0.05); }
+.scalp-practice-sum-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.scalp-practice-kicker { font: 800 10px 'JetBrains Mono', monospace; letter-spacing: .7px; color: #facc15; text-transform: uppercase; }
+.scalp-practice-net { font: 800 20px 'JetBrains Mono', monospace; }
+.scalp-practice-net.up, .scalp-practice-summary td.up { color: var(--green); }
+.scalp-practice-net.down, .scalp-practice-summary td.down { color: var(--red); }
+.scalp-practice-sum-grid { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); }
+.scalp-practice-sum-grid b { color: var(--text); font-family: 'JetBrains Mono', monospace; }
+.scalp-practice-sum-table { margin-top: 10px; max-height: 220px; overflow: auto; }
+.scalp-practice-sum-table table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.scalp-practice-sum-table th, .scalp-practice-sum-table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.scalp-practice-sum-table th { color: var(--muted); font-weight: 600; }
+.scalp-practice-sum-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+/* Off, it is one button at the end of the engine line, not a line of its own. */
+.scalp-practice[data-state="off"] { flex: 0 0 auto; margin: 0; }
+.scalp-practice[data-state="off"] .scalp-practice-msg:empty { display: none; }

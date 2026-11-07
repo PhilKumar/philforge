@@ -4245,6 +4245,37 @@
         <button class="read-only-lock btn btn-sm btn-danger" onclick="stopScalpEngine()" id="scalp-stop-btn" style="padding: 5px 14px; font-size: 11px;">■ Stop</button>
       </div>
       </div>
+    <!-- PRACTICE: a real past day, replayed on this same desk (Phil,
+         2026-11-07: "I want to feel like the same live experience").
+         See the SCALP PRACTICE section of philforge-app.js. -->
+    <div class="scalp-practice" id="scalp-practice" data-state="off">
+      <div class="scalp-practice-row">
+        <button type="button" class="btn btn-sm scalp-practice-toggle" id="scalp-practice-toggle" data-pf-action="toggleScalpPractice" aria-pressed="false" aria-controls="scalp-practice-setup" title="Replay a real past day on this desk: same form, engine, stops and charts; no real orders">🎯 Practice</button>
+        <div class="scalp-practice-setup" id="scalp-practice-setup" hidden>
+          <select id="scalp-practice-underlying" aria-label="Index to replay"><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select>
+          <select id="scalp-practice-day" aria-label="Which day"><option value="random">Random day, hidden</option><option value="pick">Pick a date</option></select>
+          <input type="date" id="scalp-practice-date" aria-label="Date to replay" hidden>
+          <label class="scalp-practice-from">from <input type="time" id="scalp-practice-start" value="09:15" min="09:15" max="15:29" step="60" aria-label="Start the replay at"></label>
+          <button type="button" class="btn btn-sm scalp-practice-go" id="scalp-practice-go" data-pf-action="startScalpPractice">Start day</button>
+        </div>
+        <div class="scalp-practice-run" id="scalp-practice-run" hidden>
+          <span class="scalp-practice-badge">PRACTICE</span>
+          <span class="scalp-practice-day-label" id="scalp-practice-day-label"></span>
+          <span class="scalp-practice-clock" id="scalp-practice-clock" aria-live="off">--:--:--</span>
+          <button type="button" class="btn btn-sm scalp-practice-play" id="scalp-practice-play" data-pf-action="toggleScalpPracticePlay">▶ Play</button>
+          <div class="scalp-practice-speeds" id="scalp-practice-speeds" role="group" aria-label="Replay speed">
+            <button type="button" data-pf-action="setScalpPracticeSpeed" data-speed="1">1×</button>
+            <button type="button" data-pf-action="setScalpPracticeSpeed" data-speed="2">2×</button>
+            <button type="button" data-pf-action="setScalpPracticeSpeed" data-speed="5">5×</button>
+            <button type="button" data-pf-action="setScalpPracticeSpeed" data-speed="10">10×</button>
+          </div>
+          <button type="button" class="btn btn-sm scalp-practice-end" id="scalp-practice-end" data-pf-action="endScalpPractice">End day</button>
+        </div>
+        <span class="scalp-practice-msg" id="scalp-practice-msg" role="status"></span>
+      </div>
+      <div class="scalp-practice-note" id="scalp-practice-note" hidden>A real past day on the real Scalp engine. No order reaches a broker. Each minute's price runs open → low/high → close inside that minute's real range, and fills slip as your own live fills have.</div>
+      <div class="scalp-practice-summary" id="scalp-practice-summary" hidden></div>
+    </div>
     </div>
     <div class="ocp-recipe scalp-recipe">Live premium and margin as you pick &middot; paper or Dhan Super Order &middot; one position at a time &middot; every fill kept below</div>
     <!-- POSITIONS FIRST, ACROSS THE WHOLE DESK. The fields that need

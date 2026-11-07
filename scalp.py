@@ -11,6 +11,7 @@ Does NOT touch any existing code.
 """
 
 import asyncio
+import contextvars
 import time as _time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -54,7 +55,8 @@ def _scalp_market_watch_open(now: datetime | None = None, mcx: bool = False) -> 
     With an MCX scalp open the watch runs to the MCX close (crude and natural
     gas trade into the night), not to 15:45.
     """
-    moment = now or datetime.now(IST)
+    replay = REPLAY_CLOCK.get()
+    moment = now or (replay().replace(tzinfo=IST) if replay is not None else datetime.now(IST))
     if moment.weekday() >= 5:  # Saturday/Sunday
         return False
     minutes = moment.hour * 60 + moment.minute
@@ -285,7 +287,16 @@ def match_scalp_to_broker_fills(trade: dict, fills: list, tradingsymbol: str, cl
     }
 
 
+# PRACTICE (practice.py, Phil 2026-11-07): a replayed day runs this same engine
+# on its own clock. Set only inside a practice engine's calls; a live or paper
+# scalp never sets it, so for them "now" is the wall clock exactly as before.
+REPLAY_CLOCK: contextvars.ContextVar = contextvars.ContextVar("scalp_replay_clock", default=None)
+
+
 def _now_ist():
+    replay = REPLAY_CLOCK.get()
+    if replay is not None:
+        return replay()
     return datetime.now(IST).replace(tzinfo=None)
 
 
@@ -1183,7 +1194,7 @@ class ScalpEngine:
                     await self._sync_broker_positions()
                 except Exception as e:
                     self._log("error", f"Broker position monitor sync failed: {e}")
-            if now_mono - _last_st_check > SCALP_ST_CHECK_SEC:
+            if now_mono - _last_st_check > (self._st_check_override_sec() or SCALP_ST_CHECK_SEC):
                 _last_st_check = now_mono
                 try:
                     await self._st_trail_check()
@@ -1233,7 +1244,16 @@ class ScalpEngine:
                         await self._close_trade(trade, reason)
             except Exception as e:
                 self._log("error", f"Monitor error: {e}")
-            await asyncio.sleep(SCALP_MONITOR_INTERVAL_SEC)
+            await asyncio.sleep(self._monitor_interval_override_sec() or SCALP_MONITOR_INTERVAL_SEC)
+
+    # A replay run faster than real time checks as often in REPLAY seconds as
+    # the live engine does in real ones (practice.PracticeScalpEngine). None
+    # here: the live engine's pace is the module's constants.
+    def _monitor_interval_override_sec(self) -> float | None:
+        return None
+
+    def _st_check_override_sec(self) -> float | None:
+        return None
 
     async def _activate_pending_trade(self, trade: ScalpTrade):
         """Place broker order for a pending stop-limit trade when premium enters the trigger range."""
