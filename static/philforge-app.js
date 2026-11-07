@@ -15203,7 +15203,7 @@ function setScalpChartLayout(layout) {
   _scalpLayoutMenu(false);
   if (!['one', 'cols', 'rows'].includes(layout) || layout === _scalpLayout) return;
   // The stretch of time on screen carries into the new layout.
-  if (_scalpChartShown && typeof pfChartCurrentWindow === 'function' && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas
+  if (_scalpChartShown && !_scalpChartFresh && typeof pfChartCurrentWindow === 'function' && typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas
     && _pfChartCanvas.data === _scalpChartShown.data) _scalpChartWindow = pfChartCurrentWindow() || _scalpChartWindow;
   _scalpLayout = layout;
   try { localStorage.setItem(_SCALP_LAYOUT_KEY, layout); } catch (_) {}
@@ -15357,7 +15357,7 @@ function _scalpAltDraw(data) {
   pfBenchDrawChart(el, data, { multi: true, background: true });
   _scalpAlt.drawnKey = drawnKey;
   // The same stretch of time as the active chart beside it.
-  const win = typeof pfChartCurrentWindow === 'function' ? pfChartCurrentWindow() : null;
+  const win = typeof pfChartCurrentWindow === 'function' && !_scalpChartFresh ? pfChartCurrentWindow() : null;
   if (win) pfChartWith(el, () => pfChartApplyWindow(win));
 }
 
@@ -15978,6 +15978,10 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 let _scalpLiveBar = null;   // {key, tf, t, o, h, l}: survives the 20s refreshes
 let _scalpChartShown = null; // {key, data}: the payload on screen
 let _scalpChartWindow = null; // {from, to, followRight}: the time on screen, kept until reload
+// True from a switch between live and practice (or one practice day and the
+// next) to the first chart drawn after it: that chart must not take its time
+// window from the one still on screen, which is the other side's.
+let _scalpChartFresh = false;
 let _scalpLiveTimer = null;
 
 function _scalpChartLivePrice(key) {
@@ -16993,7 +16997,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
       // screen comes with it (see pfChartCurrentWindow).
       const scalpCanvas = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas && _pfChartCanvas.host && _pfChartCanvas.host.isConnected
         && _pfChartCanvas.host.closest('#scalp-dock-chart, #scalp-option-chart-overlay');
-      if (!view && scalpCanvas && typeof pfChartCurrentWindow === 'function') _scalpChartWindow = pfChartCurrentWindow() || _scalpChartWindow;
+      if (!view && scalpCanvas && !_scalpChartFresh && typeof pfChartCurrentWindow === 'function') _scalpChartWindow = pfChartCurrentWindow() || _scalpChartWindow;
       const refreshed = canvasIsThisChart && (data.candles || []).length && typeof _pfChartCanvasRefresh === 'function' && _pfChartCanvasRefresh(data, view);
       _scalpOptionChartDrawnKey = drawnKey;
       if (!refreshed) {
@@ -17011,6 +17015,7 @@ async function openScalpOptionChart(tradeId, options = {}) {
         if (!pfBenchDrawChart(host, data, docked && _scalpSplitOn() ? { multi: true } : undefined)) throw new Error('Option chart could not be drawn.');
       }
       if (!view && _scalpChartWindow && typeof pfChartApplyWindow === 'function') pfChartApplyWindow(_scalpChartWindow);
+      _scalpChartFresh = false;
     }
     if (docked && _scalpDockFailed.key === targetKey) _scalpDockFailed = { key: '', at: 0 };
     if (!liveRefresh || !_scalpOptionChartPollTimer) _startScalpOptionChartPolling();
@@ -27466,6 +27471,7 @@ async function _pfPracticeResetDesk() {
   // chart with only the price lines (Phil, 07-Nov-2026). Each side starts on
   // its own newest bars.
   _scalpChartWindow = null;
+  _scalpChartFresh = true;
   _scalpChartShown = null;
   _scalpLiveBar = null;
   _scalpOptionChartDrawnKey = '';
