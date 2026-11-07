@@ -3843,9 +3843,11 @@ def _restore_scalp_trade_from_payload(payload: dict):
             entry_limit_max=float(payload.get("entry_limit_max") or 0),
             broker=str(payload.get("broker") or "dhan"),
             st_trail=bool(payload.get("st_trail")),
+            st_tf=payload.get("st_tf") or 5,
         )
         trade.st_trail_armed = bool(payload.get("st_trail_armed"))
         trade.st_last_bar = int(float(payload.get("st_last_bar") or 0))
+        trade.st_tf_since = float(payload.get("st_tf_since") or 0)
         trade.current_premium = float(payload.get("current_premium") or trade.entry_premium or 0)
         trade.status = "pending" if status == "pending" else "open"
         for attr in (
@@ -27286,8 +27288,9 @@ class ScalpEntryReq(BaseModel):
     # Target and stop a set distance from the entry premium, in points.
     target_points: float = Field(default=0.0, ge=0, le=100_000)
     sl_points: float = Field(default=0.0, ge=0, le=100_000)
-    # Trail the stop on Supertrend (10, 2), 5m, and exit on a close through it.
+    # Exit on a close through Supertrend (10, 2), on the viewed chart's bar.
     st_trail: bool = False
+    st_tf: str = Field(default="5m", max_length=4)
     # Place the same scalp at Dhan AND Zerodha; `broker` is then ignored.
     both_brokers: bool = False
 
@@ -27428,6 +27431,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             target_points=req.target_points,
             sl_points=req.sl_points,
             st_trail=req.st_trail,
+            st_tf=req.st_tf,
         )
         try:
             if req.both_brokers:
@@ -27597,6 +27601,25 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
     result = await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
     await _save_scalp_open_state(user_id, eng, force=True)
     _notify_scalp_ws()
+    return result
+
+
+class ScalpStTimeframeReq(BaseModel):
+    timeframe: str = Field(default="5m", max_length=4)
+
+
+# Phil, 2026-11-07: "Make the ST SL to depend upon the chart I view... If I am
+# viewing 3m chart, make the ST to be 3m". The chart's timeframe switch sends
+# this; every open Supertrend-exit trade moves to that bar.
+@app.post("/api/scalp/st-timeframe")
+async def set_scalp_st_timeframe(req: ScalpStTimeframeReq, request: Request):
+    user_id = _request_user_id(request)
+    eng = _get_scalp_engine(user_id)
+    await _restore_scalp_open_state(user_id, eng)
+    result = eng.set_st_timeframe(req.timeframe)
+    if result.get("trades"):
+        await _save_scalp_open_state(user_id, eng, force=True)
+        _notify_scalp_ws()
     return result
 
 
@@ -27857,6 +27880,7 @@ async def practice_scalp_entry(req: ScalpEntryReq, request: Request):
             target_points=req.target_points,
             sl_points=req.sl_points,
             st_trail=req.st_trail,
+            st_tf=req.st_tf,
         )
         with _practice.replay_clock(session):
             if not req.both_brokers:
@@ -27910,6 +27934,13 @@ async def practice_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: R
         return await session.engine.update_trade_targets(
             trade_id, **{k: v for k, v in req.dict().items() if v is not None}
         )
+
+
+@app.post("/api/practice/scalp/st-timeframe")
+async def practice_scalp_st_timeframe(req: ScalpStTimeframeReq, request: Request):
+    session = _practice_session_or_409(request)
+    with _practice.replay_clock(session):
+        return session.engine.set_st_timeframe(req.timeframe)
 
 
 def _practice_forget_trades(session, ids: set[int]) -> int:

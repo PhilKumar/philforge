@@ -14255,6 +14255,8 @@ async function submitScalpEntry(direction) {
       entry_limit_price: parseFloat(document.getElementById('scalp-limit-price').value) || 0,
       entry_limit_max: parseFloat(document.getElementById('scalp-limit-max').value) || 0,
       st_trail: !!document.getElementById('scalp-st-trail')?.checked,
+      // The Supertrend exit works on the bar of the chart on screen.
+      st_tf: _scalpOptionChartTf,
       // Only when it is on screen: a phone does not show it.
       both_brokers: _scalpBothBrokersOn(),
     };
@@ -14867,6 +14869,21 @@ function _scalpChartViewSoon() {
 
 let _scalpOptionChartRequest = 0;
 let _scalpOptionChartTradeId = null;
+// Phil, 2026-11-07: "Make the ST SL to depend upon the chart I view... If I
+// am viewing 3m chart, make the ST to be 3m". A switch of the chart moves every
+// open Supertrend-exit trade to that bar (practice too, through the URL rewrite).
+function _scalpStFollowChart(tf) {
+  const trades = (_lastScalpStatus && _lastScalpStatus.open_trades) || [];
+  if (!trades.some(t => t && t.st_trail && t.status !== 'closed')) return;
+  fetch('/api/scalp/st-timeframe', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timeframe: tf }),
+  }).then(r => r.json()).then(res => {
+    if (res && Array.isArray(res.trades) && res.trades.length) toast(`Supertrend exit now on the ${String(tf).toUpperCase()} bar`, 'info');
+  }).catch(() => { /* the next switch sends it again */ });
+}
+
 let _scalpOptionChartTf = _SCALP_CHART_TFS.includes(_scalpChartViewSaved.tf) ? _scalpChartViewSaved.tf : '5m';
 let _scalpOptionChartDrawnKey = '';
 let _scalpOptionChartPollTimer = null;
@@ -14932,7 +14949,7 @@ function _scalpDockShow() {
     pfChartStrip(actions, {
       timeframes: ['1m', '3m', '5m', '15m', '1h'],
       active: _scalpOptionChartTf,
-      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpChartViewSave(); _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
+      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpChartViewSave(); _scalpStFollowChart(tf); _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
       onRefresh: () => { _scalpDockFailed = { key: '', at: 0 }; refreshScalpOptionChart(); _scalpAltRefresh(true); },
     });
     // The studies and drawing tools fold into a drawer beside the heading.
@@ -16901,7 +16918,7 @@ function _ensureScalpOptionChartOverlay() {
     pfChartStrip(overlay.querySelector('#scalp-option-chart-actions'), {
       timeframes: ['1m', '3m', '5m', '15m', '1h'],
       active: _scalpOptionChartTf,
-      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpChartViewSave(); refreshScalpOptionChart(); },
+      onTimeframe: (tf) => { _scalpOptionChartTf = tf; _scalpChartViewSave(); _scalpStFollowChart(tf); refreshScalpOptionChart(); },
       onRefresh: () => refreshScalpOptionChart(),
       onClose: () => hideScalpOptionChart(),
     });

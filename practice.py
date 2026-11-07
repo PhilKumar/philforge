@@ -449,7 +449,7 @@ class PracticeScalpEngine(ScalpEngine):
         return max(0.025, _scalp.SCALP_MONITOR_INTERVAL_SEC / max(1, self.session.speed))
 
     def _st_check_override_sec(self) -> float:
-        return max(1.0, _scalp.SCALP_ST_CHECK_SEC / max(1, self.session.speed))
+        return max(0.25, _scalp.SCALP_ST_CHECK_SEC / max(1, self.session.speed))
 
     # The prices.
     def _price(self, trade: ScalpTrade) -> float:
@@ -469,11 +469,13 @@ class PracticeScalpEngine(ScalpEngine):
         return self._get_ltp(trade, trade.trade_id)
 
     async def _st_trail_bars(self, trade: ScalpTrade) -> list:
-        frame = self.session.option_minutes(trade.expiry, trade.strike, trade.option_type, sessions_back=2)
+        # 15m and 1h bars need more sessions for Supertrend (10) to settle.
+        back = 6 if int(trade.st_tf or 5) >= 15 else 2
+        frame = self.session.option_minutes(trade.expiry, trade.strike, trade.option_type, sessions_back=back)
         if frame.empty:
             return []
         bars = (
-            frame.resample("5min", origin=pd.Timestamp("2021-01-01 09:15"))
+            frame.resample(f"{int(trade.st_tf or 5)}min", origin=pd.Timestamp("2021-01-01 09:15"))
             .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
             .dropna(subset=["open"])
         )

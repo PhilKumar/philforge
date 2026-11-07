@@ -75,8 +75,43 @@ SCALP_POSITION_SYNC_INTERVAL_SEC = 1.5
 # new bar should have closed.
 SCALP_ST_PERIOD = 10
 SCALP_ST_MULTIPLIER = 2.0
-SCALP_ST_BAR_SEC = 300
-SCALP_ST_CHECK_SEC = 15.0
+SCALP_ST_BAR_SEC = 300  # the default bar: 5m
+SCALP_ST_CHECK_SEC = 5.0
+# The Supertrend exit works on the bar of the chart Phil is viewing (Phil,
+# 2026-11-07: "If I am viewing 3m chart, make the ST to be 3m and vice versa"):
+# minutes -> the Dhan candle asked for. 3m is built from 1m on the session's grid.
+SCALP_ST_TIMEFRAMES = {1: "1", 3: "1", 5: "5", 15: "15", 60: "60"}
+
+
+def scalp_st_minutes(value) -> int:
+    """A chart timeframe ('3m', '1h', 3) as the Supertrend exit's bar minutes; 5 if unknown."""
+    text = str(value or "").strip().lower()
+    try:
+        minutes = int(text[:-1]) * 60 if text.endswith("h") else int(text.rstrip("m"))
+    except ValueError:
+        return 5
+    return minutes if minutes in SCALP_ST_TIMEFRAMES else 5
+
+
+def scalp_regroup_bars(bars: list, minutes: int, session_open_hm: tuple = (9, 15)) -> list:
+    """{t,h,l,c} bars of `minutes`, built from finer ones on the session's own grid
+    (09:15 NSE, 09:00 MCX) -- the grid the option chart draws its 3m bars on."""
+    step = int(minutes) * 60
+    grouped: dict = {}
+    for bar in sorted(bars, key=lambda row: int(row["t"])):
+        stamp = datetime.fromtimestamp(int(bar["t"]), IST)
+        opened = int(
+            stamp.replace(hour=session_open_hm[0], minute=session_open_hm[1], second=0, microsecond=0).timestamp()
+        )
+        slot = opened + ((int(bar["t"]) - opened) // step) * step
+        made = grouped.get(slot)
+        if made is None:
+            grouped[slot] = {**bar, "t": slot}
+            continue
+        made["h"] = max(float(made["h"]), float(bar["h"]))
+        made["l"] = min(float(made["l"]), float(bar["l"]))
+        made["c"] = bar["c"]
+    return [grouped[slot] for slot in sorted(grouped)]
 
 
 def scalp_supertrend(candles: list, period: int = SCALP_ST_PERIOD, multiplier: float = SCALP_ST_MULTIPLIER) -> list:
@@ -345,6 +380,7 @@ class ScalpTrade:
         target_points: float = 0.0,
         sl_points: float = 0.0,
         st_trail: bool = False,
+        st_tf: int = 5,
     ):
         self.trade_id = trade_id
         # Supertrend trail (see SCALP_ST_*): armed once a closed bar has the
@@ -352,6 +388,10 @@ class ScalpTrade:
         self.st_trail = bool(st_trail)
         self.st_trail_armed = False
         self.st_last_bar = 0
+        # The bar the exit works on, in minutes (the viewed chart's), and when
+        # it last changed: a bar that closed before a switch never exits.
+        self.st_tf = scalp_st_minutes(st_tf)
+        self.st_tf_since = 0
         self.mode = mode
         self.broker = normalize_scalp_broker(broker)
         # The same scalp placed at Dhan AND Zerodha ("Both"): its two legs
@@ -538,6 +578,8 @@ class ScalpTrade:
             "st_trail": self.st_trail,
             "st_trail_armed": self.st_trail_armed,
             "st_last_bar": self.st_last_bar,
+            "st_tf": self.st_tf,
+            "st_tf_since": self.st_tf_since,
         }
 
 
@@ -638,6 +680,7 @@ class ScalpEngine:
         target_points: float = 0.0,
         sl_points: float = 0.0,
         st_trail: bool = False,
+        st_tf: int = 5,
     ) -> Dict[str, Any]:
         """Place a broker order (or simulate in paper mode) and register the scalp trade.
         If entry_limit_price and entry_limit_max are set, the trade goes into 'pending' state
@@ -703,6 +746,7 @@ class ScalpEngine:
                 target_points=target_points,
                 sl_points=sl_points,
                 st_trail=st_trail,
+                st_tf=st_tf,
             )
             self.open_trades[self._trade_counter] = trade
             self._sync_marketfeed_throttle()
@@ -911,6 +955,7 @@ class ScalpEngine:
             target_points=target_points,
             sl_points=sl_points,
             st_trail=st_trail,
+            st_tf=st_tf,
         )
         if mode == "live" and broker == "zerodha":
             trade.broker_order_model = "zerodha"
@@ -1574,7 +1619,7 @@ class ScalpEngine:
             return None
 
     async def _st_trail_bars(self, trade: "ScalpTrade") -> list:
-        """The option's 5-minute candles, oldest first, as {t (epoch), h, l, c}."""
+        """The option's candles on the trade's Supertrend bar, oldest first, as {t (epoch), h, l, c}."""
         security_id = await asyncio.to_thread(
             ScripMaster.lookup, trade.underlying, trade.strike, trade.expiry, trade.option_type
         )
@@ -1586,9 +1631,9 @@ class ScalpEngine:
             security_id=str(security_id),
             exchange_segment=option_exchange_segment(trade.underlying),
             instrument_type=option_instrument_type(trade.underlying),
-            from_date=(today - timedelta(days=5)).isoformat(),
+            from_date=(today - timedelta(days=12 if trade.st_tf == 60 else 5)).isoformat(),
             to_date=(today + timedelta(days=1)).isoformat(),
-            candle_type="5",
+            candle_type=SCALP_ST_TIMEFRAMES.get(trade.st_tf, "5"),
         )
         if frame is None or getattr(frame, "empty", True):
             return []
@@ -1598,19 +1643,45 @@ class ScalpEngine:
             if when.tzinfo is None:
                 when = when.replace(tzinfo=IST)
             bars.append({"t": int(when.timestamp()), "h": row["high"], "l": row["low"], "c": row["close"]})
+        if str(trade.st_tf) != SCALP_ST_TIMEFRAMES.get(trade.st_tf, "5"):
+            opens = (9, 0) if is_mcx_underlying(trade.underlying) else (9, 15)
+            bars = scalp_regroup_bars(bars, trade.st_tf, opens)
         return bars
 
+    def set_st_timeframe(self, timeframe) -> Dict[str, Any]:
+        """Put every open Supertrend-exit trade on the bar of the chart Phil now views.
+
+        A bar that closed before the switch never exits a trade: only the
+        first bar of the new size to close after it counts."""
+        minutes = scalp_st_minutes(timeframe)
+        moved = []
+        for trade in list(self.open_trades.values()):
+            if not trade.st_trail or trade.st_tf == minutes:
+                continue
+            was = trade.st_tf
+            trade.st_tf = minutes
+            trade.st_last_bar = 0
+            trade.st_tf_since = _now_ist().replace(tzinfo=IST).timestamp()
+            moved.append(trade.trade_id)
+            self._log(
+                "info",
+                f"📈 Supertrend exit now on the {minutes}m bar (was {was}m): "
+                f"{trade.underlying} {trade.strike}{trade.option_type} (trade {trade.trade_id})",
+            )
+        return {"status": "ok", "minutes": minutes, "trades": moved}
+
     async def _st_trail_check(self):
-        """Exit a Supertrend-trailed trade on a 5m close through the line (never on a touch)."""
+        """Exit a Supertrend-trailed trade on a close through the line, on its bar (never on a touch)."""
         now = _now_ist().replace(tzinfo=IST).timestamp()
         for trade in list(self.open_trades.values()):
             if not trade.st_trail or trade.status != "open" or trade.trade_id not in self.open_trades:
                 continue
             # Nothing new until the bar after the last one acted on has closed
             # (plus a few seconds for the broker to publish it).
-            if trade.st_last_bar and now < trade.st_last_bar + 2 * SCALP_ST_BAR_SEC + 5:
+            bar_sec = int(trade.st_tf or 5) * 60
+            if trade.st_last_bar and now < trade.st_last_bar + 2 * bar_sec + 5:
                 continue
-            bars = [b for b in await self._st_trail_bars(trade) if b["t"] + SCALP_ST_BAR_SEC <= now]
+            bars = [b for b in await self._st_trail_bars(trade) if b["t"] + bar_sec <= now]
             line = scalp_supertrend(bars)
             if not line or line[-1]["t"] == trade.st_last_bar:
                 continue
@@ -1619,12 +1690,13 @@ class ScalpEngine:
             long = trade.transaction_type == "BUY"
             with_trade = (last["dir"] > 0) == long
             entered = trade.entry_time.replace(tzinfo=IST).timestamp() if trade.entry_time else 0
+            entered = max(entered, float(trade.st_tf_since or 0))  # a switch starts the count again
             if not with_trade:
                 # A close through the line, after entry, on an armed trail.
-                if trade.st_trail_armed and last["t"] + SCALP_ST_BAR_SEC > entered:
+                if trade.st_trail_armed and last["t"] + bar_sec > entered:
                     self._log(
                         "stop",
-                        f"📉 Supertrend exit: the 5m bar closed {'below' if long else 'above'} ST "
+                        f"📉 Supertrend exit: the {trade.st_tf}m bar closed {'below' if long else 'above'} ST "
                         f"₹{last['value']:.2f} — {trade.underlying} {trade.strike}{trade.option_type}",
                     )
                     await self._close_trade(trade, "st_close")

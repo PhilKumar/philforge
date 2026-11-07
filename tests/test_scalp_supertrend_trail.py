@@ -11,14 +11,15 @@ import unittest
 from datetime import datetime, timedelta
 from unittest import mock
 
-from scalp import IST, ScalpEngine, ScalpTrade, scalp_supertrend
+from scalp import IST, ScalpEngine, ScalpTrade, scalp_regroup_bars, scalp_st_minutes, scalp_supertrend
 
 
-def _bars(closes, start=None):
-    """5-minute bars ending well before now, so every one has closed."""
-    start = start or (datetime.now(IST) - timedelta(minutes=5 * (len(closes) + 2)))
-    t0 = int(start.timestamp()) // 300 * 300
-    return [{"t": t0 + i * 300, "h": c + 2, "l": c - 2, "c": c} for i, c in enumerate(closes)]
+def _bars(closes, start=None, minutes=5):
+    """Bars ending well before now, so every one has closed."""
+    step = minutes * 60
+    start = start or (datetime.now(IST) - timedelta(minutes=minutes * (len(closes) + 2)))
+    t0 = int(start.timestamp()) // step * step
+    return [{"t": t0 + i * step, "h": c + 2, "l": c - 2, "c": c} for i, c in enumerate(closes)]
 
 
 class TheLineIsTheCharts(unittest.TestCase):
@@ -138,8 +139,80 @@ class TheTrail(unittest.TestCase):
         trade.st_trail_armed, trade.st_last_bar = True, 1792000000
         import app
 
+        trade.st_tf, trade.st_tf_since = 3, 1792000100.0
         back = app._restore_scalp_trade_from_payload(trade.to_dict())
         self.assertEqual((back.st_trail, back.st_trail_armed, back.st_last_bar), (True, True, 1792000000))
+        self.assertEqual((back.st_tf, back.st_tf_since), (3, 1792000100.0))
+
+
+class TheChartsTimeframe(unittest.TestCase):
+    """Phil, 2026-11-07: "If I am viewing 3m chart, make the ST to be 3m and vice versa"."""
+
+    def test_the_charts_labels_read_as_minutes(self):
+        self.assertEqual([scalp_st_minutes(v) for v in ("1m", "3m", "5m", "15m", "1h")], [1, 3, 5, 15, 60])
+        self.assertEqual((scalp_st_minutes("7m"), scalp_st_minutes(""), scalp_st_minutes("x")), (5, 5, 5))
+
+    def test_3m_bars_are_built_from_1m_on_the_0915_grid(self):
+        start = datetime(2026, 11, 6, 9, 15, tzinfo=IST)
+        ones = _bars([100, 101, 99, 102, 103, 104], start=start, minutes=1)
+        threes = scalp_regroup_bars(ones, 3)
+        self.assertEqual([b["t"] for b in threes], [ones[0]["t"], ones[3]["t"]])
+        self.assertEqual((threes[0]["h"], threes[0]["l"], threes[0]["c"]), (103, 97, 99))
+
+    def test_a_3m_trade_exits_on_a_3m_close_below(self):
+        closes = [100 + i for i in range(30)] + [100]
+        engine, trade = _engine(closes, armed=True)
+        trade.st_tf = 3
+        bars = _bars(closes, minutes=3)
+
+        async def fake_bars(_trade):
+            return bars
+
+        engine._st_trail_bars = fake_bars
+        closed = []
+
+        async def close(t, reason, **kw):
+            closed.append(reason)
+
+        engine._close_trade = close
+        asyncio.run(engine._st_trail_check())
+        self.assertEqual(closed, ["st_close"])
+
+    def test_switching_the_chart_moves_the_open_trades(self):
+        engine, trade = _engine([100 + i for i in range(30)])
+        other = ScalpTrade(
+            trade_id=8, underlying="NIFTY", strike=22700, option_type="PE", expiry="2099-01-01",
+            transaction_type="BUY", lots=1, lot_size=65, entry_premium=110.0, st_trail=False,
+        )  # fmt: skip
+        engine.open_trades[8] = other
+        trade.st_last_bar = 123
+        result = engine.set_st_timeframe("3m")
+        self.assertEqual(result["trades"], [7])
+        self.assertEqual((trade.st_tf, trade.st_last_bar), (3, 0))
+        self.assertGreater(trade.st_tf_since, 0)
+        self.assertEqual(other.st_tf, 5)  # no Supertrend exit: left alone
+        self.assertEqual(engine.set_st_timeframe("3m")["trades"], [])  # already there
+
+    def test_a_bar_that_closed_before_the_switch_never_exits(self):
+        # The new bar's trend is already against the trade, but that close
+        # happened before the switch: only a later one may exit.
+        closes = [100 + i for i in range(30)] + [100]
+        engine, trade = _engine(closes, armed=True)
+        engine.set_st_timeframe("3m")
+        bars = _bars(closes, minutes=3)
+
+        async def fake_bars(_trade):
+            return bars
+
+        engine._st_trail_bars = fake_bars
+        closed = []
+
+        async def close(t, reason, **kw):
+            closed.append(reason)
+
+        engine._close_trade = close
+        asyncio.run(engine._st_trail_check())
+        self.assertEqual(closed, [])
 
 
 if __name__ == "__main__":
