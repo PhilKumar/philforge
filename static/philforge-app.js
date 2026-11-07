@@ -16991,8 +16991,19 @@ async function openScalpOptionChart(tradeId, options = {}) {
         host = document.getElementById(els.canvasId);
       }
       const canvasIsThisChart = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas?.host?.closest('#' + els.canvasId) === host;
-      const drawnKey = `${targetKey}|${data.timeframe || _scalpOptionChartTf}`;
+      // THE VIEW STAYS AS SET (Phil, 2026-11-07: "the size or zoom or the view
+      // I set for a chart to be fixed till I change it manually ... both in
+      // scalp and practice page"). Keyed by the CONTRACT, not by what the dock
+      // follows: a BUY turns the form's chart into "your trade" and an exit
+      // turns it back, the same candles, and each used to refit both axes.
+      const contractKey = _scalpContractKey(instrument.underlying, instrument.strike, instrument.expiry, instrument.option_type);
+      const drawnKey = `${contractKey}|${data.timeframe || _scalpOptionChartTf}`;
       const view = canvasIsThisChart && drawnKey === _scalpOptionChartDrawnKey && typeof _pfChartCanvasRefreshState === 'function' ? _pfChartCanvasRefreshState() : null;
+      // Another timeframe of the same contract keeps the price scale too; a
+      // new strike or side has other prices and fits its own.
+      const keepPrice = !view && canvasIsThisChart && !_scalpChartFresh && _pfChartCanvas?.viewport
+        && _scalpOptionChartDrawnKey.startsWith(contractKey + '|')
+        ? { pMin: _pfChartCanvas.viewport.pMin, pMax: _pfChartCanvas.viewport.pMax } : null;
       // A new strike, CE<->PE, timeframe or window: the stretch of time on
       // screen comes with it (see pfChartCurrentWindow).
       const scalpCanvas = typeof _pfChartCanvas !== 'undefined' && _pfChartCanvas && _pfChartCanvas.host && _pfChartCanvas.host.isConnected
@@ -17015,6 +17026,11 @@ async function openScalpOptionChart(tradeId, options = {}) {
         if (!pfBenchDrawChart(host, data, docked && _scalpSplitOn() ? { multi: true } : undefined)) throw new Error('Option chart could not be drawn.');
       }
       if (!view && _scalpChartWindow && typeof pfChartApplyWindow === 'function') pfChartApplyWindow(_scalpChartWindow);
+      if (keepPrice && _pfChartCanvas?.viewport && isFinite(keepPrice.pMin) && isFinite(keepPrice.pMax) && typeof _pfChartCanvasDraw === 'function') {
+        _pfChartCanvas.viewport.pMin = keepPrice.pMin;
+        _pfChartCanvas.viewport.pMax = keepPrice.pMax;
+        _pfChartCanvasDraw(_pfChartCanvas);
+      }
       _scalpChartFresh = false;
     }
     if (docked && _scalpDockFailed.key === targetKey) _scalpDockFailed = { key: '', at: 0 };
