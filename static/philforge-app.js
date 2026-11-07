@@ -27562,7 +27562,15 @@ async function _pfPracticeTick() {
     const r = await fetch('/api/practice/scalp/status', { cache: 'no-store', credentials: 'same-origin' });
     const data = await r.json().catch(() => ({}));
     if (!_pfPractice.on) return;
-    if (data.practice && data.practice.status === 'none') { _pfPracticeOff(); return; }
+    if (data.practice && data.practice.status === 'none') {
+      // Gone without End day: the server restarted (an update went live), and
+      // a practice day lives in its memory. Say so -- a silent reset read as
+      // End day's Cancel not working (Phil, 2026-11-07).
+      _pfPractice.lost = true; // the picker says so, over its day count
+      _pfPracticeOff();
+      _pfPracticeSay(_PF_PRACTICE_LOST, 'warn');
+      return;
+    }
     _pfPracticeApply(data.practice);
     _lastScalpStatus = Object.assign({}, _lastScalpStatus, data);
     _renderScalpStatusWS(data);
@@ -27743,6 +27751,7 @@ async function _pfPracticeLoadDays() {
   return _pfPractice.days || {};
 }
 
+const _PF_PRACTICE_LOST = 'The server restarted (an update went live), so the practice day closed. Start it again here.';
 async function _pfPracticePaintDays() {
   const els = _pfPracticeEls();
   const days = (await _pfPracticeLoadDays())[els.underlying?.value || 'NIFTY'] || [];
@@ -27751,6 +27760,7 @@ async function _pfPracticePaintDays() {
     els.date.max = days[days.length - 1] || '';
     if (!els.date.value && days.length) els.date.value = days[days.length - 1];
   }
+  if (_pfPractice.lost) { _pfPracticeSay(_PF_PRACTICE_LOST, 'warn'); return; }
   _pfPracticeSay(days.length
     ? `${days.length.toLocaleString('en-IN')} real ${els.underlying.value} days, ${days[0]} to ${days[days.length - 1]}`
     : `No ${els.underlying?.value || ''} days on the server yet.`, days.length ? '' : 'warn');
@@ -27765,6 +27775,7 @@ window.toggleScalpPractice = function toggleScalpPractice() {
 };
 
 async function _pfPracticeStart(underlying, day, start) {
+  _pfPractice.lost = false;
   _pfPracticeSay('Loading the day…');
   const speed = Number(_pfPractice.state?.speed) || 1;
   const r = await fetch('/api/practice/start', {
