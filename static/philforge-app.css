@@ -10351,8 +10351,18 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page .scalp-rail > .ocp-pane-form { position: static; }
   #scalp-page > .card > .ocp-panes > .ocp-pane-live { display: contents; }
   #scalp-page > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart { grid-column: 1; grid-row: 2 / 6; align-self: stretch; min-width: 0; margin-top: 0; }
+  /* ITS OWN HEIGHT, the screen's below the pinned head, not the right
+     column's. Stretched to the column, it grew 100px taller with every
+     position opened and shrank as each closed: the chart resized on every
+     BUY (Phil, 2026-11-07: "the chart is getting resized.. it is annoying"). */
+  body:not(.scalp-chart-full) #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart:not([hidden]) {
+    /* Rows 2-4 only: spanning the flexible fifth row, its height was shared
+       into that row, which then grew and shrank with the launchpad box and
+       moved the history under it (the short-window spec, 1536x730). */
+    grid-row: 2 / 5; align-self: start; height: max(700px, calc(100vh - var(--pf-freeze-scalp-pos, 240px) - 24px));
+  }
   #scalp-page > .card > .scalp-history-card { grid-column: 1 / -1; grid-row: 6; margin-top: 14px; }
-  /* The chart takes the column's height, never less than its 600px. */
+  /* The chart fills that height, never less than its 600px. */
   #scalp-page .ocp-pane-live > .scalp-dock-chart:not([hidden]) { flex: 1 1 auto; display: flex; flex-direction: column; }
   #scalp-page .scalp-dock-chart > .scalp-dock-chart-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
   #scalp-page .scalp-dock-chart-body > .scalp-dock-chart-canvas { flex: 1 1 auto; display: flex; flex-direction: column; }
