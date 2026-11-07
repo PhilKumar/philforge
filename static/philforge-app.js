@@ -2738,6 +2738,10 @@ document.addEventListener('click', (event) => {
       navOpts.historyState = { scalpMode: _pfScalpMode };
     }
     showPage(page, document.getElementById('nav-trading'), navOpts);
+    // The page shows which of its two it is at once, not after the form's
+    // start-up has loaded (on a slow line that left "Scalp Engine" over the
+    // Practice tab for seconds; CI, 07-Nov).
+    if (page === 'scalp-page' && typeof _pfScalpPaintMode === 'function') _pfScalpPaintMode();
     const after = tradingEl.getAttribute('data-pf-after-nav');
     if (after && typeof window[after] === 'function') window[after]();
     return;
@@ -27580,11 +27584,20 @@ function _pfPracticeTitle(practice) {
 
 // Live or Practice, as the tab chose. Leaving Practice pauses the day and
 // keeps it; coming back picks it up where it stopped.
-async function _pfScalpApplyMode() {
+// What the page shows of its mode: the tab, the title, the practice line.
+// Safe at any moment, before the form has started up too.
+function _pfScalpPaintMode() {
   const practice = _pfScalpMode === 'practice';
   document.body.classList.toggle('scalp-mode-practice', practice);
   if (typeof syncTradingSectionControls === 'function') syncTradingSectionControls('scalp-page');
   _pfPracticeTitle(practice);
+  if (practice && !_pfPractice.on) _pfPracticeIdle(true);
+  if (!practice) document.getElementById('scalp-page')?.classList.remove('scalp-practice-idle');
+}
+
+async function _pfScalpApplyMode() {
+  const practice = _pfScalpMode === 'practice';
+  _pfScalpPaintMode();
   if (!practice) {
     _pfPracticeIdle(false);
     if (_pfPractice.on) {

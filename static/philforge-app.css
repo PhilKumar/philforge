@@ -10351,8 +10351,8 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
   #scalp-page .scalp-rail > .ocp-pane-form { position: static; }
   #scalp-page > .card > .ocp-panes > .ocp-pane-live { display: contents; }
   #scalp-page > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart { grid-column: 1; grid-row: 2 / 6; align-self: stretch; min-width: 0; margin-top: 0; }
-  /* ITS OWN HEIGHT, the screen's below the pinned head, not the right
-     column's. Stretched to the column, it grew 100px taller with every
+  /* ITS OWN HEIGHT, 800px (what it was beside an empty positions list), not
+     the right column's. Stretched to the column, it grew 100px taller with every
      position opened and shrank as each closed: the chart resized on every
      BUY (Phil, 2026-11-07: "the chart is getting resized.. it is annoying"). */
   body:not(.scalp-chart-full) #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart:not([hidden]) {
@@ -10361,8 +10361,10 @@ th.pf-table-sortable:focus-visible { outline:2px solid var(--accent); outline-of
        moved the history under it (the short-window spec, 1536x730). */
     /* A floor, not a fixed height: a toolbar that wraps (narrower window,
        other fonts) grows the box rather than pushing the canvas out under the
-       history below, where a press never reached the chart (CI, 07-Nov). */
-    grid-row: 2 / 5; align-self: start; min-height: max(700px, calc(100vh - var(--pf-freeze-scalp-pos, 240px) - 24px));
+       history below. Not the window's height either: measured from the pinned
+       head, a tall window ran the chart's foot (the RSI pane) below the fold
+       at the top of the page (CI, 07-Nov). */
+    grid-row: 2 / 5; align-self: start; min-height: 800px;
   }
   body:not(.scalp-chart-full) #scalp-page:not(.scalp-rail-hidden) > .card > .ocp-panes > .ocp-pane-live > .scalp-dock-chart:not([hidden]) > .scalp-dock-chart-body {
     flex-shrink: 0;
