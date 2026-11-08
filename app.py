@@ -26514,7 +26514,13 @@ def _scalp_session(underlying: str, day: date | None = None, options: bool = Tru
     if special:  # a Muhurat-style hour: its own open and close
         _pre, (oh, om), fo_close, cash_close = special
         close = fo_close if options else cash_close
-        return {"open": f"{oh:02d}:{om:02d}", "close": f"{close[0]:02d}:{close[1]:02d}", "exchange": exchange}
+        return {
+            "open": f"{oh:02d}:{om:02d}",
+            "close": f"{close[0]:02d}:{close[1]:02d}",
+            "exchange": exchange,
+            # The page's clock calls a weekend closed; this day it is not.
+            "special": True,
+        }
     return {"open": "09:15", "close": "15:40" if options else "15:30", "exchange": exchange}
 
 

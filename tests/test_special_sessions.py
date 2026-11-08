@@ -42,7 +42,9 @@ class TheMuhuratHour(unittest.TestCase):
         self.assertFalse(LiveMarketFeed._market_watch_open(at(date(2026, 11, 15), 14, 30)))
 
     def test_the_chart_draws_its_own_hours_and_grid(self):
-        self.assertEqual(app._scalp_session("NIFTY", SUNDAY), {"open": "14:20", "close": "15:40", "exchange": "NSE"})
+        self.assertEqual(
+            app._scalp_session("NIFTY", SUNDAY), {"open": "14:20", "close": "15:40", "exchange": "NSE", "special": True}
+        )
         self.assertEqual(app._scalp_session("NIFTY", SUNDAY, options=False)["close"], "15:30")
         self.assertEqual(app._scalp_session("NIFTY", date(2026, 11, 9))["open"], "09:15")
         ones = [{"t": int(at(SUNDAY, 14, 20 + i).timestamp()), "o": 1, "h": 2, "l": 0, "c": 1} for i in range(6)]

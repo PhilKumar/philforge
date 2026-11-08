@@ -172,7 +172,11 @@ function _pfChartHm(text, fallback) {
 function _pfChartNseSession(nowSec, hours) {
   var istDay = Math.floor((Number(nowSec) + 19800) / 86400);
   var weekday = (istDay + 4) % 7; // 1970-01-01 was a Thursday; 0 is Sunday
-  if (weekday === 0 || weekday === 6) return null;
+  // A weekend is closed -- unless the server says this day sits (Diwali's
+  // Muhurat hour, 08-Nov-2026: the countdown never showed). Its hours are
+  // today's only, so they count only on the day they were sent for.
+  var special = hours && hours.special && (!hours.day || hours.day === istDay);
+  if ((weekday === 0 || weekday === 6) && !special) return null;
   var midnight = istDay * 86400 - 19800;
   var open = _pfChartHm(hours && hours.open, 33300), close = _pfChartHm(hours && hours.close, 55800);
   return { day: istDay, open: midnight + open, close: midnight + close };
