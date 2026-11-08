@@ -58,6 +58,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _logger = logging.getLogger(__name__)
 
+import special_sessions as _special_sessions  # noqa: E402  (Muhurat-style sessions on a closed day)
+
 try:
     from prometheus_fastapi_instrumentator import Instrumentator as _PFI
 
@@ -22470,7 +22472,8 @@ def _trade_chart_keeper_may_work(now: datetime) -> bool:
     """Never in the trading day: every fetch here spends Dhan's rate budget,
     and the live books come first."""
     if now.weekday() >= 5:
-        return True
+        # Not during a Muhurat-style hour: the live desk needs Dhan's budget then.
+        return not _special_sessions.in_special_session(now, slack_min=20)
     return now.time() >= _TRADE_CHART_DAY_DONE or now.time() < dt_time(8, 30)
 
 
@@ -26422,7 +26425,8 @@ def _chart_next_day_cpr(
     next_day = day + timedelta(days=1)
     while _nse_session_closed(next_day):
         next_day += timedelta(days=1)
-    next_open = int(datetime.combine(next_day, dt_time(open_h, open_m), tzinfo=IST).timestamp())
+    nh, nm = (int(x) for x in _scalp_session(underlying, next_day, options)["open"].split(":"))
+    next_open = int(datetime.combine(next_day, dt_time(nh, nm), tzinfo=IST).timestamp())
     return {
         "overlays": overlays,
         "future_bars": _NEXT_DAY_CPR_GAP_BARS + width,
@@ -26506,6 +26510,11 @@ def _scalp_session(underlying: str, day: date | None = None, options: bool = Tru
         close = _scalp_hours.mcx_session_close(day or datetime.now(IST).date())
         return {"open": "09:00", "close": f"{close[0]:02d}:{close[1]:02d}", "exchange": "MCX"}
     exchange = "BSE" if str(underlying).upper() == "SENSEX" else "NSE"
+    special = _special_sessions.special_session(day or datetime.now(IST).date())
+    if special:  # a Muhurat-style hour: its own open and close
+        _pre, (oh, om), fo_close, cash_close = special
+        close = fo_close if options else cash_close
+        return {"open": f"{oh:02d}:{om:02d}", "close": f"{close[0]:02d}:{close[1]:02d}", "exchange": exchange}
     return {"open": "09:15", "close": "15:40" if options else "15:30", "exchange": exchange}
 
 
@@ -26515,9 +26524,10 @@ def _regroup_chart_candles(candles: list[dict], minutes: int, session_open_hm: t
     grouped: dict[int, dict] = {}
     for bar in sorted(candles, key=lambda row: int(row["t"])):
         stamp = datetime.fromtimestamp(int(bar["t"]), IST)
-        session_open = int(
-            stamp.replace(hour=session_open_hm[0], minute=session_open_hm[1], second=0, microsecond=0).timestamp()
-        )
+        # Each day on its own grid: a Muhurat hour opens at 14:20, not 09:15.
+        special = _special_sessions.special_session(stamp.date())
+        open_hm = special[1] if special and session_open_hm == (9, 15) else session_open_hm
+        session_open = int(stamp.replace(hour=open_hm[0], minute=open_hm[1], second=0, microsecond=0).timestamp())
         slot = session_open + ((int(bar["t"]) - session_open) // step) * step
         made = grouped.get(slot)
         if made is None:
@@ -28520,7 +28530,9 @@ async def _scalp_alarm_price(alarm: dict, now_mono: float) -> float:
     session = _scalp_session(underlying)
     now = datetime.now(IST)
     open_hm, close_hm = (tuple(int(x) for x in session[k].split(":")) for k in ("open", "close"))
-    if now.weekday() >= 5 or not (dt_time(*open_hm) <= now.time() < dt_time(*close_hm)):
+    if (now.weekday() >= 5 and not _special_sessions.is_special_session_day(now)) or not (
+        dt_time(*open_hm) <= now.time() < dt_time(*close_hm)
+    ):
         return 0.0
     _scalp_alarm_quoted[contract] = now_mono
     clients = []
@@ -28944,6 +28956,8 @@ def _is_cash_market_closed_ist() -> bool:
     """True outside normal Indian cash-market hours (used for after-hours ticker fallback)."""
 
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    if _special_sessions.is_special_session_day(now):
+        return not _special_sessions.in_special_session(now.replace(tzinfo=None), pre_open=False, cash=True)
     if now.weekday() >= 5:
         return True
     current = now.time()
@@ -30397,6 +30411,8 @@ _OFFICIAL_CLOSE_CACHE: Dict[str, dict] = {}
 def _nse_session_closed(day: date) -> bool:
     from engine.live import _NSE_CAPITAL_MARKET_HOLIDAYS
 
+    if _special_sessions.is_special_session_day(day):
+        return False  # a Muhurat-style session sits on a closed day
     return day.weekday() >= 5 or day.isoformat() in _NSE_CAPITAL_MARKET_HOLIDAYS
 
 

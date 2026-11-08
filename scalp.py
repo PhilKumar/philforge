@@ -60,7 +60,11 @@ def _scalp_market_watch_open(now: datetime | None = None, mcx: bool = False) -> 
     # A replayed day traded by definition: the Budget day of 01-Feb-2026 was a
     # Sunday session, and practice on it froze every price.
     if replay is None and moment.weekday() >= 5:  # Saturday/Sunday
-        return False
+        # ...unless the exchange sits that day (Diwali's Muhurat hour):
+        # its trades are watched like any other (special_sessions.py).
+        from special_sessions import in_special_session
+
+        return not mcx and in_special_session(moment, slack_min=5)
     minutes = moment.hour * 60 + moment.minute
     end = mcx_session_close(moment.date()) if mcx else SCALP_WATCH_END
     return SCALP_WATCH_START[0] * 60 + SCALP_WATCH_START[1] <= minutes <= end[0] * 60 + end[1] + (5 if mcx else 0)

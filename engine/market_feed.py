@@ -849,8 +849,10 @@ class LiveMarketFeed:
         close and the closing-auction tail.
         """
         moment = now or datetime.now(IST)
-        if moment.weekday() >= 5:  # Saturday/Sunday
-            return False
+        if moment.weekday() >= 5:  # Saturday/Sunday -- unless it is a Muhurat-style session
+            from special_sessions import in_special_session
+
+            return in_special_session(moment, slack_min=5)
         minutes = moment.hour * 60 + moment.minute
         return 9 * 60 <= minutes <= 15 * 60 + 45
 
