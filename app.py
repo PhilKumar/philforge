@@ -8,6 +8,7 @@ Fixed:
 
 import asyncio
 import base64
+import contextlib
 import csv
 import hashlib
 import inspect
@@ -5176,6 +5177,19 @@ def _browser_origin_allowed(request: Request) -> bool:
 
     # Non-browser/API clients commonly omit Origin and Referer.
     return True
+
+
+@app.middleware("http")
+async def practice_persist_middleware(request: Request, call_next):
+    """Save the running practice day after its calls: at once for a change,
+    every few seconds for the page's polls (see _practice_persist)."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/practice/") and path != "/api/practice/end":
+        user_id = getattr(request.state, "user_id", 0)
+        if user_id:
+            await _practice_persist(int(user_id), force=request.method.upper() != "GET")
+    return response
 
 
 @app.middleware("http")
@@ -27673,8 +27687,66 @@ _practice_entry_locks: Dict[int, asyncio.Lock] = {}
 _practice_last_entry_ts: Dict[int, float] = {}
 
 
-def _practice_session_or_409(request: Request):
-    session = _practice.session_for(_request_user_id(request))
+# A PRACTICE DAY OUTLIVES A RESTART (Phil, 2026-11-08: "make it not to restart
+# the practice page and stays on the same candle it was before the restart").
+# It is saved as it goes (the middleware below) and, on the first call after
+# a restart, opened again paused at the saved moment.
+_PRACTICE_SESSION_KEY = "practice_session:{uid}"
+_PRACTICE_SAVE_EVERY_SEC = 3.0
+_practice_saved_at: Dict[int, float] = {}
+_practice_restore_lock = asyncio.Lock()
+
+
+async def _practice_session_lookup(user_id: int):
+    session = _practice.session_for(user_id)
+    if session is not None:
+        return session
+    async with _practice_restore_lock:
+        session = _practice.session_for(user_id)
+        if session is not None:
+            return session
+        try:
+            snap = json.loads(await _db_mod.get_app_state(_PRACTICE_SESSION_KEY.format(uid=int(user_id))) or "null")
+        except (TypeError, ValueError):
+            snap = None
+        if not isinstance(snap, dict) or int(snap.get("user_id") or 0) != int(user_id):
+            return None
+        try:
+            # The day's parquet off the loop, then the session on it (its engine task lives there).
+            await asyncio.to_thread(_practice.load_day, str(snap["underlying"]), date.fromisoformat(str(snap["day"])))
+            session = _practice.PracticeSession.from_snapshot(snap, _restore_scalp_trade_from_payload)
+        except Exception as exc:  # a day no longer on disk, a bad save: start afresh
+            print(f"[PRACTICE] Could not reopen the saved day for user {user_id}: {exc}")
+            return None
+        _practice.adopt_session(session)
+        _practice_saved_at[int(user_id)] = time.monotonic()
+        print(f"[PRACTICE] Reopened user {user_id}'s day {session.day} at {session.now():%H:%M:%S}, paused")
+        return session
+
+
+async def _practice_persist(user_id: int, *, force: bool = False) -> None:
+    session = _practice.session_for(user_id)
+    key = _PRACTICE_SESSION_KEY.format(uid=int(user_id))
+    if session is None or session.ended:
+        return
+    now = time.monotonic()
+    if not force and now - _practice_saved_at.get(int(user_id), 0.0) < _PRACTICE_SAVE_EVERY_SEC:
+        return
+    _practice_saved_at[int(user_id)] = now
+    try:
+        await _db_mod.set_app_state(key, json.dumps(session.snapshot(), default=str))
+    except Exception as exc:
+        print(f"[PRACTICE] Save failed for user {user_id}: {exc}")
+
+
+async def _practice_forget_saved(user_id: int) -> None:
+    _practice_saved_at.pop(int(user_id), None)
+    with contextlib.suppress(Exception):
+        await _db_mod.set_app_state(_PRACTICE_SESSION_KEY.format(uid=int(user_id)), "null")
+
+
+async def _practice_session_or_409(request: Request):
+    session = await _practice_session_lookup(_request_user_id(request))
     if session is None or session.ended:
         raise HTTPException(status_code=409, detail="No practice day is running. Start one first.")
     return session
@@ -27724,7 +27796,7 @@ async def practice_start(req: PracticeStartReq, request: Request):
         await asyncio.to_thread(_practice.load_day, underlying, day)  # a few MB of parquet: off the loop
     except (ValueError, OSError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    old = _practice.session_for(user_id)
+    old = await _practice_session_lookup(user_id)
     if old is not None and not old.ended:
         await _practice_close_open(old)
         summary = _practice.end_session(user_id)
@@ -27739,7 +27811,7 @@ async def practice_start(req: PracticeStartReq, request: Request):
 
 @app.get("/api/practice/state")
 async def practice_state(request: Request):
-    session = _practice.session_for(_request_user_id(request))
+    session = await _practice_session_lookup(_request_user_id(request))
     if session is None:
         return {"status": "none"}
     state = session.state()
@@ -27753,11 +27825,13 @@ async def practice_state(request: Request):
 class PracticeControlReq(BaseModel):
     action: str = Field(max_length=10)
     speed: int = Field(default=1, ge=1, le=20)
+    # "step": the chart's bar, in minutes -- the replay races to the next one.
+    minutes: int = Field(default=5, ge=1, le=60)
 
 
 @app.post("/api/practice/control")
 async def practice_control(req: PracticeControlReq, request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     action = str(req.action or "").strip().lower()
     if action == "play":
         session.play()
@@ -27768,8 +27842,13 @@ async def practice_control(req: PracticeControlReq, request: Request):
             session.set_speed(req.speed)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif action == "step":
+        session.skip_to_next_bar(req.minutes)
+        if session.engine.open_trades:
+            with _practice.replay_clock(session):
+                session.engine.start()  # the trades' checks run all the way there
     else:
-        raise HTTPException(status_code=422, detail="action must be play, pause or speed")
+        raise HTTPException(status_code=422, detail="action must be play, pause, speed or step")
     return session.state()
 
 
@@ -27777,11 +27856,13 @@ async def practice_control(req: PracticeControlReq, request: Request):
 async def practice_end(request: Request):
     """End the day: open trades close at the replay's price, and the day's summary comes back."""
     user_id = _request_user_id(request)
-    session = _practice.session_for(user_id)
+    session = await _practice_session_lookup(user_id)
     if session is None:
+        await _practice_forget_saved(user_id)
         return {"status": "none"}
     await _practice_close_open(session)
     summary = _practice.end_session(user_id) or {}
+    await _practice_forget_saved(user_id)
     if summary.get("trades"):
         await _practice_save_summary(user_id, summary)
     return {"status": "ok", "summary": summary}
@@ -27802,7 +27883,7 @@ async def practice_history(request: Request):
 
 @app.get("/api/practice/scalp/status")
 async def practice_scalp_status(request: Request):
-    session = _practice.session_for(_request_user_id(request))
+    session = await _practice_session_lookup(_request_user_id(request))
     if session is None:
         return {
             "running": False,
@@ -27829,20 +27910,20 @@ async def practice_scalp_status(request: Request):
 
 @app.get("/api/practice/scalp/trades")
 async def practice_scalp_trades(request: Request):
-    session = _practice.session_for(_request_user_id(request))
+    session = await _practice_session_lookup(_request_user_id(request))
     return list(session.closed_trades) if session else []
 
 
 @app.post("/api/practice/scalp/start")
 async def practice_scalp_start(request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     session.engine.start()
     return {"status": "started"}
 
 
 @app.post("/api/practice/scalp/stop")
 async def practice_scalp_stop(request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     await _practice_close_open(session)
     session.engine.stop()
     with _practice.replay_clock(session):
@@ -27857,7 +27938,7 @@ async def practice_scalp_entry(req: ScalpEntryReq, request: Request):
     Filled as Phil's own entries fill (practice.fill_slippage.json, by broker).
     "Both" places a Dhan leg and a Zerodha leg, linked as live ones are.
     """
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     user_id = session.user_id
     req.underlying = str(req.underlying or "").strip().upper()
     req.option_type = str(req.option_type or "").strip().upper()
@@ -27942,7 +28023,7 @@ async def practice_scalp_entry(req: ScalpEntryReq, request: Request):
 
 @app.post("/api/practice/scalp/exit/{trade_id}")
 async def practice_scalp_exit(trade_id: int, request: Request, pair: bool = False):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     with _practice.replay_clock(session):
         if pair:
             return await _exit_scalp_pair(session.engine, trade_id)
@@ -27951,14 +28032,14 @@ async def practice_scalp_exit(trade_id: int, request: Request, pair: bool = Fals
 
 @app.post("/api/practice/scalp/kill-all")
 async def practice_scalp_kill_all(request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     with _practice.replay_clock(session):
         return await session.engine.kill_all_trades()
 
 
 @app.put("/api/practice/scalp/trades/{trade_id}/targets")
 async def practice_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     with _practice.replay_clock(session):
         return await session.engine.update_trade_targets(
             trade_id, **{k: v for k, v in req.dict().items() if v is not None}
@@ -27967,7 +28048,7 @@ async def practice_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: R
 
 @app.post("/api/practice/scalp/st-timeframe")
 async def practice_scalp_st_timeframe(req: ScalpStTimeframeReq, request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     with _practice.replay_clock(session):
         return session.engine.set_st_timeframe(req.timeframe)
 
@@ -27984,14 +28065,14 @@ def _practice_forget_trades(session, ids: set[int]) -> int:
 # 07-Nov-2026 they went to routes that did not exist and answered 404.
 @app.delete("/api/practice/scalp/trades/{tid}")
 async def practice_scalp_delete_trade(tid: int, request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     _practice_forget_trades(session, {int(tid)})
     return {"deleted": tid}
 
 
 @app.post("/api/practice/scalp/trades/bulk-delete")
 async def practice_scalp_bulk_delete(request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     body = await request.json()
     ids = body.get("ids", []) if isinstance(body, dict) else []
     if not isinstance(ids, list) or not ids:
@@ -28003,7 +28084,7 @@ async def practice_scalp_bulk_delete(request: Request):
 async def practice_scalp_frozen_chart(trade_id: int, request: Request, timeframe: str = "5m"):
     """The history's chart button: a closed practice trade on its own candles,
     frozen at the exit, in the live journal's shape (see _build_trade_chart)."""
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     trade = next((t for t in session.closed_trades if int(t.get("trade_id") or 0) == int(trade_id)), None)
     if trade is None:
         raise HTTPException(status_code=404, detail="No closed practice trade with that id")
@@ -28153,7 +28234,7 @@ async def practice_contract_chart(
     timeframe: str = "5m",
     live_price: float = 0.0,
 ):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     option_type = str(option_type or "").strip().upper()
     if float(strike or 0) <= 0 or option_type not in {"CE", "PE"} or not expiry:
         raise HTTPException(status_code=422, detail="Pick a strike, CE or PE, and an expiry first")
@@ -28180,7 +28261,7 @@ async def practice_contract_chart(
 
 @app.get("/api/practice/scalp/underlying-chart")
 async def practice_underlying_chart(request: Request, underlying: str = "", expiry: str = "", timeframe: str = "5m"):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     tf, _candle_type, tf_minutes = _scalp_chart_timeframe(timeframe)
     payload = _practice_chart_payload(
         session,
@@ -28197,7 +28278,7 @@ async def practice_underlying_chart(request: Request, underlying: str = "", expi
 
 @app.get("/api/practice/scalp/trades/{trade_id}/chart")
 async def practice_trade_chart(trade_id: int, request: Request, timeframe: str = "5m"):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     trade_obj = session.engine.open_trades.get(int(trade_id))
     if trade_obj is not None:
         trade = trade_obj.to_dict()
@@ -28264,7 +28345,7 @@ async def practice_option_ltp(
     broker: str = "",
     feed_only: bool = False,
 ):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     if str(underlying or "").upper() != session.underlying:
         return {"status": "none", "ltp": 0}
     ltp = session.option_price(expiry, _scalp_strike(strike), str(option_type or "").upper())
@@ -28278,7 +28359,7 @@ async def practice_option_ltp(
 @app.get("/api/practice/ticker")
 async def practice_ticker(request: Request):
     """The ticker's shape, with the replayed index in its own slot (the other slot stays empty)."""
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     price = session.index_price()
     prev = session.previous_close()
     change = round(price - prev, 2) if prev > 0 else 0.0
@@ -28297,7 +28378,7 @@ async def practice_ticker(request: Request):
 
 @app.get("/api/practice/expiry-dates")
 async def practice_expiry_dates(request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     nearest = session.data.expiries[0] if session.data.expiries else ""
     return {
         "status": "ok",
@@ -28309,7 +28390,7 @@ async def practice_expiry_dates(request: Request):
 
 @app.get("/api/practice/expiry-list/{symbol}")
 async def practice_expiry_list(symbol: str, request: Request):
-    session = _practice_session_or_409(request)
+    session = await _practice_session_or_409(request)
     symbol = str(symbol or "").upper()
     return {
         "status": "ok",
@@ -30900,6 +30981,10 @@ async def _shutdown_cleanup():
         except asyncio.CancelledError:
             pass
     _journal_chart_task = None
+    # Every running practice day, as it stands now (it reopens paused here).
+    for practice_uid in list(getattr(_practice, "_SESSIONS", {}) or {}):
+        with contextlib.suppress(Exception):
+            await _practice_persist(int(practice_uid), force=True)
     # Save all running scalp engines
     for owner_id, engine in list(_scalp_engines.items()):
         try:

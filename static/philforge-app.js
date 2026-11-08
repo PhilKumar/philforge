@@ -2679,6 +2679,7 @@ const PF_DELEGATED_ACTIONS = new Set([
   'startScalpPractice',
   'toggleScalpPracticePlay',
   'setScalpPracticeSpeed',
+  'stepScalpPractice',
   'endScalpPractice',
   'replayScalpPracticeDay',
   'closeScalpPracticeSummary',
@@ -27471,7 +27472,9 @@ function pfMarketNowSec() {
   const st = _pfPracticeOn() ? _pfPractice.state : null;
   if (!st || !st.replay_epoch) return Date.now() / 1000;
   let sec = Number(st.replay_epoch);
-  if (!st.paused && !st.ended) sec += (performance.now() - _pfPractice.at) / 1000 * (Number(st.speed) || 1);
+  if (!st.paused && !st.ended) sec += (performance.now() - _pfPractice.at) / 1000 * (Number(st.rate || st.speed) || 1);
+  // A race to the next bar stops at that bar's start.
+  if (st.skip_until_epoch) sec = Math.min(sec, Number(st.skip_until_epoch));
   return sec;
 }
 window.pfMarketNowSec = pfMarketNowSec;
@@ -27532,7 +27535,25 @@ function _pfPracticePaint() {
   if (els.speeds) els.speeds.querySelectorAll('[data-speed]').forEach(btn => {
     btn.classList.toggle('active', Number(btn.dataset.speed) === Number(st.speed));
   });
+  const step = document.getElementById('scalp-practice-step');
+  if (step) {
+    const tf = String(_scalpOptionChartTf || '5m');
+    const label = `⏭ ${tf}`;
+    if (step.textContent !== label) step.textContent = label;
+    step.title = `Run to the next ${tf} candle (the engine checks your stops on the way)`;
+    step.disabled = !!st.at_close;
+    step.classList.toggle('is-racing', !!st.skip_until_epoch);
+  }
 }
+
+// THE NEXT CANDLE (Phil, 2026-11-08: "make one more button to fast forward one
+// candle to other.. because even 20x, it is slow"): the replay races to the
+// next bar of the chart on screen and stops there if it was paused, or plays
+// on at the speed if it was playing. A second press goes one bar further.
+window.stepScalpPractice = function stepScalpPractice() {
+  const minutes = Math.max(1, Math.round((_SCALP_TF_SEC[_scalpOptionChartTf] || 300) / 60));
+  return _pfPracticeControl({ action: 'step', minutes });
+};
 
 function _pfPracticeApply(st) {
   if (!st || st.status !== 'ok') return;

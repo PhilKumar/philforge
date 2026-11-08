@@ -49,6 +49,13 @@ SPEEDS = (1, 2, 5, 10, 15, 20)  # 15x and 20x: Phil, 07-Nov-2026
 TICK = 0.05
 OPEN_MINUTE = 9 * 60 + 15
 INDEX_LAST_MINUTE = 15 * 60 + 29  # the index's last bar; options trade on to 15:39 (NSE since Aug-2026)
+# "Next candle" races the replay at this speed to the next bar (Phil,
+# 2026-11-08: "make one more button to fast forward one candle to other..
+# because even 20x, it is slow"). It RUNS there, not jumps: the engine checks
+# every 3 replay seconds on the way, so a stop or Supertrend close inside the
+# skipped bar still fires where it would have.
+SKIP_SPEED = 120
+SKIP_MINUTES = (1, 3, 5, 15, 60)
 
 
 def _tick(price: float) -> float:
@@ -197,6 +204,7 @@ class PracticeSession:
         self._clock = time.monotonic  # real seconds; a test winds its own
         self._anchor = self._clock()
         self.paused = True  # starts paused: the clock runs when Play is pressed
+        self._skip: Optional[tuple[datetime, bool]] = None  # (until, paused after) while racing ahead
         self.end_at = datetime.combine(day, datetime.min.time()) + timedelta(minutes=self.data.last_minute + 1)
         self.started_at = datetime.now(IST).replace(tzinfo=None)
         self.ended = False
@@ -209,10 +217,21 @@ class PracticeSession:
         self.engine = PracticeScalpEngine(self)
 
     # -- the clock -------------------------------------------------------
+    @property
+    def rate(self) -> int:
+        """How fast the replay runs now: the chosen speed, or the race to the next bar."""
+        return SKIP_SPEED if self._skip else self.speed
+
     def now(self) -> datetime:
         if self.paused or self.ended:
             return self._replay_at
-        moment = self._replay_at + timedelta(seconds=(self._clock() - self._anchor) * self.speed)
+        moment = self._replay_at + timedelta(seconds=(self._clock() - self._anchor) * self.rate)
+        if self._skip and moment >= self._skip[0]:
+            # At the bar: stop there if the day was paused, else play on at the speed.
+            until, paused_after = self._skip
+            self._skip = None
+            self._replay_at, self._anchor, self.paused = min(until, self.end_at), self._clock(), paused_after
+            return self._replay_at
         if moment >= self.end_at:
             self._replay_at, self._anchor, self.paused = self.end_at, self._clock(), True
             return self.end_at
@@ -223,12 +242,40 @@ class PracticeSession:
             return
         self._replay_at = self.now()
         self._anchor = self._clock()
+        if self._skip:
+            self._skip = (self._skip[0], False)  # play on after the bar
+            return
         self.paused = False
 
     def pause(self) -> None:
         self._replay_at = self.now()
         self._anchor = self._clock()
+        self._skip = None
         self.paused = True
+
+    def next_bar_at(self, minutes: int) -> datetime:
+        """The start of the next `minutes` bar after now, on the 09:15 grid."""
+        minutes = int(minutes) if int(minutes) in SKIP_MINUTES else 5
+        base = datetime.combine(self.day, datetime.min.time()) + timedelta(minutes=OPEN_MINUTE)
+        # Already racing: the bar after the one being raced to.
+        frm = self._skip[0] if self._skip else self.now()
+        step = minutes * 60
+        done = max(0.0, (frm - base).total_seconds())
+        return min(base + timedelta(seconds=(int(done // step) + 1) * step), self.end_at)
+
+    def skip_to_next_bar(self, minutes: int) -> datetime:
+        """Race to the next bar's start; paused before, it pauses there."""
+        if self.ended:
+            return self.now()
+        until = self.next_bar_at(minutes)
+        paused_after = self._skip[1] if self._skip else self.paused
+        self._replay_at = self.now()
+        self._anchor = self._clock()
+        if until <= self._replay_at:
+            return self._replay_at
+        self._skip = (until, paused_after)
+        self.paused = False
+        return until
 
     def set_speed(self, speed: int) -> None:
         if int(speed) not in SPEEDS:
@@ -374,6 +421,56 @@ class PracticeSession:
             "closed_trades": trades,
         }
 
+    # -- kept through a restart -------------------------------------------
+    # Phil, 2026-11-08: "make it not to restart the practice page and stays on
+    # the same candle it was before the restart". A day lives in this
+    # process's memory, and every deploy restarts it; the page saves this as
+    # it goes, and a restarted server opens the day again, PAUSED where it was,
+    # with its open trades, its closed ones and the trade numbering.
+    def snapshot(self) -> dict:
+        eng = self.engine
+        return {
+            "v": 1,
+            "user_id": self.user_id,
+            "underlying": self.underlying,
+            "day": self.day.isoformat(),
+            "hidden": self.hidden,
+            "speed": self.speed,
+            "replay_at": self.now().isoformat(),
+            "started_at": self.started_at.isoformat(),
+            "next_entry_broker": self.next_entry_broker,
+            "closed_trades": list(self.closed_trades),
+            "trade_counter": int(eng._trade_counter),
+            "open_trades": [t.to_dict() for t in eng.open_trades.values()],
+            "engine_closed": list(eng.closed_trades)[-200:],
+            "event_log": list(eng.event_log)[-100:],
+        }
+
+    @classmethod
+    def from_snapshot(cls, snap: dict, trade_from_payload) -> "PracticeSession":
+        """The saved day, paused at its saved moment. `trade_from_payload` rebuilds a trade
+        (the live desk's own restore, so a practice trade comes back as a live one would)."""
+        day = date.fromisoformat(str(snap["day"]))
+        session = cls(int(snap["user_id"]), str(snap["underlying"]), day, hidden=bool(snap.get("hidden")),
+                      speed=int(snap.get("speed") or 1))  # fmt: skip
+        at = datetime.fromisoformat(str(snap["replay_at"]))
+        session._replay_at = min(max(at, datetime.combine(day, datetime.min.time())), session.end_at)
+        session._anchor = session._clock()
+        session.paused = True
+        with contextlib.suppress(TypeError, ValueError):
+            session.started_at = datetime.fromisoformat(str(snap.get("started_at")))
+        session.next_entry_broker = str(snap.get("next_entry_broker") or "dhan")
+        session.closed_trades = [t for t in snap.get("closed_trades") or [] if isinstance(t, dict)]
+        eng = session.engine
+        eng._trade_counter = int(snap.get("trade_counter") or 0)
+        eng.closed_trades = [t for t in snap.get("engine_closed") or [] if isinstance(t, dict)]
+        eng.event_log = [e for e in snap.get("event_log") or [] if isinstance(e, dict)]
+        for payload in snap.get("open_trades") or []:
+            trade = trade_from_payload(payload)
+            if trade is not None:
+                eng.open_trades[int(trade.trade_id)] = trade
+        return session
+
     def state(self) -> dict:
         now = self.now()
         return {
@@ -387,6 +484,10 @@ class PracticeSession:
             # page's own clock can run between polls.
             "replay_epoch": now.replace(tzinfo=IST).timestamp(),
             "speed": self.speed,
+            # The rate the clock runs at now (the race to the next bar, or the
+            # speed), and where a race stops: the page's clock runs between polls.
+            "rate": self.rate,
+            "skip_until_epoch": self._skip[0].replace(tzinfo=IST).timestamp() if self._skip else None,
             "paused": self.paused,
             "ended": self.ended,
             "at_close": now >= self.end_at,
@@ -446,10 +547,10 @@ class PracticeScalpEngine(ScalpEngine):
     # At 10x a quarter-second real check would be 2.5 replay seconds: check as
     # often in replay time as the live engine does in real time.
     def _monitor_interval_override_sec(self) -> float:
-        return max(0.025, _scalp.SCALP_MONITOR_INTERVAL_SEC / max(1, self.session.speed))
+        return max(0.025, _scalp.SCALP_MONITOR_INTERVAL_SEC / max(1, self.session.rate))
 
     def _st_check_override_sec(self) -> float:
-        return max(0.25, _scalp.SCALP_ST_CHECK_SEC / max(1, self.session.speed))
+        return max(0.25, _scalp.SCALP_ST_CHECK_SEC / max(1, self.session.rate))
 
     # The prices.
     def _price(self, trade: ScalpTrade) -> float:
@@ -561,6 +662,14 @@ def start_session(
     return session
 
 
+def adopt_session(session: PracticeSession) -> PracticeSession:
+    """Put a restored day back as the user's running one (its engine starts if it holds trades)."""
+    _SESSIONS[int(session.user_id)] = session
+    if session.engine.open_trades:
+        session.engine.start()
+    return session
+
+
 def end_session(user_id: int) -> Optional[dict]:
     session = _SESSIONS.pop(int(user_id), None)
     if session is None:
@@ -577,6 +686,7 @@ __all__ = [
     "UNDERLYINGS",
     "PracticeScalpEngine",
     "PracticeSession",
+    "adopt_session",
     "available_days",
     "end_session",
     "load_day",

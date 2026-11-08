@@ -148,6 +148,95 @@ class TheClock(_Archive):
         self.assertEqual(s.state()["day"], str(DAY2))
 
 
+class TheNextCandle(_Archive):
+    """Phil, 2026-11-08: "make one more button to fast forward one candle to other"."""
+
+    def test_paused_it_races_to_the_next_bar_and_stops_there(self):
+        s = self.session(start="10:02")  # paused, mid-bar
+        until = s.skip_to_next_bar(5)
+        self.assertEqual(until.strftime("%H:%M:%S"), "10:05:00")
+        self.assertEqual(s.rate, practice.SKIP_SPEED)
+        self.wind(1)  # 120 replay seconds
+        self.assertEqual(s.now().strftime("%H:%M:%S"), "10:04:00")
+        self.wind(5)
+        self.assertEqual(s.now().strftime("%H:%M:%S"), "10:05:00")
+        self.assertTrue(s.paused)
+        self.wind(100)
+        self.assertEqual(s.now().strftime("%H:%M:%S"), "10:05:00")
+        # On a bar's start, the next press goes a whole bar on; 3m keeps the 09:15 grid.
+        self.assertEqual(s.skip_to_next_bar(5).strftime("%H:%M"), "10:10")
+        s.pause()
+        self.assertEqual(s.skip_to_next_bar(3).strftime("%H:%M"), "10:06")
+
+    def test_playing_it_plays_on_at_the_speed_after_the_bar(self):
+        s = self.session(start="10:00:00"[:5], speed=2)
+        s.play()
+        s.skip_to_next_bar(15)  # 10:15
+        self.wind(8)  # 900 s at 120x is 7.5 real s
+        self.assertEqual(s.now().strftime("%H:%M"), "10:15")
+        self.assertFalse(s.paused)
+        self.assertEqual(s.rate, 2)
+        before = s.now()
+        self.wind(10)
+        self.assertEqual((s.now() - before).total_seconds(), 20)
+
+    def test_a_stop_inside_the_raced_bars_still_fires(self):
+        async def run():
+            s = self.session(start="10:00")
+            s.play()
+            with practice.replay_clock(s):
+                result = await s.engine.enter_trade(
+                    underlying="NIFTY", strike=STRIKE, option_type="CE", expiry=EXPIRY, transaction_type="BUY",
+                    lots=1, lot_size=75, sl_points=2, mode="paper", broker="dhan",
+                )  # fmt: skip
+            entry = s.engine.open_trades[result["trade_id"]].entry_premium
+            s.skip_to_next_bar(15)  # falls 0.5 a minute: the 2-point stop is ~4 minutes in
+            for _ in range(60):
+                self.wind(0.25)
+                await asyncio.sleep(0.03)
+                if not s.engine.open_trades:
+                    break
+            s.engine.stop()
+            self.assertFalse(s.engine.open_trades, "the stop never fired on the way")
+            self.assertGreaterEqual(float(s.closed_trades[-1]["exit_premium"]), entry - 2 - 1.0)
+
+        asyncio.run(run())
+
+
+class KeptThroughARestart(_Archive):
+    """Phil, 2026-11-08: "make it not to restart the practice page and stays on the same candle"."""
+
+    def test_the_day_comes_back_paused_at_its_moment_with_its_trades(self):
+        import app
+
+        async def run():
+            s = self.session(start="10:00")
+            s.play()
+            with practice.replay_clock(s):
+                await s.engine.enter_trade(
+                    underlying="NIFTY", strike=STRIKE, option_type="CE", expiry=EXPIRY, transaction_type="BUY",
+                    lots=1, lot_size=75, mode="paper", broker="dhan", st_trail=True, st_tf="3m",
+                )  # fmt: skip
+            self.wind(30)
+            s.closed_trades.append({"trade_id": 99, "pnl": 12.5})
+            snap = json.loads(json.dumps(s.snapshot(), default=str))
+            s.engine.stop()
+            practice._SESSIONS.clear()
+
+            back = practice.PracticeSession.from_snapshot(snap, app._restore_scalp_trade_from_payload)
+            self.assertTrue(back.paused)
+            self.assertEqual(back.now().strftime("%H:%M:%S"), "10:00:30")
+            self.assertEqual(back.engine._trade_counter, 1)
+            trade = back.engine.open_trades[1]
+            self.assertEqual((trade.strike, trade.st_trail, trade.st_tf), (STRIKE, True, 3))
+            self.assertEqual(back.closed_trades[-1]["trade_id"], 99)
+            practice.adopt_session(back)
+            self.assertIs(practice.session_for(1), back)
+            back.engine.stop()
+
+        asyncio.run(run())
+
+
 class NoLookAhead(_Archive):
     def test_the_charts_stop_at_the_replay_clock(self):
         s = self.session(start="10:00", speed=1)
