@@ -36,7 +36,10 @@ function _pfChartIst(ts) {
   if (isNaN(d.getTime())) return '--';
   // A practice day replayed blind: times only, so the axis never names it.
   if (window.pfChartHideDates) return d.toISOString().slice(11, 16);
-  return d.toISOString().slice(5, 16).replace('T', ' ');
+  // "09 Nov 09:15", never "11-09": month-first read as the 11th (Phil, 2026-11-08).
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var iso = d.toISOString();
+  return iso.slice(8, 10) + ' ' + months[d.getUTCMonth()] + ' ' + iso.slice(11, 16);
 }
 
 // Indian grouping, so 1275000 reads 12,75,000 the way every other rupee figure
@@ -1245,7 +1248,7 @@ function _pfChartCanvasMarkers(c, p, PAL, labels) {
         kind: 'marker',
         x: x,
         y: p.padT + (down ? 12 : 26),
-        text: 'ST ' + (down ? 'DOWN' : 'UP') + ' ' + _pfChartIst(flip.t).slice(6),
+        text: 'ST ' + (down ? 'DOWN' : 'UP') + ' ' + _pfChartIst(flip.t).slice(-5),
         color: down ? PAL.sellMark : PAL.buyMark,
       });
     });

@@ -26399,7 +26399,6 @@ def _chart_next_day_cpr(
     last_t = int(candles[-1]["t"])
     day = datetime.fromtimestamp(last_t, IST).date()
     session = _scalp_session(underlying, day, options)
-    open_h, open_m = (int(x) for x in session["open"].split(":"))
     close_h, close_m = (int(x) for x in session["close"].split(":"))
     if now < datetime.combine(day, dt_time(close_h, close_m), tzinfo=IST):
         return none
@@ -26410,10 +26409,17 @@ def _chart_next_day_cpr(
         pass
     bars = [b for b in candles if datetime.fromtimestamp(int(b["t"]), IST).date() == day]
     step = max(int(tf_minutes), 1) * 60
+    next_day = day + timedelta(days=1)
+    while _nse_session_closed(next_day):
+        next_day += timedelta(days=1)
+    next_session = _scalp_session(underlying, next_day, options)
+    nh, nm = (int(x) for x in next_session["open"].split(":"))
+    nch, ncm = (int(x) for x in next_session["close"].split(":"))
     # The whole of tomorrow's session, open to close: a third of it stopped
     # the levels at 11:20 (Phil, 2026-10-31: "make it till the trading
-    # ending window").
-    session_bars = ((close_h * 60 + close_m) - (open_h * 60 + open_m)) * 60 // step
+    # ending window"). TOMORROW's hours, not today's: after the 80-minute
+    # Muhurat hour the block ended at 10:35 on Monday (Phil, 2026-11-08).
+    session_bars = ((nch * 60 + ncm) - (nh * 60 + nm)) * 60 // step
     width = max(6, int(session_bars))
     start_t = last_t + _NEXT_DAY_CPR_GAP_BARS * step
     end_t = start_t + width * step
@@ -26422,10 +26428,6 @@ def _chart_next_day_cpr(
         ov["next_day"] = True
     # The crosshair over the block reads the NEXT session's clock, not 15:40
     # counted on from today's last bar (Phil, 2026-10-29).
-    next_day = day + timedelta(days=1)
-    while _nse_session_closed(next_day):
-        next_day += timedelta(days=1)
-    nh, nm = (int(x) for x in _scalp_session(underlying, next_day, options)["open"].split(":"))
     next_open = int(datetime.combine(next_day, dt_time(nh, nm), tzinfo=IST).timestamp())
     return {
         "overlays": overlays,

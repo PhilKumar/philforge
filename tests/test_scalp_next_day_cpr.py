@@ -106,6 +106,16 @@ class NextDayCpr(unittest.TestCase):
         out = app._chart_next_day_cpr(friday, "NIFTY", 5, now=_at("2026-10-31T10:00:00"))
         self.assertEqual(out["future_t0"], int(_at("2026-11-02T09:15:00").timestamp()))
 
+    def test_after_the_muhurat_hour_the_block_spans_mondays_full_session(self):
+        # Phil, 2026-11-08: the 80-minute Muhurat hour sized Monday's block, so
+        # it ended at 10:35. It must run 09:15-15:40 like any other day.
+        muhurat = _candles("2026-11-08", 1, open_hm="14:20", bars=16)
+        out = app._chart_next_day_cpr(muhurat, "NIFTY", 5, now=_at("2026-11-08T15:50:00"))
+        self.assertEqual(len(out["overlays"]), 12)
+        self.assertEqual(out["future_t0"], int(_at("2026-11-09T09:15:00").timestamp()))
+        self.assertEqual(out["future_bars"], app._NEXT_DAY_CPR_GAP_BARS + (6 * 60 + 25) // 5)
+        self.assertEqual(app._chart_next_day_cpr(muhurat, "NIFTY", 5, now=_at("2026-11-08T15:35:00"))["overlays"], [])
+
     def test_no_tomorrow_for_an_option_that_expired_today(self):
         out = app._chart_next_day_cpr(self.candles, "NIFTY", 5, "2026-10-28", now=_at("2026-10-28T16:00:00"))
         self.assertEqual(out["overlays"], [])
