@@ -24505,6 +24505,15 @@ function _renderScalpStatusWS(data) {
   if (!tbody) return;
   const open = data.open_trades || [];
   _scalpHudTrades(open);
+  // THE TRADE CHART GROWS ITS CANDLE FROM THESE PRICES (Phil, 2026-11-09:
+  // "When I take the trade it seems like it freezes and the chart doesn't
+  // move at all"). Once a trade is open the form's feed poll stands down for
+  // this push, but the chart read the trade's premium only from the 10 s
+  // status poll, so the candle sat still for up to 10 s at a time.
+  if (_scalpDockOpenTrades.length) {
+    const px = new Map(open.map(t => [String(t.trade_id), Number(t.current_premium) || 0]));
+    _scalpDockOpenTrades.forEach((t) => { const p = px.get(String(t.trade_id)); if (p > 0) t.current_premium = p; });
+  }
   const pendingCount = open.filter(t => t.status === 'pending').length;
   const activeCount = open.length - pendingCount;
   const countEl = _getScalpEl('scalp-open-count');
