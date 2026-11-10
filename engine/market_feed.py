@@ -935,7 +935,10 @@ class LiveMarketFeed:
             self._reconnecting = True
 
         self._reconnect_count += 1
-        delay = min(5 * self._reconnect_count, 30)  # 5s, 10s, 15s... max 30s
+        # The FIRST try goes at once: a dropped socket is nearly always back on
+        # the next connect, and a 5 s wait is 5 s of frozen prices on a scalp
+        # (09-Nov-2026: five drops, each a 6 s gap). Then 5s, 10s... max 30s.
+        delay = 1 if self._reconnect_count == 1 else min(5 * (self._reconnect_count - 1), 30)
         print(f"[FEED] 🔄 Reconnecting in {delay}s (attempt #{self._reconnect_count})...")
 
         def _do_reconnect():

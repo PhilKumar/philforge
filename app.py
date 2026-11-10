@@ -4052,7 +4052,11 @@ async def _restore_auxiliary_engines() -> dict[str, int]:
             scalp_raw = await _db_mod.get_app_state(_scalp_open_state_key(user_id))
             if scalp_raw:
                 scalp = _get_scalp_engine(user_id, broker_client)
-                _attach_scalp_zerodha(scalp, user)
+                # The FULL user row: list_users() carries no Zerodha keys, so a
+                # Zerodha scalp came back from a restart with no Zerodha client
+                # and its resting stop went unwatched until Exit was pressed
+                # (09-Nov-2026, trade 500: 81 "Zerodha is not connected").
+                _attach_scalp_zerodha(scalp, await _db_mod.get_user_by_id(user_id) or user)
                 if await _restore_scalp_open_state(user_id, scalp):
                     restored["scalp"] += 1
             if await _restore_cascade_open_state(user_id, broker_client) is not None:

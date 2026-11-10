@@ -159,6 +159,10 @@ def scalp_supertrend(candles: list, period: int = SCALP_ST_PERIOD, multiplier: f
 
 SCALP_POSITION_CACHE_TTL_SEC = 1.0
 SCALP_REST_LTP_REUSE_SEC = 1.0
+# The live feed counted as silent: no tick on ANY instrument for this long. The
+# index alone ticks several times a second in session, so 4 s of nothing is a
+# dropped socket, not a quiet contract.
+SCALP_FEED_SILENT_SEC = 4.0
 SCALP_REST_LTP_BACKOFF_BASE_SEC = 2.0
 SCALP_REST_LTP_BACKOFF_MAX_SEC = 16.0
 SCALP_REST_LTP_SNAPSHOT_SEC = 5.0
@@ -1185,6 +1189,15 @@ class ScalpEngine:
         self._log("info", f"🎯 Trade {trade_id} targets updated: {kwargs}")
         return {"status": "ok", "trade": trade.to_dict()}
 
+    def feed_silent_sec(self) -> float:
+        """Seconds since the live feed's last tick on any instrument; 0 when
+        there is no feed to judge (paper without one, practice)."""
+        try:
+            age = float(getattr(self.feed, "last_tick_age_seconds", 0.0) or 0.0)
+        except Exception:
+            return 0.0
+        return age if age > 0 else 0.0
+
     def get_status(self) -> dict:
         open_trades = [t.to_dict() for t in self.open_trades.values()]
         closed_pnl = round(sum(t.get("pnl", 0) for t in self.closed_trades), 2)
@@ -1199,6 +1212,8 @@ class ScalpEngine:
             "closed_pnl": closed_pnl,
             "open_pnl": open_pnl,
             "session_pnl": session_pnl,
+            # The page warns when the prices it is showing are old.
+            "feed_silent_sec": round(self.feed_silent_sec(), 1),
         }
 
     # ── Internal monitoring ───────────────────────────────────────
@@ -2271,11 +2286,17 @@ class ScalpEngine:
         by_segment: Dict[str, Dict[int, int]] = {}
         now_mono = _time.monotonic()
 
+        # A SILENT FEED IS NOT A PRICE (2026-11-10). The feed's last tick was
+        # trusted however old it was: through a dropped socket (five on
+        # 09-Nov-2026, 6 s each) the stop and target were checked against a
+        # frozen price. While it is silent, Dhan's quote prices the trades.
+        feed_silent = self.feed_silent_sec() > SCALP_FEED_SILENT_SEC
+
         for tid, trade in trades:
             segment = self._segment_for_underlying(trade.underlying)
             # Try WS cache first
             ws_sec_id = self._ws_subs.get(tid)
-            if ws_sec_id and self.feed:
+            if ws_sec_id and self.feed and not feed_silent:
                 try:
                     ltp = self.feed.get_ltp(ws_sec_id)
                     if ltp and ltp > 0:
@@ -2294,7 +2315,7 @@ class ScalpEngine:
                         self._ws_subs[tid] = new_id
                 except Exception:
                     pass
-            elif self.feed and tid not in self._ws_subs:
+            elif self.feed and tid not in self._ws_subs and not feed_silent:
                 # Trade has no WS subscription yet — subscribe now
                 try:
                     ws_sec_id = self.feed.subscribe_option(

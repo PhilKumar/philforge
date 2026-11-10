@@ -13628,6 +13628,12 @@ async function _scalpFeedLTPTick() {
     _scalpCurrentLTP = Number(d.ltp);
     _scalpLTPKey = formKey;
     _scalpLTPFromFeed = Date.now();
+    // This tick runs only while the live push is quiet (see above). An open
+    // trade on the form's contract takes the price too, so its chart keeps
+    // moving through a dropped push connection (2026-11-10).
+    (_scalpDockOpenTrades || []).forEach((t) => {
+      if (t.status !== 'pending' && _scalpContractKey(t.underlying, Number(t.strike), t.expiry, t.option_type) === formKey) t.current_premium = Number(d.ltp);
+    });
     if (moved) updateScalpMargin();
   } catch (_) {
     /* the next tick asks again; the 5 s poll covers a quiet feed */
@@ -17655,6 +17661,7 @@ function _applyScalpEngineState(running, rootGetter = (id) => document.getElemen
 }
 
 function _renderScalpStatus(data) {
+  _scalpPaintFeedWarning(data);
   _applyScalpEngineState(!!data.running);
 
   // Session P&L
@@ -24487,8 +24494,44 @@ function _flushScalpRender() {
   }
 }
 
+// PRICES DELAYED, SAID OUT LOUD (Phil, 2026-11-09: "it freezes and the chart
+// doesn't move at all"). A frozen chart looks exactly like a quiet market, and
+// he traded real money on one. When the server's feed has had no tick for 4 s,
+// or this page's own push connection is stale, a red bar says so over
+// everything -- the docked chart and the full-screen one alike.
+let _scalpPushStaleSince = 0;
+function _scalpPaintFeedWarning(data) {
+  const silent = Number(data && data.feed_silent_sec) || 0;
+  const onScalp = typeof _isPageActive === 'function' && _isPageActive('scalp-page');
+  const practice = typeof _pfPracticeOn === 'function' ? _pfPracticeOn() : !!(data && data.practice);
+  const holding = ((data && data.open_trades) || []).some(t => t.status !== 'pending');
+  const inSession = holding || (typeof _nseSessionLikelyOpen === 'function' && _nseSessionLikelyOpen());
+  // Stale for 4 s running, not a blink at page load or a reconnect.
+  const staleNow = typeof _wsStale !== 'undefined' && _wsStale;
+  if (!staleNow) _scalpPushStaleSince = 0; else if (!_scalpPushStaleSince) _scalpPushStaleSince = Date.now();
+  const pushStale = staleNow && Date.now() - _scalpPushStaleSince > 4000;
+  const show = onScalp && !practice && inSession && (silent > 4 || pushStale);
+  let bar = document.getElementById('scalp-feed-warning');
+  if (!show) { if (bar) bar.hidden = true; return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'scalp-feed-warning';
+    bar.className = 'scalp-feed-warning';
+    bar.setAttribute('role', 'alert');
+    document.body.appendChild(bar);
+  }
+  bar.textContent = silent > 4
+    ? `⚠ PRICES DELAYED ${Math.round(silent)}s — the live feed is silent. Do not trust the chart; check your broker.`
+    : '⚠ CONNECTION TO THE SERVER IS STALE — prices on this page may be old. Check your broker.';
+  bar.hidden = false;
+}
+
+// Between pushes too: a stale push connection sends nothing to repaint on.
+setInterval(() => { if (typeof _lastScalpStatus !== 'undefined' && _lastScalpStatus) _scalpPaintFeedWarning(_lastScalpStatus); }, 2000);
+
 // Lightweight WS-driven scalp render — only updates dynamic cells via cached refs
 function _renderScalpStatusWS(data) {
+  _scalpPaintFeedWarning(data);
   _applyScalpEngineState(!!data.running, _getScalpEl);
   _wsSetLiveIndicator(_ws && _ws.readyState === 1, _wsStale);
 

@@ -11738,3 +11738,11 @@ body.scalp-mode-practice #scalp-page .ocp-title-row .ocp-eyebrow { color: #facc1
   .trading-section-tabs:has(> .trading-section-tab:nth-child(5)) { grid-template-columns: repeat(5, auto); }
   .trading-section-tabs:has(> .trading-section-tab:nth-child(5)) > .trading-section-tab { flex: 1 1 auto; min-width: max-content; }
 }
+
+/* Prices delayed: over everything, the full-screen chart included. */
+.scalp-feed-warning {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 2147483000;
+  padding: 10px 16px; text-align: center; font-weight: 700; font-size: 14px; letter-spacing: 0.02em;
+  color: #fff; background: #b91c1c; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+.scalp-feed-warning[hidden] { display: none; }
