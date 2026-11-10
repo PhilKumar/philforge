@@ -4500,6 +4500,31 @@
           <button type="button" class="cascade-options-control scalp-contract-chart-btn" id="scalp-contract-chart-btn" onclick="openScalpContractChart()" title="Chart the option selected above before you trade it"><span class="scalp-contract-chart-ico" id="scalp-contract-chart-ico" aria-hidden="true"></span><span id="scalp-contract-chart-label">Option chart</span></button>
         </div>
 
+        <!-- The guard (Phil, 2026-11-10: "do both"): the limits a LIVE day is
+             held to, and where it stands. The server enforces them; this
+             strip only shows them. Looser limits wait for the next day. -->
+        <div class="scalp-guard" id="scalp-guard" hidden>
+          <div class="scalp-guard-line">
+            <span class="scalp-guard-text" id="scalp-guard-text">Guard</span>
+            <button type="button" class="scalp-guard-btn" id="scalp-guard-btn" onclick="toggleScalpGuardSet()" aria-expanded="false" aria-controls="scalp-guard-set">Limits</button>
+          </div>
+          <div class="scalp-guard-risk" id="scalp-guard-risk"></div>
+          <div class="scalp-guard-set" id="scalp-guard-set" hidden>
+            <label class="scalp-guard-on"><input type="checkbox" id="scalp-guard-enabled"><span>Guard on (live trades)</span></label>
+            <div class="scalp-guard-grid">
+              <label><span>Trades a day</span><input type="number" id="scalp-guard-max-trades" min="0" step="1" inputmode="numeric"></label>
+              <label><span>Day's loss limit ₹</span><input type="number" id="scalp-guard-max-loss" min="0" step="500" inputmode="decimal"></label>
+              <label><span>Lots per trade</span><input type="number" id="scalp-guard-max-lots" min="0" step="1" inputmode="numeric"></label>
+              <label><span>Stop within (pts)</span><input type="number" id="scalp-guard-max-stop" min="0" step="1" inputmode="decimal"></label>
+              <label><span>Wait after a loss (s)</span><input type="number" id="scalp-guard-cooldown" min="0" step="10" inputmode="numeric"></label>
+            </div>
+            <div class="scalp-guard-foot">
+              <span class="scalp-guard-note" id="scalp-guard-note">0 switches a limit off. Tighter applies now; looser starts tomorrow.</span>
+              <button type="button" class="scalp-guard-btn is-save" onclick="saveScalpGuard()">Save</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Mode + BUY/SELL -->
         <div class="scalp-entry-actions" style="display: flex; gap: 8px; align-items: center; margin-bottom: 0;">
           <input type="hidden" id="scalp-mode" value="paper">

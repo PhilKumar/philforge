@@ -13437,6 +13437,7 @@ function setScalpMode(value) {
   _syncScalpToggleGroup('scalp-mode-toggle', 'scalp-mode');
   _updateScalpExitRulesNote();
   _persistScalpFormState();
+  if (typeof _scalpPaintGuard === 'function') _scalpPaintGuard(); // the guard is for live
 }
 
 function stepScalpStrike(dir) {
@@ -13731,6 +13732,7 @@ function _syncScalpAutoExits() {
   preview.innerHTML = ltp > 0
     ? `On a BUY at <b>${fmt(ltp)}</b>: SL <b class="is-sl">${exit(sl, cents(ltp * 0.75))}</b> · Target <b class="is-tg">${exit(target, cents(ltp * 1.25))}</b>`
     : `Blank or 0 is ${live ? 'set 25% from the price' : 'no exit'}.`;
+  if (typeof _scalpPaintGuardRisk === 'function' && _scalpGuard) _scalpPaintGuardRisk();
 }
 
 function updateScalpMargin(forceRecalc) {
@@ -14335,6 +14337,7 @@ async function submitScalpEntry(direction) {
     statusEl.style.color = 'var(--danger)';
   } finally {
     _enableBtns();
+    refreshScalpGuard(true); // the day's count and limits, after every try
   }
 }
 
@@ -17662,6 +17665,7 @@ function _applyScalpEngineState(running, rootGetter = (id) => document.getElemen
 
 function _renderScalpStatus(data) {
   _scalpPaintFeedWarning(data);
+  refreshScalpGuard(false); // the day's limits, with each status poll
   _applyScalpEngineState(!!data.running);
 
   // Session P&L
@@ -24499,6 +24503,166 @@ function _flushScalpRender() {
 // he traded real money on one. When the server's feed has had no tick for 4 s,
 // or this page's own push connection is stale, a red bar says so over
 // everything -- the docked chart and the full-screen one alike.
+// ── The Scalp guard (Phil, 2026-11-10: "do both") ──────────────────
+// The server holds a LIVE day to its limits (scalp_guard.py) and refuses what
+// is over them; this strip shows where the day stands, and the form follows
+// the limits so what he sees is what will be sent: lots no higher than the
+// cap, a stop no further than the cap.
+// `var`: the form's own functions above call into these while the script is
+// still loading, before a `let` here would exist.
+var _scalpGuard = null;
+var _scalpGuardAt = 0;
+var _scalpGuardBusy = false;
+var _scalpGuardRs = (v) => '₹' + Math.round(Math.abs(Number(v) || 0)).toLocaleString('en-IN');
+
+async function refreshScalpGuard(force) {
+  if (_scalpGuardBusy || (!force && Date.now() - _scalpGuardAt < 8000)) return;
+  if (typeof _isPageActive === 'function' && !_isPageActive('scalp-page')) return;
+  _scalpGuardBusy = true;
+  _scalpGuardAt = Date.now();
+  try {
+    const r = await fetch('/api/scalp-guard', { credentials: 'same-origin', cache: 'no-store' });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.status === 'ok') { _scalpGuard = d; _scalpPaintGuard(); }
+  } catch (_) {
+    /* the next status poll asks again */
+  } finally {
+    _scalpGuardBusy = false;
+  }
+}
+
+function _scalpGuardLive() {
+  const g = _scalpGuard;
+  const practice = typeof _pfPracticeOn === 'function' && _pfPracticeOn();
+  return !!(g && g.limits && g.limits.enabled && !practice && document.getElementById('scalp-mode')?.value === 'live');
+}
+
+// The form shows what the guard will send: lots and the stop inside the caps.
+function _scalpGuardFitForm() {
+  if (!_scalpGuardLive()) return;
+  const L = _scalpGuard.limits;
+  const maxLots = Number(L.max_lots) || 0;
+  if (maxLots > 0) {
+    ['scalp-lots', 'scalp-ticket-lots'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el && (parseInt(el.value, 10) || 0) > maxLots) {
+        el.value = String(maxLots);
+        if (id === 'scalp-lots' && typeof updateScalpMargin === 'function') updateScalpMargin();
+      }
+    });
+  }
+  const cap = Number(L.max_stop_points) || 0;
+  const sl = document.getElementById('scalp-sl-pts');
+  if (cap > 0 && sl && document.activeElement !== sl && typeof _scalpExitMode === 'function' && _scalpExitMode() === 'points') {
+    const v = parseFloat(sl.value) || 0;
+    if (v <= 0 || v > cap) { sl.value = String(cap); if (typeof _syncScalpAutoExits === 'function') _syncScalpAutoExits(); }
+  }
+}
+
+function _scalpPaintGuard() {
+  const box = document.getElementById('scalp-guard');
+  const text = document.getElementById('scalp-guard-text');
+  if (!box || !text) return;
+  const g = _scalpGuard;
+  const practice = typeof _pfPracticeOn === 'function' && _pfPracticeOn();
+  if (!g || !g.limits || practice) { box.hidden = true; return; }
+  box.hidden = false;
+  const L = g.limits, S = g.stats || {};
+  box.classList.toggle('is-off', !L.enabled);
+  box.classList.toggle('is-blocked', !!(L.enabled && g.blocked));
+  const risk = document.getElementById('scalp-guard-risk');
+  if (!L.enabled) {
+    text.textContent = '🛡 Guard is off: live trades have no limits.';
+    if (risk) risk.textContent = '';
+  } else if (g.blocked) {
+    text.textContent = '🛑 ' + String(g.blocked).replace(/^Guard:\s*/, '');
+    if (risk) risk.textContent = '';
+  } else {
+    const pnl = Number(S.pnl) || 0;
+    const parts = [];
+    parts.push(Number(L.max_trades) > 0 ? `<b>${S.trades || 0}/${L.max_trades}</b> trades` : `<b>${S.trades || 0}</b> trades`);
+    const day = `${pnl < 0 ? '−' : '+'}${_scalpGuardRs(pnl)}`;
+    parts.push(Number(L.max_daily_loss) > 0 ? `day <b>${day}</b> (stop at −${_scalpGuardRs(L.max_daily_loss)})` : `day <b>${day}</b>`);
+    if (Number(L.max_lots) > 0) parts.push(`max <b>${L.max_lots}</b> lots`);
+    if (Number(L.max_stop_points) > 0) parts.push(`stop ≤ <b>${L.max_stop_points}</b> pts`);
+    text.innerHTML = '🛡 ' + parts.join(' · ');
+    _scalpGuardFitForm();
+    _scalpPaintGuardRisk();
+  }
+  // The settings show what is in force, unless he is typing in them.
+  const set = document.getElementById('scalp-guard-set');
+  if (set && set.hidden) _scalpGuardFillSet();
+  const note = document.getElementById('scalp-guard-note');
+  if (note) {
+    const waiting = g.pending && Object.keys(g.pending).length;
+    note.textContent = waiting
+      ? `Looser limits you saved start on ${new Date(g.pending_from + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}. Until then today's limits stand.`
+      : '0 switches a limit off. Tighter applies now; looser starts tomorrow.';
+  }
+}
+
+// What one trade risks and aims for, in rupees, at the form's lots and exits.
+function _scalpPaintGuardRisk() {
+  const risk = document.getElementById('scalp-guard-risk');
+  if (!risk) return;
+  if (!_scalpGuardLive()) { risk.textContent = ''; return; }
+  const qty = (parseInt(document.getElementById('scalp-lots')?.value, 10) || 0) * (parseInt(document.getElementById('scalp-lot-size')?.value, 10) || 0);
+  const auto = (typeof _scalpAutoExitPoints === 'function' && _scalpAutoExitPoints()) || { sl: 0, target: 0 };
+  const cap = Number(_scalpGuard.limits.max_stop_points) || 0;
+  let sl = Number(auto.sl) || 0;
+  if (cap > 0 && (sl <= 0 || sl > cap)) sl = cap;
+  const target = Number(auto.target) || 0;
+  if (!(qty > 0) || !(sl > 0)) { risk.textContent = ''; return; }
+  risk.innerHTML = `This trade: risk <b class="is-sl">${_scalpGuardRs(sl * qty)}</b> (${sl} pts)`
+    + (target > 0 ? ` · aim <b class="is-tg">${_scalpGuardRs(target * qty)}</b> (${target} pts)` : '');
+}
+
+function _scalpGuardFillSet() {
+  const L = (_scalpGuard && _scalpGuard.limits) || {};
+  const put = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : String(v); };
+  const on = document.getElementById('scalp-guard-enabled');
+  if (on) on.checked = !!L.enabled;
+  put('scalp-guard-max-trades', L.max_trades);
+  put('scalp-guard-max-loss', L.max_daily_loss);
+  put('scalp-guard-max-lots', L.max_lots);
+  put('scalp-guard-max-stop', L.max_stop_points);
+  put('scalp-guard-cooldown', L.cooldown_sec);
+}
+
+function toggleScalpGuardSet() {
+  const set = document.getElementById('scalp-guard-set');
+  const btn = document.getElementById('scalp-guard-btn');
+  if (!set) return;
+  if (set.hidden) _scalpGuardFillSet();
+  set.hidden = !set.hidden;
+  if (btn) btn.setAttribute('aria-expanded', String(!set.hidden));
+}
+
+async function saveScalpGuard() {
+  const num = (id) => Math.max(0, parseFloat(document.getElementById(id)?.value) || 0);
+  const body = {
+    enabled: !!document.getElementById('scalp-guard-enabled')?.checked,
+    max_trades: Math.round(num('scalp-guard-max-trades')),
+    max_daily_loss: num('scalp-guard-max-loss'),
+    max_lots: Math.round(num('scalp-guard-max-lots')),
+    max_stop_points: num('scalp-guard-max-stop'),
+    cooldown_sec: Math.round(num('scalp-guard-cooldown')),
+  };
+  const note = document.getElementById('scalp-guard-note');
+  try {
+    const r = await fetch('/api/scalp-guard', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.status !== 'ok') throw new Error(typeof pfErrorText === 'function' ? pfErrorText(d, 'Could not save the limits') : 'Could not save the limits');
+    _scalpGuard = d;
+    const set = document.getElementById('scalp-guard-set');
+    if (set) set.hidden = true;
+    document.getElementById('scalp-guard-btn')?.setAttribute('aria-expanded', 'false');
+    _scalpPaintGuard();
+  } catch (error) {
+    if (note) note.textContent = error.message || 'Could not save the limits';
+  }
+}
+
 let _scalpPushStaleSince = 0;
 function _scalpPaintFeedWarning(data) {
   const silent = Number(data && data.feed_silent_sec) || 0;

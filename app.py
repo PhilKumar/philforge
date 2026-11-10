@@ -58,6 +58,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 _logger = logging.getLogger(__name__)
 
+import scalp_guard as _scalp_guard  # noqa: E402  (the limits a live Scalp day is held to)
 import special_sessions as _special_sessions  # noqa: E402  (Muhurat-style sessions on a closed day)
 
 try:
@@ -27444,6 +27445,80 @@ def _get_scalp_entry_lock(user_id: int) -> asyncio.Lock:
     return _scalp_entry_locks.setdefault(int(user_id), asyncio.Lock())
 
 
+# ── The Scalp guard (see scalp_guard.py) ─────────────────────────
+def _scalp_guard_key(user_id: int) -> str:
+    return f"scalp_guard:{int(user_id)}"
+
+
+async def _scalp_guard_stored(user_id: int) -> dict | None:
+    raw = await _db_mod.get_app_state(_scalp_guard_key(user_id))
+    try:
+        state = json.loads(raw) if raw else None
+    except Exception:
+        state = None
+    return state if isinstance(state, dict) else None
+
+
+async def _scalp_guard_limits(user_id: int) -> dict:
+    return _scalp_guard.effective(await _scalp_guard_stored(user_id), datetime.now(IST).date())
+
+
+async def _scalp_guard_stats(user_id: int, eng) -> dict:
+    today = datetime.now(IST).date()
+    saved = await _db_mod.list_scalp_trades_since(user_id, today.isoformat())
+    held = list(getattr(eng, "closed_trades", None) or [])
+    status_open = [t.to_dict() for t in (getattr(eng, "open_trades", None) or {}).values()]
+    return _scalp_guard.day_stats(saved + held, status_open, today)
+
+
+async def _scalp_guard_payload(user_id: int, eng) -> dict:
+    today = datetime.now(IST).date()
+    state = _scalp_guard.settle(await _scalp_guard_stored(user_id), today)
+    limits = state["active"]
+    stats = await _scalp_guard_stats(user_id, eng)
+    return {
+        "status": "ok",
+        "limits": limits,
+        "pending": state.get("pending"),
+        "pending_from": state.get("pending_from") or "",
+        "stats": stats,
+        # Why the next live entry would be refused, at one lot; "" when open.
+        "blocked": _scalp_guard.refusal(limits, stats, 1, datetime.now(IST)),
+    }
+
+
+class ScalpGuardReq(BaseModel):
+    enabled: Optional[bool] = None
+    max_trades: Optional[int] = Field(default=None, ge=0, le=1000)
+    max_daily_loss: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
+    max_lots: Optional[int] = Field(default=None, ge=0, le=500)
+    max_stop_points: Optional[float] = Field(default=None, ge=0, le=100_000)
+    cooldown_sec: Optional[int] = Field(default=None, ge=0, le=86_400)
+
+
+# Not under /api/scalp/: the practice desk redirects that prefix, and the
+# guard is about the live day whichever desk is on screen.
+@app.get("/api/scalp-guard")
+async def get_scalp_guard(request: Request):
+    user_id = _request_user_id(request)
+    return await _scalp_guard_payload(user_id, _get_scalp_engine(user_id))
+
+
+@app.post("/api/scalp-guard")
+async def set_scalp_guard(req: ScalpGuardReq, request: Request):
+    user_id = _request_user_id(request)
+    today = datetime.now(IST).date()
+    wanted = {k: v for k, v in req.dict().items() if v is not None}
+    stored = await _scalp_guard_stored(user_id)
+    if stored is None:
+        # The first time he sets it, the numbers are simply his.
+        state = {"active": _scalp_guard.effective({"active": wanted}, today), "pending": None, "pending_from": ""}
+    else:
+        state = _scalp_guard.apply_change(stored, wanted, today)
+    await _db_mod.set_app_state(_scalp_guard_key(user_id), json.dumps(state))
+    return await _scalp_guard_payload(user_id, _get_scalp_engine(user_id))
+
+
 @app.post("/api/scalp/entry")
 async def scalp_entry(req: ScalpEntryReq, request: Request):
     _validate_scalp_entry_request(req)
@@ -27474,6 +27549,38 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
             # Dhan's REST LTP answered 429 most of 23-Oct-2026 and each retry
             # cost a second before the order was even sent. Optional.
             _attach_scalp_zerodha(eng, user, require_today=True)
+        guard_note = ""
+        if req.mode == "live":
+            # The guard: refuse what is over the day's limits, and bring the
+            # stop inside its own. Before any order is built.
+            limits = await _scalp_guard_limits(user_id)
+            if limits.get("enabled"):
+                refused = _scalp_guard.refusal(
+                    limits, await _scalp_guard_stats(user_id, eng), req.lots, datetime.now(IST)
+                )
+                if refused:
+                    return {"status": "error", "message": refused, "guard": True}
+                price = 0.0
+                if _market_feed is not None:
+                    try:
+                        price = float(
+                            _market_feed.live_option_ltp(req.underlying, req.strike, req.expiry, req.option_type) or 0
+                        )
+                    except Exception:
+                        price = 0.0
+                stop = _scalp_guard.clamp_stop(
+                    limits,
+                    sl_points=req.sl_points,
+                    sl_premium=req.sl_premium,
+                    sl_pct=req.sl_pct,
+                    sl_rupees=req.sl_rupees,
+                    quantity=req.lots * req.lot_size,
+                    price=price,
+                    buying=str(req.transaction_type).upper() == "BUY",
+                )
+                guard_note = stop.pop("note")
+                req.sl_points, req.sl_premium = stop["sl_points"], stop["sl_premium"]
+                req.sl_pct, req.sl_rupees = stop["sl_pct"], stop["sl_rupees"]
         entry = dict(
             underlying=req.underlying,
             strike=req.strike,
@@ -27506,6 +27613,9 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                 _alert_scalp_entry(req, result, req.broker)
             if result.get("status") != "error":
                 await _save_scalp_open_state(user_id, eng, force=True)
+                if guard_note:
+                    eng._log("info", f"🛡️ {guard_note}")
+                    result["guard_note"] = guard_note
             _notify_scalp_ws()
             return result
         except Exception as e:
@@ -27663,6 +27773,18 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
     eng = _get_scalp_engine(user_id)
     await _restore_scalp_open_state(user_id, eng)
     await _attach_scalp_zerodha_for_request(eng, request)
+    trade = eng.open_trades.get(int(trade_id))
+    if trade is not None and trade.mode == "live" and trade.status != "pending" and req.sl_premium is not None:
+        # The guard: a live stop may come closer, never further than its limit.
+        why = _scalp_guard.may_move_stop(
+            await _scalp_guard_limits(user_id),
+            entry=trade.entry_premium,
+            new_stop=req.sl_premium,
+            old_stop=trade.sl_premium,
+            buying=trade.transaction_type == "BUY",
+        )
+        if why:
+            return {"status": "error", "message": why, "guard": True}
     result = await eng.update_trade_targets(trade_id, **{k: v for k, v in req.dict().items() if v is not None})
     await _save_scalp_open_state(user_id, eng, force=True)
     _notify_scalp_ws()

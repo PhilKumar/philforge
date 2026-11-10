@@ -1554,6 +1554,23 @@ async def list_scalp_trades(user_id: int) -> list[dict]:
         return trades
 
 
+async def list_scalp_trades_since(user_id: int, since: str) -> list[dict]:
+    """Closed scalps saved on or after `since` ("YYYY-MM-DD", IST as saved)."""
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT trade_data FROM scalp_trades WHERE user_id = ? AND created_at >= ? ORDER BY id",
+            (user_id, str(since)),
+        )
+        rows = await cursor.fetchall()
+    trades: list[dict] = []
+    for row in rows:
+        payload = _json_loads(dict(row).get("trade_data"), {})
+        if isinstance(payload, dict):
+            trades.append(payload)
+    return trades
+
+
 async def create_scalp_trade(user_id: int, trade: dict) -> None:
     """Persist one closed scalp trade for a user."""
     payload = dict(trade or {})

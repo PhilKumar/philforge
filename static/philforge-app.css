@@ -11746,3 +11746,26 @@ body.scalp-mode-practice #scalp-page .ocp-title-row .ocp-eyebrow { color: #facc1
   color: #fff; background: #b91c1c; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
 }
 .scalp-feed-warning[hidden] { display: none; }
+
+/* The Scalp guard: the day's limits above BUY and SELL. */
+.scalp-guard { margin: 0 0 10px; padding: 8px 10px; border: 1px solid rgba(96, 165, 250, 0.35); border-radius: 10px; background: rgba(30, 58, 138, 0.18); font-size: 11.5px; }
+.scalp-guard[hidden], .scalp-guard-set[hidden] { display: none; }
+.scalp-guard-line { display: flex; align-items: center; gap: 8px; }
+.scalp-guard-text { flex: 1 1 auto; min-width: 0; font-family: 'JetBrains Mono', monospace; color: var(--text); line-height: 1.5; }
+.scalp-guard-text b { font-weight: 800; }
+.scalp-guard-risk { margin-top: 4px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.scalp-guard-risk:empty { display: none; }
+.scalp-guard-risk .is-sl { color: #f87171; }
+.scalp-guard-risk .is-tg { color: #34d399; }
+.scalp-guard.is-blocked { border-color: rgba(248, 113, 113, 0.7); background: rgba(127, 29, 29, 0.35); }
+.scalp-guard.is-blocked .scalp-guard-text { color: #fecaca; font-weight: 700; }
+.scalp-guard.is-off { border-color: var(--border); background: transparent; }
+.scalp-guard-btn { flex: 0 0 auto; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--border); background: rgba(255, 255, 255, 0.06); color: var(--text); font-size: 11px; font-weight: 700; cursor: pointer; }
+.scalp-guard-btn.is-save { border-color: rgba(52, 211, 153, 0.55); color: #34d399; }
+.scalp-guard-set { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.scalp-guard-on { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-weight: 700; }
+.scalp-guard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+.scalp-guard-grid label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.scalp-guard-grid input { font-size: 12px; padding: 6px 8px; font-family: 'JetBrains Mono', monospace; }
+.scalp-guard-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.scalp-guard-note { flex: 1 1 auto; color: var(--muted); font-size: 10.5px; line-height: 1.4; }

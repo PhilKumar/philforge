@@ -116,6 +116,8 @@ async function installOfflineE2E(page: Page) {
     else if (path === '/api/live/status') await route.fulfill({ json: liveStatusMock });
     // The Scalp page asks whether a practice day is running (2026-11-07).
     else if (path === '/api/practice/state') await route.fulfill({ json: { status: 'none' } });
+    // The Scalp page reads the day's guard limits (2026-11-10); none here, so its strip stays hidden.
+    else if (path === '/api/scalp-guard') await route.fulfill({ json: { status: 'none' } });
     else if (path === '/api/scalp/status') await route.fulfill({ json: scalpStatusMock });
     else if (path === '/api/engine-control/status') await route.fulfill({ json: { status: 'ok', any_running: false, users: [] } });
     else if (path === '/api/terminal/nifty200') await route.fulfill({ json: { status: 'ok', symbols: [] } });
