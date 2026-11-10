@@ -4285,7 +4285,7 @@
             <button type="button" data-pf-action="setScalpPracticeSpeed" data-speed="15">15×</button>
             <button type="button" data-pf-action="setScalpPracticeSpeed" data-speed="20">20×</button>
           </div>
-          <button type="button" class="btn btn-sm scalp-practice-end" id="scalp-practice-end" data-pf-action="endScalpPractice">End day</button>
+          <button type="button" class="btn btn-sm scalp-practice-end read-only-lock" id="scalp-practice-end" data-pf-action="endScalpPractice">End day</button>
         </div>
         <span class="scalp-practice-msg" id="scalp-practice-msg" role="status"></span>
       </div>
@@ -4520,7 +4520,7 @@
             </div>
             <div class="scalp-guard-foot">
               <span class="scalp-guard-note" id="scalp-guard-note">0 switches a limit off. Tighter applies now; looser starts tomorrow.</span>
-              <button type="button" class="scalp-guard-btn is-save" onclick="saveScalpGuard()">Save</button>
+              <button type="button" class="scalp-guard-btn is-save read-only-lock" onclick="saveScalpGuard()">Save</button>
             </div>
           </div>
         </div>

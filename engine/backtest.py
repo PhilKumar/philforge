@@ -1249,6 +1249,75 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
             position["peak_premium"] = min(position["peak_premium"], current_price)
         return {"current": current_price, "worst": worst_price, "best": best_price}
 
+    def _resting_exit(position, snap):
+        """(reason, price) when a leg's resting order -- trailing stop, stop,
+        target, in %, points or rupees -- was touched inside this candle, else
+        None. These sit at the broker and fill inside the candle; they are
+        checked before anything decided at the candle's close.
+        """
+        direction = 1 if position["transaction_type"] == "BUY" else -1
+        buying = position["transaction_type"] == "BUY"
+        if position["trail_pct"] > 0:
+            threshold = position["peak_premium"] * (
+                1 - position["trail_pct"] / 100 if buying else 1 + position["trail_pct"] / 100
+            )
+            if (buying and snap["worst"] <= threshold) or (not buying and snap["worst"] >= threshold):
+                return "TrailingSL", threshold
+        if position["sl_pct"] > 0:
+            threshold = position["entry_price"] * (
+                1 - position["sl_pct"] / 100 if buying else 1 + position["sl_pct"] / 100
+            )
+            if (buying and snap["worst"] <= threshold) or (not buying and snap["worst"] >= threshold):
+                return "StopLoss", threshold
+        if position["target_pct"] > 0:
+            threshold = position["entry_price"] * (
+                1 + position["target_pct"] / 100 if buying else 1 - position["target_pct"] / 100
+            )
+            if (buying and snap["best"] >= threshold) or (not buying and snap["best"] <= threshold):
+                return "Target", threshold
+        if position["sl_points"] > 0:
+            threshold = position["entry_price"] - position["sl_points"] * direction
+            if _position_pnl(position, snap["worst"]) <= _position_pnl(position, threshold):
+                return "SL_POINTS", threshold
+        if position["target_points"] > 0:
+            threshold = position["entry_price"] + position["target_points"] * direction
+            if _position_pnl(position, snap["best"]) >= _position_pnl(position, threshold):
+                return "TARGET_POINTS", threshold
+        if position["sl_rupees"] > 0:
+            threshold = position["entry_price"] - (position["sl_rupees"] / position["qty"]) * direction
+            if _position_pnl(position, snap["worst"]) <= -position["sl_rupees"]:
+                return "SL_RUPEES", threshold
+        if position["target_rupees"] > 0:
+            threshold = position["entry_price"] + (position["target_rupees"] / position["qty"]) * direction
+            if _position_pnl(position, snap["best"]) >= position["target_rupees"]:
+                return "TARGET_RUPEES", threshold
+        return None
+
+    def _close_resting_exits(snap_map, ts) -> bool:
+        """Close every leg whose resting order filled in this candle."""
+        hits = []
+        for position in list(open_positions):
+            hit = _resting_exit(position, snap_map[id(position)])
+            if hit:
+                hits.append((position, hit[1], hit[0]))
+        for position, exit_price, exit_reason in hits:
+            _close_selected_positions([position], ts, lambda _position, price=exit_price: price, exit_reason)
+        return bool(hits)
+
+    def _entry_candle_exits(row, ts) -> None:
+        """A leg bought at a candle's OPEN lives through the rest of that
+        candle: its stop or target can fill there. On 19-Oct-2026 the live PE
+        book's 20% stop sold at Rs 205 two minutes after the 09:30 entry; the
+        replay never looked at the entry candle and held the leg to Rs 110.
+        """
+        if not open_positions:
+            return
+        close_spot = float(row["close"])
+        high_spot = float(row.get("high", close_spot))
+        low_spot = float(row.get("low", close_spot))
+        snap_map = {id(p): _position_snapshots(p, ts, close_spot, high_spot, low_spot) for p in open_positions}
+        _close_resting_exits(snap_map, ts)
+
     def _position_pnl(position, price):
         direction = 1 if position["transaction_type"] == "BUY" else -1
         return (price - position["entry_price"]) * direction * position["qty"]
@@ -1758,6 +1827,20 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                             "Touch",
                         )
                         exited_this_candle = True
+            # A RESTING STOP FILLS INSIDE THE CANDLE; a signal is known only at
+            # its close. When one candle does both, the stop came first -- a
+            # replay that let the signal win booked the close instead (19-Oct-
+            # 2026: stop Rs 201.80, booked Rs 110.40). A signal exit pending for
+            # this candle's OPEN still goes first: the open precedes the range.
+            if (
+                not exited_this_candle
+                and open_positions
+                and not (
+                    pending_signal_exit and pending_signal_exit.get("at_open") and pending_signal_exit["remaining"] <= 1
+                )
+            ):
+                if _close_resting_exits(snapshots, ts):
+                    exited_this_candle = True
             if not exited_this_candle and pending_signal_exit:
                 pending_signal_exit["remaining"] -= 1
                 if pending_signal_exit["remaining"] <= 0:
@@ -1818,69 +1901,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                 leg_exits = []
                 for position in list(open_positions):
                     snap = snapshots[id(position)]
-                    direction = 1 if position["transaction_type"] == "BUY" else -1
-                    exit_reason = None
-                    exit_price = None
-
-                    if position["trail_pct"] > 0:
-                        threshold = position["peak_premium"] * (
-                            1 - position["trail_pct"] / 100
-                            if position["transaction_type"] == "BUY"
-                            else 1 + position["trail_pct"] / 100
-                        )
-                        if (position["transaction_type"] == "BUY" and snap["worst"] <= threshold) or (
-                            position["transaction_type"] == "SELL" and snap["worst"] >= threshold
-                        ):
-                            exit_reason = "TrailingSL"
-                            exit_price = threshold
-
-                    if exit_reason is None and position["sl_pct"] > 0:
-                        threshold = position["entry_price"] * (
-                            1 - position["sl_pct"] / 100
-                            if position["transaction_type"] == "BUY"
-                            else 1 + position["sl_pct"] / 100
-                        )
-                        if (position["transaction_type"] == "BUY" and snap["worst"] <= threshold) or (
-                            position["transaction_type"] == "SELL" and snap["worst"] >= threshold
-                        ):
-                            exit_reason = "StopLoss"
-                            exit_price = threshold
-
-                    if exit_reason is None and position["target_pct"] > 0:
-                        threshold = position["entry_price"] * (
-                            1 + position["target_pct"] / 100
-                            if position["transaction_type"] == "BUY"
-                            else 1 - position["target_pct"] / 100
-                        )
-                        if (position["transaction_type"] == "BUY" and snap["best"] >= threshold) or (
-                            position["transaction_type"] == "SELL" and snap["best"] <= threshold
-                        ):
-                            exit_reason = "Target"
-                            exit_price = threshold
-
-                    if exit_reason is None and position["sl_points"] > 0:
-                        threshold = position["entry_price"] - position["sl_points"] * direction
-                        if _position_pnl(position, snap["worst"]) <= _position_pnl(position, threshold):
-                            exit_reason = "SL_POINTS"
-                            exit_price = threshold
-
-                    if exit_reason is None and position["target_points"] > 0:
-                        threshold = position["entry_price"] + position["target_points"] * direction
-                        if _position_pnl(position, snap["best"]) >= _position_pnl(position, threshold):
-                            exit_reason = "TARGET_POINTS"
-                            exit_price = threshold
-
-                    if exit_reason is None and position["sl_rupees"] > 0:
-                        threshold = position["entry_price"] - (position["sl_rupees"] / position["qty"]) * direction
-                        if _position_pnl(position, snap["worst"]) <= -position["sl_rupees"]:
-                            exit_reason = "SL_RUPEES"
-                            exit_price = threshold
-
-                    if exit_reason is None and position["target_rupees"] > 0:
-                        threshold = position["entry_price"] + (position["target_rupees"] / position["qty"]) * direction
-                        if _position_pnl(position, snap["best"]) >= position["target_rupees"]:
-                            exit_reason = "TARGET_RUPEES"
-                            exit_price = threshold
+                    hit = _resting_exit(position, snap)
+                    exit_reason, exit_price = hit if hit else (None, None)
 
                     if exit_reason is None and not is_daily and ct >= position["sqoff_time"]:
                         exit_reason = "SquareOff"
@@ -1931,7 +1953,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     trade_entry_time = ts
                     positions = _build_entry_positions(float(row["open"]), ts, cd, lot_size)
                     if positions:
-                        _open_entry_positions(positions)
+                        if _open_entry_positions(positions):
+                            _entry_candle_exits(row, ts)
                     else:
                         # A missing premium chain consumes the day's one signal;
                         # do not repeatedly re-enter on each following candle.
@@ -1967,7 +1990,8 @@ def run_backtest(df_raw, entry_conditions=None, exit_conditions=None, strategy_c
                     trade_entry_time = ts
                     positions = _build_entry_positions(float(row["open"]), ts, cd, lot_size)
                     if positions:
-                        _open_entry_positions(positions)
+                        if _open_entry_positions(positions):
+                            _entry_candle_exits(row, ts)
                     else:
                         # See pending-entry handling above.
                         trades_today += 1
