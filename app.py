@@ -27493,6 +27493,7 @@ class ScalpGuardReq(BaseModel):
     max_daily_loss: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
     max_lots: Optional[int] = Field(default=None, ge=0, le=500)
     max_stop_points: Optional[float] = Field(default=None, ge=0, le=100_000)
+    max_stop_points_sensex: Optional[float] = Field(default=None, ge=0, le=100_000)
     cooldown_sec: Optional[int] = Field(default=None, ge=0, le=86_400)
 
 
@@ -27570,6 +27571,7 @@ async def scalp_entry(req: ScalpEntryReq, request: Request):
                         price = 0.0
                 stop = _scalp_guard.clamp_stop(
                     limits,
+                    underlying=req.underlying,
                     sl_points=req.sl_points,
                     sl_premium=req.sl_premium,
                     sl_pct=req.sl_pct,
@@ -27778,6 +27780,7 @@ async def update_scalp_targets(trade_id: int, req: ScalpTargetsReq, request: Req
         # The guard: a live stop may come closer, never further than its limit.
         why = _scalp_guard.may_move_stop(
             await _scalp_guard_limits(user_id),
+            underlying=trade.underlying,
             entry=trade.entry_premium,
             new_stop=req.sl_premium,
             old_stop=trade.sl_premium,

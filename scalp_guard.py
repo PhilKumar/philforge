@@ -15,18 +15,23 @@ the day. Each limit here answers one of those:
 
 Zero switches a limit off. LIVE entries only: paper and practice are free.
 
-A LIMIT CANNOT BE LOOSENED IN THE MIDDLE OF A DAY. Tightening applies at once;
-loosening (a bigger number, zero, or switching the guard off) waits for the
-next day. A limit he can lift while he is losing is not a limit.
+Every change he saves applies at once (2026-11-12; a first build made looser
+limits wait a day, and it locked him out of his own settings).
 
 No imports from the app: the route and the tests both read it.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
-LIMITS = ("max_trades", "max_daily_loss", "max_lots", "max_stop_points", "cooldown_sec")
+LIMITS = ("max_trades", "max_daily_loss", "max_lots", "max_stop_points", "max_stop_points_sensex", "cooldown_sec")
+
+# SENSEX runs about 3.3 times NIFTY in points, and its options move with it: a
+# 20-point stop that suits a NIFTY option stopped every SENSEX trade (Phil,
+# 2026-11-12: "This is ridiculous for SENSEX.. 20 points is very small"). Left
+# at 0, SENSEX's limit is this many times the NIFTY one.
+SENSEX_STOP_SCALE = 3.0
 
 # What the desk starts with. He changes them from the Scalp page.
 DEFAULTS: dict = {
@@ -35,6 +40,7 @@ DEFAULTS: dict = {
     "max_daily_loss": 5000.0,
     "max_lots": 2,
     "max_stop_points": 20.0,
+    "max_stop_points_sensex": 0.0,
     "cooldown_sec": 120,
 }
 
@@ -56,57 +62,40 @@ def _clean(raw: dict | None) -> dict:
     return out
 
 
-def _looser(key: str, old, new) -> bool:
-    """True when `new` lets him do more than `old` did."""
-    if key == "enabled":
-        return bool(old) and not bool(new)
-    old, new = float(old or 0), float(new or 0)
-    if old <= 0:  # it was off: nothing is looser than no limit
-        return False
-    return new <= 0 or new > old
+def stop_cap(limits: dict, underlying: str = "") -> float:
+    """How far from the entry a stop may sit, in points, on this underlying."""
+    base = float(limits.get("max_stop_points") or 0)
+    if str(underlying or "").upper() == "SENSEX":
+        own = float(limits.get("max_stop_points_sensex") or 0)
+        return own if own > 0 else round(base * SENSEX_STOP_SCALE, 2)
+    return base
 
 
 def effective(state: dict | None, today: date) -> dict:
-    """The limits in force today: a pending change takes over on its day."""
-    state = state if isinstance(state, dict) else {}
-    active = _clean(state.get("active"))
-    pending = state.get("pending")
-    if isinstance(pending, dict) and str(state.get("pending_from") or "9999") <= today.isoformat():
-        active = _clean({**active, **pending})
-    return active
+    """The limits in force. A change saved under the old next-day rule counts now."""
+    return settle(state, today)["active"]
 
 
 def settle(state: dict | None, today: date) -> dict:
-    """The stored state with a pending change that has come due folded in."""
+    """The stored state, with anything left waiting from the old rule folded in."""
     state = state if isinstance(state, dict) else {}
+    active = _clean(state.get("active"))
     pending = state.get("pending")
-    if isinstance(pending, dict) and str(state.get("pending_from") or "9999") <= today.isoformat():
-        return {"active": effective(state, today), "pending": None, "pending_from": ""}
-    return {
-        "active": _clean(state.get("active")),
-        "pending": pending if isinstance(pending, dict) and pending else None,
-        "pending_from": str(state.get("pending_from") or "") if pending else "",
-    }
+    if isinstance(pending, dict) and pending:
+        active = _clean({**active, **pending})
+    return {"active": active, "pending": None, "pending_from": ""}
 
 
 def apply_change(state: dict | None, wanted: dict, today: date) -> dict:
-    """Save new limits: the tighter ones now, the looser ones from tomorrow."""
-    state = settle(state, today)
-    active = dict(state["active"])
-    wanted = _clean({**active, **(wanted if isinstance(wanted, dict) else {})})
-    pending = dict(state.get("pending") or {})
-    for key in ("enabled", *LIMITS):
-        if wanted[key] == active[key]:
-            pending.pop(key, None)  # asked back to what it is: nothing waits
-        elif _looser(key, active[key], wanted[key]):
-            pending[key] = wanted[key]
-        else:
-            active[key] = wanted[key]
-            pending.pop(key, None)
+    """Save new limits. EVERY change applies at once (Phil, 2026-11-12: "I
+    can't even change the guard"). The first build held a looser limit back to
+    the next day; that was my idea, not his, and it locked him out of his own
+    settings mid-session. They are his limits."""
+    active = settle(state, today)["active"]
     return {
-        "active": active,
-        "pending": pending or None,
-        "pending_from": (today + timedelta(days=1)).isoformat() if pending else "",
+        "active": _clean({**active, **(wanted if isinstance(wanted, dict) else {})}),
+        "pending": None,
+        "pending_from": "",
     }
 
 
@@ -199,6 +188,7 @@ def refusal(limits: dict, stats: dict, lots: int, now: datetime) -> str:
 def clamp_stop(
     limits: dict,
     *,
+    underlying: str = "",
     sl_points: float,
     sl_premium: float,
     sl_pct: float,
@@ -220,7 +210,7 @@ def clamp_stop(
         "sl_rupees": float(sl_rupees or 0),
         "note": "",
     }
-    cap = float(limits.get("max_stop_points") or 0) if limits.get("enabled") else 0.0
+    cap = stop_cap(limits, underlying) if limits.get("enabled") else 0.0
     if cap <= 0:
         return out
     quantity = max(int(quantity or 0), 1)
@@ -244,9 +234,11 @@ def clamp_stop(
     return out
 
 
-def may_move_stop(limits: dict, *, entry: float, new_stop: float, old_stop: float, buying: bool) -> str:
+def may_move_stop(
+    limits: dict, *, underlying: str = "", entry: float, new_stop: float, old_stop: float, buying: bool
+) -> str:
     """Why a stop may not be moved there, or "". Closer is always allowed."""
-    cap = float(limits.get("max_stop_points") or 0) if limits.get("enabled") else 0.0
+    cap = stop_cap(limits, underlying) if limits.get("enabled") else 0.0
     entry, new_stop, old_stop = float(entry or 0), float(new_stop or 0), float(old_stop or 0)
     if cap <= 0 or entry <= 0:
         return ""

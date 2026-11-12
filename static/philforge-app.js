@@ -14109,6 +14109,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else _syncScalpUnderlyingPicker();
 
 async function loadScalpExpiries(options = {}) {
+  if (typeof _scalpPaintGuard === 'function') _scalpPaintGuard(); // SENSEX has its own stop limit
   _syncScalpUnderlyingPicker();
   try {
     const preserve = options && options.preserveState ? options.preserveState : null;
@@ -24537,6 +24538,17 @@ function _scalpGuardLive() {
   return !!(g && g.limits && g.limits.enabled && !practice && document.getElementById('scalp-mode')?.value === 'live');
 }
 
+// How far a stop may sit on the form's underlying: SENSEX has its own limit,
+// or three times NIFTY's when it is left at 0 (scalp_guard.stop_cap).
+function _scalpGuardStopCap(L) {
+  const base = Number(L && L.max_stop_points) || 0;
+  if ((document.getElementById('scalp-underlying')?.value || '').toUpperCase() === 'SENSEX') {
+    const own = Number(L && L.max_stop_points_sensex) || 0;
+    return own > 0 ? own : Math.round(base * 3 * 100) / 100;
+  }
+  return base;
+}
+
 // The form shows what the guard will send: lots and the stop inside the caps.
 function _scalpGuardFitForm() {
   if (!_scalpGuardLive()) return;
@@ -24551,7 +24563,7 @@ function _scalpGuardFitForm() {
       }
     });
   }
-  const cap = Number(L.max_stop_points) || 0;
+  const cap = _scalpGuardStopCap(L);
   const sl = document.getElementById('scalp-sl-pts');
   if (cap > 0 && sl && document.activeElement !== sl && typeof _scalpExitMode === 'function' && _scalpExitMode() === 'points') {
     const v = parseFloat(sl.value) || 0;
@@ -24584,7 +24596,8 @@ function _scalpPaintGuard() {
     const day = `${pnl < 0 ? '−' : '+'}${_scalpGuardRs(pnl)}`;
     parts.push(Number(L.max_daily_loss) > 0 ? `day <b>${day}</b> (stop at −${_scalpGuardRs(L.max_daily_loss)})` : `day <b>${day}</b>`);
     if (Number(L.max_lots) > 0) parts.push(`max <b>${L.max_lots}</b> lots`);
-    if (Number(L.max_stop_points) > 0) parts.push(`stop ≤ <b>${L.max_stop_points}</b> pts`);
+    const stopCap = _scalpGuardStopCap(L);
+    if (stopCap > 0) parts.push(`stop ≤ <b>${stopCap}</b> pts`);
     text.innerHTML = '🛡 ' + parts.join(' · ');
     _scalpGuardFitForm();
     _scalpPaintGuardRisk();
@@ -24593,12 +24606,7 @@ function _scalpPaintGuard() {
   const set = document.getElementById('scalp-guard-set');
   if (set && set.hidden) _scalpGuardFillSet();
   const note = document.getElementById('scalp-guard-note');
-  if (note) {
-    const waiting = g.pending && Object.keys(g.pending).length;
-    note.textContent = waiting
-      ? `Looser limits you saved start on ${new Date(g.pending_from + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}. Until then today's limits stand.`
-      : '0 switches a limit off. Tighter applies now; looser starts tomorrow.';
-  }
+  if (note) note.textContent = '0 switches a limit off. A change applies as soon as you save.';
 }
 
 // What one trade risks and aims for, in rupees, at the form's lots and exits.
@@ -24608,7 +24616,7 @@ function _scalpPaintGuardRisk() {
   if (!_scalpGuardLive()) { risk.textContent = ''; return; }
   const qty = (parseInt(document.getElementById('scalp-lots')?.value, 10) || 0) * (parseInt(document.getElementById('scalp-lot-size')?.value, 10) || 0);
   const auto = (typeof _scalpAutoExitPoints === 'function' && _scalpAutoExitPoints()) || { sl: 0, target: 0 };
-  const cap = Number(_scalpGuard.limits.max_stop_points) || 0;
+  const cap = _scalpGuardStopCap(_scalpGuard.limits);
   let sl = Number(auto.sl) || 0;
   if (cap > 0 && (sl <= 0 || sl > cap)) sl = cap;
   const target = Number(auto.target) || 0;
@@ -24626,6 +24634,7 @@ function _scalpGuardFillSet() {
   put('scalp-guard-max-loss', L.max_daily_loss);
   put('scalp-guard-max-lots', L.max_lots);
   put('scalp-guard-max-stop', L.max_stop_points);
+  put('scalp-guard-max-stop-sensex', L.max_stop_points_sensex);
   put('scalp-guard-cooldown', L.cooldown_sec);
 }
 
@@ -24646,6 +24655,7 @@ async function saveScalpGuard() {
     max_daily_loss: num('scalp-guard-max-loss'),
     max_lots: Math.round(num('scalp-guard-max-lots')),
     max_stop_points: num('scalp-guard-max-stop'),
+    max_stop_points_sensex: num('scalp-guard-max-stop-sensex'),
     cooldown_sec: Math.round(num('scalp-guard-cooldown')),
   };
   const note = document.getElementById('scalp-guard-note');

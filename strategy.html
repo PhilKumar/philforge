@@ -4515,11 +4515,12 @@
               <label><span>Trades a day</span><input type="number" id="scalp-guard-max-trades" min="0" step="1" inputmode="numeric"></label>
               <label><span>Day's loss limit ₹</span><input type="number" id="scalp-guard-max-loss" min="0" step="500" inputmode="decimal"></label>
               <label><span>Lots per trade</span><input type="number" id="scalp-guard-max-lots" min="0" step="1" inputmode="numeric"></label>
-              <label><span>Stop within (pts)</span><input type="number" id="scalp-guard-max-stop" min="0" step="1" inputmode="decimal"></label>
+              <label><span>NIFTY stop within (pts)</span><input type="number" id="scalp-guard-max-stop" min="0" step="1" inputmode="decimal"></label>
+              <label><span>SENSEX stop within (pts)</span><input type="number" id="scalp-guard-max-stop-sensex" min="0" step="1" inputmode="decimal" placeholder="0 = 3× NIFTY"></label>
               <label><span>Wait after a loss (s)</span><input type="number" id="scalp-guard-cooldown" min="0" step="10" inputmode="numeric"></label>
             </div>
             <div class="scalp-guard-foot">
-              <span class="scalp-guard-note" id="scalp-guard-note">0 switches a limit off. Tighter applies now; looser starts tomorrow.</span>
+              <span class="scalp-guard-note" id="scalp-guard-note">0 switches a limit off. A change applies as soon as you save.</span>
               <button type="button" class="scalp-guard-btn is-save read-only-lock" onclick="saveScalpGuard()">Save</button>
             </div>
           </div>

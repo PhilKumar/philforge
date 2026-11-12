@@ -111,30 +111,21 @@ class Stop(unittest.TestCase):
         self.assertIn("your limit", move(10.0, old=20.0))
 
 
-class LooseningWaitsADay(unittest.TestCase):
-    def test_tighter_now_looser_tomorrow(self):
+class EveryChangeAppliesAtOnce(unittest.TestCase):
+    """Phil, 2026-11-12: "I can't even change the guard". His limits, his call."""
+
+    def test_looser_and_tighter_both_apply_now(self):
         state = g.apply_change({"active": g.DEFAULTS}, {"max_lots": 1, "max_trades": 50, "max_daily_loss": 0}, DAY)
-        today = g.effective(state, DAY)
-        self.assertEqual((today["max_lots"], today["max_trades"], today["max_daily_loss"]), (1, 10, 5000.0))
-        self.assertEqual(state["pending_from"], "2026-11-11")
-        tomorrow = g.effective(state, date(2026, 11, 11))
-        self.assertEqual((tomorrow["max_lots"], tomorrow["max_trades"], tomorrow["max_daily_loss"]), (1, 50, 0))
-
-    def test_switching_it_off_waits_too(self):
-        state = g.apply_change({"active": g.DEFAULTS}, {"enabled": False}, DAY)
-        self.assertTrue(g.effective(state, DAY)["enabled"])
-        self.assertFalse(g.effective(state, date(2026, 11, 11))["enabled"])
-
-    def test_asking_it_back_cancels_the_wait(self):
-        state = g.apply_change({"active": g.DEFAULTS}, {"max_trades": 50}, DAY)
-        state = g.apply_change(state, {"max_trades": 10}, DAY)
+        now = g.effective(state, DAY)
+        self.assertEqual((now["max_lots"], now["max_trades"], now["max_daily_loss"]), (1, 50, 0))
         self.assertIsNone(state["pending"])
 
-    def test_a_due_change_is_folded_in(self):
-        state = g.apply_change({"active": g.DEFAULTS}, {"max_trades": 50}, DAY)
-        settled = g.settle(state, date(2026, 11, 12))
-        self.assertEqual(settled["active"]["max_trades"], 50)
-        self.assertIsNone(settled["pending"])
+    def test_switching_it_off_is_now(self):
+        self.assertFalse(g.effective(g.apply_change({"active": g.DEFAULTS}, {"enabled": False}, DAY), DAY)["enabled"])
+
+    def test_a_change_left_waiting_by_the_old_rule_counts_now(self):
+        old = {"active": dict(g.DEFAULTS), "pending": {"enabled": False}, "pending_from": "2026-11-13"}
+        self.assertFalse(g.effective(old, DAY)["enabled"])
 
 
 class TheEntryRouteObeysIt(unittest.TestCase):
@@ -216,6 +207,32 @@ class TheEntryRouteObeysIt(unittest.TestCase):
         result, eng = self._enter(lots=9, sl_points=100.0, stored={"active": {**g.DEFAULTS, "enabled": False}})
         self.assertEqual(result["status"], "ok")
         self.assertEqual(eng.enter_trade.call_args.kwargs["sl_points"], 100.0)
+
+
+class SensexHasItsOwnStop(unittest.TestCase):
+    """Phil, 2026-11-12: "This is ridiculous for SENSEX.. 20 points is very small"."""
+
+    def test_sensex_left_at_zero_is_three_times_nifty(self):
+        limits = {**g.DEFAULTS, "max_stop_points": 26.0}
+        self.assertEqual(g.stop_cap(limits, "NIFTY"), 26.0)
+        self.assertEqual(g.stop_cap(limits, "SENSEX"), 78.0)
+
+    def test_its_own_number_wins(self):
+        limits = {**g.DEFAULTS, "max_stop_points": 26.0, "max_stop_points_sensex": 90.0}
+        self.assertEqual(g.stop_cap(limits, "SENSEX"), 90.0)
+
+    def test_a_60_point_sensex_stop_is_left_alone(self):
+        limits = {**g.DEFAULTS, "max_stop_points": 20.0}
+        base = dict(sl_premium=0, sl_pct=0, sl_rupees=0, quantity=40, price=300.0, buying=True)
+        self.assertEqual(g.clamp_stop(limits, underlying="SENSEX", sl_points=60, **base)["note"], "")
+        self.assertEqual(g.clamp_stop(limits, underlying="NIFTY", sl_points=60, **base)["sl_points"], 20.0)
+        self.assertEqual(
+            g.may_move_stop(limits, underlying="SENSEX", entry=300.0, new_stop=245.0, old_stop=250.0, buying=True), ""
+        )
+
+    def test_a_sensex_number_applies_now(self):
+        state = g.apply_change({"active": g.DEFAULTS}, {"max_stop_points_sensex": 80}, DAY)
+        self.assertEqual(g.stop_cap(g.effective(state, DAY), "SENSEX"), 80.0)
 
 
 if __name__ == "__main__":
