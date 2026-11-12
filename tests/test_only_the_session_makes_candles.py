@@ -27,7 +27,10 @@ def test_pre_open_ticks_make_no_candle():
     df = agg.to_dataframe()
     assert len(df) == 1, f"expected only the 09:15 candle, got {list(df.index)}"
     assert df.index[0] == _ts(9, 15)
-    assert df.iloc[0]["open"] == 22750.0, "the 09:15 open must be the first SESSION tick"
+    # The last pre-open quote (09:14:30, 22714) is the settled opening price
+    # and the 09:15 bar opens at it, as the broker's does -- see
+    # test_first_candle_opens_at_the_pre_open_price below.
+    assert df.iloc[0]["open"] == 22714.0
 
 
 def test_post_close_ticks_make_no_candle():
@@ -55,3 +58,31 @@ def test_the_session_window_edges():
     assert in_nse_session(_ts(9, 15, 0))
     assert in_nse_session(_ts(15, 29, 59))
     assert not in_nse_session(_ts(15, 30, 0))
+
+
+def test_first_candle_opens_at_the_pre_open_price():
+    """11-Nov-2026: NIFTY's pre-open settled at 25337.8 (quoted 09:09:37) and
+    Dhan's 09:15 bar opens there; the live bar opened at the first traded tick,
+    25317.65, so on 12-Nov yesterday_open was 20.15 points off all morning."""
+    day = datetime(2026, 11, 11)
+    agg = CandleAggregator(timeframe_minutes=5, max_candles=100)
+    agg.feed_tick(25290.0, ts=day.replace(hour=9, minute=3))  # indicative: not the open
+    agg.feed_tick(25335.6, ts=day.replace(hour=9, minute=8, second=39))
+    agg.feed_tick(25337.8, ts=day.replace(hour=9, minute=9, second=37))
+    agg.feed_tick(25317.65, ts=day.replace(hour=9, minute=15, second=2))
+    agg.feed_tick(25263.8, ts=day.replace(hour=9, minute=16))
+    first = agg.get_current()
+    assert first["open"] == 25337.8
+    assert first["high"] == 25337.8
+    assert first["low"] == 25263.8
+    assert first["close"] == 25263.8
+    # Only the day's first candle takes it.
+    agg.feed_tick(25300.0, ts=day.replace(hour=9, minute=20, second=1))
+    assert agg.get_current()["open"] == 25300.0
+
+
+def test_yesterdays_pre_open_never_opens_today():
+    agg = CandleAggregator(timeframe_minutes=5, max_candles=100)
+    agg.feed_tick(25337.8, ts=datetime(2026, 11, 11, 9, 10))
+    agg.feed_tick(25213.5, ts=datetime(2026, 11, 12, 9, 15, 3))
+    assert agg.get_current()["open"] == 25213.5

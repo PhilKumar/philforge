@@ -114,6 +114,11 @@ def in_nse_session(ts) -> bool:
     return _dt_time(9, 15) <= t < _dt_time(15, 30)
 
 
+# NSE's pre-open call auction ends at 09:08; a quote from then until 09:15 is
+# the settled opening price. Earlier quotes are indicative or yesterday's close.
+_PRE_OPEN_SETTLED = _dt_time(9, 8)
+
+
 # An NSE session is 09:15-15:30 = 375 minutes.
 NSE_SESSION_MINUTES = 375
 # How many WHOLE past sessions every buffer must always be able to hold. Three,
@@ -163,6 +168,9 @@ class CandleAggregator:
         self._last_tick_ts: Optional[datetime] = None
         # The newest slot already emitted, so a late tick cannot resurrect it.
         self._last_closed_slot: Optional[datetime] = None
+        # (date, price) of the last quote between the pre-open auction's end
+        # and 09:15 -- the price the day's first candle opens at.
+        self._pre_open: Optional[Tuple] = None
 
         # Completed candles
         self.candles: List[dict] = []
@@ -193,6 +201,19 @@ class CandleAggregator:
         # alerts (25-Sep "44 points low at the open, converging through the
         # morning", 29-Sep -25.5 / +29.6 at the 09:20 candle).
         if not in_nse_session(ts):
+            # ...but the LAST pre-open quote is the session's opening price.
+            # NSE settles the open in the 09:00-09:08 call auction and the
+            # index then holds that value until 09:15; the broker's 09:15 bar
+            # opens at it. Dropping it made the live 09:15 bar open at the
+            # first TRADED tick instead: 11-Nov-2026 the quote at 09:09:37 was
+            # 25337.8 (the broker's open), the engine's open 25317.65, and
+            # next day yesterday_open was 20 points off all morning. 12-Nov
+            # the same: pre-open 25213.5 = broker open, live bar 25234.45.
+            try:
+                if _PRE_OPEN_SETTLED <= ts.time() < _dt_time(9, 15):
+                    self._pre_open = (ts.date(), float(price))
+            except AttributeError:
+                pass
             return
 
         slot = self._get_slot(ts)
@@ -210,14 +231,20 @@ class CandleAggregator:
             if self._current is not None:
                 self._close_candle()
 
-            # Start new candle
+            # Start new candle -- the day's FIRST candle opens at the settled
+            # pre-open price, as the broker's does (see above).
+            opening = price
+            pre = self._pre_open
+            if pre is not None and pre[0] == slot.date():
+                opening = pre[1]
+            self._pre_open = None
             self._current_slot = slot
             self._last_tick_ts = ts
             self._current = {
                 "timestamp": slot,
-                "open": price,
-                "high": price,
-                "low": price,
+                "open": opening,
+                "high": max(opening, price),
+                "low": min(opening, price),
                 "close": price,
                 "volume": volume,
             }
